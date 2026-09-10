@@ -6,6 +6,33 @@
 *.pem
 *.key
 
+# Confidencialidad: documentación local excluida por defecto.
+# Solo el índice y los artefactos técnicos revisados de arquitectura se admiten.
+/docs/*
+!/docs/architecture/
+/docs/EntrevistaPrevencionista_TT-Realizada.pdf
+
+# Entrevistas y derivados, en cualquier ubicación (sin excepciones automáticas).
+*[Ee][Nn][Tt][Rr][Ee][Vv][Ii][Ss][Tt]*
+*[Tt][Rr][Aa][Nn][Ss][Cc][Rr][Ii][Pp]*
+*[Cc][Oo][Nn][Ff][Ii][Dd][Ee][Nn][Cc][Ii][Aa][Ll]*
+*[Cc][Oo][Nn][Ff][Ii][Dd][Ee][Nn][Tt][Ii][Aa][Ll]*
+[Pp][Rr][Ii][Vv][Aa][Dd][Oo]/
+[Pp][Rr][Ii][Vv][Aa][Dd][Aa]/
+
+# Guardar aquí cualquier futuro documento sensible, captura o derivado:
+# docs/ (fuera de architecture/), confidential/ o privado/.
+# Git no detecta información sensible por contenido. Revisar antes de agregar.
+# Las plantillas vacías requieren revisión y una excepción explícita posterior.
+*.m4a
+*.mp3
+*.wav
+*.aac
+*.flac
+*.ogg
+*.opus
+*.wma
+
 # Entornos y dependencias instaladas
 .venv/
 venv/
