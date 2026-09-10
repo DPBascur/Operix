@@ -1,0 +1,54 @@
+# Secretos y configuración local
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+
+# Entornos y dependencias instaladas
+.venv/
+venv/
+env/
+node_modules/
+
+# Cachés y resultados de herramientas
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.next/
+.coverage
+coverage/
+*.tsbuildinfo
+*.log
+.DS_Store
+Thumbs.db
+
+# Pesos y videos de ejecución: conservar procedencia por separado
+*.pt
+*.pth
+*.onnx
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.m4v
+
+# Auxiliares LaTeX; no excluye fuentes ni documentos PDF
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.lot
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+
+# Estas reglas no retiran archivos que Git ya tiene versionados.
