@@ -8,11 +8,61 @@ Flujo conceptual: video → detección → tracking → variables espacio-tempor
 
 ## Tecnologías y límites
 
-- Python y OpenCV para procesamiento de video.
+- Python 3.12 x64 y OpenCV para procesamiento de video.
 - YOLO11 para detección y ByteTrack para seguimiento, como selecciones iniciales y experimentales.
 - Configuración recibida desde el Backend/API; resultados entregados al Backend/API.
 - Sin acceso directo a PostgreSQL.
 - Reglas y umbrales configurables según escenario y organización, sin valores operacionales universales fijados en código.
+
+## Entorno local
+
+El entorno del motor se crea en `engine/.venv`. PyTorch y TorchVision deben instalarse antes que el proyecto, usando la distribución oficial correspondiente a la plataforma. Después, la instalación editable de `engine` agrega las dependencias comunes declaradas en `pyproject.toml`.
+
+Desde la raíz del repositorio, en PowerShell:
+
+```powershell
+py -3.12 -m venv .\engine\.venv
+.\engine\.venv\Scripts\python.exe -m pip install --upgrade pip
+```
+
+Si el lanzador `py` no registra Python 3.12, puede crearse el entorno con la ruta de instalación por usuario:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe" -m venv .\engine\.venv
+```
+
+### Windows con GPU NVIDIA
+
+La configuración validada para el equipo principal usa PyTorch 2.14.0, TorchVision 0.29.0 y las ruedas oficiales CUDA 13.0 (`cu130`). Estas ruedas incluyen las bibliotecas de ejecución requeridas; no se instala CUDA Toolkit ni `nvcc`.
+
+```powershell
+.\engine\.venv\Scripts\python.exe -m pip install torch==2.14.0 torchvision==0.29.0 --index-url https://download.pytorch.org/whl/cu130
+```
+
+### CPU
+
+```powershell
+.\engine\.venv\Scripts\python.exe -m pip install torch==2.14.0 torchvision==0.29.0 --index-url https://download.pytorch.org/whl/cpu
+```
+
+### macOS con Apple Silicon
+
+La instalación compatible con MPS se validará posteriormente en un equipo Apple Silicon. No se considera validada como parte de OP-59.
+
+### Dependencias comunes y verificación
+
+```powershell
+.\engine\.venv\Scripts\python.exe -m pip install --editable .\engine
+.\engine\.venv\Scripts\python.exe .\engine\scripts\check_environment.py --require-cuda
+```
+
+El mecanismo de selección de dispositivo sigue el orden `CUDA → MPS → CPU`. En el entorno Windows actual se validan mediante operaciones reales de tensores tanto CUDA como CPU.
+
+El verificador dirige la configuración que Ultralytics crea al importarse hacia `.venv`, evitando generar archivos locales sin seguimiento en la raíz del repositorio. No descarga pesos ni procesa videos.
+
+## Consideración de licencia
+
+Ultralytics se distribuye bajo licencia AGPL-3.0. Esta condición queda registrada para evaluar sus implicaciones antes de una eventual decisión de distribución; no modifica Operix Architecture v1.0.
 
 ## Módulos internos futuros
 
@@ -28,6 +78,6 @@ Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios
 
 ## Estado
 
-Implementación pendiente. El primer PoC previsto es video → OpenCV → YOLO11 → ByteTrack → visualización de detecciones/tracks → métricas FPS/latencia. Aportará evidencia técnica inicial para RF-01, RF-02, RF-03 y RNF-02; todavía no está implementado.
+Entorno reproducible en preparación mediante OP-59. El primer PoC previsto es video → OpenCV → YOLO11 → ByteTrack → visualización de detecciones/tracks → métricas FPS/latencia. Aportará evidencia técnica inicial para RF-01, RF-02, RF-03 y RNF-02; todavía no está implementado.
 
 Consulte el [índice de arquitectura](../docs/architecture/README.md) para los artefactos vigentes.
