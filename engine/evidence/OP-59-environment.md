@@ -21,6 +21,10 @@ Rama: `dev`
 
 PyTorch y TorchVision se instalaron previamente desde el índice oficial `cu130`. Las dependencias comunes se instalaron después desde `engine/pyproject.toml`. No se instaló CUDA Toolkit ni `nvcc`.
 
+`pyproject.toml` es la fuente principal de dependencias comunes. PyTorch y TorchVision se resuelven previamente según la plataforma. `requirements.windows-cu130.lock.txt` conserva las versiones exactas de este entorno Windows/NVIDIA validado y no representa una definición universal del motor. Futuros entornos, incluido macOS/MPS, podrán generar su propio lock después de validarse.
+
+El lock se generó desde `.venv` con `pip freeze --all --exclude-editable`. Se excluyó `operix-engine` por ser una instalación editable local y se incorporó el índice oficial `cu130` requerido para reconstruir las variantes de PyTorch.
+
 ## Comando de verificación
 
 ```powershell
@@ -50,6 +54,10 @@ Prueba OpenCV: OK
 ```
 
 `pip check` informó `No broken requirements found.`
+
+El archivo congelado fue revisado para confirmar que no contiene rutas locales, referencias a `.venv` ni la distribución editable `operix-engine`.
+
+SHA-256 de `requirements.windows-cu130.lock.txt`: `9CF79EB856297F76131651C221DD0E92E6373452E4E3A8DC407DFF0D7119229F`.
 
 ## Compatibilidad y límites
 

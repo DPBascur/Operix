@@ -60,6 +60,19 @@ El mecanismo de selección de dispositivo sigue el orden `CUDA → MPS → CPU`.
 
 El verificador dirige la configuración que Ultralytics crea al importarse hacia `.venv`, evitando generar archivos locales sin seguimiento en la raíz del repositorio. No descarga pesos ni procesa videos.
 
+### Entorno congelado validado
+
+`pyproject.toml` mantiene las dependencias comunes del proyecto. PyTorch y TorchVision se instalan primero con la distribución correspondiente a cada plataforma.
+
+`requirements.windows-cu130.lock.txt` registra exclusivamente las versiones exactas del entorno probado en Windows x64 con NVIDIA y CUDA 13.0. Puede reconstruirse como referencia de OP-59 con:
+
+```powershell
+.\engine\.venv\Scripts\python.exe -m pip install --requirement .\engine\requirements.windows-cu130.lock.txt
+.\engine\.venv\Scripts\python.exe -m pip install --no-deps --editable .\engine
+```
+
+Un entorno futuro, como macOS con MPS, podrá incorporar su propio archivo lock después de ser validado. El lock de Windows no reemplaza `pyproject.toml` ni define compatibilidad universal del motor.
+
 ## Consideración de licencia
 
 Ultralytics se distribuye bajo licencia AGPL-3.0. Esta condición queda registrada para evaluar sus implicaciones antes de una eventual decisión de distribución; no modifica Operix Architecture v1.0.
