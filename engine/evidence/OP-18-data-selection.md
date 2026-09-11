@@ -52,7 +52,34 @@ El clip cumple los criterios visuales para recomendarlo como muestra base del Po
 en OP-34, OP-35, OP-43, OP-60 y OP-61. La selección permanece asociada a OP-18,
 que continúa abierta hasta su cierre formal.
 
+## Comparación y justificación de la selección
+
+La investigación de OP-16 comparó NVIDIA PhysicalAI SDG-Warehouse con Video
+Dataset for Safe and Unsafe Behaviours, TOMIE y VIRAT. La matriz completa está
+disponible en [OP-16-datasets.md](OP-16-datasets.md).
+
+| Criterio decisivo | NVIDIA PhysicalAI SDG-Warehouse | Alternativas evaluadas |
+| --- | --- | --- |
+| Correspondencia con el escenario | Incluye explícitamente una interacción persona–montacargas en un almacén | Safe/Unsafe contiene personas y montacargas, pero sus clases de montacargas se centran en la carga; TOMIE no incluye personas; VIRAT no representa almacenes ni montacargas |
+| Continuidad para tracking | Clips continuos, runs multivista y metadatos temporales reproducibles | Safe/Unsafe conserva video, pero no documenta IDs persistentes; TOMIE sí es útil para tracking de maquinaria; VIRAT ofrece tracking genérico persona–vehículo |
+| Anotaciones disponibles | Bounding boxes 2D y 3D, segmentación, profundidad y parámetros de cámara en el nivel de artifacts | Safe/Unsafe publica principalmente etiquetas por clip; TOMIE tiene anotaciones industriales ricas, pero acceso y licencia pendientes; VIRAT tiene tracks bajo un acuerdo de uso específico |
+| Reproducibilidad | Revisión, run ID, seed, cámara, miembro y hash identifican exactamente la muestra | Las alternativas tienen menor control de generación o presentan restricciones adicionales de acceso |
+| Acceso acotado | Los índices y el streaming permitieron extraer un clip de 15,53 MiB sin materializar el shard | Safe/Unsafe permite descargar clips individuales; TOMIE no expone claramente el payload completo; VIRAT requiere aceptar su acuerdo |
+| Representatividad | Alta para la interacción objetivo, con brecha simulación–realidad | Safe/Unsafe aporta el contraste real más relevante; TOMIE aporta contexto logístico real; VIRAT tiene menor ajuste al dominio |
+
+NVIDIA queda seleccionado como muestra base provisional porque es la única alternativa
+evaluada que combina en el mismo clip una persona, un montacargas, continuidad temporal,
+proximidad visible, identificación reproducible y anotaciones potencialmente útiles para
+evaluaciones posteriores. El clip extraído permite desarrollar y medir el pipeline común
+de OP-34, OP-35, OP-43, OP-60 y OP-61 sin incorporar material empresarial.
+
+La selección no elimina la necesidad de contraste con video real. Video Dataset for Safe
+and Unsafe Behaviours queda como alternativa principal para evaluar posteriormente la
+brecha de representatividad, sin requerir su descarga en esta etapa. OP-18 permanece
+abierta y NVIDIA conserva el carácter de muestra base provisional.
+
 ## Fuentes
 
 - Dataset: https://huggingface.co/datasets/nvidia/PhysicalAI-WorldModel-Synthetic-Warehouse-Operations-Scenes
 - Licencia: https://openmdw.ai/license/1-1/
+- Comparación OP-16: [OP-16-datasets.md](OP-16-datasets.md)
