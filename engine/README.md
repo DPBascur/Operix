@@ -77,6 +77,26 @@ Un entorno futuro, como macOS con MPS, podrá incorporar su propio archivo lock 
 
 Ultralytics se distribuye bajo licencia AGPL-3.0. Esta condición queda registrada para evaluar sus implicaciones antes de una eventual decisión de distribución; no modifica Operix Architecture v1.0.
 
+## Procesamiento de video grabado
+
+OP-33 incorpora una fuente de video grabada que valida el archivo, obtiene sus propiedades y entrega sus frames secuencialmente. Toda la lógica de lectura y control de recursos reside en `operix_engine.video_processor`; el script es solo una interfaz CLI.
+
+Desde la raíz del repositorio:
+
+```powershell
+.\engine\.venv\Scripts\python.exe .\engine\scripts\process_video.py <ruta-al-video>
+```
+
+La salida incluye resolución, FPS y frames declarados por OpenCV, duración estimada, frames efectivamente procesados y tiempo total. Una diferencia entre el total declarado y el leído genera una advertencia cuando corresponde, ya que el contenedor y el backend pueden informar valores aproximados.
+
+Pruebas automatizadas:
+
+```powershell
+.\engine\.venv\Scripts\python.exe -m unittest discover -s .\engine\tests -v
+```
+
+Las pruebas generan un AVI/MJPEG sintético en un directorio temporal. Los videos usados en ejecuciones manuales permanecen fuera del repositorio.
+
 ## Módulos internos futuros
 
 Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios independientes:
@@ -91,6 +111,6 @@ Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios
 
 ## Estado
 
-Entorno reproducible en preparación mediante OP-59. El primer PoC previsto es video → OpenCV → YOLO11 → ByteTrack → visualización de detecciones/tracks → métricas FPS/latencia. Aportará evidencia técnica inicial para RF-01, RF-02, RF-03 y RNF-02; todavía no está implementado.
+OP-59 estableció el entorno reproducible y OP-33 incorpora el procesamiento secuencial de video grabado con OpenCV. El PoC completo previsto continúa con YOLO11 → ByteTrack → visualización de detecciones/tracks → métricas FPS/latencia; esas etapas todavía no están implementadas.
 
 Consulte el [índice de arquitectura](../docs/architecture/README.md) para los artefactos vigentes.
