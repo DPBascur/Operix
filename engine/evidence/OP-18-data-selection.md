@@ -19,6 +19,17 @@
 El MP4 se conserva en almacenamiento temporal local fuera del repositorio y no se
 versiona en Git.
 
+## Decisión de cierre
+
+NVIDIA PhysicalAI SDG-Warehouse queda seleccionado como fuente principal de datos
+para el PoC de Operix. El clip documentado del escenario
+`forklift_human_nearmiss`, identificado por revisión, run, cámara y SHA-256, queda
+establecido como muestra base.
+
+La selección es definitiva para el alcance del PoC. No constituye una selección
+universal para toda evaluación futura de Operix ni elimina la necesidad de validar
+el sistema posteriormente en otros escenarios y fuentes de video.
+
 ## Extracción y verificación
 
 - Método: streaming secuencial del WebDataset TAR mediante una solicitud HTTP Range.
@@ -48,9 +59,8 @@ oscura del escenario, pero las siluetas y límites principales permanecen
 distinguibles. La escala de la persona es menor que la del montacargas, lo que
 aporta un caso útil para comprobar sensibilidad de detección.
 
-El clip cumple los criterios visuales para recomendarlo como muestra base del PoC
-en OP-34, OP-35, OP-43, OP-60 y OP-61. La selección permanece asociada a OP-18,
-que continúa abierta hasta su cierre formal.
+El clip cumple los criterios visuales para utilizarlo como muestra base del PoC en
+OP-34, OP-35, OP-43, OP-60 y OP-61. La selección queda formalizada mediante OP-18.
 
 ## Comparación y justificación de la selección
 
@@ -67,16 +77,26 @@ disponible en [OP-16-datasets.md](OP-16-datasets.md).
 | Acceso acotado | Los índices y el streaming permitieron extraer un clip de 15,53 MiB sin materializar el shard | Safe/Unsafe permite descargar clips individuales; TOMIE no expone claramente el payload completo; VIRAT requiere aceptar su acuerdo |
 | Representatividad | Alta para la interacción objetivo, con brecha simulación–realidad | Safe/Unsafe aporta el contraste real más relevante; TOMIE aporta contexto logístico real; VIRAT tiene menor ajuste al dominio |
 
-NVIDIA queda seleccionado como muestra base provisional porque es la única alternativa
-evaluada que combina en el mismo clip una persona, un montacargas, continuidad temporal,
-proximidad visible, identificación reproducible y anotaciones potencialmente útiles para
-evaluaciones posteriores. El clip extraído permite desarrollar y medir el pipeline común
-de OP-34, OP-35, OP-43, OP-60 y OP-61 sin incorporar material empresarial.
+NVIDIA queda seleccionado como fuente principal de datos y muestra base del PoC porque
+es la única alternativa evaluada que combina en el mismo clip una interacción directa
+persona–montacargas, video multivista de un entorno de almacén, resolución y continuidad
+temporal adecuadas para detección y tracking, licencia y procedencia documentadas, e
+identificación reproducible mediante revisión, run, cámara y SHA-256. El clip extraído
+permite desarrollar y medir el pipeline común de OP-34, OP-35, OP-43, OP-60 y OP-61 sin
+depender de material confidencial de una empresa.
 
 La selección no elimina la necesidad de contraste con video real. Video Dataset for Safe
 and Unsafe Behaviours queda como alternativa principal para evaluar posteriormente la
-brecha de representatividad, sin requerir su descarga en esta etapa. OP-18 permanece
-abierta y NVIDIA conserva el carácter de muestra base provisional.
+brecha de representatividad, sin requerir su descarga en esta etapa. La decisión sobre
+NVIDIA es definitiva para el PoC, pero puede complementarse con otros datasets y
+escenarios en evaluaciones futuras.
+
+## Limitaciones registradas
+
+- El dataset es sintético.
+- Existe una brecha de dominio respecto de video CCTV industrial real.
+- La iluminación oscura y el contraste moderado del clip pueden afectar la detección.
+- El desempeño deberá validarse posteriormente en escenarios y fuentes adicionales.
 
 ## Fuentes
 
