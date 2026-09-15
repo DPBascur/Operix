@@ -112,6 +112,19 @@ dibuja visualizaciones.
 La línea base experimental es YOLO11n con pesos COCO. COCO contiene la clase `person`,
 pero no contiene una clase `forklift`; `truck` no se reinterpreta como montacargas.
 
+## Seguimiento multiobjeto
+
+OP-35 incorpora ByteTrack detrás de tipos propios de Operix. El tracker recibe una
+tupla de `Detection` por cada frame y devuelve una tupla inmutable de `Track` con ID
+temporal, clase observada, confianza y caja. No recibe imágenes ni expone objetos
+internos de Ultralytics.
+
+El orquestador debe llamar al tracker exactamente una vez por frame, incluso si no
+hay detecciones, y reiniciarlo al comenzar cada video. Las trayectorias se reconstruyen
+externamente agrupando los centros de las cajas por `track_id`; no forman parte del
+estado público de `Track`. Los IDs solo son válidos dentro de una sesión y no
+identifican personas.
+
 ## Módulos internos futuros
 
 Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios independientes:
@@ -126,6 +139,8 @@ Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios
 
 ## Estado
 
-OP-59 estableció el entorno reproducible y OP-33 incorpora el procesamiento secuencial de video grabado con OpenCV. El PoC completo previsto continúa con YOLO11 → ByteTrack → visualización de detecciones/tracks → métricas FPS/latencia; esas etapas todavía no están implementadas.
+OP-59 estableció el entorno reproducible, OP-33 incorporó el procesamiento secuencial
+de video grabado, OP-34 integró YOLO11 y OP-35 integró ByteTrack. Las etapas futuras
+incluyen la visualización formal de detecciones/tracks y las métricas FPS/latencia.
 
 Consulte el [índice de arquitectura](../docs/architecture/README.md) para los artefactos vigentes.
