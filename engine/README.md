@@ -138,6 +138,20 @@ de trayectoria y no como desplazamientos observados. Los scripts continúan sien
 responsables de la orquestación y de escribir los videos diagnósticos fuera del
 repositorio.
 
+## Medición de rendimiento
+
+OP-43 incorpora instrumentación reproducible con `time.perf_counter_ns()` para medir
+lectura OpenCV, inferencia YOLO11, ByteTrack, visualización, escritura y tiempo total.
+La inferencia CUDA se sincroniza antes y después de cada medición. El warm-up queda
+fuera de las estadísticas y la finalización de `VideoWriter` se registra separada de
+la latencia por frame.
+
+El escenario A representa el **pipeline base de procesamiento**, no todos los
+componentes futuros del Motor. El FPS principal se calcula como frames medidos sobre
+tiempo acumulado; no como promedio de FPS instantáneos. Los resultados describen el
+equipo, muestra y configuración documentados y no constituyen un umbral universal de
+tiempo real.
+
 ## Módulos internos futuros
 
 Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios independientes:
@@ -154,6 +168,7 @@ Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios
 
 OP-59 estableció el entorno reproducible, OP-33 incorporó el procesamiento secuencial
 de video grabado, OP-34 integró YOLO11 y OP-35 integró ByteTrack. OP-60 incorpora la
-visualización técnica reutilizable; las métricas FPS/latencia pertenecen a OP-43.
+visualización técnica reutilizable. OP-43 instrumenta FPS y latencia del pipeline
+vigente sin optimizarlo.
 
 Consulte el [índice de arquitectura](../docs/architecture/README.md) para los artefactos vigentes.

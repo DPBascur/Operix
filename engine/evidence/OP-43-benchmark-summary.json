@@ -1,0 +1,362 @@
+{
+  "schema_version": 1,
+  "task": "OP-43",
+  "generated_at": "2026-09-15T15:16:29-03:00",
+  "methodology": {
+    "clock": "time.perf_counter_ns",
+    "cuda_synchronization": "before and after each measured inference",
+    "fps_formula": "measured_frames / accumulated_elapsed_seconds",
+    "p95_method": "nearest-rank (ceil(0.95 * n))",
+    "warmup_frames_per_repetition": 20,
+    "measured_frames_per_repetition": 257,
+    "repetitions_per_scenario": 5,
+    "execution_order": [
+      {
+        "order": 1,
+        "repetition": 1,
+        "scenario": "A"
+      },
+      {
+        "order": 2,
+        "repetition": 1,
+        "scenario": "B"
+      },
+      {
+        "order": 3,
+        "repetition": 1,
+        "scenario": "C"
+      },
+      {
+        "order": 4,
+        "repetition": 2,
+        "scenario": "B"
+      },
+      {
+        "order": 5,
+        "repetition": 2,
+        "scenario": "C"
+      },
+      {
+        "order": 6,
+        "repetition": 2,
+        "scenario": "A"
+      },
+      {
+        "order": 7,
+        "repetition": 3,
+        "scenario": "C"
+      },
+      {
+        "order": 8,
+        "repetition": 3,
+        "scenario": "A"
+      },
+      {
+        "order": 9,
+        "repetition": 3,
+        "scenario": "B"
+      },
+      {
+        "order": 10,
+        "repetition": 4,
+        "scenario": "A"
+      },
+      {
+        "order": 11,
+        "repetition": 4,
+        "scenario": "B"
+      },
+      {
+        "order": 12,
+        "repetition": 4,
+        "scenario": "C"
+      },
+      {
+        "order": 13,
+        "repetition": 5,
+        "scenario": "B"
+      },
+      {
+        "order": 14,
+        "repetition": 5,
+        "scenario": "C"
+      },
+      {
+        "order": 15,
+        "repetition": 5,
+        "scenario": "A"
+      }
+    ]
+  },
+  "environment": {
+    "operating_system": "Windows 10",
+    "architecture": "AMD64",
+    "cpu": "AMD Ryzen 5 5500",
+    "ram_bytes": 34244796416,
+    "gpu": "NVIDIA GeForce RTX 3070",
+    "vram_bytes": 8589410304,
+    "nvidia_driver": "616.92",
+    "python": "3.12.10",
+    "pytorch": "2.14.0+cu130",
+    "torchvision": "0.29.0+cu130",
+    "cuda_compiled": "13.0",
+    "opencv": "5.0.0",
+    "ultralytics": "8.4.146",
+    "lap": "0.5.12",
+    "operix_engine": "0.1.0"
+  },
+  "input": {
+    "video_name": "00023b5323028ab83e67_run_6_seed_1486583949.ceiling_04.rgb.mp4",
+    "video_sha256": "3ABE9043EE41F898D869890E8636B804186BFAF524DAEA2E6F6831E72711F4D6",
+    "frames": 277,
+    "fps": 30.0,
+    "width": 1920,
+    "height": 1080
+  },
+  "model": {
+    "name": "YOLO11n-COCO",
+    "weights_name": "yolo11n.pt",
+    "weights_sha256": "0EBBC80D4A7680D14987A577CD21342B65ECFD94632BD9A8DA63AE6417644EE1",
+    "weights_path": "yolo11n.pt",
+    "confidence_threshold": 0.1,
+    "device": "cuda",
+    "image_size": 640,
+    "iou_threshold": 0.7,
+    "class_filter": "person"
+  },
+  "tracker": {
+    "track_high_thresh": 0.25,
+    "track_low_thresh": 0.1,
+    "new_track_thresh": 0.25,
+    "track_buffer": 30,
+    "match_thresh": 0.8,
+    "fuse_score": true
+  },
+  "visualization": {
+    "box_thickness": 2,
+    "font_scale": 0.55,
+    "text_thickness": 2,
+    "trajectory_thickness": 2,
+    "max_trajectory_points": 60,
+    "inactive_retention_frames": 30
+  },
+  "results": {
+    "A": {
+      "scenario_name": "pipeline base de procesamiento",
+      "repetitions": 5,
+      "warmup_frames_per_repetition": 20,
+      "measured_frames": 1285,
+      "elapsed_ms": 22714.6019,
+      "global_fps": 56.571539561078545,
+      "core_processing_fps": 66.66482253263945,
+      "run_fps": [
+        58.183700477011264,
+        55.98722480454522,
+        58.230850246770785,
+        57.18811045387311,
+        53.54372810019852
+      ],
+      "writer_finalize_ms": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "latency_ms": {
+        "read": {
+          "count": 1285,
+          "mean_ms": 2.405872373540856,
+          "median_ms": 2.3499,
+          "min_ms": 1.9391,
+          "max_ms": 4.9758,
+          "sample_stdev_ms": 0.30738664976328306,
+          "p95_ms": 2.9998
+        },
+        "inference": {
+          "count": 1285,
+          "mean_ms": 14.208842568093386,
+          "median_ms": 13.7804,
+          "min_ms": 10.7394,
+          "max_ms": 21.208,
+          "sample_stdev_ms": 1.7859821816738932,
+          "p95_ms": 17.4442
+        },
+        "tracking": {
+          "count": 1285,
+          "mean_ms": 0.791572373540856,
+          "median_ms": 0.7337,
+          "min_ms": 0.5189,
+          "max_ms": 1.9707,
+          "sample_stdev_ms": 0.1856342196683717,
+          "p95_ms": 1.1475
+        },
+        "total": {
+          "count": 1285,
+          "mean_ms": 17.67673299610895,
+          "median_ms": 17.2082,
+          "min_ms": 13.7727,
+          "max_ms": 28.4762,
+          "sample_stdev_ms": 1.9423564828528521,
+          "p95_ms": 21.0917
+        }
+      }
+    },
+    "B": {
+      "scenario_name": "pipeline con visualización",
+      "repetitions": 5,
+      "warmup_frames_per_repetition": 20,
+      "measured_frames": 1285,
+      "elapsed_ms": 24689.5332,
+      "global_fps": 52.04634650605707,
+      "core_processing_fps": 65.540676150258,
+      "run_fps": [
+        53.75964635273014,
+        51.119943479244434,
+        50.91960408719972,
+        50.53217557630521,
+        54.12163409765716
+      ],
+      "writer_finalize_ms": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "latency_ms": {
+        "read": {
+          "count": 1285,
+          "mean_ms": 2.2970403891050584,
+          "median_ms": 2.2279,
+          "min_ms": 1.7852,
+          "max_ms": 6.6246,
+          "sample_stdev_ms": 0.32200184643465185,
+          "p95_ms": 2.8151
+        },
+        "inference": {
+          "count": 1285,
+          "mean_ms": 14.473572762645915,
+          "median_ms": 13.9861,
+          "min_ms": 10.714,
+          "max_ms": 54.8787,
+          "sample_stdev_ms": 2.6209111445135105,
+          "p95_ms": 17.9299
+        },
+        "tracking": {
+          "count": 1285,
+          "mean_ms": 0.784127626459144,
+          "median_ms": 0.7342,
+          "min_ms": 0.5115,
+          "max_ms": 1.9211,
+          "sample_stdev_ms": 0.1785179278614897,
+          "p95_ms": 1.1175
+        },
+        "total": {
+          "count": 1285,
+          "mean_ms": 19.21364451361868,
+          "median_ms": 18.667,
+          "min_ms": 14.3978,
+          "max_ms": 60.5955,
+          "sample_stdev_ms": 2.936092139194447,
+          "p95_ms": 23.0102
+        },
+        "visualization": {
+          "count": 1285,
+          "mean_ms": 1.394864980544747,
+          "median_ms": 1.3225,
+          "min_ms": 0.9115,
+          "max_ms": 12.545,
+          "sample_stdev_ms": 0.4641264143948691,
+          "p95_ms": 1.8756
+        }
+      }
+    },
+    "C": {
+      "scenario_name": "end-to-end con salida",
+      "repetitions": 5,
+      "warmup_frames_per_repetition": 20,
+      "measured_frames": 1285,
+      "elapsed_ms": 41251.8184,
+      "global_fps": 31.150141977741278,
+      "core_processing_fps": 62.58713828268754,
+      "run_fps": [
+        33.21726076405335,
+        31.170041868764567,
+        29.658023714625003,
+        31.13610334646962,
+        30.777517576687007
+      ],
+      "writer_finalize_ms": [
+        1.5362,
+        1.6553,
+        1.9009,
+        1.7223,
+        1.4939
+      ],
+      "latency_ms": {
+        "read": {
+          "count": 1285,
+          "mean_ms": 2.3823490272373538,
+          "median_ms": 2.3132,
+          "min_ms": 1.8934,
+          "max_ms": 3.8643,
+          "sample_stdev_ms": 0.28486303009027863,
+          "p95_ms": 2.9332
+        },
+        "inference": {
+          "count": 1285,
+          "mean_ms": 15.206875175097275,
+          "median_ms": 14.2455,
+          "min_ms": 10.9978,
+          "max_ms": 243.2833,
+          "sample_stdev_ms": 8.925852837035222,
+          "p95_ms": 19.0411
+        },
+        "tracking": {
+          "count": 1285,
+          "mean_ms": 0.7708484824902724,
+          "median_ms": 0.7166,
+          "min_ms": 0.5453,
+          "max_ms": 1.8457,
+          "sample_stdev_ms": 0.16604018207501864,
+          "p95_ms": 1.1116
+        },
+        "total": {
+          "count": 1285,
+          "mean_ms": 32.096116575875485,
+          "median_ms": 31.1417,
+          "min_ms": 26.0788,
+          "max_ms": 259.6231,
+          "sample_stdev_ms": 9.168835977155384,
+          "p95_ms": 37.3225
+        },
+        "visualization": {
+          "count": 1285,
+          "mean_ms": 1.371131439688716,
+          "median_ms": 1.3164,
+          "min_ms": 0.9024,
+          "max_ms": 2.5905,
+          "sample_stdev_ms": 0.2567120049416878,
+          "p95_ms": 1.8242
+        },
+        "write": {
+          "count": 1285,
+          "mean_ms": 12.083773463035019,
+          "median_ms": 11.8734,
+          "min_ms": 10.0205,
+          "max_ms": 20.2174,
+          "sample_stdev_ms": 1.3101197231102464,
+          "p95_ms": 14.3959
+        }
+      }
+    }
+  },
+  "scenario_c_output": {
+    "video_name": "op43-ceiling04-scenario-c.mp4",
+    "frames": 257,
+    "sha256": "774741031B4177CD58F07C2944998D554424A9A07CF3483BC8789EC0B8802A03",
+    "bytes": 10134870,
+    "repository_policy": "outside repository"
+  }
+}
