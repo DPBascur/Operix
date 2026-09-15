@@ -14,8 +14,12 @@ from pathlib import Path
 import cv2
 
 from operix_engine.byte_tracker import ByteTrackConfig, ByteTracker
-from operix_engine.tracking import Track
 from operix_engine.video_processor import RecordedVideoSource, VideoSourceError
+from operix_engine.visualization import (
+    OpenCvRenderer,
+    TrajectoryAccumulator,
+    VisualizationConfig,
+)
 from operix_engine.yolo_detector import YoloDetector, YoloDetectorConfig
 
 
@@ -51,45 +55,6 @@ def validate_metadata(
         raise VideoSourceError(
             f"Cantidad declarada inesperada: {frame_count}; se esperaba {expected_frames}"
         )
-
-
-def _track_color(track_id: int) -> tuple[int, int, int]:
-    return (
-        64 + (track_id * 67) % 192,
-        64 + (track_id * 97) % 192,
-        64 + (track_id * 131) % 192,
-    )
-
-
-def draw_tracks(
-    frame,
-    tracks: tuple[Track, ...],
-    trajectories: dict[int, list[tuple[int, int]]],
-):
-    """Dibuja una salida local de diagnóstico; no forma parte de la API del Motor."""
-    annotated = frame.copy()
-    for track in tracks:
-        box = track.bounding_box
-        start = (round(box.x_min), round(box.y_min))
-        end = (round(box.x_max), round(box.y_max))
-        center = (round((box.x_min + box.x_max) / 2), round((box.y_min + box.y_max) / 2))
-        trajectories[track.track_id].append(center)
-        color = _track_color(track.track_id)
-        cv2.rectangle(annotated, start, end, color, 2)
-        cv2.putText(
-            annotated,
-            f"ID {track.track_id} {track.class_name} {track.confidence:.2f}",
-            (start[0], max(20, start[1] - 6)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.55,
-            color,
-            2,
-            cv2.LINE_AA,
-        )
-        points = trajectories[track.track_id]
-        for first, second in zip(points, points[1:]):
-            cv2.line(annotated, first, second, color, 2, cv2.LINE_AA)
-    return annotated
 
 
 def _missing_ranges(frames: list[int]) -> list[dict[str, int]]:
@@ -174,6 +139,12 @@ def main() -> int:
     )
     detector = YoloDetector(detector_config)
     tracker = ByteTracker(tracker_config)
+    visualization_config = VisualizationConfig(
+        max_trajectory_points=60,
+        inactive_retention_frames=tracker_config.track_buffer,
+    )
+    renderer = OpenCvRenderer(visualization_config)
+    trajectory_accumulator = TrajectoryAccumulator(visualization_config)
 
     args.output_jsonl.parent.mkdir(parents=True, exist_ok=True)
     args.output_video.parent.mkdir(parents=True, exist_ok=True)
@@ -181,7 +152,6 @@ def main() -> int:
     frames_with_person_detections = 0
     person_detection_count = 0
     track_observations: dict[int, list[int]] = defaultdict(list)
-    trajectories: dict[int, list[tuple[int, int]]] = defaultdict(list)
     class_changes: Counter[tuple[int, str, str]] = Counter()
     last_class_by_track: dict[int, str] = {}
 
@@ -237,7 +207,8 @@ def main() -> int:
                             )
                             + "\n"
                         )
-                        writer.write(draw_tracks(frame, tracks, trajectories))
+                        trajectories = trajectory_accumulator.update(frame_index, tracks)
+                        writer.write(renderer.render_tracks(frame, tracks, trajectories))
                         processed_frames += 1
             finally:
                 writer.release()
@@ -265,6 +236,7 @@ def main() -> int:
         },
         "detector_configuration": asdict(detector_config) | {"weights_path": args.weights.name},
         "tracker_configuration": asdict(tracker_config),
+        "visualization_configuration": asdict(visualization_config),
         "person_filter": True,
         "processed_frames": processed_frames,
         "frames_with_person_detections": frames_with_person_detections,

@@ -12,8 +12,8 @@ from pathlib import Path
 
 import cv2
 
-from operix_engine.detection import Detection
 from operix_engine.video_processor import RecordedVideoSource, VideoSourceError
+from operix_engine.visualization import OpenCvRenderer
 from operix_engine.yolo_detector import YoloDetector, YoloDetectorConfig
 
 
@@ -23,27 +23,6 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: file.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def draw_detections(frame, detections: tuple[Detection, ...]):
-    annotated = frame.copy()
-    for detection in detections:
-        box = detection.bounding_box
-        start = (round(box.x_min), round(box.y_min))
-        end = (round(box.x_max), round(box.y_max))
-        cv2.rectangle(annotated, start, end, (0, 255, 0), 2)
-        label = f"{detection.class_name} {detection.confidence:.2f}"
-        cv2.putText(
-            annotated,
-            label,
-            (start[0], max(20, start[1] - 6)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.55,
-            (0, 255, 0),
-            2,
-            cv2.LINE_AA,
-        )
-    return annotated
 
 
 def main() -> int:
@@ -72,6 +51,7 @@ def main() -> int:
         iou_threshold=args.iou,
     )
     detector = YoloDetector(config)
+    renderer = OpenCvRenderer()
 
     args.output_jsonl.parent.mkdir(parents=True, exist_ok=True)
     args.output_video.parent.mkdir(parents=True, exist_ok=True)
@@ -110,7 +90,7 @@ def main() -> int:
                             )
                             + "\n"
                         )
-                        writer.write(draw_detections(frame, detections))
+                        writer.write(renderer.render_detections(frame, detections))
                         processed_frames += 1
             finally:
                 writer.release()

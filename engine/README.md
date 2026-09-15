@@ -125,6 +125,19 @@ externamente agrupando los centros de las cajas por `track_id`; no forman parte 
 estado público de `Track`. Los IDs solo son válidos dentro de una sesión y no
 identifican personas.
 
+## Visualización técnica
+
+OP-60 incorpora un renderer OpenCV reutilizable para anotar copias de frames con
+cajas, clase, confianza, IDs temporales y trayectorias. El renderer recibe únicamente
+`Detection`, `Track` y trayectorias propias de Operix; no abre videos, ejecuta modelos,
+actualiza el tracker ni escribe archivos.
+
+`TrajectoryAccumulator` mantiene fuera de `Track` un historial acotado por ID. Los
+puntos incluyen el índice del frame, por lo que las pérdidas se muestran como cortes
+de trayectoria y no como desplazamientos observados. Los scripts continúan siendo
+responsables de la orquestación y de escribir los videos diagnósticos fuera del
+repositorio.
+
 ## Módulos internos futuros
 
 Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios independientes:
@@ -140,7 +153,7 @@ Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios
 ## Estado
 
 OP-59 estableció el entorno reproducible, OP-33 incorporó el procesamiento secuencial
-de video grabado, OP-34 integró YOLO11 y OP-35 integró ByteTrack. Las etapas futuras
-incluyen la visualización formal de detecciones/tracks y las métricas FPS/latencia.
+de video grabado, OP-34 integró YOLO11 y OP-35 integró ByteTrack. OP-60 incorpora la
+visualización técnica reutilizable; las métricas FPS/latencia pertenecen a OP-43.
 
 Consulte el [índice de arquitectura](../docs/architecture/README.md) para los artefactos vigentes.
