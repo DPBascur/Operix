@@ -97,6 +97,21 @@ Pruebas automatizadas:
 
 Las pruebas generan un AVI/MJPEG sintético en un directorio temporal. Los videos usados en ejecuciones manuales permanecen fuera del repositorio.
 
+## Detección de objetos
+
+OP-34 incorpora un contrato propio que transforma cada frame BGR `uint8` en una tupla
+inmutable de detecciones. `operix_engine.detection` define los tipos y el contrato;
+`operix_engine.yolo_detector` adapta YOLO11 sin exponer objetos internos de Ultralytics.
+
+El detector recibe una ruta local de pesos y nunca descarga pesos implícitamente. El
+script `engine/scripts/detect_video.py` coordina la fuente de OP-33, el detector y los
+artefactos diagnósticos de validación. El índice del frame permanece fuera de
+`Detection`. El adaptador no abre videos, no realiza tracking, no aplica reglas y no
+dibuja visualizaciones.
+
+La línea base experimental es YOLO11n con pesos COCO. COCO contiene la clase `person`,
+pero no contiene una clase `forklift`; `truck` no se reinterpreta como montacargas.
+
 ## Módulos internos futuros
 
 Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios independientes:
