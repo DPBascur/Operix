@@ -13,7 +13,9 @@ El aporte del Trabajo de Título consiste en diseñar, integrar y evaluar un sis
 - Etapa 1 aprobada.
 - Operix Architecture v1.0 cerrada.
 - OP-58: preparación y estructuración del repositorio existente, conservando su historial.
-- Implementación de aplicaciones y PoC pendiente; esta estructura inicial contiene documentación de responsabilidades.
+- Pipeline base del Motor implementado y validado: OP-33, OP-34, OP-35, OP-60 y OP-43.
+- OP-61: ejecución integrada y consolidación documental completadas y aprobadas para cierre formal.
+- Reglas, eventos, persistencia, Backend/API y Aplicación Web permanecen pendientes de implementación.
 
 ## Arquitectura y alcance
 
@@ -49,16 +51,18 @@ Kubernetes, Redis, Celery y HAR quedan fuera del MVP inicial.
 | --- | --- |
 | [frontend/](frontend/README.md) | Aplicación Web |
 | [backend/](backend/README.md) | API, configuración, consultas y persistencia |
-| [engine/](engine/README.md) | Análisis de video; siete componentes conceptuales como módulos internos futuros |
+| [engine/](engine/README.md) | Pipeline base ejecutable de video, detección, tracking y visualización; componentes operacionales posteriores pendientes |
 | [docs/architecture/](docs/architecture/README.md) | Índice de arquitectura y artefactos vigentes |
 | docs/ | Documentación académica local existente; puede incluir archivos aún sin seguimiento |
 | Modelo_Trabajo_Titulo_LaTeX/ | Documentación LaTeX existente |
 
 ## Orientación técnica
 
-El repositorio aún no incluye dependencias de aplicación, Dockerfiles, configuración Compose ni instrucciones de ejecución de un sistema funcional. Se incorporarán incrementalmente. La organización permite posteriormente un despliegue con Docker Compose conforme a DEP-01.
+El Motor dispone de entorno reproducible Windows/CUDA, scripts de ejecución y pruebas. El sistema completo, los Dockerfiles y la configuración Compose siguen pendientes. La organización permite posteriormente un despliegue con Docker Compose conforme a DEP-01.
 
-El primer PoC previsto comprende video → OpenCV → YOLO11 → ByteTrack → visualización de detecciones/tracks → métricas FPS/latencia. Su evidencia inicial corresponderá a RF-01, RF-02, RF-03 y RNF-02.
+El PoC técnico ejecutado comprende video → OpenCV → YOLO11 → ByteTrack → visualización, con métricas del benchmark independiente de OP-43. La [evidencia consolidada de OP-61](engine/evidence/OP-61-poc.md) registra configuración, entorno, hashes, resultados y limitaciones como evidencia inicial de RF-01, RF-02, RF-03 y RNF-02.
+
+La validación principal filtra `person`. Los pesos COCO no contienen `forklift` y no demuestran tracking fiable de maquinaria. Los resultados proceden de muestras sintéticas acotadas; no acreditan funcionamiento universal o sostenido en tiempo real ni validación completa de Operix.
 
 Antes de cambiar arquitectura o stack por una limitación de implementación, se documentarán el problema, la evidencia y la propuesta para evaluar una nueva decisión arquitectónica. Véase el [índice de arquitectura v1.0](docs/architecture/README.md).
 

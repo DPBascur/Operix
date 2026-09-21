@@ -84,8 +84,12 @@ Se reutilizó la configuración validada en OP-35: YOLO11n-COCO, confianza 0,10,
 Comando reproducible, manteniendo entradas y salidas fuera del repositorio:
 
 ```powershell
-.\engine\.venv\Scripts\python.exe .\engine\scripts\track_video.py <video-entrada> --weights <pesos-locales> --output-jsonl <salida-jsonl> --output-video <video-anotado> --confidence 0.10 --iou 0.70 --imgsz 640 --device cuda --class-name person --track-high-thresh 0.25 --track-low-thresh 0.10 --new-track-thresh 0.25 --track-buffer 30 --match-thresh 0.80
+.\engine\.venv\Scripts\python.exe .\engine\scripts\track_video.py <video-entrada> --weights <pesos-locales> --output-jsonl <salida-jsonl> --output-video <video-anotado> --expected-video-sha256 3ABE9043EE41F898D869890E8636B804186BFAF524DAEA2E6F6831E72711F4D6 --expected-frames 277 --expected-fps 30 --expected-width 1920 --expected-height 1080 --conf 0.10 --iou 0.70 --imgsz 640 --device cuda --track-high-thresh 0.25 --track-low-thresh 0.10 --new-track-thresh 0.25 --track-buffer 30 --match-thresh 0.80
 ```
+
+El filtro `person` está incorporado en el orquestador; no existe un argumento
+`--class-name`. El comando se corrigió documentalmente durante OP-61 para reflejar
+la interfaz vigente, sin alterar los resultados históricos siguientes.
 
 Resultado de ejecución:
 
@@ -128,5 +132,5 @@ La inspección visual permite revisar continuidad, pérdidas, recuperaciones y f
 - No incorpora reproducción web, streaming, WebSocket ni overlays interactivos.
 - No implementa reglas, zonas, proximidad, eventos ni persistencia.
 - No constituye el benchmark formal de FPS/latencia de OP-43.
-- No anticipa la integración de eventos operacionales de OP-61.
+- OP-61 consolida la ejecución del PoC y sus evidencias; tampoco incorpora eventos operacionales.
 - La superposición física de objetos puede provocar solapamiento temporal de etiquetas; se conserva la fidelidad del resultado del tracker sin alterar asociaciones.

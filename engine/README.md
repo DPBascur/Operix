@@ -152,9 +152,27 @@ tiempo acumulado; no como promedio de FPS instantáneos. Los resultados describe
 equipo, muestra y configuración documentados y no constituyen un umbral universal de
 tiempo real.
 
-## Módulos internos futuros
+## PoC técnico integrado
 
-Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios independientes:
+OP-61 reutiliza `scripts/track_video.py` para ejecutar los 277 frames de `ceiling_04`
+con YOLO11n-COCO, filtro `person`, ByteTrack, trayectorias y video anotado. La ejecución
+local del 21/09/2026 produjo 1.088 detecciones, 644 observaciones y 8 IDs temporales.
+La suite completa aprobó 55/55 pruebas con ambas integraciones reales habilitadas.
+
+El [informe OP-61](evidence/OP-61-poc.md) incluye el comando reproducible con todos
+los argumentos obligatorios, verificaciones previas, ficha del entorno y revisión
+visual. El [resumen JSON](evidence/OP-61-poc-summary.json) conserva trazabilidad sin
+rutas privadas. Pesos, videos, JSONL por frame, capturas y logs permanecen fuera del
+repositorio; cada ejecución debe usar destinos nuevos para no sobrescribir evidencia.
+
+Las métricas A/B/C se reutilizan de OP-43. Su escenario C no incluye escritura JSONL,
+por lo que sus FPS no se atribuyen directamente a la ejecución integrada de OP-61.
+COCO no contiene `forklift`; persisten pérdidas, duplicaciones y fragmentación del
+tracking. El PoC no acredita cobertura completa del dominio ni tiempo real sostenido.
+
+## Componentes de arquitectura
+
+Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios independientes. Procesamiento, detección y seguimiento están implementados; los cuatro componentes operacionales restantes siguen pendientes:
 
 1. Procesador de video.
 2. Detector de objetos.
@@ -170,5 +188,9 @@ OP-59 estableció el entorno reproducible, OP-33 incorporó el procesamiento sec
 de video grabado, OP-34 integró YOLO11 y OP-35 integró ByteTrack. OP-60 incorpora la
 visualización técnica reutilizable. OP-43 instrumenta FPS y latencia del pipeline
 vigente sin optimizarlo.
+
+OP-61 consolida la ejecución integrada y sus evidencias, aprobadas para cierre
+formal; no incorpora reglas, zonas, proximidad, eventos, persistencia,
+backend ni frontend.
 
 Consulte el [índice de arquitectura](../docs/architecture/README.md) para los artefactos vigentes.

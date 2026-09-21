@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "task": "OP-61",
+  "status": "validated_and_approved_for_formal_closure",
+  "backlog": {
+    "name": "Backlog-TT-DanielPena-V0.8.xlsm",
+    "sheet": "Backlog General",
+    "row": 65,
+    "dependencies": ["OP-43", "OP-60"],
+    "requirements": ["RF-01", "RF-02", "RF-03", "RNF-02", "R-01"]
+  },
+  "architecture": "Operix Architecture v1.0",
+  "execution": {
+    "code_commit": "54e163cc1e07ffbcdc334930dfd2a4264c720225",
+    "branch": "dev",
+    "clean_worktree_at_execution": true,
+    "script": "engine/scripts/track_video.py",
+    "started_at": "2026-09-21T18:42:41-03:00",
+    "finished_at": "2026-09-21T18:42:56-03:00",
+    "timestamps_are_benchmark": false,
+    "exit_code": 0,
+    "runs": 1,
+    "excluded_warmup_frames": 0
+  },
+  "input": {
+    "dataset": "nvidia/PhysicalAI-WorldModel-Synthetic-Warehouse-Operations-Scenes",
+    "revision": "d5b88d3abcf659f304a107f4336b71b4e2159133",
+    "scenario": "warehouse_fire",
+    "run_id": "00023b5323028ab83e67_run_6_seed_1486583949",
+    "seed": 1486583949,
+    "camera": "ceiling_04",
+    "video_name": "00023b5323028ab83e67_run_6_seed_1486583949.ceiling_04.rgb.mp4",
+    "bytes": 14668288,
+    "sha256": "3ABE9043EE41F898D869890E8636B804186BFAF524DAEA2E6F6831E72711F4D6",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "frames": 277,
+    "duration_seconds": 9.233333333333333,
+    "hash_and_metadata_verified_before_execution": true
+  },
+  "model": {
+    "name": "YOLO11n-COCO",
+    "weights_name": "yolo11n.pt",
+    "weights_bytes": 5613764,
+    "weights_sha256": "0EBBC80D4A7680D14987A577CD21342B65ECFD94632BD9A8DA63AE6417644EE1",
+    "weights_hash_verified_before_execution": true,
+    "device": "cuda",
+    "confidence_threshold": 0.1,
+    "image_size": 640,
+    "iou_threshold": 0.7,
+    "orchestrator_class_filter": "person"
+  },
+  "tracker_configuration": {
+    "backend": "ByteTrack",
+    "track_high_thresh": 0.25,
+    "track_low_thresh": 0.1,
+    "new_track_thresh": 0.25,
+    "track_buffer": 30,
+    "match_thresh": 0.8,
+    "fuse_score": true
+  },
+  "visualization_configuration": {
+    "box_thickness": 2,
+    "font_scale": 0.55,
+    "text_thickness": 2,
+    "trajectory_thickness": 2,
+    "max_trajectory_points": 60,
+    "inactive_retention_frames": 30
+  },
+  "environment": {
+    "os": "Windows 10 build 19045",
+    "architecture": "AMD64",
+    "cpu": "AMD Ryzen 5 5500",
+    "ram_bytes": 34244796416,
+    "gpu": "NVIDIA GeForce RTX 3070",
+    "vram_bytes": 8589410304,
+    "nvidia_driver": "616.92",
+    "python": "3.12.10",
+    "python_bits": 64,
+    "pytorch": "2.14.0+cu130",
+    "torchvision": "0.29.0+cu130",
+    "cuda_compiled": "13.0",
+    "opencv_python": "5.0.0.93",
+    "opencv_runtime": "5.0.0",
+    "ultralytics": "8.4.146",
+    "lap": "0.5.12",
+    "operix_engine": "0.1.0"
+  },
+  "validation": {
+    "performed_before_integrated_run": true,
+    "pip_check": "No broken requirements found.",
+    "environment_check_require_cuda_exit_code": 0,
+    "cpu_tensor": "OK",
+    "cuda_tensor": "OK",
+    "opencv": "OK",
+    "tests_run": 55,
+    "tests_passed": 55,
+    "tests_skipped": 0,
+    "tests_failures": 0,
+    "tests_errors": 0,
+    "test_duration_seconds": 5.476,
+    "tests_by_task": {"OP-33": 4, "OP-34": 9, "OP-35": 16, "OP-60": 15, "OP-43": 11},
+    "real_integrations_enabled": true,
+    "yolo_integration_sample": "ceiling_00",
+    "bytetrack_integration_sample": "ceiling_04"
+  },
+  "results": {
+    "processed_frames": 277,
+    "frames_with_person_detections": 277,
+    "person_detections": 1088,
+    "person_detection_count_source": "orchestrator stdout; raw detections are not stored in tracking JSONL",
+    "track_observations": 644,
+    "unique_track_ids": 8,
+    "track_ids": [1, 2, 3, 4, 13, 28, 31, 36],
+    "same_id_gap_recoveries": 4,
+    "class_changes": 0,
+    "historical_counts_match": true,
+    "historical_op60_artifact_hashes_match": true
+  },
+  "artifact_validation": {
+    "jsonl_records": 277,
+    "frame_index_start": 0,
+    "frame_index_end": 276,
+    "frame_indices_consecutive": true,
+    "track_counts_and_per_id_summaries_match_stdout": true,
+    "video_decoded_frames": 277,
+    "every_decoded_frame_shape_verified": true
+  },
+  "outputs": {
+    "repository_policy": "outside repository; new files without overwriting previous evidence",
+    "jsonl": {
+      "name": "op61-ceiling04-tracks.jsonl",
+      "bytes": 150547,
+      "sha256": "ACAD8F3389233DE62652E590DD133ABE3B910FB91CD111BEDC00C96BA96C8DD5"
+    },
+    "video": {
+      "name": "op61-ceiling04-annotated.mp4",
+      "bytes": 11056492,
+      "sha256": "EA5B640009071D63D7EC756690E4437182C6DBCDD468CFE78DB0E4757735811A",
+      "width": 1920,
+      "height": 1080,
+      "fps": 30,
+      "frames": 277,
+      "duration_seconds": 9.233333333333333
+    }
+  },
+  "visual_review": {
+    "method": "targeted contact sheets plus original-resolution frames 74 and 213; not exhaustive identity annotation",
+    "frames": [0, 58, 60, 61, 62, 70, 73, 74, 86, 97, 103, 141, 207, 211, 212, 213, 214, 217, 218, 250, 266, 267, 276],
+    "observations": [
+      "Labels show class, confidence and ID; overlapping labels in the 207-217 crossing.",
+      "ID 4 duplicates ID 1; temporary losses and recoveries agree with JSONL.",
+      "ID 2 to 13 is probable fragmentation, not a confirmed ID switch.",
+      "ID 28 is short and visually spurious in inspected frames 97 and 103.",
+      "Reviewed trajectories retain gaps rather than fictitious bridges.",
+      "ID 36 and its trajectory disappear after frame 266 although part of the person remains visible at the edge in frame 267."
+    ],
+    "mot_ground_truth_available": false,
+    "confirmed_id_switch_count": null,
+    "formal_mot_metrics": null
+  },
+  "performance": {
+    "source_task": "OP-43",
+    "source_validation_date": "2026-09-15",
+    "source_summary": "engine/evidence/OP-43-benchmark-summary.json",
+    "source_csv": "engine/evidence/OP-43-benchmark.csv",
+    "reused_without_rerunning": true,
+    "applies_directly_to_this_jsonl_execution": false,
+    "reason": "Independent benchmark scenario C excludes JSONL writing performed by track_video.py.",
+    "global_fps_rounded": {"A": 56.572, "B": 52.046, "C": 31.150},
+    "universal_or_sustained_realtime_claim": false
+  },
+  "limitations": [
+    "COCO has no forklift class; principal validation filters person and does not demonstrate reliable machinery tracking.",
+    "Tracking depends on detection quality; losses, duplicates, spurious tracks and fragmentation remain.",
+    "Temporary IDs do not identify people; no MOT identity ground truth is available.",
+    "Synthetic, short samples have a domain gap from real industrial CCTV.",
+    "Performance depends on hardware and configuration; no universal or sustained realtime claim."
+  ],
+  "out_of_scope": ["rules", "zones", "proximity", "events", "system_persistence", "backend", "frontend", "alerts", "new_models", "fine_tuning", "optimization"],
+  "evidence_references": [
+    "engine/evidence/OP-33-video-processing.md",
+    "engine/evidence/OP-34-yolo11-detection.md",
+    "engine/evidence/OP-35-bytetrack.md",
+    "engine/evidence/OP-60-visualization.md",
+    "engine/evidence/OP-43-performance.md"
+  ]
+}
