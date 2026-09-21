@@ -80,3 +80,5 @@ Thumbs.db
 *.toc
 
 # Estas reglas no retiran archivos que Git ya tiene versionados.
+/Modelo_Trabajo_Titulo_LaTeX/main.pdf
+/Modelo_Trabajo_Titulo_LaTeX/build/main.pdf
