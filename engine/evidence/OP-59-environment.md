@@ -1,6 +1,7 @@
 # OP-59 — Entorno reproducible del motor
 
-Fecha de validación: 2026-09-10  
+Fecha de validación: 2026-09-10
+
 Rama: `dev`
 
 ## Configuración validada
@@ -57,7 +58,9 @@ Prueba OpenCV: OK
 
 El archivo congelado fue revisado para confirmar que no contiene rutas locales, referencias a `.venv` ni la distribución editable `operix-engine`.
 
-SHA-256 de `requirements.windows-cu130.lock.txt`: `9CF79EB856297F76131651C221DD0E92E6373452E4E3A8DC407DFF0D7119229F`.
+SHA-256 histórico de `requirements.windows-cu130.lock.txt`, registrado para el entorno originalmente validado y cerrado en OP-59: `9CF79EB856297F76131651C221DD0E92E6373452E4E3A8DC407DFF0D7119229F`.
+
+Este hash se conserva como evidencia histórica; no identifica el lock actual. Posteriormente, OP-35 incorporó explícitamente `lap==0.5.12` para ByteTrack, tanto en `pyproject.toml` como en el lock Windows/CUDA. Esa incorporación fue la única adición al lock y no cambió ninguna versión previamente fijada. Véase [la evidencia de OP-35](OP-35-bytetrack.md).
 
 ## Compatibilidad y límites
 

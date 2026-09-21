@@ -62,8 +62,9 @@ Se utilizó exclusivamente la muestra base definida por OP-18:
 | --- | --- |
 | Fuente | NVIDIA PhysicalAI SDG-Warehouse |
 | Escenario | `forklift_human_nearmiss` |
-| Revisión | `001e53453441935632ae` |
-| Run | `run_1_seed_1288693302` |
+| Revisión del dataset | `d5b88d3abcf659f304a107f4336b71b4e2159133` |
+| Prefijo del run | `001e53453441935632ae` |
+| Run completo | `001e53453441935632ae_run_1_seed_1288693302` |
 | Cámara | `ceiling_00` |
 | Archivo | `001e53453441935632ae_run_1_seed_1288693302.ceiling_00.rgb.mp4` |
 | SHA-256 | `E4795E873DCBDAAA4DC3D42F533052E3C1DB62D1D3EF786C2C90DD4D7681330B` |

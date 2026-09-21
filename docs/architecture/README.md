@@ -4,16 +4,16 @@ La línea base vigente es **Operix Architecture v1.0**, cerrada el 10/09/2026. E
 
 ## Diagramas
 
-Los siguientes archivos están en la carpeta local `TrabajoTitulo`, fuera de la raíz Git `Operix`. Los enlaces funcionan con esa disposición local; los archivos no forman parte de un clon del repositorio.
+Los siguientes artefactos se conservan externamente en la colección académica de diagramas. No están versionados ni forman parte de un clon del repositorio. Se indican sus nombres, sin enlaces dependientes de la organización local ni rutas privadas.
 
-| ID | Artefacto | Ubicación local vigente |
+| ID | Artefacto | Referencia externa (no versionada) |
 | --- | --- | --- |
-| C4-01 | Context Diagram | [Exportación IcePanel, página 2](../../../DPBascur%27s%20landscape%20%28Current%29.pdf) |
-| C4-02 | Container Diagram | [Exportación IcePanel, página 3](../../../DPBascur%27s%20landscape%20%28Current%29.pdf) |
-| C4-03 | Component Diagram del Motor | [Exportación IcePanel, página 4](../../../DPBascur%27s%20landscape%20%28Current%29.pdf) |
-| SEQ-01 | Flujo de procesamiento de un evento preventivo | [Diagrama de secuencia](../../../SEQ-01%20-%20Flujo%20de%20procesamiento%20de%20un%20evento.png) |
-| ERD-01 | Modelo de datos | [Diagrama de datos](../../../ERD-01%20%E2%80%94%20Modelo%20de%20datos%20de%20Operix.png) |
-| DEP-01 | Diagrama de despliegue | [Diagrama de despliegue](../../../DEP-01%20%E2%80%94%20Diagrama%20de%20despliegue%20de%20Operix.png) |
+| C4-01 | Context Diagram | `DPBascur_s landscape (Current).pdf`, página 2 |
+| C4-02 | Container Diagram | `DPBascur_s landscape (Current).pdf`, página 3 |
+| C4-03 | Component Diagram del Motor | `DPBascur_s landscape (Current).pdf`, página 4 |
+| SEQ-01 | Flujo de procesamiento de un evento preventivo | `SEQ-01 - Flujo de procesamiento de un evento.png` |
+| ERD-01 | Modelo de datos | `ERD-01 — Modelo de datos de Operix.png` |
+| DEP-01 | Diagrama de despliegue | `DEP-01 — Diagrama de despliegue de Operix.png` |
 
 ## Decisiones de arquitectura
 

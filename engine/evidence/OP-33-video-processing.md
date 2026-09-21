@@ -1,7 +1,9 @@
 # OP-33 — Procesamiento de video con OpenCV
 
-Fecha de validación: 2026-09-10  
-Rama: `dev`  
+Fecha de validación: 2026-09-10
+
+Rama: `dev`
+
 Requisito asociado: RF-01
 
 ## Alcance validado
