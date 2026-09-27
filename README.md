@@ -45,6 +45,21 @@ Las reglas y umbrales operacionales son configurables y dependen del escenario y
 
 Kubernetes, Redis, Celery y HAR quedan fuera del MVP inicial.
 
+## Clonación
+
+El repositorio es privado; se requiere acceso autorizado a `DPBascur/Operix`.
+
+```powershell
+git clone https://github.com/DPBascur/Operix.git
+cd Operix
+git switch dev
+```
+
+`main` conserva el hito estable `v0.1.0`; `dev` es la rama habitual de desarrollo.
+Los diagramas y ADR completos de arquitectura no se incluyen en el clon: el
+[índice de arquitectura](docs/architecture/README.md) identifica los once
+artefactos y distingue las referencias externas de los archivos versionados.
+
 ## Estructura del repositorio
 
 | Ruta | Responsabilidad |

@@ -251,7 +251,9 @@ Son observaciones descriptivas, sin umbral universal ni optimizaciones en OP-61.
 ## Evaluación del hito
 
 La ejecución reproducida, pruebas y artefactos sustentan un hito estable del pipeline
-base del Motor. La consolidación fue aprobada para cierre formal de OP-61. Un posterior
-merge `dev → main` y tag es técnicamente razonable después de publicar estos
-documentos y revisar el conjunto de cambios. No se ejecutaron merge ni tag; no se
-declara terminado el Motor completo ni el sistema preventivo.
+base del Motor. La consolidación fue aprobada para cierre formal de OP-61. Al cerrar
+esa tarea todavía no se había ejecutado el merge `dev → main` ni creado el tag.
+Posteriormente, tras la auditoría pre-release, `main` se actualizó por fast-forward
+y se publicó el tag anotado `v0.1.0` sobre el commit
+`b5a2fd258ca4102410a1f4c2b72faf771e41d8f7`. El release no declara terminado
+el Motor completo ni el sistema preventivo.

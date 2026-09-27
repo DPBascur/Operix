@@ -2,6 +2,13 @@
 
 La línea base vigente es **Operix Architecture v1.0**, cerrada el 10/09/2026. Este índice localiza los artefactos aceptados sin reemplazar ni reproducir la documentación académica.
 
+Este README es el único índice de arquitectura versionado aquí. Enumera once
+artefactos de la línea base: seis diagramas (C4-01/02/03, SEQ-01, ERD-01 y
+DEP-01) y cinco decisiones (ADR-01 a ADR-05). El contenido completo de esos
+once artefactos permanece externo y no se obtiene al clonar el repositorio.
+Las referencias usan identificador, nombre de archivo o página para localizar
+la copia académica autorizada; no son enlaces a archivos incluidos en Git.
+
 ## Diagramas
 
 Los siguientes artefactos se conservan externamente en la colección académica de diagramas. No están versionados ni forman parte de un clon del repositorio. Se indican sus nombres, sin enlaces dependientes de la organización local ni rutas privadas.
