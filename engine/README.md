@@ -170,6 +170,17 @@ por lo que sus FPS no se atribuyen directamente a la ejecución integrada de OP-
 COCO no contiene `forklift`; persisten pérdidas, duplicaciones y fragmentación del
 tracking. El PoC no acredita cobertura completa del dominio ni tiempo real sostenido.
 
+## Configuración operacional (OP-30)
+
+El ejemplo `config/examples/op30-zone-rule.json` declara una vista, zonas con
+coordenadas normalizadas y parámetros de regla. Puede cargarse con
+`operix_engine.operational_config.load_operational_config(path)`; el módulo valida
+la estructura y devuelve `Zone`, `RuleConfig` y `OperationalConfig` sin depender
+del detector, tracker ni renderer. `schema_version` es `1` y el único sistema de
+coordenadas admitido es `normalized`. Cambiar parámetros en el JSON no modifica
+el código de percepción. La prueba geométrica de zonas y la evaluación de reglas
+corresponden a OP-36 y OP-38, respectivamente.
+
 ## Componentes de arquitectura
 
 Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios independientes. Procesamiento, detección y seguimiento están implementados; los cuatro componentes operacionales restantes siguen pendientes:

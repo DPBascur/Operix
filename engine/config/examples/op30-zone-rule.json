@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "view_id": "ceiling_04",
+  "coordinate_system": "normalized",
+  "zones": [
+    {
+      "zone_id": "zona_critica_01",
+      "name": "Zona crítica de ejemplo",
+      "polygon": [
+        [0.20, 0.20],
+        [0.55, 0.20],
+        [0.55, 0.70],
+        [0.20, 0.70]
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "restricted_zone_presence",
+      "version": 1,
+      "enabled": true,
+      "parameters": {
+        "zone_id": "zona_critica_01",
+        "min_duration_s": 2.0
+      }
+    }
+  ]
+}
