@@ -73,3 +73,20 @@ La diferencia de un frame fue informada sin tratarla como error fatal. El archiv
 | CLI manual | `engine/scripts/process_video.py` |
 | Pruebas reproducibles | `engine/tests/test_video_processor.py` |
 | Evidencia | `engine/evidence/OP-33-video-processing.md` |
+
+## Aclaración posterior: referencia temporal por cuadro
+
+El 27/09/2026 se añadió una referencia temporal relativa por frame, sin alterar la
+validación histórica anterior. `RecordedVideoSource.frames()` conserva su contrato
+`(frame_index, frame)` para los consumidores existentes. La nueva opción
+`frames_with_time()` entrega `(frame_index, tiempo_estimado_segundos, frame)`.
+
+El tiempo es `frame_index / FPS declarado` y representa segundos desde el inicio
+nominal del video: el frame 0 corresponde a `0.0 s`. Si OpenCV no informa un FPS
+finito y positivo, el tiempo es `None`. No se trata de hora de pared ni de una
+marca PTS extraída del contenedor; en videos de tasa variable puede diferir del
+tiempo real de presentación. `VideoMetadata.frame_time_seconds()` expone el mismo
+cálculo sin modificar la lectura secuencial ni el resumen previo.
+
+Las pruebas añadidas verifican frame 0, frames posteriores a 30 FPS, FPS inválido
+y equivalencia de la secuencia con `frames()`; no se reprocesó el video histórico.

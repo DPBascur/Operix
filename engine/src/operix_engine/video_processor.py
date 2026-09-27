@@ -26,6 +26,18 @@ class VideoMetadata:
     declared_frame_count: int | None
     estimated_duration_seconds: float | None
 
+    def frame_time_seconds(self, frame_index: int) -> float | None:
+        """Estima el tiempo relativo del cuadro a partir del FPS declarado."""
+        if frame_index < 0:
+            raise ValueError("El índice del frame no puede ser negativo")
+        if (
+            self.declared_fps is None
+            or not math.isfinite(self.declared_fps)
+            or self.declared_fps <= 0
+        ):
+            return None
+        return frame_index / self.declared_fps
+
 
 @dataclass(frozen=True, slots=True)
 class VideoProcessingResult:
@@ -128,6 +140,12 @@ class RecordedVideoSource:
 
             yield frame_index, frame
             frame_index += 1
+
+    def frames_with_time(self) -> Iterator[tuple[int, float | None, NDArray]]:
+        """Entrega índice, tiempo relativo estimado en segundos y frame."""
+        metadata = self.metadata()
+        for frame_index, frame in self.frames():
+            yield frame_index, metadata.frame_time_seconds(frame_index), frame
 
     def _require_open(self) -> cv2.VideoCapture:
         if not self.is_open or self._capture is None:
