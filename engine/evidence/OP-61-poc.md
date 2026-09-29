@@ -6,7 +6,14 @@ Ejecución y validación local completadas el 21/09/2026. La ejecución integrad
 consolidación documental fueron revisadas y aprobadas para cierre formal de OP-61.
 Issue de trazabilidad: #8. Arquitectura vigente: Operix Architecture v1.0.
 
-- Código ejecutado: `54e163cc1e07ffbcdc334930dfd2a4264c720225`, rama `dev`.
+- Código ejecutado, SHA histórico pre-sanitización:
+  `54e163cc1e07ffbcdc334930dfd2a4264c720225`, rama `dev`.
+- SHA vigente tras sanitización del mismo commit:
+  `26af9d09629dab3219600acef2575a87190b3818`.
+- Los identificadores de commit cambiaron por la sanitización histórica previa
+  a la publicación del repositorio técnico. Se conserva el identificador
+  original para la trazabilidad académica; no hubo una nueva ejecución
+  experimental ni cambios en resultados, métricas o fechas.
 - Árbol limpio antes de las pruebas y ejecución; HEAD coincidía con `origin/dev`
   y con la referencia remota consultada. Los cambios posteriores son documentales.
 - Inicio: `2026-09-21T18:42:41-03:00`; fin: `2026-09-21T18:42:56-03:00`.
@@ -261,6 +268,7 @@ La ejecución reproducida, pruebas y artefactos sustentan un hito estable del pi
 base del Motor. La consolidación fue aprobada para cierre formal de OP-61. Al cerrar
 esa tarea todavía no se había ejecutado el merge `dev → main` ni creado el tag.
 Posteriormente, tras la auditoría pre-release, `main` se actualizó por fast-forward
-y se publicó el tag anotado `v0.1.0` sobre el commit
-`b5a2fd258ca4102410a1f4c2b72faf771e41d8f7`. El release no declara terminado
-el Motor completo ni el sistema preventivo.
+y se publicó el tag anotado `v0.1.0` sobre el commit histórico pre-sanitización
+`b5a2fd258ca4102410a1f4c2b72faf771e41d8f7`. Su SHA vigente tras
+sanitización es `5e3a4d804c5b98b6e4cc336f9c740c8124d85c16`. El release
+no declara terminado el Motor completo ni el sistema preventivo.

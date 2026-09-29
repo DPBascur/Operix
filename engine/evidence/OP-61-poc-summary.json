@@ -12,6 +12,7 @@
   "architecture": "Operix Architecture v1.0",
   "execution": {
     "code_commit": "54e163cc1e07ffbcdc334930dfd2a4264c720225",
+    "code_commit_post_sanitization": "26af9d09629dab3219600acef2575a87190b3818",
     "branch": "dev",
     "clean_worktree_at_execution": true,
     "script": "engine/scripts/track_video.py",
