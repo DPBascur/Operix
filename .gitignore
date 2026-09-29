@@ -47,6 +47,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .next/
+.cache/
 .coverage
 coverage/
 *.tsbuildinfo
@@ -54,10 +55,30 @@ coverage/
 .DS_Store
 Thumbs.db
 
+# Salidas locales de ejecución y empaquetado (no evidencia revisada)
+/outputs/
+/runs/
+/dist/
+/build/
+/engine/outputs/
+/engine/runs/
+/engine/dist/
+/engine/build/
+/datasets/
+/engine/datasets/
+/data/raw/
+/engine/data/raw/
+*.jsonl
+!/engine/evidence/*.jsonl
+*.tmp
+*.swp
+*~
+
 # Pesos y videos de ejecución: conservar procedencia por separado
 *.pt
 *.pth
 *.onnx
+*.safetensors
 *.mp4
 *.avi
 *.mov
@@ -82,8 +103,5 @@ Thumbs.db
 *.out
 *.run.xml
 *.synctex.gz
+*.synctex
 *.toc
-
-# Estas reglas no retiran archivos que Git ya tiene versionados.
-/Modelo_Trabajo_Titulo_LaTeX/main.pdf
-/Modelo_Trabajo_Titulo_LaTeX/build/main.pdf

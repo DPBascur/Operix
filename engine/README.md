@@ -1,16 +1,16 @@
 # Motor de análisis de video
 
-Componente de Operix Architecture v1.0 que transforma video en resultados de análisis y eventos de interés preventivo.
+Componente de Operix Architecture v1.0 que transforma video en resultados de análisis. La regla inicial emite candidatos transitorios; la gestión persistente de eventos aún no está implementada.
 
 > La IA percibe el entorno; las reglas interpretan el contexto.
 
-Flujo conceptual: video → detección → tracking → variables espacio-temporales → reglas configurables → evento → Backend/API → registro/histórico.
+Flujo conceptual actual: video → detección → tracking → variables espacio-temporales → reglas configurables → `EventCandidate` en memoria. Backend/API y registro/histórico son pasos futuros de la arquitectura.
 
 ## Tecnologías y límites
 
 - Python 3.12 x64 y OpenCV para procesamiento de video.
 - YOLO11 para detección y ByteTrack para seguimiento, como selecciones iniciales y experimentales.
-- Configuración recibida desde el Backend/API; resultados entregados al Backend/API.
+- La arquitectura prevé recibir configuración del Backend/API y entregarle resultados; esa integración aún no está implementada.
 - Sin acceso directo a PostgreSQL.
 - Reglas y umbrales configurables según escenario y organización, sin valores operacionales universales fijados en código.
 
@@ -53,10 +53,18 @@ La instalación compatible con MPS se validará posteriormente en un equipo Appl
 
 ```powershell
 .\engine\.venv\Scripts\python.exe -m pip install --editable .\engine
+.\engine\.venv\Scripts\python.exe -m pip check
+.\engine\.venv\Scripts\python.exe .\engine\scripts\check_environment.py
+```
+
+El comando anterior verifica el entorno también en CPU. En el equipo Windows/NVIDIA
+validado, exigir CUDA explícitamente:
+
+```powershell
 .\engine\.venv\Scripts\python.exe .\engine\scripts\check_environment.py --require-cuda
 ```
 
-El mecanismo de selección de dispositivo sigue el orden `CUDA → MPS → CPU`. En el entorno Windows actual se validan mediante operaciones reales de tensores tanto CUDA como CPU.
+El mecanismo de selección de dispositivo sigue el orden `CUDA → MPS → CPU`. En el entorno Windows/NVIDIA validado se comprobaron operaciones reales de tensores tanto CUDA como CPU. La instalación CPU no implica que los scripts de demostración configurados con `--device cuda` puedan ejecutarse sin cambiar ese argumento.
 
 El verificador dirige la configuración que Ultralytics crea al importarse hacia `.venv`, evitando generar archivos locales sin seguimiento en la raíz del repositorio. No descarga pesos ni procesa videos.
 
@@ -75,7 +83,9 @@ Un entorno futuro, como macOS con MPS, podrá incorporar su propio archivo lock 
 
 ## Consideración de licencia
 
-Ultralytics se distribuye bajo licencia AGPL-3.0. Esta condición queda registrada para evaluar sus implicaciones antes de una eventual decisión de distribución; no modifica Operix Architecture v1.0.
+La distribución utilizada de Ultralytics documenta AGPL-3.0; véase
+[avisos de terceros](../THIRD_PARTY_NOTICES.md). La elección de licencia para
+el código Operix sigue pendiente; este README no adopta una licencia propia.
 
 ## Procesamiento de video grabado
 
@@ -95,7 +105,16 @@ Pruebas automatizadas:
 .\engine\.venv\Scripts\python.exe -m unittest discover -s .\engine\tests -v
 ```
 
-Las pruebas generan un AVI/MJPEG sintético en un directorio temporal. Los videos usados en ejecuciones manuales permanecen fuera del repositorio.
+Las pruebas generan un AVI/MJPEG sintético en un directorio temporal. En las
+ejecuciones originales los videos de entrada se conservaron fuera de Git;
+posteriormente se incorporaron **solo** dos entradas sintéticas verificadas y
+una salida anotada en [`assets/demo/`](../assets/demo/README.md). Los demás videos
+y las salidas nuevas de ejecución deben permanecer fuera del repositorio.
+
+Las pruebas de integración real con YOLO11/ByteTrack son optativas: utilizan
+`OPERIX_YOLO11_WEIGHTS`, `OPERIX_OP18_VIDEO` y `OPERIX_OP35_VIDEO` cuando se
+proporcionan rutas locales válidas; sin ellas, `unittest` las omite. La suite
+restante no necesita descargar pesos.
 
 ## Detección de objetos
 
@@ -109,7 +128,16 @@ artefactos diagnósticos de validación. El índice del frame permanece fuera de
 `Detection`. El adaptador no abre videos, no realiza tracking, no aplica reglas y no
 dibuja visualizaciones.
 
-La línea base experimental es YOLO11n con pesos COCO. COCO contiene la clase `person`,
+La línea base experimental es YOLO11n con pesos COCO: archivo exacto
+`yolo11n.pt`, SHA-256 del experimento
+`0EBBC80D4A7680D14987A577CD21342B65ECFD94632BD9A8DA63AE6417644EE1`.
+Los pesos no están en Git. Ultralytics documenta que su API puede obtener
+automáticamente los pesos oficiales en el primer uso de `YOLO("yolo11n.pt")`;
+esa obtención debe hacerse **por separado**, verificar el hash y pasar después
+la ruta local al detector de Operix. El detector y los scripts de este proyecto
+no descargan pesos implícitamente. Véase [OP-34](evidence/OP-34-yolo11-detection.md)
+y la [documentación oficial de YOLO11](https://github.com/ultralytics/yolo11).
+COCO contiene la clase `person`,
 pero no contiene una clase `forklift`; `truck` no se reinterpreta como montacargas.
 
 ## Seguimiento multiobjeto
@@ -135,8 +163,8 @@ actualiza el tracker ni escribe archivos.
 `TrajectoryAccumulator` mantiene fuera de `Track` un historial acotado por ID. Los
 puntos incluyen el índice del frame, por lo que las pérdidas se muestran como cortes
 de trayectoria y no como desplazamientos observados. Los scripts continúan siendo
-responsables de la orquestación y de escribir los videos diagnósticos fuera del
-repositorio.
+responsables de la orquestación y de escribir nuevos videos diagnósticos fuera del
+repositorio; las tres copias revisadas de `assets/demo/` son la excepción.
 
 ## Medición de rendimiento
 
@@ -162,8 +190,12 @@ La suite completa aprobó 55/55 pruebas con ambas integraciones reales habilitad
 El [informe OP-61](evidence/OP-61-poc.md) incluye el comando reproducible con todos
 los argumentos obligatorios, verificaciones previas, ficha del entorno y revisión
 visual. El [resumen JSON](evidence/OP-61-poc-summary.json) conserva trazabilidad sin
-rutas privadas. Pesos, videos, JSONL por frame, capturas y logs permanecen fuera del
-repositorio; cada ejecución debe usar destinos nuevos para no sobrescribir evidencia.
+rutas privadas. En la ejecución histórica, pesos, video de entrada y salidas,
+JSONL por frame, capturas y logs estaban fuera de Git. Más tarde se incorporaron
+las dos entradas verificadas y una copia del video anotado en
+[`assets/demo/`](../assets/demo/README.md); **solo esos tres MP4** son excepciones.
+Pesos, JSONL y nuevas salidas siguen fuera del repositorio; cada ejecución debe
+usar destinos nuevos para no sobrescribir evidencia.
 
 Las métricas A/B/C se reutilizan de OP-43. Su escenario C no incluye escritura JSONL,
 por lo que sus FPS no se atribuyen directamente a la ejecución integrada de OP-61.
@@ -210,8 +242,8 @@ de video grabado, OP-34 integró YOLO11 y OP-35 integró ByteTrack. OP-60 incorp
 visualización técnica reutilizable. OP-43 instrumenta FPS y latencia del pipeline
 vigente sin optimizarlo.
 
-OP-61 consolida la ejecución integrada y sus evidencias, aprobadas para cierre
-formal; ese PoC no incorporó reglas, zonas, proximidad ni eventos. Posteriormente
+OP-61 consolidó la ejecución integrada y sus evidencias y quedó cerrada; ese PoC
+no incorporó reglas, zonas, proximidad ni eventos. Posteriormente
 OP-30, OP-36 y OP-37 añadieron configuración, pertenencia y variables descriptivas;
 OP-38 incorpora evaluación inicial de reglas y candidatos en memoria.
 Persistencia OP-39, backend y frontend siguen pendientes.

@@ -2,7 +2,7 @@
 
 Sistema inteligente para el análisis preventivo de riesgos operacionales mediante visión artificial.
 
-Operix busca transformar secuencias de videovigilancia en información preventiva: detectar y seguir objetos de interés, evaluar reglas operacionales y registrar condiciones potencialmente riesgosas para su análisis posterior.
+Operix busca transformar secuencias de video en información para revisión preventiva: detectar y seguir objetos de interés, calcular variables descriptivas y evaluar reglas operacionales. El registro persistente de eventos es una etapa futura.
 
 > La IA percibe el entorno; las reglas interpretan el contexto.
 
@@ -15,19 +15,20 @@ El aporte del Trabajo de Título consiste en diseñar, integrar y evaluar un sis
 - OP-58: preparación y estructuración del repositorio existente, conservando su historial.
 - Pipeline base del Motor implementado y validado: OP-33, OP-34, OP-35, OP-60 y OP-43.
 - OP-61: ejecución integrada y consolidación documental completadas.
-- OP-30 (configuración), OP-36 (pertenencia a zonas) y OP-37 (variables espacio-temporales) están completadas; OP-38 incorpora la primera regla configurable.
+- OP-30 (configuración), OP-36 (pertenencia a zonas), OP-37 (variables espacio-temporales) y OP-38 (primera regla configurable) están completadas.
+- OP-42: resguardos de evidencia y alcance del PoC completados académicamente en V0.10.1 para Etapa 2.
 - Persistencia de eventos, Backend/API y Aplicación Web permanecen pendientes.
 
 ## Arquitectura y alcance
 
-Video → detección → tracking → variables espacio-temporales → reglas configurables → evento → registro/histórico.
+Video → detección → tracking → variables espacio-temporales → reglas configurables → `EventCandidate` en memoria. La persistencia e histórico pertenecen a etapas posteriores.
 
-La arquitectura define Aplicación Web, Backend/API, Motor de análisis de video y PostgreSQL. El motor entrega resultados al Backend/API; el backend gestiona la persistencia. El motor no accede directamente a PostgreSQL.
+La arquitectura define Aplicación Web, Backend/API, Motor de análisis de video y PostgreSQL. En el sistema futuro, el Motor entregará resultados al Backend/API y este gestionará la persistencia. Esa integración aún no está implementada; el Motor no accede directamente a PostgreSQL.
 
 - Procesamiento de video.
-- Detección y seguimiento de personas y maquinaria.
-- Evaluación de reglas operacionales acotadas.
-- Registro de eventos para validación y análisis.
+- Detección y seguimiento experimental de `person`; cobertura de maquinaria pendiente de pesos/clases apropiados.
+- Evaluación inicial de una regla operacional configurable (`zone_dwell`).
+- Emisión de candidatos transitorios; todavía no hay registro persistente de eventos.
 
 Las reglas y umbrales operacionales son configurables y dependen del escenario y de la organización. Se utiliza el concepto de evento de interés preventivo o condición potencialmente riesgosa, sujeto a revisión humana.
 
@@ -48,7 +49,7 @@ Kubernetes, Redis, Celery y HAR quedan fuera del MVP inicial.
 
 ## Clonación
 
-El repositorio es privado; se requiere acceso autorizado a `DPBascur/Operix`.
+Para clonar el repositorio se requiere acceso conforme a su visibilidad vigente en GitHub. Esta guía no presupone una visibilidad permanente.
 
 ```powershell
 git clone https://github.com/DPBascur/Operix.git
@@ -68,9 +69,28 @@ artefactos y distingue las referencias externas de los archivos versionados.
 | [frontend/](frontend/README.md) | Aplicación Web |
 | [backend/](backend/README.md) | API, configuración, consultas y persistencia |
 | [engine/](engine/README.md) | Pipeline base ejecutable y módulos operacionales de configuración, zonas, variables espacio-temporales y evaluación inicial de reglas; persistencia pendiente |
-| [docs/architecture/](docs/architecture/README.md) | Índice de arquitectura y artefactos vigentes |
-| docs/ | Documentación académica local existente; puede incluir archivos aún sin seguimiento |
-| Modelo_Trabajo_Titulo_LaTeX/ | Documentación LaTeX existente |
+| [docs/architecture/](docs/architecture/README.md) | Índice de arquitectura v1.0; diagramas y ADR completos aún externos |
+| [assets/demo/](assets/demo/README.md) | Dos entradas sintéticas y un video anotado para revisión |
+| [third_party/](third_party/nvidia-warehouse-dataset/NOTICE.md) | Procedencia, atribución y licencia de los clips NVIDIA |
+| [engine/evidence/](engine/evidence/) | Evidencias técnicas y resultados versionables |
+
+## Instalación, pruebas y demostración
+
+Se requiere Python 3.12 x64. La [guía del Motor](engine/README.md#entorno-local)
+separa la instalación Windows/NVIDIA-CUDA de la opción CPU y explica el lock
+reproducible. Tras instalar el entorno, desde la raíz del clon:
+
+```powershell
+.\engine\.venv\Scripts\python.exe -m pip check
+.\engine\.venv\Scripts\python.exe .\engine\scripts\check_environment.py
+.\engine\.venv\Scripts\python.exe -m unittest discover -s .\engine\tests -v
+```
+
+En un equipo NVIDIA compatible, añadir `--require-cuda` al verificador. Las
+pruebas de inferencia real son optativas y requieren pesos y muestras locales
+indicados mediante variables de entorno; sin ellos se omiten. Para reproducir
+la salida visual con una entrada incluida, seguir la [guía de demo](assets/demo/README.md).
+Los pesos `yolo11n.pt` no se distribuyen en este repositorio.
 
 ## Orientación técnica
 
@@ -92,19 +112,21 @@ tracking, visualización y el PoC integrado (OP-35/60/61). Se incluye también
 [el resultado anotado](assets/demo/warehouse_fire_ceiling04_operix_annotated.mp4)
 de esa segunda muestra para comparar entrada y salida visual. Son datos de terceros;
 su procedencia, hashes, atribución y [licencia OpenMDW-1.1](third_party/nvidia-warehouse-dataset/NOTICE.md)
-están documentados en el NOTICE. No representan video de una empresa ni
+están documentados en el NOTICE y en la [guía de demo](assets/demo/README.md). No representan video de una empresa ni
 validación industrial.
 
 Antes de cambiar arquitectura o stack por una limitación de implementación, se documentarán el problema, la evidencia y la propuesta para evaluar una nueva decisión arquitectónica. Véase el [índice de arquitectura v1.0](docs/architecture/README.md).
 
-El Excel conserva el backlog y la trazabilidad académica; GitHub Projects complementará la gestión técnica mediante Issues con títulos `[OP-XX] Descripción`, vinculados a commits y evidencias.
+El Excel conserva el backlog y la trazabilidad académica; GitHub Projects complementa la gestión técnica mediante Issues con títulos `[OP-XX] Descripción`, vinculados a commits y evidencias.
 
-## Derechos reservados
+## Licenciamiento pendiente
 
 Copyright © 2026 Daniel Felipe Peña Bascur. Todos los derechos reservados.
 
-Este repositorio, su código, documentación, diseño, nombre e identidad de proyecto son material propietario y confidencial. No se autoriza su copia, modificación, distribución, uso comercial ni reutilización, total o parcial, sin autorización previa y por escrito del titular.
+Licenciamiento del código Operix: pendiente de formalización antes de publicación.
+La presencia del código en GitHub no define por sí sola una licencia de
+reutilización. Consultar [avisos de terceros](THIRD_PARTY_NOTICES.md) por separado.
 
-La declaración anterior no atribuye a Operix la titularidad de los clips de
-NVIDIA incluidos en `assets/demo/`; estos materiales de terceros conservan la
-licencia y atribución indicadas en su [NOTICE](third_party/nvidia-warehouse-dataset/NOTICE.md).
+Los clips NVIDIA incluidos en `assets/demo/` no son propiedad de Operix y
+conservan la licencia y atribución indicadas en su
+[NOTICE](third_party/nvidia-warehouse-dataset/NOTICE.md).
