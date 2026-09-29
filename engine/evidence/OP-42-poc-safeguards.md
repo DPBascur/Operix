@@ -1,21 +1,59 @@
-# OP-42 — Checklist de resguardos del PoC actual
+# OP-42 — Checklist de procedencia y resguardos del PoC
 
-Este checklist documenta los resguardos aplicados al PoC actual y no constituye el cierre formal de OP-42, cuyo alcance completo depende de componentes posteriores.
+**Estado:** evidencia/checklist preparada para el PoC vigente; OP-42 no está
+formalmente completada. El alcance aquí es la validación con clips sintéticos,
+no el tratamiento futuro de video industrial real ni la persistencia de OP-39.
 
-Alcance: clips sintéticos NVIDIA utilizados en la validación del pipeline base.
-No se infiere cumplimiento de controles aún no implementados ni de OP-39.
+## A. Procedencia de datos
 
-| Aspecto | Resguardo documentado y límite | Evidencia |
+| Elemento | Registro verificable | Fuente |
 | --- | --- | --- |
-| Procedencia | Ambos clips provienen de `nvidia/PhysicalAI-WorldModel-Synthetic-Warehouse-Operations-Scenes`, revisión `d5b88d3abcf659f304a107f4336b71b4e2159133`. Las muestras son sintéticas; la disponibilidad pública del dataset no equivale a dominio público. | [OP-18](OP-18-data-selection.md), [OP-35](OP-35-bytetrack.md) |
-| Licencia | La revisión se documentó con licencia `OpenMDW-1.1`; cualquier redistribución de clips o derivados exige revisar sus condiciones vigentes y el destino concreto. No se afirma autorización general de difusión. | [OP-18](OP-18-data-selection.md) |
-| Muestra de interacción persona–montacargas | Run `001e53453441935632ae_run_1_seed_1288693302`, cámara `ceiling_00`, SHA-256 del MP4 `E4795E873DCBDAAA4DC3D42F533052E3C1DB62D1D3EF786C2C90DD4D7681330B`. | [OP-18](OP-18-data-selection.md), [OP-34](OP-34-yolo11-detection.md) |
-| Muestra principal de tracking/PoC | Run `00023b5323028ab83e67_run_6_seed_1486583949`, cámara `ceiling_04`, SHA-256 del MP4 `3ABE9043EE41F898D869890E8636B804186BFAF524DAEA2E6F6831E72711F4D6`. | [OP-35](OP-35-bytetrack.md), [OP-61](OP-61-poc.md) |
-| Salidas verificables | La ejecución final documentó SHA-256 del JSONL `ACAD8F3389233DE62652E590DD133ABE3B910FB91CD111BEDC00C96BA96C8DD5` y del video anotado `EA5B640009071D63D7EC756690E4437182C6DBCDD468CFE78DB0E4757735811A`; permanecen fuera del repositorio. | [OP-61](OP-61-poc.md) |
-| Identidad y responsabilidad | El PoC detecta la clase `person` y emite IDs temporales de tracking. No incorpora reconocimiento facial, identificación personal ni atribución automática de responsabilidad. Un `track_id` no representa identidad civil. | [OP-35](OP-35-bytetrack.md), [OP-61](OP-61-poc.md) |
-| Datos internos | La validación documentada usa las muestras sintéticas indicadas y no depende de videos internos ni de material empresarial no autorizado. No se incorporan pesos, videos, capturas ni JSONL de ejecución al repositorio. | [OP-18](OP-18-data-selection.md), [OP-61](OP-61-poc.md), [política Git](../../.gitignore) |
-| Difusión | Las evidencias versionadas son descripciones técnicas y hashes, no copias audiovisuales. Antes de compartir clips, capturas o salidas visuales fuera del equipo debe revisarse la licencia y el alcance de la autorización; este checklist no concede permiso de publicación. | [OP-18](OP-18-data-selection.md), [OP-61](OP-61-poc.md) |
+| Dataset y proveedor | NVIDIA PhysicalAI WorldModel Synthetic Warehouse Operations Scenes, repositorio `nvidia/PhysicalAI-WorldModel-Synthetic-Warehouse-Operations-Scenes`. Datos sintéticos; disponibilidad pública no significa dominio público. | [OP-18](OP-18-data-selection.md) |
+| Revisión y licencia documentada | Revisión `d5b88d3abcf659f304a107f4336b71b4e2159133`; licencia documentada para esa revisión: `OpenMDW-1.1`. La difusión de clips o derivados requiere revisar sus condiciones y el destino concreto. | [OP-18](OP-18-data-selection.md) |
+| Interacción persona–montacargas | Escenario `forklift_human_nearmiss`, run `001e53453441935632ae_run_1_seed_1288693302`, cámara `ceiling_00`, archivo `001e53453441935632ae_run_1_seed_1288693302.ceiling_00.rgb.mp4`, 300 frames. SHA-256 del MP4: `E4795E873DCBDAAA4DC3D42F533052E3C1DB62D1D3EF786C2C90DD4D7681330B`. | [OP-18](OP-18-data-selection.md), [OP-34](OP-34-yolo11-detection.md) |
+| Tracking y PoC integrado | Escenario `warehouse_fire`, run `00023b5323028ab83e67_run_6_seed_1486583949`, cámara `ceiling_04`, archivo `00023b5323028ab83e67_run_6_seed_1486583949.ceiling_04.rgb.mp4`, 277 frames. SHA-256 del MP4: `3ABE9043EE41F898D869890E8636B804186BFAF524DAEA2E6F6831E72711F4D6`. | [OP-35](OP-35-bytetrack.md), [OP-61](OP-61-poc.md) |
+| Salidas de la ejecución final | SHA-256 del JSONL de tracks: `ACAD8F3389233DE62652E590DD133ABE3B910FB91CD111BEDC00C96BA96C8DD5`; del video anotado: `EA5B640009071D63D7EC756690E4437182C6DBCDD468CFE78DB0E4757735811A`. Ambos permanecen fuera de Git. | [OP-61](OP-61-poc.md) |
 
-Quedan fuera de esta revisión los tratamientos de datos reales, controles de acceso,
-retención, publicación y componentes posteriores del sistema. Se requieren análisis
-y decisiones específicos antes de utilizarlos o dar por cerrado OP-42.
+## B. Identidad y privacidad
+
+- El PoC no implementa reconocimiento facial, biometría ni identificación
+  personal. `person` es una clase de detección y `track_id` identifica
+  temporalmente un track dentro de una sesión, no a una persona real.
+- Las muestras sintéticas no acreditan por sí solas medidas suficientes para
+  un despliegue sobre CCTV real. Ese tratamiento requeriría evaluación propia.
+
+## C. Alcance preventivo
+
+- No se asigna responsabilidad individual ni se aplican sanciones automáticamente.
+- El PoC no clasifica automáticamente infracciones ni Near Miss. La
+  interpretación de una condición depende del contexto operacional y de
+  revisión humana.
+- En OP-38, `EventCandidate` indica únicamente que se cumplió una regla
+  configurada. No equivale a accidente, Near Miss, infracción o responsabilidad.
+  [OP-38](OP-38-rules.md) documenta el umbral experimental y su alcance.
+
+## D. Datos internos
+
+- La validación documentada no depende de videos ni datasets internos de una
+  empresa. No se presupone autorización para usarlos o difundirlos.
+- Cualquier uso futuro de material interno requiere autorización específica y
+  evaluación adicional de privacidad, acceso y finalidad antes de incorporarlo.
+  Esa validación adicional no es una dependencia para reproducir el PoC actual.
+
+## E. Evidencia y difusión
+
+- Se versionan configuración, código, pruebas, evidencias técnicas y hashes para
+  trazabilidad. Pesos, videos, capturas, JSONL de ejecución y logs quedan fuera
+  del repositorio conforme a la [política Git](../../.gitignore).
+- No se deben publicar material confidencial, secretos, credenciales ni rutas
+  personales. La existencia de un hash no autoriza redistribuir el artefacto.
+- Antes de difundir clips, capturas o derivados debe verificarse la licencia
+  aplicable y el permiso concreto. Este checklist no concede tal autorización.
+
+## Pendiente para el cierre formal de OP-42
+
+OP-39 aún no implementa persistencia de eventos. Por tanto faltan decisiones y
+controles verificables sobre datos de eventos, acceso, retención y difusión, junto
+con la evaluación de cualquier escenario real o componente posterior que trate
+datos personales. Este checklist cubre únicamente el PoC vigente: no debe usarse
+para marcar OP-42 como `Done` ni para cerrar su Issue.
