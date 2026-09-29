@@ -4,20 +4,28 @@ La línea base **Operix Architecture v1.0** se cerró el 10/09/2026. Los diagram
 
 ## Diagramas
 
-Los tres C4 se extrajeron sin redibujar de la [exportación completa de IcePanel](architecture-v1.0-icepanel-export.pdf), que conserva además el índice y las descripciones de actores, sistemas y componentes.
+Los seis diagramas están disponibles en este directorio. Para los tres C4, el PNG facilita la visualización en GitHub y el PDF conserva la página documental extraída sin redibujar de la [exportación completa de IcePanel](architecture-v1.0-icepanel-export.pdf). Esta última conserva también el índice y las descripciones de actores, sistemas y componentes.
 
-| ID | Artefacto | Archivo | Página del PDF original |
+| ID | Artefacto | Visualización | Alternativa documental |
 | --- | --- | --- | --- |
-| C4-01 | Contexto | [C4-01-contexto.pdf](C4-01-contexto.pdf) | 2 |
-| C4-02 | Contenedores | [C4-02-contenedores.pdf](C4-02-contenedores.pdf) | 3 |
-| C4-03 | Componentes del motor | [C4-03-componentes-motor.pdf](C4-03-componentes-motor.pdf) | 4 |
-| SEQ-01 | Flujo de procesamiento de un evento preventivo | [SEQ-01-flujo-evento.png](SEQ-01-flujo-evento.png) | No aplica |
-| ERD-01 | Modelo de datos | [ERD-01-modelo-datos.png](ERD-01-modelo-datos.png) | No aplica |
-| DEP-01 | Diagrama de despliegue | [DEP-01-despliegue.png](DEP-01-despliegue.png) | No aplica |
+| C4-01 | Contexto | [PNG](C4-01-contexto.png) | [PDF](C4-01-contexto.pdf), página 2 del original |
+| C4-02 | Contenedores | [PNG](C4-02-contenedores.png) | [PDF](C4-02-contenedores.pdf), página 3 del original |
+| C4-03 | Componentes del motor | [PNG](C4-03-componentes-motor.png) | [PDF](C4-03-componentes-motor.pdf), página 4 del original |
+| SEQ-01 | Flujo de procesamiento de un evento preventivo | [PNG](SEQ-01-flujo-evento.png) | — |
+| ERD-01 | Modelo de datos | [PNG](ERD-01-modelo-datos.png) | — |
+| DEP-01 | Diagrama de despliegue | [PNG](DEP-01-despliegue.png) | — |
 
 ## Decisiones de arquitectura
 
-ADR-01 a ADR-05 pertenecen a la arquitectura base v1.0. Sus exportaciones originales desde IcePanel están **pendientes de incorporación al repositorio**. Este índice no reconstruye sus títulos ni sus decisiones.
+Los cinco ADR aprobados forman parte de la arquitectura base v1.0. Sus textos originales exportados de IcePanel se encuentran en:
+
+| ID | Decisión documentada |
+| --- | --- |
+| ADR-01 | [Arquitectura híbrida y modular de Operix](adr/ADR-01.md) |
+| ADR-02 | [Separación del motor de análisis y Backend](adr/ADR-02.md) |
+| ADR-03 | [Persistencia desacoplada del motor](adr/ADR-03.md) |
+| ADR-04 | [Selección del stack tecnológico de Operix](adr/ADR-04.md) |
+| ADR-05 | [Estrategia de procesamiento de video en Operix](adr/ADR-05.md) |
 
 ## Vigencia
 

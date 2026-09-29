@@ -58,10 +58,10 @@ git switch dev
 ```
 
 `main` conserva el hito estable `v0.1.0`; `dev` es la rama habitual de desarrollo.
-Los seis diagramas de la arquitectura v1.0 están disponibles en
-[docs/architecture/](docs/architecture/README.md), junto con la exportación
-completa de IcePanel. Las exportaciones originales de ADR-01 a ADR-05 aún
-están pendientes de incorporación al repositorio.
+Los seis diagramas y los cinco ADR de la arquitectura base v1.0 están
+disponibles en [docs/architecture/](docs/architecture/README.md), junto con
+la exportación completa de IcePanel. Documentan el diseño aprobado, no la
+implementación completa del sistema.
 
 ## Estructura del repositorio
 
@@ -70,7 +70,7 @@ están pendientes de incorporación al repositorio.
 | [frontend/](frontend/README.md) | Aplicación Web |
 | [backend/](backend/README.md) | API, configuración, consultas y persistencia |
 | [engine/](engine/README.md) | Pipeline base ejecutable y módulos operacionales de configuración, zonas, variables espacio-temporales y evaluación inicial de reglas; persistencia pendiente |
-| [docs/architecture/](docs/architecture/README.md) | Seis diagramas de arquitectura v1.0 y exportación completa de IcePanel; ADR originales aún pendientes |
+| [docs/architecture/](docs/architecture/README.md) | Seis diagramas, cinco ADR y exportación completa de IcePanel de la arquitectura v1.0 |
 | [assets/demo/](assets/demo/README.md) | Dos entradas sintéticas y un video anotado para revisión |
 | [third_party/](third_party/nvidia-warehouse-dataset/NOTICE.md) | Procedencia, atribución y licencia de los clips NVIDIA |
 | [engine/evidence/](engine/evidence/) | Evidencias técnicas y resultados versionables |
