@@ -179,11 +179,21 @@ la estructura y devuelve `Zone`, `RuleConfig` y `OperationalConfig` sin depender
 del detector, tracker ni renderer. `schema_version` es `1` y el único sistema de
 coordenadas admitido es `normalized`. Cambiar parámetros en el JSON no modifica
 el código de percepción. La prueba geométrica de zonas y la evaluación de reglas
-corresponden a OP-36 y OP-38, respectivamente.
+se implementaron en OP-36 y OP-38, respectivamente; OP-37 proporciona las
+variables descriptivas de pertenencia y permanencia.
+
+## Regla configurable inicial (OP-38)
+
+`RuleEngine` consume `FrameSpatialState` de OP-37 y el `RuleConfig` de OP-30.
+La primera regla `zone_dwell` exige clase y zona configuradas, pertenencia y
+`dwell_time_s >= min_duration_s`. Emite un `EventCandidate` en memoria solo al
+pasar de falso a verdadero. Gaps, ausencias y salidas rearman la condición;
+una configuración nueva inicia una instancia/sesión nueva. El umbral de 2 s del
+ejemplo es experimental, no universal. Véase la [evidencia OP-38](evidence/OP-38-rules.md).
 
 ## Componentes de arquitectura
 
-Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios independientes. Procesamiento, detección y seguimiento están implementados; los cuatro componentes operacionales restantes siguen pendientes:
+Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios independientes. Procesamiento, detección, seguimiento, análisis espacio-temporal, configuración y evaluación inicial de reglas están implementados. El gestor/persistencia de eventos sigue pendiente:
 
 1. Procesador de video.
 2. Detector de objetos.
@@ -201,7 +211,9 @@ visualización técnica reutilizable. OP-43 instrumenta FPS y latencia del pipel
 vigente sin optimizarlo.
 
 OP-61 consolida la ejecución integrada y sus evidencias, aprobadas para cierre
-formal; no incorpora reglas, zonas, proximidad, eventos, persistencia,
-backend ni frontend.
+formal; ese PoC no incorporó reglas, zonas, proximidad ni eventos. Posteriormente
+OP-30, OP-36 y OP-37 añadieron configuración, pertenencia y variables descriptivas;
+OP-38 incorpora evaluación inicial de reglas y candidatos en memoria.
+Persistencia OP-39, backend y frontend siguen pendientes.
 
 Consulte el [índice de arquitectura](../docs/architecture/README.md) para los artefactos vigentes.

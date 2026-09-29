@@ -14,8 +14,9 @@ El aporte del Trabajo de Título consiste en diseñar, integrar y evaluar un sis
 - Operix Architecture v1.0 cerrada.
 - OP-58: preparación y estructuración del repositorio existente, conservando su historial.
 - Pipeline base del Motor implementado y validado: OP-33, OP-34, OP-35, OP-60 y OP-43.
-- OP-61: ejecución integrada y consolidación documental completadas y aprobadas para cierre formal.
-- Reglas, eventos, persistencia, Backend/API y Aplicación Web permanecen pendientes de implementación.
+- OP-61: ejecución integrada y consolidación documental completadas.
+- OP-30 (configuración), OP-36 (pertenencia a zonas) y OP-37 (variables espacio-temporales) están completadas; OP-38 incorpora la primera regla configurable.
+- Persistencia de eventos, Backend/API y Aplicación Web permanecen pendientes.
 
 ## Arquitectura y alcance
 
@@ -66,7 +67,7 @@ artefactos y distingue las referencias externas de los archivos versionados.
 | --- | --- |
 | [frontend/](frontend/README.md) | Aplicación Web |
 | [backend/](backend/README.md) | API, configuración, consultas y persistencia |
-| [engine/](engine/README.md) | Pipeline base ejecutable de video, detección, tracking y visualización; componentes operacionales posteriores pendientes |
+| [engine/](engine/README.md) | Pipeline base ejecutable y módulos operacionales de configuración, zonas, variables espacio-temporales y evaluación inicial de reglas; persistencia pendiente |
 | [docs/architecture/](docs/architecture/README.md) | Índice de arquitectura y artefactos vigentes |
 | docs/ | Documentación académica local existente; puede incluir archivos aún sin seguimiento |
 | Modelo_Trabajo_Titulo_LaTeX/ | Documentación LaTeX existente |
@@ -76,6 +77,8 @@ artefactos y distingue las referencias externas de los archivos versionados.
 El Motor dispone de entorno reproducible Windows/CUDA, scripts de ejecución y pruebas. El sistema completo, los Dockerfiles y la configuración Compose siguen pendientes. La organización permite posteriormente un despliegue con Docker Compose conforme a DEP-01.
 
 El PoC técnico ejecutado comprende video → OpenCV → YOLO11 → ByteTrack → visualización, con métricas del benchmark independiente de OP-43. La [evidencia consolidada de OP-61](engine/evidence/OP-61-poc.md) registra configuración, entorno, hashes, resultados y limitaciones como evidencia inicial de RF-01, RF-02, RF-03 y RNF-02.
+
+Después de ese hito, el desarrollo incorpora configuración de zonas y reglas (OP-30), pertenencia geométrica (OP-36), variables espacio-temporales (OP-37) y evaluación inicial `zone_dwell` (OP-38). Los candidatos emitidos en memoria no son eventos persistidos ni una clasificación automática de riesgo.
 
 La validación principal filtra `person`. Los pesos COCO no contienen `forklift` y no demuestran tracking fiable de maquinaria. Los resultados proceden de muestras sintéticas acotadas; no acreditan funcionamiento universal o sostenido en tiempo real ni validación completa de Operix.
 

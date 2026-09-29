@@ -20,6 +20,8 @@
       "version": 1,
       "enabled": true,
       "parameters": {
+        "kind": "zone_dwell",
+        "class_name": "person",
         "zone_id": "zona_critica_01",
         "min_duration_s": 2.0
       }
