@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Daniel Felipe Peña Bascur
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Reproduce OP-38 sobre un JSONL de tracks existente, sin inferencia ni video."""
 
 from __future__ import annotations

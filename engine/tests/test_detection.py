@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Daniel Felipe Peña Bascur
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Pruebas de los tipos propios de detección de Operix."""
 
 import unittest

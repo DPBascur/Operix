@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Daniel Felipe Peña Bascur
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Pruebas de variables OP-37 con tracks sintéticos, sin inferencia real."""
 
 from __future__ import annotations

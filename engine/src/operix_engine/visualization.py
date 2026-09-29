@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Daniel Felipe Peña Bascur
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Render reutilizable de detecciones, tracks y trayectorias sobre frames OpenCV."""
 
 from __future__ import annotations

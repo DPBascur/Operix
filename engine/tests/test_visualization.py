@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Daniel Felipe Peña Bascur
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Pruebas sintéticas del renderer y las trayectorias de OP-60."""
 
 from __future__ import annotations

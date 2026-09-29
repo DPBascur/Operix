@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Daniel Felipe Peña Bascur
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Adaptador de YOLO11 para el contrato de detección de Operix."""
 
 from __future__ import annotations

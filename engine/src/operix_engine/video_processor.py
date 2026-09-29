@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Daniel Felipe Peña Bascur
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Lectura controlada de fuentes de video grabadas mediante OpenCV."""
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Daniel Felipe Peña Bascur
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Mide FPS y latencia del pipeline base, visual y end-to-end de Operix."""
 
 from __future__ import annotations

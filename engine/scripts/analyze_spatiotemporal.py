@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Daniel Felipe Peña Bascur
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Genera tablas OP-37 desde un JSONL de tracks ya producido por Operix."""
 
 from __future__ import annotations

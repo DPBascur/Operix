@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Daniel Felipe Peña Bascur
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Variables descriptivas por frame a partir de tracks y zonas de Operix."""
 
 from __future__ import annotations

@@ -81,11 +81,14 @@ El verificador dirige la configuración que Ultralytics crea al importarse hacia
 
 Un entorno futuro, como macOS con MPS, podrá incorporar su propio archivo lock después de ser validado. El lock de Windows no reemplaza `pyproject.toml` ni define compatibilidad universal del motor.
 
-## Consideración de licencia
+## Licencia
 
-La distribución utilizada de Ultralytics documenta AGPL-3.0; véase
-[avisos de terceros](../THIRD_PARTY_NOTICES.md). La elección de licencia para
-el código Operix sigue pendiente; este README no adopta una licencia propia.
+El código fuente propio del Operix académico se distribuye bajo
+**AGPL-3.0-or-later**; véase el [LICENSE](../LICENSE) del repositorio.
+La biblioteca Ultralytics utilizada para YOLO11 y su implementación de ByteTrack
+declara **AGPL-3.0** y conserva su propia titularidad y política de licencia;
+véanse los [avisos de terceros](../THIRD_PARTY_NOTICES.md). Operix no reclama
+titularidad sobre Ultralytics ni ByteTrack.
 
 ## Procesamiento de video grabado
 

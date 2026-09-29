@@ -1,7 +1,9 @@
 # Avisos factuales de terceros
 
 Este documento identifica materiales y dependencias usados por el prototipo;
-**no establece la licencia del código Operix ni emite conclusiones jurídicas**.
+**no emite conclusiones jurídicas**. El código fuente propio de Operix académico
+se distribuye bajo [AGPL-3.0-or-later](LICENSE); ello no relicencia los
+materiales de terceros descritos aquí.
 
 ## Videos sintéticos NVIDIA
 
@@ -16,19 +18,32 @@ y al [texto de licencia](https://openmdw.ai/license/1-1/). Operix no reclama
 titularidad sobre las imágenes originales; la salida anotada añade únicamente
 superposiciones técnicas al clip NVIDIA.
 
+Los tres MP4 conservan los términos **OpenMDW-1.1** y los avisos de origen
+aplicables; no se relicencian bajo AGPL-3.0-or-later.
+
 ## Ultralytics y pesos YOLO11
 
 El Motor declara la dependencia `ultralytics` en
 [`engine/pyproject.toml`](engine/pyproject.toml) y fija la versión validada
 **8.4.146** en el [lock Windows/CUDA](engine/requirements.windows-cu130.lock.txt).
 La biblioteca se instala como dependencia: **no está vendorizada** aquí.
-Ultralytics [publica información sobre AGPL-3.0 y su opción Enterprise](https://docs.ultralytics.com/help/contributing/).
+La distribución utilizada declara **AGPL-3.0**. Operix utiliza `YOLO` desde
+`ultralytics` y `BYTETracker` desde
+`ultralytics.trackers.byte_tracker.BYTETracker`; no utiliza como dependencia
+directa el repositorio independiente de ByteTrack publicado bajo MIT.
+Ultralytics [documenta su licencia AGPL-3.0 y opción Enterprise](https://docs.ultralytics.com/help/contributing/).
 La línea base experimental usó los pesos oficiales `yolo11n.pt` para detección
 COCO. Los pesos **no están redistribuidos** en este repositorio. La
 [evidencia OP-34](engine/evidence/OP-34-yolo11-detection.md) registra su SHA-256
-y la [documentación oficial de YOLO11](https://github.com/ultralytics/yolo11)
-describe el modelo y la obtención de pesos en el primer uso de Ultralytics.
+y la [documentación oficial de YOLO11](https://docs.ultralytics.com/models/yolo11/)
+describe el modelo y las licencias de los modelos/pesos. El Motor requiere una
+copia local de los pesos y no los incluye en Git.
 
-El licenciamiento definitivo de Operix requiere una decisión separada antes
-de la publicación. Ninguna mención de licencias de terceros aquí selecciona
-una licencia para el código propio.
+## Dependencias adicionales
+
+El entorno Windows/CUDA validado fija `ultralytics-thop==2.1.6` en el
+[lock](engine/requirements.windows-cu130.lock.txt). Su distribución instalada
+declara **AGPL-3.0**; se instala como paquete externo, no como código
+vendorizado de Operix. Las demás dependencias se instalan externamente según
+el [proyecto Python](engine/pyproject.toml) y el lock; sus licencias no se
+sustituyen por la licencia del código propio de Operix.

@@ -120,14 +120,20 @@ Antes de cambiar arquitectura o stack por una limitación de implementación, se
 
 El Excel conserva el backlog y la trazabilidad académica; GitHub Projects complementa la gestión técnica mediante Issues con títulos `[OP-XX] Descripción`, vinculados a commits y evidencias.
 
-## Licenciamiento pendiente
+## Licencia
 
-Copyright © 2026 Daniel Felipe Peña Bascur. Todos los derechos reservados.
+Copyright (C) 2026 Daniel Felipe Peña Bascur.
 
-Licenciamiento del código Operix: pendiente de formalización antes de publicación.
-La presencia del código en GitHub no define por sí sola una licencia de
-reutilización. Consultar [avisos de terceros](THIRD_PARTY_NOTICES.md) por separado.
+El código fuente propio de la versión académica de Operix se distribuye bajo
+**GNU Affero General Public License v3.0 or later** (`AGPL-3.0-or-later`).
+Daniel Felipe Peña Bascur conserva la titularidad de su código original; los
+términos completos de la licencia están en [LICENSE](LICENSE).
+
+Los materiales de terceros conservan sus propias licencias y condiciones; no
+quedan relicenciados por la licencia del código Operix. Consultar los
+[avisos de terceros](THIRD_PARTY_NOTICES.md).
 
 Los clips NVIDIA incluidos en `assets/demo/` no son propiedad de Operix y
-conservan la licencia y atribución indicadas en su
+no se relicencian bajo AGPL-3.0-or-later. Conservan la licencia OpenMDW-1.1 y
+la atribución indicadas en su
 [NOTICE](third_party/nvidia-warehouse-dataset/NOTICE.md).

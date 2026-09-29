@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Daniel Felipe Peña Bascur
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Prueba optativa de YOLO11, filtro person y ByteTrack sobre OP-35."""
 
 from __future__ import annotations

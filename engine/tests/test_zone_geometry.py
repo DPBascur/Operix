@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Daniel Felipe Peña Bascur
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Pruebas de pertenencia de OP-36 sin inferencia ni tracking."""
 
 from __future__ import annotations

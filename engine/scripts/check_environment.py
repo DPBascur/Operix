@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Daniel Felipe Peña Bascur
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Verifica el entorno de ejecucion del motor de Operix para OP-59."""
 
 from __future__ import annotations

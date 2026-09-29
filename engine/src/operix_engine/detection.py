@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Daniel Felipe Peña Bascur
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Tipos y contrato de detección independientes del backend de inferencia."""
 
 from __future__ import annotations

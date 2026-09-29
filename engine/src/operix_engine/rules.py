@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Daniel Felipe Peña Bascur
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Evaluación de reglas configuradas sobre variables descriptivas de OP-37.
 
 Los candidatos son transitorios: este módulo no clasifica riesgos ni persiste eventos.

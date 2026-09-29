@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Daniel Felipe Peña Bascur
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Medición reproducible de latencia y FPS para el pipeline de Operix."""
 
 from __future__ import annotations
