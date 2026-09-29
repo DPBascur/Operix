@@ -30,7 +30,13 @@ La clave de activación es `(rule_id, rule_version, track_id, zone_id)`. `false 
 
 ## Comprobación reproducible sobre tracks del dataset
 
-Se reutilizó el JSONL local de OP-60/OP-35 para la muestra sintética NVIDIA `ceiling_04`, sin volver a ejecutar inferencia. SHA-256 del JSONL de entrada: `ACAD8F3389233DE62652E590DD133ABE3B910FB91CD111BEDC00C96BA96C8DD5`. Resolución `1920×1080`, `30 FPS`. El JSONL y el video permanecen fuera del repositorio.
+Se reutilizó el JSONL local de OP-60/OP-35 para la muestra sintética NVIDIA
+`ceiling_04`, sin volver a ejecutar inferencia. SHA-256 del JSONL de entrada:
+`ACAD8F3389233DE62652E590DD133ABE3B910FB91CD111BEDC00C96BA96C8DD5`.
+Resolución `1920×1080`, `30 FPS`. En esta comprobación, JSONL y video eran
+recursos locales externos. El JSONL sigue fuera de Git; posteriormente se
+incorporó una [copia verificada del video](../../assets/demo/README.md), sin
+cambiar el resultado de OP-38.
 
 Desde la raíz del repositorio, reemplazando el marcador con la ruta local del JSONL:
 

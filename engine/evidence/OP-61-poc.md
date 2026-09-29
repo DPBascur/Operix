@@ -166,6 +166,13 @@ Ambos artefactos son nuevos y no sobrescriben OP-35, OP-60 ni OP-43. El video du
 9,233 s. También quedan externos stdout, stderr, logs de pruebas/entorno y capturas
 de inspección. Este informe y el resumen compacto constituyen la evidencia versionable.
 
+**Evolución posterior del repositorio:** aquella ejecución utilizó recursos locales
+externos y produjo salidas externas. Después se incorporaron en
+[`assets/demo`](../../assets/demo/README.md) copias verificadas de las dos entradas
+sintéticas y de este video anotado. El JSONL, los pesos, las capturas y los logs
+siguen fuera de Git. La incorporación de esos tres MP4 no modifica la fecha, los
+conteos ni los hashes de la ejecución histórica.
+
 ## Revisión visual y continuidad
 
 Se revisaron hojas de contacto de los frames 0, 58, 60, 61, 62, 70, 73, 74, 86,

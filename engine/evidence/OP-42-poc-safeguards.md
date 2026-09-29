@@ -1,8 +1,9 @@
-# OP-42 — Checklist de procedencia y resguardos del PoC
+# OP-42 — Aplicar resguardos de evidencia y alcance del PoC
 
-**Estado:** evidencia/checklist preparada para el PoC vigente; OP-42 no está
-formalmente completada. El alcance aquí es la validación con clips sintéticos,
-no el tratamiento futuro de video industrial real ni la persistencia de OP-39.
+**Estado académico:** completada en Backlog V0.10.1 para el alcance acotado de
+Etapa 2 documentado aquí. Este cierre comprende la evidencia y los resguardos
+del PoC con clips públicos y sintéticos; no equivale a controles implementados
+para video industrial real ni para eventos persistidos.
 
 ## A. Procedencia de datos
 
@@ -53,10 +54,15 @@ no el tratamiento futuro de video industrial real ni la persistencia de OP-39.
 - Antes de difundir clips, capturas o derivados debe verificarse la licencia
   aplicable y el permiso concreto. Este checklist no concede tal autorización.
 
-## Pendiente para el cierre formal de OP-42
+## Límite del cierre académico
 
-OP-39 aún no implementa persistencia de eventos. Por tanto faltan decisiones y
-controles verificables sobre datos de eventos, acceso, retención y difusión, junto
-con la evaluación de cualquier escenario real o componente posterior que trate
-datos personales. Este checklist cubre únicamente el PoC vigente: no debe usarse
-para marcar OP-42 como `Done` ni para cerrar su Issue.
+El cierre de OP-42 en V0.10.1 se refiere a procedencia, revisión y licencia del
+dataset, hashes, trazabilidad, atribución, material público/sintético, identidad
+temporal de `track_id`, ausencia de biometría y de decisiones automáticas sobre
+responsabilidad, sanción o Near Miss, y resguardos de los tres clips de demo.
+
+No se han implementado persistencia de eventos, control de acceso,
+roles/permisos, retención, consulta histórica persistente ni gestión de eventos
+almacenados. Esas materias y cualquier evaluación de CCTV industrial real
+pertenecen a etapas posteriores; no son condiciones retroactivas del cierre de
+OP-42 en Etapa 2.

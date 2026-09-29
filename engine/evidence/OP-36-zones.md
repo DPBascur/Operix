@@ -87,9 +87,11 @@ No se repitió la inferencia ni se guardaron nuevos medios en el repositorio.
 | 141 | 31 | `person` | `(629.6606, 584.6583, 655.8845, 651.5026)` | `(0.334777, 0.603243)` | Dentro |
 
 El resultado es exclusivamente geométrico: no interpreta presencia en zona como
-riesgo ni demuestra identidad humana permanente. El JSONL y el video permanecen
-fuera de Git. La normalización no vuelve intercambiables vistas, recortes o
-perspectivas distintos; la zona está asociada a `view_id=ceiling_04`.
+riesgo ni demuestra identidad humana permanente. El JSONL empleado permaneció
+fuera de Git; posteriormente se incorporó una copia verificada del video de
+entrada en [`assets/demo`](../../assets/demo/README.md). La normalización no
+vuelve intercambiables vistas, recortes o perspectivas distintos; la zona está
+asociada a `view_id=ceiling_04`.
 
 ## Límite y continuidad
 

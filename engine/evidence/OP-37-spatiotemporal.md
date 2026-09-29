@@ -90,8 +90,9 @@ ruta autorizada del JSONL identificado arriba:
 ```
 
 El script exige salidas nuevas para no sobrescribir evidencia anterior. Los CSV
-versionables no contienen rutas locales ni video; video, pesos y JSONL completo
-permanecen fuera de Git.
+versionables no contienen rutas locales ni video. El JSONL original y los pesos
+siguen fuera de Git; después de esta comprobación se incorporó una copia
+verificada del video de entrada en [`assets/demo`](../../assets/demo/README.md).
 
 ## Pruebas y límites
 

@@ -171,18 +171,27 @@ latencia individual de los frames.
 El video final del escenario C se generó fuera del repositorio con 257 frames,
 1920×1080, 30 FPS y 10.134.870 bytes. Su SHA-256 es
 `774741031B4177CD58F07C2944998D554424A9A07CF3483BC8789EC0B8802A03`.
-Los pesos, videos, capturas y logs temporales permanecen fuera del repositorio.
+En el benchmark original, pesos, video de entrada, salida C, capturas y logs
+temporales estaban fuera del repositorio. Posteriormente se incorporó una
+[copia verificada de la entrada](../../assets/demo/README.md), pero **la salida
+C del benchmark no está versionada**. Pesos, capturas y logs siguen fuera de Git.
 
-Comando reproducible, usando rutas externas para las entradas y el video:
+Comando reproducible, usando una ruta local para los pesos y un **destino nuevo**
+fuera del repositorio. No apuntar a los CSV/JSON históricos versionados: el
+script escribe las salidas indicadas y puede sobrescribir el video de salida.
 
 ```powershell
+$weights = '<ruta local a yolo11n.pt>'
+if ((Get-FileHash -LiteralPath $weights -Algorithm SHA256).Hash -ne '0EBBC80D4A7680D14987A577CD21342B65ECFD94632BD9A8DA63AE6417644EE1') { throw 'Los pesos no coinciden con el experimento' }
+$benchmarkOut = Join-Path $env:TEMP ('operix-benchmark-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+New-Item -ItemType Directory -Path $benchmarkOut -ErrorAction Stop | Out-Null
 .\engine\.venv\Scripts\python.exe .\engine\scripts\benchmark_pipeline.py `
-  <video-ceiling-04> `
-  --weights <pesos-yolo11n> `
+  .\assets\demo\warehouse_fire_ceiling04.mp4 `
+  --weights $weights `
   --video-sha256 3ABE9043EE41F898D869890E8636B804186BFAF524DAEA2E6F6831E72711F4D6 `
-  --output-csv .\engine\evidence\OP-43-benchmark.csv `
-  --output-summary .\engine\evidence\OP-43-benchmark-summary.json `
-  --output-video <salida-externa-escenario-c.mp4>
+  --output-csv (Join-Path $benchmarkOut 'benchmark.csv') `
+  --output-summary (Join-Path $benchmarkOut 'summary.json') `
+  --output-video (Join-Path $benchmarkOut 'scenario-c.mp4')
 ```
 
 ## Límites de interpretación

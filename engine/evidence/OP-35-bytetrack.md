@@ -79,8 +79,11 @@ crean equivalencias para `forklift`.
 - Tamaño: `14.668.288 bytes`
 - SHA-256: `3ABE9043EE41F898D869890E8636B804186BFAF524DAEA2E6F6831E72711F4D6`
 
-El script verifica el hash y los metadatos antes de procesar. La muestra, los pesos y
-los artefactos generados permanecen fuera del repositorio.
+El script verifica el hash y los metadatos antes de procesar. En el experimento
+original, muestra, pesos y artefactos generados permanecieron fuera del repositorio.
+Después se incorporó únicamente una [copia verificada de la entrada](../../assets/demo/README.md)
+y una salida anotada distinta de la salida diagnóstica de OP-35. Los pesos,
+JSONL y demás salidas locales no se versionaron.
 
 ## Resultado experimental
 

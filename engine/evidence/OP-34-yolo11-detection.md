@@ -53,6 +53,11 @@ Configuración mínima utilizada:
 
 Los pesos se obtuvieron una sola vez desde los activos oficiales de Ultralytics para
 la validación autorizada. Se almacenaron fuera del repositorio y no se versionaron.
+La [documentación oficial de YOLO11](https://github.com/ultralytics/yolo11)
+describe `yolo11n.pt` y su obtención automática en el primer uso de la API de
+Ultralytics; el adaptador de Operix, en cambio, exige un archivo local existente.
+Una reproducción debe obtenerlo por separado y verificar el SHA-256 anterior;
+no se garantiza que una descarga posterior sea idéntica sin esa comprobación.
 
 ## Muestra de validación
 
@@ -71,7 +76,8 @@ Se utilizó exclusivamente la muestra base definida por OP-18:
 | Propiedades | 1920 x 1080, 30 FPS, 300 frames |
 
 El nombre, la revisión, el run, la cámara y el SHA-256 se verificaron antes de la
-inferencia. La muestra permaneció fuera del repositorio.
+inferencia. En la ejecución original la muestra permaneció fuera del repositorio;
+posteriormente se incorporó una [copia verificada de demo](../../assets/demo/README.md).
 
 ## Pruebas automatizadas
 

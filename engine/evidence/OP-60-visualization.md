@@ -81,7 +81,7 @@ Las pruebas de OP-60 utilizan frames, detecciones y tracks sintéticos; no desca
 
 Se reutilizó la configuración validada en OP-35: YOLO11n-COCO, confianza 0,10, IoU 0,70, tamaño 640, dispositivo CUDA y filtro `person`; ByteTrack con umbrales 0,25/0,10/0,25, buffer de 30 frames, `match_thresh=0,80` y fusión de score activa.
 
-Comando reproducible, manteniendo entradas y salidas fuera del repositorio:
+Comando de la validación original, con entradas y salidas locales fuera del repositorio:
 
 ```powershell
 .\engine\.venv\Scripts\python.exe .\engine\scripts\track_video.py <video-entrada> --weights <pesos-locales> --output-jsonl <salida-jsonl> --output-video <video-anotado> --expected-video-sha256 3ABE9043EE41F898D869890E8636B804186BFAF524DAEA2E6F6831E72711F4D6 --expected-frames 277 --expected-fps 30 --expected-width 1920 --expected-height 1080 --conf 0.10 --iou 0.70 --imgsz 640 --device cuda --track-high-thresh 0.25 --track-low-thresh 0.10 --new-track-thresh 0.25 --track-buffer 30 --match-thresh 0.80
@@ -109,7 +109,11 @@ Comando de reproducción:
 Start-Process <video-anotado>
 ```
 
-El video anotado, el JSONL y las capturas de revisión permanecen fuera del repositorio.
+En la validación original, el video anotado, el JSONL y las capturas de revisión
+permanecieron fuera del repositorio. Posteriormente se incorporó una copia
+verificada de ese video anotado en [`assets/demo`](../../assets/demo/README.md);
+JSONL, capturas y nuevas salidas locales siguen fuera de Git. Esta evolución no
+modifica los resultados ni los hashes de la ejecución histórica.
 
 ## Inspección visual
 

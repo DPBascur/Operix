@@ -16,8 +16,10 @@
 - Licencia de la revisión: OpenMDW-1.1
 - Fecha de recuperación: 2026-09-10
 
-El MP4 se conserva en almacenamiento temporal local fuera del repositorio y no se
-versiona en Git.
+Durante esta selección el MP4 se conservó en almacenamiento temporal local fuera
+del repositorio. Posteriormente se incorporó una copia verificada, con la misma
+procedencia y hash, en [`assets/demo`](../../assets/demo/README.md). La incorporación
+posterior no cambia la decisión ni los resultados originales de OP-18.
 
 ## Decisión de cierre
 
