@@ -12,7 +12,7 @@ no el tratamiento futuro de video industrial real ni la persistencia de OP-39.
 | Revisión y licencia documentada | Revisión `d5b88d3abcf659f304a107f4336b71b4e2159133`; licencia documentada para esa revisión: `OpenMDW-1.1`. La difusión de clips o derivados requiere revisar sus condiciones y el destino concreto. | [OP-18](OP-18-data-selection.md) |
 | Interacción persona–montacargas | Escenario `forklift_human_nearmiss`, run `001e53453441935632ae_run_1_seed_1288693302`, cámara `ceiling_00`, archivo `001e53453441935632ae_run_1_seed_1288693302.ceiling_00.rgb.mp4`, 300 frames. SHA-256 del MP4: `E4795E873DCBDAAA4DC3D42F533052E3C1DB62D1D3EF786C2C90DD4D7681330B`. | [OP-18](OP-18-data-selection.md), [OP-34](OP-34-yolo11-detection.md) |
 | Tracking y PoC integrado | Escenario `warehouse_fire`, run `00023b5323028ab83e67_run_6_seed_1486583949`, cámara `ceiling_04`, archivo `00023b5323028ab83e67_run_6_seed_1486583949.ceiling_04.rgb.mp4`, 277 frames. SHA-256 del MP4: `3ABE9043EE41F898D869890E8636B804186BFAF524DAEA2E6F6831E72711F4D6`. | [OP-35](OP-35-bytetrack.md), [OP-61](OP-61-poc.md) |
-| Salidas de la ejecución final | SHA-256 del JSONL de tracks: `ACAD8F3389233DE62652E590DD133ABE3B910FB91CD111BEDC00C96BA96C8DD5`; del video anotado: `EA5B640009071D63D7EC756690E4437182C6DBCDD468CFE78DB0E4757735811A`. Ambos permanecen fuera de Git. | [OP-61](OP-61-poc.md) |
+| Salidas de la ejecución final | SHA-256 del JSONL de tracks: `ACAD8F3389233DE62652E590DD133ABE3B910FB91CD111BEDC00C96BA96C8DD5`; permanece fuera de Git. El video anotado, SHA-256 `EA5B640009071D63D7EC756690E4437182C6DBCDD468CFE78DB0E4757735811A`, se incorpora como única salida visual de demostración. | [OP-61](OP-61-poc.md), [NOTICE](../../third_party/nvidia-warehouse-dataset/NOTICE.md) |
 
 ## B. Identidad y privacidad
 
@@ -43,8 +43,11 @@ no el tratamiento futuro de video industrial real ni la persistencia de OP-39.
 ## E. Evidencia y difusión
 
 - Se versionan configuración, código, pruebas, evidencias técnicas y hashes para
-  trazabilidad. Pesos, videos, capturas, JSONL de ejecución y logs quedan fuera
-  del repositorio conforme a la [política Git](../../.gitignore).
+  trazabilidad. Como excepción acotada a la [política Git](../../.gitignore),
+  se incluyen los dos clips sintéticos verificados y un resultado anotado en
+  [`assets/demo`](../../assets/demo/), con licencia y atribución en el
+  [NOTICE](../../third_party/nvidia-warehouse-dataset/NOTICE.md). Pesos,
+  otros videos, capturas, JSONL de ejecución y logs permanecen fuera de Git.
 - No se deben publicar material confidencial, secretos, credenciales ni rutas
   personales. La existencia de un hash no autoriza redistribuir el artefacto.
 - Antes de difundir clips, capturas o derivados debe verificarse la licencia

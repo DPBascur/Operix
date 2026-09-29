@@ -82,6 +82,19 @@ Después de ese hito, el desarrollo incorpora configuración de zonas y reglas (
 
 La validación principal filtra `person`. Los pesos COCO no contienen `forklift` y no demuestran tracking fiable de maquinaria. Los resultados proceden de muestras sintéticas acotadas; no acreditan funcionamiento universal o sostenido en tiempo real ni validación completa de Operix.
 
+## Datos de demostración
+
+Operix se evaluó con dos clips sintéticos del dataset NVIDIA PhysicalAI WorldModel
+Synthetic Warehouse Operations Scenes. [La muestra persona–montacargas](assets/demo/forklift_human_nearmiss_ceiling00.mp4)
+se usó para revisar detección y su limitación de cobertura de `forklift` (OP-34).
+[La muestra de almacén](assets/demo/warehouse_fire_ceiling04.mp4) permitió revisar
+tracking, visualización y el PoC integrado (OP-35/60/61). Se incluye también
+[el resultado anotado](assets/demo/warehouse_fire_ceiling04_operix_annotated.mp4)
+de esa segunda muestra para comparar entrada y salida visual. Son datos de terceros;
+su procedencia, hashes, atribución y [licencia OpenMDW-1.1](third_party/nvidia-warehouse-dataset/NOTICE.md)
+están documentados en el NOTICE. No representan video de una empresa ni
+validación industrial.
+
 Antes de cambiar arquitectura o stack por una limitación de implementación, se documentarán el problema, la evidencia y la propuesta para evaluar una nueva decisión arquitectónica. Véase el [índice de arquitectura v1.0](docs/architecture/README.md).
 
 El Excel conserva el backlog y la trazabilidad académica; GitHub Projects complementará la gestión técnica mediante Issues con títulos `[OP-XX] Descripción`, vinculados a commits y evidencias.
@@ -91,3 +104,7 @@ El Excel conserva el backlog y la trazabilidad académica; GitHub Projects compl
 Copyright © 2026 Daniel Felipe Peña Bascur. Todos los derechos reservados.
 
 Este repositorio, su código, documentación, diseño, nombre e identidad de proyecto son material propietario y confidencial. No se autoriza su copia, modificación, distribución, uso comercial ni reutilización, total o parcial, sin autorización previa y por escrito del titular.
+
+La declaración anterior no atribuye a Operix la titularidad de los clips de
+NVIDIA incluidos en `assets/demo/`; estos materiales de terceros conservan la
+licencia y atribución indicadas en su [NOTICE](third_party/nvidia-warehouse-dataset/NOTICE.md).
