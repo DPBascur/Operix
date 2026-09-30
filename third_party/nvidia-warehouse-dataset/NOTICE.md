@@ -9,7 +9,7 @@ original ni propiedad de Operix.
 - Dataset: https://huggingface.co/datasets/nvidia/PhysicalAI-WorldModel-Synthetic-Warehouse-Operations-Scenes
 - Licencia indicada para el dataset: **OpenMDW-1.1**.
 - Texto oficial de la licencia: https://openmdw.ai/license/1-1/
-- Copia exacta en este repositorio: [LICENSE-OpenMDW-1.1.txt](LICENSE-OpenMDW-1.1.txt), descargada del [texto plano oficial](https://raw.githubusercontent.com/OpenMDW/OpenMDW/refs/heads/main/1.1/LICENSE.OpenMDW-1.1).
+- Se conserva el mismo contenido textual de la licencia OpenMDW-1.1 en [LICENSE-OpenMDW-1.1.txt](LICENSE-OpenMDW-1.1.txt), obtenido del [texto plano oficial](https://raw.githubusercontent.com/OpenMDW/OpenMDW/refs/heads/main/1.1/LICENSE.OpenMDW-1.1); los saltos de línea pueden diferir.
 
 | Escenario y uso | Archivo incluido | Origen y SHA-256 |
 | --- | --- | --- |
