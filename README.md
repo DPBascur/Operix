@@ -92,6 +92,10 @@ pruebas de inferencia real son optativas y requieren pesos y muestras locales
 indicados mediante variables de entorno; sin ellos se omiten. Para reproducir
 la salida visual con una entrada incluida, seguir la [guía de demo](assets/demo/README.md).
 Los pesos `yolo11n.pt` no se distribuyen en este repositorio.
+El lock Windows/CUDA fija Ultralytics 8.4.146 para las evidencias experimentales;
+una instalación genérica no fijada puede resolver otra versión compatible. En una
+instalación CPU limpia se obtuvo 8.4.166 y la suite terminó con 126 pruebas
+aprobadas y 2 omitidas. Esto no modifica los resultados históricos.
 
 ## Orientación técnica
 
@@ -105,11 +109,25 @@ La validación principal filtra `person`. Los pesos COCO no contienen `forklift`
 
 ## Datos de demostración
 
+Estas muestras sintéticas proceden de **NVIDIA PhysicalAI WorldModel Synthetic
+Warehouse Operations Scenes** y están sujetas a **OpenMDW-1.1**. No son
+registros de una empresa ni constituyen validación industrial.
+
 ### Interacción persona–montacargas
+
+Esta muestra permitió revisar la detección de `person` y documentar que los
+pesos COCO no incluyen una clase explícita `forklift`.
 
 https://github.com/user-attachments/assets/93648968-ae9e-4c66-aef2-c04be7ff2bae
 
+[MP4 original](assets/demo/forklift_human_nearmiss_ceiling00.mp4) ·
+[Evidencia OP-34](engine/evidence/OP-34-yolo11-detection.md) ·
+[Procedencia y licencia](third_party/nvidia-warehouse-dataset/NOTICE.md)
+
 ### Procesamiento de una muestra
+
+La entrada y la salida anotada se presentan juntas para facilitar la
+comparación visual del pipeline.
 
 #### Entrada
 
@@ -119,19 +137,14 @@ https://github.com/user-attachments/assets/82707306-f3de-40d4-b8fd-fb3f3c292fee
 
 https://github.com/user-attachments/assets/1271a029-4057-421e-a13b-72baf02d08e0
 
+Las cajas, clases e IDs temporales muestran resultados del detector y del
+seguimiento; las líneas representan trayectorias visuales. No indican identidad
+personal ni una precisión industrial medida.
 
-
-
-Operix se evaluó con dos clips sintéticos del dataset NVIDIA PhysicalAI WorldModel
-Synthetic Warehouse Operations Scenes. [La muestra persona–montacargas](assets/demo/forklift_human_nearmiss_ceiling00.mp4)
-se usó para revisar detección y su limitación de cobertura de `forklift` (OP-34).
-[La muestra de almacén](assets/demo/warehouse_fire_ceiling04.mp4) permitió revisar
-tracking, visualización y el PoC integrado (OP-35/60/61). Se incluye también
-[el resultado anotado](assets/demo/warehouse_fire_ceiling04_operix_annotated.mp4)
-de esa segunda muestra para comparar entrada y salida visual. Son datos de terceros;
-su procedencia, hashes, atribución y [licencia OpenMDW-1.1](third_party/nvidia-warehouse-dataset/NOTICE.md)
-están documentados en el NOTICE y en la [guía de demo](assets/demo/README.md). No representan video de una empresa ni
-validación industrial.
+[MP4 de entrada](assets/demo/warehouse_fire_ceiling04.mp4) ·
+[MP4 anotado](assets/demo/warehouse_fire_ceiling04_operix_annotated.mp4) ·
+[Guía de demo](assets/demo/README.md) ·
+[Evidencia del PoC](engine/evidence/OP-61-poc.md)
 
 Antes de cambiar arquitectura o stack por una limitación de implementación, se documentarán el problema, la evidencia y la propuesta para evaluar una nueva decisión arquitectónica. Véase el [índice de arquitectura v1.0](docs/architecture/README.md).
 

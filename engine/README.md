@@ -72,7 +72,15 @@ El verificador dirige la configuración que Ultralytics crea al importarse hacia
 
 `pyproject.toml` mantiene las dependencias comunes del proyecto. PyTorch y TorchVision se instalan primero con la distribución correspondiente a cada plataforma.
 
-`requirements.windows-cu130.lock.txt` registra exclusivamente las versiones exactas del entorno probado en Windows x64 con NVIDIA y CUDA 13.0. Puede reconstruirse como referencia de OP-59 con:
+`requirements.windows-cu130.lock.txt` registra exclusivamente las versiones exactas del entorno probado en Windows x64 con NVIDIA y CUDA 13.0.
+
+En particular, ese lock fija `ultralytics==8.4.146`, versión utilizada en las
+evidencias experimentales del entorno Windows/CUDA. La instalación genérica
+mediante `pyproject.toml` no fija esa versión: una prueba limpia en CPU resolvió
+`ultralytics==8.4.166` y completó la suite con 126 pruebas aprobadas y 2
+omitidas. No se reinterpretan por ello los resultados históricos.
+
+El entorno fijado puede reconstruirse como referencia de OP-59 con:
 
 ```powershell
 .\engine\.venv\Scripts\python.exe -m pip install --requirement .\engine\requirements.windows-cu130.lock.txt

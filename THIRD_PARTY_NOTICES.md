@@ -25,7 +25,12 @@ aplicables; no se relicencian bajo AGPL-3.0-or-later.
 
 El Motor declara la dependencia `ultralytics` en
 [`engine/pyproject.toml`](engine/pyproject.toml) y fija la versión validada
-**8.4.146** en el [lock Windows/CUDA](engine/requirements.windows-cu130.lock.txt).
+**8.4.146** en el [lock Windows/CUDA](engine/requirements.windows-cu130.lock.txt)
+empleado en las evidencias experimentales. Una instalación genérica no fijada
+puede resolver otra versión compatible; la prueba limpia en CPU resolvió
+**8.4.166** y aprobó 126 pruebas, con 2 omisiones opcionales. Este resultado
+no altera las evidencias históricas del entorno Windows/CUDA.
+
 La biblioteca se instala como dependencia: **no está vendorizada** aquí.
 La distribución utilizada declara **AGPL-3.0**. Operix utiliza `YOLO` desde
 `ultralytics` y `BYTETracker` desde
