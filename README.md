@@ -105,6 +105,23 @@ La validación principal filtra `person`. Los pesos COCO no contienen `forklift`
 
 ## Datos de demostración
 
+### Interacción persona–montacargas
+
+https://github.com/user-attachments/assets/93648968-ae9e-4c66-aef2-c04be7ff2bae
+
+### Procesamiento de una muestra
+
+#### Entrada
+
+https://github.com/user-attachments/assets/82707306-f3de-40d4-b8fd-fb3f3c292fee
+
+#### Resultado de Operix
+
+https://github.com/user-attachments/assets/1271a029-4057-421e-a13b-72baf02d08e0
+
+
+
+
 Operix se evaluó con dos clips sintéticos del dataset NVIDIA PhysicalAI WorldModel
 Synthetic Warehouse Operations Scenes. [La muestra persona–montacargas](assets/demo/forklift_human_nearmiss_ceiling00.mp4)
 se usó para revisar detección y su limitación de cobertura de `forklift` (OP-34).
