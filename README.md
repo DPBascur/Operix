@@ -16,7 +16,7 @@ El aporte del Trabajo de Título consiste en diseñar, integrar y evaluar un sis
 - Pipeline base del Motor implementado y validado: OP-33, OP-34, OP-35, OP-60 y OP-43.
 - OP-61: ejecución integrada y consolidación documental completadas.
 - OP-30 (configuración), OP-36 (pertenencia a zonas), OP-37 (variables espacio-temporales) y OP-38 (primera regla configurable) están completadas.
-- OP-42: resguardos de evidencia y alcance del PoC completados académicamente en V0.10.1 para Etapa 2.
+- OP-42: resguardos de evidencia y alcance del PoC completados académicamente en V0.11 para Etapa 2.
 - Persistencia de eventos, Backend/API y Aplicación Web permanecen pendientes.
 
 ## Arquitectura y alcance
