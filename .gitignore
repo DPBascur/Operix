@@ -68,6 +68,7 @@ Thumbs.db
 /engine/datasets/
 /data/raw/
 /engine/data/raw/
+/backend/media/
 *.jsonl
 !/engine/evidence/*.jsonl
 *.tmp

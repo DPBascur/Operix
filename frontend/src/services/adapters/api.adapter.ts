@@ -20,6 +20,7 @@ type ApiEvent = {
   zone_id: string;
   track_id: number;
   class_name: string;
+  evidence_url?: string | null;
 };
 
 function isApiEvent(value: unknown): value is ApiEvent {
@@ -36,6 +37,9 @@ function isApiEvent(value: unknown): value is ApiEvent {
     ].every((field) => typeof event[field] === "string") &&
     typeof event.rule_version === "number" &&
     typeof event.track_id === "number" &&
+    (event.evidence_url === undefined ||
+      event.evidence_url === null ||
+      typeof event.evidence_url === "string") &&
     !Number.isNaN(Date.parse(event.occurred_at as string))
   );
 }
@@ -74,6 +78,9 @@ export class ApiAdapter implements FrontendDataAdapter {
       }),
       status: "Registrado",
       tone: "accent" as const,
+      evidenceUrl: event.evidence_url?.startsWith("/api/v1/events/")
+        ? new URL(event.evidence_url, environment.apiBaseUrl).toString()
+        : null,
     }));
   }
 

@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Daniel Felipe Peña Bascur
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Reproduce OP-38 sobre un JSONL de tracks existente, sin inferencia ni video."""
+"""Reproduce OP-38 sobre tracks; captura técnica opcional del frame sintético."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from pathlib import Path
 from uuid import UUID
 
 from operix_engine.detection import BoundingBox
+from operix_engine.event_evidence import render_track_frame
 from operix_engine.event_publishing import EventContext, HttpEventSink
 from operix_engine.operational_config import load_operational_config
 from operix_engine.rules import RuleEngine
@@ -50,9 +51,13 @@ def main() -> int:
     parser.add_argument("--fps", type=float, required=True)
     parser.add_argument("--end-frame", type=int, required=True)
     parser.add_argument("--publish-api", action="store_true", help="Publicar candidatos por HTTP")
+    parser.add_argument("--capture-evidence", action="store_true", help="Adjuntar captura técnica del frame de tracks")
     parser.add_argument("--analysis-run-id", type=UUID)
     parser.add_argument("--recording-start-at", type=_aware_datetime)
     args = parser.parse_args()
+
+    if args.capture_evidence and not args.publish_api:
+        parser.error("--capture-evidence requiere --publish-api")
 
     if args.end_frame < 0:
         parser.error("--end-frame debe ser no negativo")
@@ -119,10 +124,25 @@ def main() -> int:
             )
             if sink is not None and context is not None:
                 for candidate in result.candidates:
+                    try:
+                        evidence = (
+                            render_track_frame(
+                                candidate, tracks, config.zones, width=args.width, height=args.height
+                            )
+                            if args.capture_evidence else None
+                        )
+                    except (OSError, ValueError):
+                        publications.append({
+                            "frame_index": candidate.frame_index,
+                            "track_id": candidate.track_id,
+                            "status": "failed",
+                            "reason": "evidence_render_error",
+                        })
+                        continue
                     publications.append({
                         "frame_index": candidate.frame_index,
                         "track_id": candidate.track_id,
-                        **asdict(sink.publish(candidate, context)),
+                        **asdict(sink.publish(candidate, context, evidence)),
                     })
             expected_frame += 1
     if expected_frame != args.end_frame + 1:

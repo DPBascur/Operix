@@ -11,6 +11,7 @@ def has_timezone(value: object) -> bool:
 
 
 class EventSerializer(serializers.ModelSerializer):
+    evidence_url = serializers.SerializerMethodField()
     event_type = serializers.ChoiceField(choices=("zone_dwell",))
     frame_index = serializers.IntegerField(min_value=0, max_value=2147483647)
     track_id = serializers.IntegerField(min_value=0, max_value=2147483647)
@@ -40,9 +41,17 @@ class EventSerializer(serializers.ModelSerializer):
             "class_name",
             "observed_inside",
             "observed_dwell_time_s",
+            "evidence_url",
             "created_at",
         )
-        read_only_fields = ("id", "created_at")
+        read_only_fields = ("id", "created_at", "evidence_url")
+
+    def get_evidence_url(self, obj):
+        if not obj.evidence_image or not obj.evidence_image.storage.exists(obj.evidence_image.name):
+            return None
+        from django.urls import reverse
+
+        return reverse("event-evidence", kwargs={"pk": obj.pk})
 
     def validate_occurred_at(self, value):
         if not has_timezone(self.initial_data.get("occurred_at")):

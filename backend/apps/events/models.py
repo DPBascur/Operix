@@ -3,6 +3,10 @@ import uuid
 from django.db import models
 
 
+def event_evidence_path(instance, filename):
+    return f"events/{instance.pk}/{uuid.uuid4().hex}.png"
+
+
 class Event(models.Model):
     """Persisted technical event, distinct from an in-memory EventCandidate."""
 
@@ -21,6 +25,7 @@ class Event(models.Model):
     class_name = models.CharField(max_length=64)
     observed_inside = models.BooleanField()
     observed_dwell_time_s = models.DecimalField(max_digits=12, decimal_places=3)
+    evidence_image = models.FileField(upload_to=event_evidence_path, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

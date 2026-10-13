@@ -17,7 +17,7 @@ from typing import Literal, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from operix_engine.rules import EventCandidate
 
@@ -90,13 +90,17 @@ class PublishResult:
 
 
 class EventSink(Protocol):
-    def publish(self, candidate: EventCandidate, context: EventContext) -> PublishResult: ...
+    def publish(
+        self, candidate: EventCandidate, context: EventContext, evidence_png: bytes | None = None
+    ) -> PublishResult: ...
 
 
 class NoopEventSink:
     """Permite procesar candidatos sin exigir que el Backend esté disponible."""
 
-    def publish(self, candidate: EventCandidate, context: EventContext) -> PublishResult:
+    def publish(
+        self, candidate: EventCandidate, context: EventContext, evidence_png: bytes | None = None
+    ) -> PublishResult:
         return PublishResult("skipped")
 
 
@@ -120,7 +124,9 @@ class HttpEventSink:
         self._timeout_s = float(timeout_s)
         self._attempted: set[tuple[UUID, str, int, int, int, str]] = set()
 
-    def publish(self, candidate: EventCandidate, context: EventContext) -> PublishResult:
+    def publish(
+        self, candidate: EventCandidate, context: EventContext, evidence_png: bytes | None = None
+    ) -> PublishResult:
         key = (
             context.analysis_run_id,
             candidate.rule_id,
@@ -166,4 +172,37 @@ class HttpEventSink:
             event_id = str(UUID(document["id"]))
         except (UnicodeError, ValueError, TypeError, KeyError):
             return PublishResult("failed", http_status=status, reason="invalid_response")
-        return PublishResult("published", http_status=status, event_id=event_id)
+        if evidence_png is not None:
+            if not isinstance(evidence_png, bytes) or not evidence_png.startswith(b"\x89PNG\r\n\x1a\n"):
+                return PublishResult("failed", event_id=event_id, reason="invalid_evidence")
+            boundary = uuid4().hex
+            parts = []
+            for name, value in (
+                ("frame_index", str(candidate.frame_index)),
+                ("video_timestamp_s", _api_seconds(candidate.timestamp_s)),
+            ):
+                parts.append(
+                    f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n"
+                    f"{value}\r\n".encode("ascii")
+                )
+            parts.append(
+                f"--{boundary}\r\nContent-Disposition: form-data; name=\"image\"; "
+                'filename="frame.png"\r\nContent-Type: image/png\r\n\r\n'.encode("ascii")
+            )
+            body = b"".join(parts) + evidence_png + f"\r\n--{boundary}--\r\n".encode("ascii")
+            upload = Request(
+                f"{self._events_url}{event_id}/evidence/",
+                data=body,
+                headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "Accept": "application/json"},
+                method="POST",
+            )
+            try:
+                with urlopen(upload, timeout=self._timeout_s) as response:
+                    upload_status = response.status
+            except HTTPError as error:
+                return PublishResult("failed", http_status=error.code, event_id=event_id, reason="evidence_http_error")
+            except (TimeoutError, socket.timeout, URLError, OSError):
+                return PublishResult("failed", event_id=event_id, reason="evidence_network_error")
+            if upload_status != 201:
+                return PublishResult("failed", http_status=upload_status, event_id=event_id, reason="evidence_unexpected_status")
+        return PublishResult("published", http_status=201, event_id=event_id)

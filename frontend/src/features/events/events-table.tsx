@@ -165,6 +165,23 @@ export function EventsTable() {
                     </dd>
                   </div>
                   <div>
+                    <dt className="text-text-secondary">Evidencia</dt>
+                    <dd className="mt-0.5 font-medium text-foreground">
+                      {event.evidenceUrl ? (
+                        <a
+                          href={event.evidenceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline underline-offset-2"
+                        >
+                          Ver evidencia
+                        </a>
+                      ) : (
+                        "Sin evidencia"
+                      )}
+                    </dd>
+                  </div>
+                  <div>
                     <dt className="text-text-secondary">
                       {environment.dataSource === "mock"
                         ? "Confianza mock"
@@ -208,6 +225,7 @@ export function EventsTable() {
                     "Confianza",
                     "Hora",
                     "Estado",
+                    "Evidencia",
                   ].map((heading) => (
                     <th
                       className="px-3 py-3 font-semibold"
@@ -231,6 +249,7 @@ export function EventsTable() {
                     time,
                     status,
                     tone,
+                    evidenceUrl,
                   }) => (
                     <tr
                       className="transition-colors hover:bg-brand-accent/5"
@@ -267,6 +286,20 @@ export function EventsTable() {
                       </td>
                       <td className="px-3 py-4">
                         <StatusBadge tone={tone}>{status}</StatusBadge>
+                      </td>
+                      <td className="px-3 py-4 text-xs text-text-secondary">
+                        {evidenceUrl ? (
+                          <a
+                            href={evidenceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline underline-offset-2"
+                          >
+                            Ver evidencia
+                          </a>
+                        ) : (
+                          "Sin evidencia"
+                        )}
                       </td>
                     </tr>
                   ),

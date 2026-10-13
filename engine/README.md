@@ -276,6 +276,19 @@ entre ejecuciones: volver a correr el comando puede crear otro evento.
 `engine/.env.example` documenta las variables sin secretos. No se carga
 automáticamente; la publicación requiere el flag y las variables explícitas.
 
+Con `--capture-evidence`, el replay genera un PNG **del estado sintético exacto
+del frame que emitió el candidato** (zona y caja del track, rotulado
+`SINTETICO`) y lo adjunta después del POST del evento mediante multipart. No
+son píxeles de cámara ni una inferencia YOLO/ByteTrack. Si se omite el flag,
+el evento queda sin evidencia. No se versiona ni guarda el PNG en el Motor;
+el Backend lo conserva en su `OPERIX_MEDIA_ROOT`. Un fallo de captura o envío
+se reporta y deja la ejecución con código no cero; si el POST del evento ya
+tuvo éxito, su ID se informa para diagnóstico.
+
+Para repetir el ejemplo con captura, añada `--capture-evidence` al comando
+anterior. Los videos sintéticos de `assets/demo/` no están sincronizados con
+este JSONL de tracks; por eso no se usa un frame arbitrario de esos clips.
+
 ## Componentes de arquitectura
 
 Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios independientes. Procesamiento, detección, seguimiento, análisis espacio-temporal, configuración y evaluación inicial de reglas están implementados. Existe una salida HTTP opcional para el replay; la gestión persistente corresponde al Backend y la integración del pipeline general sigue pendiente:

@@ -87,4 +87,6 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 STATIC_URL = "static/"
+_media_setting = Path(os.environ.get("OPERIX_MEDIA_ROOT", "media"))
+MEDIA_ROOT = (_media_setting if _media_setting.is_absolute() else BASE_DIR / _media_setting).resolve()
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

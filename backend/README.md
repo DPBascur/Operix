@@ -21,6 +21,8 @@ set -a; source .env; set +a
 
 `.env` está ignorado por Git. `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST` y `POSTGRES_PORT` son obligatorios, igual que `DJANGO_SECRET_KEY`. `DJANGO_DEBUG=1` habilita mensajes de desarrollo; `EVENT_POST_ENABLED=1` habilita expresamente el POST sin autenticación **solo para un entorno controlado**. `DJANGO_ALLOWED_HOSTS` y `CORS_ALLOWED_ORIGINS` son listas separadas por comas. No se permiten todos los orígenes.
 
+`OPERIX_MEDIA_ROOT` define la carpeta local de capturas; una ruta relativa se resuelve desde `backend/` y el valor predeterminado es `backend/media/`. Esta carpeta está excluida de Git. Respaldar base y archivos juntos para conservar las referencias. El prototipo no tiene autenticación ni política de retención: mantener API y medios en loopback/desarrollo controlado.
+
 ## API v1
 
 | Método | Ruta | Resultado |
@@ -29,6 +31,8 @@ set -a; source .env; set +a
 | GET | `/api/v1/events/` | Lista ordenada por `occurred_at` descendente |
 | GET | `/api/v1/events/{id}/` | Detalle por UUID |
 | POST | `/api/v1/events/` | Crea un evento cuando `EVENT_POST_ENABLED=1` |
+| POST | `/api/v1/events/{id}/evidence/` | Adjunta un PNG por `multipart/form-data` al evento existente cuando POST está habilitado |
+| GET | `/api/v1/events/{id}/evidence/` | Devuelve el PNG asociado, o 404 si falta |
 
 La lista admite `event_type`, `occurred_after` y `occurred_before`. Los tiempos requieren zona horaria explícita; ambos límites del período son inclusivos. Los filtros inválidos devuelven 400. No existen PUT, PATCH ni DELETE.
 
@@ -58,7 +62,9 @@ El contrato de POST corresponde al candidato `zone_dwell` implementado actualmen
 }
 ```
 
-El POST devuelve 201 con esos campos, `id` UUID y `created_at`. El `EventCandidate` del Motor no contiene reloj civil, ID persistente ni ejecución: su adaptador HTTP recibe explícitamente el inicio conocido del medio y un UUID de ejecución, mientras el Backend valida regla/zona/clase/umbral y genera el ID del evento. `rule_id`, `rule_version` y `rule_parameters` quedan congelados como snapshot de trazabilidad. `analysis_run_id` identifica el contexto de la ejecución, pero **todavía no es una clave foránea** porque el modelo de ejecuciones no forma parte de esta slice. Tampoco se almacena evidencia visual binaria ni se clasifica automáticamente Near Miss o riesgo.
+El POST devuelve 201 con esos campos, `id` UUID y `created_at`. El `EventCandidate` del Motor no contiene reloj civil, ID persistente ni ejecución: su adaptador HTTP recibe explícitamente el inicio conocido del medio y un UUID de ejecución, mientras el Backend valida regla/zona/clase/umbral y genera el ID del evento. `rule_id`, `rule_version` y `rule_parameters` quedan congelados como snapshot de trazabilidad. `analysis_run_id` identifica el contexto de la ejecución, pero **todavía no es una clave foránea** porque el modelo de ejecuciones no forma parte de esta slice. No se clasifica automáticamente Near Miss o riesgo.
+
+La imagen es opcional: primero se crea el evento y se obtiene su UUID; después se envía `image` (PNG, máximo 2 MiB), `frame_index` y `video_timestamp_s` por multipart al endpoint de evidencia. Los dos valores temporales deben coincidir con el evento. Solo se admite una imagen por evento. La referencia se guarda en PostgreSQL mediante `FileField`; los bytes quedan en `OPERIX_MEDIA_ROOT`, nunca como blob de base de datos. Lista y detalle exponen `evidence_url` relativo o `null` si no hay archivo disponible; no exponen rutas del filesystem. El GET de imagen devuelve `image/png` y `Cache-Control: no-store`. Un fallo entre ambos POST puede dejar un evento válido sin imagen; no hay reconciliación automática todavía.
 
 ## Validación
 

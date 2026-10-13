@@ -1,8 +1,12 @@
 import uuid
+import struct
+import tempfile
+import zlib
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 
 from django.test import override_settings
+from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APITestCase
 
 from .models import Event
@@ -142,3 +146,93 @@ class EventApiTests(APITestCase):
     @override_settings(EVENT_POST_ENABLED=False)
     def test_post_is_disabled_when_not_configured(self):
         self.assertEqual(self.create_event().status_code, 403)
+
+
+def sample_png():
+    def chunk(kind, body):
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(b"\x00\x00\x00\x00"))
+        + chunk(b"IEND", b"")
+    )
+
+
+class EventEvidenceTests(APITestCase):
+    create_event = EventApiTests.create_event
+
+    def setUp(self):
+        EventApiTests.setUp(self)
+        self.media_dir = tempfile.TemporaryDirectory()
+        self.media_override = override_settings(MEDIA_ROOT=self.media_dir.name)
+        self.media_override.enable()
+        self.addCleanup(self.media_override.disable)
+        self.addCleanup(self.media_dir.cleanup)
+
+    def upload(self, event_id, *, frame_index="310", video_timestamp_s="12.400", image=None):
+        return self.client.post(
+            f"/api/v1/events/{event_id}/evidence/",
+            {
+                "frame_index": frame_index,
+                "video_timestamp_s": video_timestamp_s,
+                "image": image or SimpleUploadedFile("frame.png", sample_png(), content_type="image/png"),
+            },
+            format="multipart",
+        )
+
+    def test_event_without_evidence_is_compatible(self):
+        created = self.create_event()
+        self.assertEqual(created.status_code, 201)
+        self.assertIsNone(created.data["evidence_url"])
+        self.assertIsNone(self.client.get("/api/v1/events/").data[0]["evidence_url"])
+        self.assertEqual(self.client.get(f"/api/v1/events/{created.data['id']}/evidence/").status_code, 404)
+
+    def test_evidence_is_persisted_and_retrievable(self):
+        created = self.create_event()
+        event_id = created.data["id"]
+        uploaded = self.upload(event_id)
+        self.assertEqual(uploaded.status_code, 201)
+        url = f"/api/v1/events/{event_id}/evidence/"
+        self.assertEqual(uploaded.data["evidence_url"], url)
+        saved = Event.objects.get(pk=event_id)
+        self.assertTrue(saved.evidence_image.name.startswith(f"events/{event_id}/"))
+        self.assertEqual(self.client.get("/api/v1/events/").data[0]["evidence_url"], url)
+        self.assertEqual(self.client.get(f"/api/v1/events/{event_id}/").data["evidence_url"], url)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/png")
+        self.assertEqual(b"".join(response.streaming_content), sample_png())
+
+    def test_wrong_frame_or_invalid_image_is_rejected(self):
+        event_id = self.create_event().data["id"]
+        self.assertEqual(self.upload(event_id, frame_index="311").status_code, 400)
+        self.assertEqual(self.upload(event_id, video_timestamp_s="12.401").status_code, 400)
+        bad = SimpleUploadedFile("frame.png", b"not a png", content_type="image/png")
+        self.assertEqual(self.upload(event_id, image=bad).status_code, 400)
+        self.assertFalse(Event.objects.get(pk=event_id).evidence_image)
+
+    def test_missing_file_is_not_advertised(self):
+        event_id = self.create_event().data["id"]
+        self.assertEqual(self.upload(event_id).status_code, 201)
+        saved = Event.objects.get(pk=event_id)
+        saved.evidence_image.storage.delete(saved.evidence_image.name)
+        self.assertIsNone(self.client.get(f"/api/v1/events/{event_id}/").data["evidence_url"])
+        self.assertEqual(self.client.get(f"/api/v1/events/{event_id}/evidence/").status_code, 404)
+
+    def test_duplicate_upload_is_rejected(self):
+        event_id = self.create_event().data["id"]
+        self.assertEqual(self.upload(event_id).status_code, 201)
+        self.assertEqual(self.upload(event_id).status_code, 409)
+
+    @override_settings(EVENT_POST_ENABLED=False)
+    def test_upload_disabled_with_event_post(self):
+        event_id = Event.objects.create(
+            analysis_run_id=uuid.uuid4(), view_id="DEMO-VIEW-01", occurred_at=self.occurred_at,
+            video_timestamp_s="12.400", frame_index=310, event_type="zone_dwell",
+            rule_id="DEMO-R-01", rule_version=2, rule_parameters=self.payload["rule_parameters"],
+            zone_id="DEMO-Z-01", track_id=36, class_name="person", observed_inside=True,
+            observed_dwell_time_s="3.400",
+        ).pk
+        self.assertEqual(self.upload(event_id).status_code, 403)

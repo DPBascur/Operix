@@ -60,6 +60,7 @@ export interface EventListItem {
   time: string;
   status: string;
   tone: "accent" | "cyan" | "neutral";
+  evidenceUrl?: string | null;
 }
 
 export interface AnalysisOverview {

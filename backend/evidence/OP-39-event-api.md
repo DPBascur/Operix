@@ -63,4 +63,39 @@ El nuevo módulo de publicación y el replay aprobaron 11/11 pruebas sin red ext
 
 ## Limitaciones
 
-OP-39 permanece incompleto: falta evidencia visual recuperable y el orquestador general de video aún no une detección, tracking, variables, regla y publicación en una sola pasada. Este replay comienza con tracks controlados. `analysis_run_id` es un UUID contextual, sin relación foránea hasta modelar ejecuciones; tampoco existe una tabla de versiones de regla. No se guarda video ni clasificación preventiva. La API solo acepta la regla `zone_dwell` actual. El sink no reintenta y solo evita repetir el mismo intento dentro de su sesión; un timeout ambiguo o una nueva ejecución todavía pueden duplicar el evento en PostgreSQL. POST no tiene autenticación ni autorización empresarial y debe permanecer deshabilitado fuera de desarrollo controlado. Solo `/events` consume la API; las demás vistas conservan mocks. Esta prueba no demuestra rendimiento, volumen histórico ni idoneidad para producción.
+OP-39 permanece incompleto: en esta primera integración sin captura todavía faltaba evidencia visual recuperable y el orquestador general de video no unía detección, tracking, variables, regla y publicación en una sola pasada. Este replay comienza con tracks controlados. `analysis_run_id` es un UUID contextual, sin relación foránea hasta modelar ejecuciones; tampoco existe una tabla de versiones de regla. No se guarda video ni clasificación preventiva. La API solo acepta la regla `zone_dwell` actual. El sink no reintenta y solo evita repetir el mismo intento dentro de su sesión; un timeout ambiguo o una nueva ejecución todavía pueden duplicar el evento en PostgreSQL. POST no tiene autenticación ni autorización empresarial y debe permanecer deshabilitado fuera de desarrollo controlado. Solo `/events` consume la API; las demás vistas conservan mocks. Esta prueba no demuestra rendimiento, volumen histórico ni idoneidad para producción.
+
+## Captura técnica recuperable del frame sintético
+
+La definición vigente de OP-39 en Backlog V0.11 exige ID, fecha/hora, objetos,
+zona, regla/versión, parámetros y evidencia recuperable. Se comprobó que los
+clips sintéticos existentes no corresponden temporal ni espacialmente al
+fixture de tracks de esta prueba. Para no atribuirle una imagen ajena, el Motor
+generó una **visualización técnica del estado exacto del frame 4**: zona
+configurada, caja del track temporal 731 y rótulo `SINTETICO`, a 2 FPS y
+`video_timestamp_s=2.000`. No es un fotograma de cámara ni prueba la detección
+o el seguimiento sobre video real.
+
+Ejecución local controlada: `analysis_run_id=43c24711-1051-4a88-a3ac-f616e2db5843`,
+inicio sintético `2026-10-13T12:00:00Z`, candidato `zone_dwell` en frame 4.
+El POST JSON creó `Event.id=69542b6c-a22b-4212-b873-192ea22bf1bd` (201).
+Luego el Motor envió PNG multipart con frame 4 y `2.000 s` al endpoint de
+evidencia (201). PostgreSQL contiene la referencia lógica bajo
+`events/{event_id}/`; el archivo reside en `OPERIX_MEDIA_ROOT` fuera de Git.
+`GET /api/v1/events/{id}/` y la lista devolvieron
+`evidence_url=/api/v1/events/{id}/evidence/`; el GET de imagen respondió 200,
+`image/png`, 13 619 bytes, SHA-256
+`071a1cc67fbf886d9282cabc1001508228d9026f25b57bcb99c2d21ffc767442`.
+En `/events` (modo API), la fila `restricted_zone_presence · v1` / track 731
+mostró «Ver evidencia» y el enlace abrió el PNG en el navegador. Los eventos
+anteriores sin archivo mostraron «Sin evidencia». Esta demostración añadió
+captura recuperable al replay, sin cambiar el origen sintético de los datos.
+
+La migración `0002_event_evidence_image` admite `NULL`, por lo que los eventos
+anteriores siguen válidos. La suite Motor pasó 141 pruebas y omitió 2; el
+Backend pasó sus pruebas de evento y evidencia sobre PostgreSQL. El frontend
+pasó formato, ESLint, TypeScript y build. OP-39 **permanece parcial**: el
+orquestador completo video→detección→tracking→regla→captura todavía no está
+conectado, ni hay controles de acceso, retención, respaldo coordinado o
+idempotencia entre ejecuciones. Este ejemplo no debe presentarse como captura
+de una cámara real.
