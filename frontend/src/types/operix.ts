@@ -50,6 +50,18 @@ export interface EventCandidate {
   confidence?: number;
 }
 
+export interface EventListItem {
+  id: string;
+  title: string;
+  zone: string;
+  rule: string;
+  objects: string;
+  confidence: number | null;
+  time: string;
+  status: string;
+  tone: "accent" | "cyan" | "neutral";
+}
+
 export interface AnalysisOverview {
   id: string;
   sourceName: string;

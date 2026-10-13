@@ -37,7 +37,7 @@ La aplicación queda disponible en `http://localhost:3000`.
 - `src/services`: servicios desacoplados y adaptador de datos activo.
 - `src/config`: configuración pública del frontend.
 
-Actualmente, los servicios usan `MockAdapter`; los datos no provienen del Motor Python ni representan persistencia real. La futura integración deberá reemplazar ese adaptador por uno que consuma el Backend Django REST API, sin conectar el frontend directamente con el Motor.
+Por defecto, el frontend usa `MockAdapter`; esos datos no provienen del Motor Python ni representan persistencia real. Para consultar los eventos persistidos, crear `frontend/.env.local` con `NEXT_PUBLIC_DATA_SOURCE=api` y `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1`, y reiniciar Next.js. Solo `/events` usa la API en este modo; las otras vistas continúan con datos mock. Si la API falla, `/events` muestra un error y permite reintentar, sin sustituir silenciosamente los eventos por mocks. El frontend nunca conecta directamente con el Motor.
 
 Las rutas `/`, `/analysis`, `/events` y `/rules` muestran datos de desarrollo. Las rutas `/zones` e `/indicators` están preparadas sin simular funcionalidad todavía; `/dashboard` redirige al dashboard principal en `/`.
 

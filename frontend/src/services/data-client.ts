@@ -1,5 +1,7 @@
 import type { FrontendDataAdapter } from "./adapters/frontend-data.adapter";
+import { ApiAdapter } from "./adapters/api.adapter";
 import { MockAdapter } from "./adapters/mock.adapter";
+import { environment } from "@/config/environment";
 
-// Punto único de sustitución futura por un ApiAdapter basado en Django REST API.
-export const dataClient: FrontendDataAdapter = new MockAdapter();
+export const dataClient: FrontendDataAdapter =
+  environment.dataSource === "api" ? new ApiAdapter() : new MockAdapter();

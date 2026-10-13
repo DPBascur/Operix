@@ -4,10 +4,12 @@ import {
   mockRules,
   mockZones,
 } from "@/mocks/data";
+import { mockEventRows } from "@/mocks/ui-data";
 import type {
   AnalysisOverview,
   DashboardSummary,
   EventCandidate,
+  EventListItem,
   OperationalRule,
   Zone,
 } from "@/types/operix";
@@ -30,6 +32,13 @@ export class MockAdapter implements FrontendDataAdapter {
 
   async listEventCandidates(): Promise<EventCandidate[]> {
     return mockEventCandidates;
+  }
+
+  async listEvents(): Promise<EventListItem[]> {
+    return mockEventRows.map((event) => ({
+      ...event,
+      objects: "No informados",
+    }));
   }
 
   async listOperationalRules(): Promise<OperationalRule[]> {
