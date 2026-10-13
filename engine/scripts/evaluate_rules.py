@@ -7,9 +7,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
+from uuid import UUID
 
 from operix_engine.detection import BoundingBox
+from operix_engine.event_publishing import EventContext, HttpEventSink
 from operix_engine.operational_config import load_operational_config
 from operix_engine.rules import RuleEngine
 from operix_engine.spatiotemporal import SpatiotemporalAnalyzer
@@ -24,6 +29,16 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _aware_datetime(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("Fecha/hora ISO 8601 inválida") from error
+    if parsed.utcoffset() is None:
+        raise argparse.ArgumentTypeError("La fecha/hora requiere zona horaria explícita")
+    return parsed
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input_jsonl", type=Path)
@@ -34,6 +49,9 @@ def main() -> int:
     parser.add_argument("--height", type=int, required=True)
     parser.add_argument("--fps", type=float, required=True)
     parser.add_argument("--end-frame", type=int, required=True)
+    parser.add_argument("--publish-api", action="store_true", help="Publicar candidatos por HTTP")
+    parser.add_argument("--analysis-run-id", type=UUID)
+    parser.add_argument("--recording-start-at", type=_aware_datetime)
     args = parser.parse_args()
 
     if args.end_frame < 0:
@@ -44,12 +62,27 @@ def main() -> int:
     config = load_operational_config(args.config)
     if config.view_id != args.view_id:
         parser.error("La vista de la configuración no coincide con --view-id")
+    sink = None
+    context = None
+    if args.publish_api:
+        if args.analysis_run_id is None or args.recording_start_at is None:
+            parser.error("--publish-api requiere --analysis-run-id y --recording-start-at")
+        api_base_url = os.environ.get("OPERIX_API_BASE_URL", "")
+        try:
+            timeout_s = float(os.environ.get("OPERIX_API_TIMEOUT_S", "5"))
+            sink = HttpEventSink(api_base_url, timeout_s=timeout_s)
+            context = EventContext(args.analysis_run_id, config.view_id, args.recording_start_at)
+        except ValueError as error:
+            parser.error(str(error))
+    elif args.analysis_run_id is not None or args.recording_start_at is not None:
+        parser.error("El contexto de publicación requiere --publish-api")
     analyzer = SpatiotemporalAnalyzer(
         width=args.width, height=args.height, fps=args.fps, zones=config.zones
     )
     engine = RuleEngine(config)
     expected_frame = 0
     candidates = []
+    publications = []
     with args.input_jsonl.open(encoding="utf-8") as source:
         for line in source:
             record = json.loads(line)
@@ -84,11 +117,22 @@ def main() -> int:
                 }
                 for candidate in result.candidates
             )
+            if sink is not None and context is not None:
+                for candidate in result.candidates:
+                    publications.append({
+                        "frame_index": candidate.frame_index,
+                        "track_id": candidate.track_id,
+                        **asdict(sink.publish(candidate, context)),
+                    })
             expected_frame += 1
     if expected_frame != args.end_frame + 1:
         raise ValueError(f"Faltan frames desde {expected_frame} hasta {args.end_frame}")
-    print(json.dumps({"frames": expected_frame, "candidates": candidates}, ensure_ascii=False, indent=2))
-    return 0
+    output = {"frames": expected_frame, "candidates": candidates}
+    if context is not None:
+        output["analysis_run_id"] = str(context.analysis_run_id)
+        output["publications"] = publications
+    print(json.dumps(output, ensure_ascii=False, indent=2))
+    return 1 if any(item["status"] == "failed" for item in publications) else 0
 
 
 if __name__ == "__main__":

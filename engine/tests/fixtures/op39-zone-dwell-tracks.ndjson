@@ -1,0 +1,6 @@
+{"frame_index":0,"tracks":[{"track_id":731,"class_id":0,"class_name":"person","confidence":0.9,"bounding_box":{"x_min":35,"y_min":40,"x_max":45,"y_max":50}}]}
+{"frame_index":1,"tracks":[{"track_id":731,"class_id":0,"class_name":"person","confidence":0.9,"bounding_box":{"x_min":35,"y_min":40,"x_max":45,"y_max":50}}]}
+{"frame_index":2,"tracks":[{"track_id":731,"class_id":0,"class_name":"person","confidence":0.9,"bounding_box":{"x_min":35,"y_min":40,"x_max":45,"y_max":50}}]}
+{"frame_index":3,"tracks":[{"track_id":731,"class_id":0,"class_name":"person","confidence":0.9,"bounding_box":{"x_min":35,"y_min":40,"x_max":45,"y_max":50}}]}
+{"frame_index":4,"tracks":[{"track_id":731,"class_id":0,"class_name":"person","confidence":0.9,"bounding_box":{"x_min":35,"y_min":40,"x_max":45,"y_max":50}}]}
+{"frame_index":5,"tracks":[{"track_id":731,"class_id":0,"class_name":"person","confidence":0.9,"bounding_box":{"x_min":35,"y_min":40,"x_max":45,"y_max":50}}]}

@@ -1,16 +1,16 @@
 # Motor de análisis de video
 
-Componente de Operix Architecture v1.0 que transforma video en resultados de análisis. La regla inicial emite candidatos transitorios; la gestión persistente de eventos aún no está implementada.
+Componente de Operix Architecture v1.0 que transforma video en resultados de análisis. La regla inicial emite candidatos transitorios. Un replay controlado puede publicarlos opcionalmente por HTTP hacia el Backend, que gestiona su persistencia.
 
 > La IA percibe el entorno; las reglas interpretan el contexto.
 
-Flujo conceptual actual: video → detección → tracking → variables espacio-temporales → reglas configurables → `EventCandidate` en memoria. Backend/API y registro/histórico son pasos futuros de la arquitectura.
+Flujo conceptual: video → detección → tracking → variables espacio-temporales → reglas configurables → `EventCandidate`. La publicación HTTP está integrada por ahora en el replay de tracks de `scripts/evaluate_rules.py`; el orquestador general de video todavía no ejecuta toda esa cadena en una sola pasada.
 
 ## Tecnologías y límites
 
 - Python 3.12 x64 y OpenCV para procesamiento de video.
 - YOLO11 para detección y ByteTrack para seguimiento, como selecciones iniciales y experimentales.
-- La arquitectura prevé recibir configuración del Backend/API y entregarle resultados; esa integración aún no está implementada.
+- La salida HTTP de candidatos es optativa; la recepción de configuración desde el Backend/API sigue pendiente.
 - Sin acceso directo a PostgreSQL.
 - Reglas y umbrales configurables según escenario y organización, sin valores operacionales universales fijados en código.
 
@@ -234,9 +234,51 @@ pasar de falso a verdadero. Gaps, ausencias y salidas rearman la condición;
 una configuración nueva inicia una instancia/sesión nueva. El umbral de 2 s del
 ejemplo es experimental, no universal. Véase la [evidencia OP-38](evidence/OP-38-rules.md).
 
+## Publicación opcional de candidatos
+
+`RuleEngine.evaluate(...)` devuelve `EventCandidate`; inmediatamente después, el
+orquestador `scripts/evaluate_rules.py` puede delegar cada candidato a
+`HttpEventSink`. Sin `--publish-api`, el replay conserva su comportamiento local
+y no requiere Backend. `NoopEventSink` está disponible para otros orquestadores.
+El Motor solo conoce el contrato HTTP; no importa Django ni accede a PostgreSQL.
+
+Para publicar se exige `--analysis-run-id` (UUID de esta ejecución) y
+`--recording-start-at` (inicio civil conocido del medio, ISO 8601 con zona
+horaria). El candidato solo contiene tiempo relativo al video: el adaptador
+calcula `occurred_at = recording_start_at + timestamp_s` y no inventa una fecha
+de captura. La vista procede de la configuración operacional. El Backend debe
+estar activo con `EVENT_POST_ENABLED=1` **solo en desarrollo controlado**.
+
+Ejemplo reproducible con el fixture sintético de tracks, desde la raíz del
+repositorio en macOS/Linux:
+
+```bash
+export OPERIX_API_BASE_URL=http://127.0.0.1:8000/api/v1
+export OPERIX_API_TIMEOUT_S=5
+engine/.venv/bin/python engine/scripts/evaluate_rules.py \
+  engine/tests/fixtures/op39-zone-dwell-tracks.ndjson \
+  --expected-jsonl-sha256 10e0bbead4df4297db5847567a0d5288750167cd2fa279e816b5c26d8102688d \
+  --config engine/config/examples/op30-zone-rule.json \
+  --view-id ceiling_04 --width 100 --height 100 --fps 2 --end-frame 5 \
+  --publish-api --analysis-run-id "$(uuidgen)" \
+  --recording-start-at 2026-10-13T12:00:00Z
+```
+
+El fixture representa **tracks sintéticos ya observados**: ejercita variables,
+regla, candidato y salida HTTP, pero no ejecuta YOLO11 ni ByteTrack ni prueba
+percepción sobre video. La salida informa estado HTTP e ID persistido. Una falla
+de red, timeout o respuesta inválida se informa sin interrumpir la evaluación
+de los frames restantes; el proceso sale con código no cero si hubo fallos de
+publicación. No hay reintentos automáticos. El sink evita repetir un intento del
+mismo candidato dentro de su sesión, pero el Backend aún no ofrece idempotencia
+entre ejecuciones: volver a correr el comando puede crear otro evento.
+
+`engine/.env.example` documenta las variables sin secretos. No se carga
+automáticamente; la publicación requiere el flag y las variables explícitas.
+
 ## Componentes de arquitectura
 
-Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios independientes. Procesamiento, detección, seguimiento, análisis espacio-temporal, configuración y evaluación inicial de reglas están implementados. El gestor/persistencia de eventos sigue pendiente:
+Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios independientes. Procesamiento, detección, seguimiento, análisis espacio-temporal, configuración y evaluación inicial de reglas están implementados. Existe una salida HTTP opcional para el replay; la gestión persistente corresponde al Backend y la integración del pipeline general sigue pendiente:
 
 1. Procesador de video.
 2. Detector de objetos.
@@ -257,6 +299,8 @@ OP-61 consolidó la ejecución integrada y sus evidencias y quedó cerrada; ese 
 no incorporó reglas, zonas, proximidad ni eventos. Posteriormente
 OP-30, OP-36 y OP-37 añadieron configuración, pertenencia y variables descriptivas;
 OP-38 incorpora evaluación inicial de reglas y candidatos en memoria.
-Persistencia OP-39, backend y frontend siguen pendientes.
+La primera integración HTTP del replay con Backend, PostgreSQL y `/events`
+constituye un avance parcial de OP-39; la evidencia visual recuperable sigue
+pendiente. La consulta y filtros son un avance parcial de OP-40.
 
 Consulte el [índice de arquitectura](../docs/architecture/README.md) para los artefactos vigentes.

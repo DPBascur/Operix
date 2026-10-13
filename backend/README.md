@@ -1,6 +1,6 @@
 # Backend/API de Operix
 
-Primera vertical slice de Operix: Django + Django REST Framework recibe un candidato técnico, valida su contrato y conserva un `Event` en PostgreSQL. El Motor sigue independiente y todavía no envía eventos a esta API.
+Primera vertical slice de Operix: Django + Django REST Framework recibe un candidato técnico, valida su contrato y conserva un `Event` en PostgreSQL. El replay controlado del Motor ya puede enviar candidatos por HTTP; el pipeline general de video todavía no está integrado de extremo a extremo.
 
 ## Requisitos y configuración
 
@@ -58,7 +58,7 @@ El contrato de POST corresponde al candidato `zone_dwell` implementado actualmen
 }
 ```
 
-El POST devuelve 201 con esos campos, `id` UUID y `created_at`. El `EventCandidate` del Motor no contiene reloj civil, ID persistente ni ejecución: el Backend recibe estos datos adicionales, valida que regla/zona/clase/umbral sean coherentes y genera el ID. `rule_id`, `rule_version` y `rule_parameters` quedan congelados como snapshot de trazabilidad. `analysis_run_id` identifica el contexto de la futura ejecución, pero **todavía no es una clave foránea** porque el modelo de ejecuciones no forma parte de esta slice. Tampoco se almacena evidencia visual binaria ni se clasifica automáticamente Near Miss o riesgo.
+El POST devuelve 201 con esos campos, `id` UUID y `created_at`. El `EventCandidate` del Motor no contiene reloj civil, ID persistente ni ejecución: su adaptador HTTP recibe explícitamente el inicio conocido del medio y un UUID de ejecución, mientras el Backend valida regla/zona/clase/umbral y genera el ID del evento. `rule_id`, `rule_version` y `rule_parameters` quedan congelados como snapshot de trazabilidad. `analysis_run_id` identifica el contexto de la ejecución, pero **todavía no es una clave foránea** porque el modelo de ejecuciones no forma parte de esta slice. Tampoco se almacena evidencia visual binaria ni se clasifica automáticamente Near Miss o riesgo.
 
 ## Validación
 
