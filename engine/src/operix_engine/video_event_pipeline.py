@@ -46,23 +46,13 @@ def _real_frame_png(
         track.track_id == candidate.track_id for track in tracks
     ):
         raise ValueError("El candidato no corresponde a un track del frame actual")
-    annotated = renderer.render_tracks(frame, tracks, trajectories)
+    annotated = renderer.render_zone(
+        frame, zone, event=True,
+        rule_kind=str(candidate.parameters.get("kind", candidate.rule_id)),
+        frame_index=frame_index,
+    )
+    annotated = renderer.render_tracks(annotated, tracks, trajectories)
     height, width = frame.shape[:2]
-    polygon = np.asarray(
-        [(round(x * width), round(y * height)) for x, y in zone.polygon],
-        dtype=np.int32,
-    )
-    cv2.polylines(annotated, [polygon], True, (0, 210, 255), 3)
-    cv2.putText(
-        annotated,
-        f"{candidate.rule_id} | {zone.zone_id} | frame {frame_index}",
-        (20, 35),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.75,
-        (0, 210, 255),
-        2,
-        cv2.LINE_AA,
-    )
     # El endpoint acepta PNG hasta 2 MiB; una copia reducida conserva el frame real.
     if width > 960:
         annotated = cv2.resize(

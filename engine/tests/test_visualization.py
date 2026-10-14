@@ -5,10 +5,13 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
+import cv2
 import numpy as np
 
 from operix_engine.detection import BoundingBox, Detection
+from operix_engine.operational_config import Zone
 from operix_engine.tracking import Track
 from operix_engine.visualization import (
     OpenCvRenderer,
@@ -111,6 +114,37 @@ class OpenCvRendererTest(unittest.TestCase):
             with self.subTest(shape=invalid.shape, dtype=invalid.dtype):
                 with self.assertRaises(ValueError):
                     self.renderer.render_detections(invalid, ())
+
+    def test_zone_uses_arbitrary_polygon_and_light_fill_without_mutating_frame(self) -> None:
+        zone = Zone("aisle", "Pasillo", ((0.1, 0.2), (0.9, 0.2), (0.5, 0.9)))
+        original = self.frame.copy()
+        annotated = self.renderer.render_zone(self.frame, zone)
+        np.testing.assert_array_equal(self.frame, original)
+        np.testing.assert_array_equal(annotated[135, 5], original[135, 5])
+        self.assertGreater(int(annotated[80, 90, 0]), 0)
+        self.assertLess(int(annotated[80, 90, 0]), 30)
+        np.testing.assert_array_equal(
+            annotated[28, 90], self.renderer._ZONE_NORMAL_COLOR,
+        )
+
+    def test_event_zone_is_amber_and_uses_metadata_in_compact_label(self) -> None:
+        zone = Zone("aisle", "Área tránsito", ((0.1, 0.2), (0.9, 0.2), (0.5, 0.9)))
+        with patch("operix_engine.visualization.cv2.putText", wraps=cv2.putText) as put_text:
+            annotated = self.renderer.render_zone(
+                self.frame, zone, event=True, rule_kind="zone_dwell", frame_index=60,
+            )
+        np.testing.assert_array_equal(
+            annotated[28, 90], self.renderer._ZONE_EVENT_COLOR,
+        )
+        labels = [call.args[1] for call in put_text.call_args_list]
+        self.assertEqual(labels, ["Area transito", "Regla: zone_dwell", "Frame 60"])
+
+    def test_zone_rejects_invalid_render_metadata(self) -> None:
+        zone = Zone("aisle", "Pasillo", ((0.1, 0.2), (0.9, 0.2), (0.5, 0.9)))
+        with self.assertRaises(TypeError):
+            self.renderer.render_zone(self.frame, object())
+        with self.assertRaises(ValueError):
+            self.renderer.render_zone(self.frame, zone, frame_index=-1)
 
 
 class TrajectoryAccumulatorTest(unittest.TestCase):

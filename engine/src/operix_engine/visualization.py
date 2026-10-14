@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import math
+import unicodedata
 from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from operix_engine.detection import BoundingBox, Detection
+from operix_engine.operational_config import Zone
 from operix_engine.tracking import Track
 
 
@@ -133,6 +135,9 @@ class OpenCvRenderer:
     _DETECTION_COLOR = (0, 255, 0)
     _FONT = cv2.FONT_HERSHEY_SIMPLEX
     _LINE_TYPE = cv2.LINE_AA
+    _ZONE_NORMAL_COLOR = (230, 190, 0)  # BGR: cyan discreto.
+    _ZONE_EVENT_COLOR = (0, 190, 255)  # BGR: ámbar, no rojo.
+    _ZONE_FILL_ALPHA = 0.08
 
     def __init__(self, config: VisualizationConfig | None = None) -> None:
         self.config = config or VisualizationConfig()
@@ -183,6 +188,93 @@ class OpenCvRenderer:
                 self._track_color(track.track_id),
             )
         return annotated
+
+    def render_zone(
+        self,
+        frame: NDArray[np.uint8],
+        zone: Zone,
+        *,
+        event: bool = False,
+        rule_kind: str | None = None,
+        frame_index: int | None = None,
+    ) -> NDArray[np.uint8]:
+        """Dibuja una zona configurada sin cambiar su geometría ni el frame original."""
+        self._validate_frame(frame)
+        if not isinstance(zone, Zone):
+            raise TypeError("zone debe ser Zone")
+        if not isinstance(event, bool):
+            raise TypeError("event debe ser bool")
+        if rule_kind is not None and (not isinstance(rule_kind, str) or not rule_kind.strip()):
+            raise ValueError("rule_kind debe ser texto no vacío")
+        if frame_index is not None and (
+            type(frame_index) is not int or frame_index < 0
+        ):
+            raise ValueError("frame_index debe ser entero no negativo")
+
+        height, width = frame.shape[:2]
+        points = np.asarray(
+            [(round(x * (width - 1)), round(y * (height - 1))) for x, y in zone.polygon],
+            dtype=np.int32,
+        )
+        color = self._ZONE_EVENT_COLOR if event else self._ZONE_NORMAL_COLOR
+        annotated = frame.copy()
+        mask = np.zeros((height, width), dtype=np.uint8)
+        cv2.fillPoly(mask, [points], 255)
+        solid = np.full_like(annotated, color)
+        blended = cv2.addWeighted(
+            annotated, 1 - self._ZONE_FILL_ALPHA, solid, self._ZONE_FILL_ALPHA, 0,
+        )
+        annotated[mask != 0] = blended[mask != 0]
+        cv2.polylines(annotated, [points], True, color, 2, self._LINE_TYPE)
+        self._draw_zone_label(annotated, zone.name, points, rule_kind, frame_index)
+        return annotated
+
+    def _draw_zone_label(
+        self,
+        frame: NDArray[np.uint8],
+        name: str,
+        points: NDArray[np.int32],
+        rule_kind: str | None,
+        frame_index: int | None,
+    ) -> None:
+        """Etiqueta pequeña, legible sin soporte de fuentes externas a OpenCV."""
+        height, width = frame.shape[:2]
+        if width < 100 or height < 50:
+            return
+        lines = [unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()]
+        details = []
+        if rule_kind is not None:
+            details.append(f"Regla: {rule_kind}")
+        if frame_index is not None:
+            details.append(f"Frame {frame_index}")
+        scale = 0.65 if width >= 640 else 0.48
+        line_height = 23 if width >= 640 else 17
+        thickness = 1
+        max_text_width = width - 20
+        if details:
+            combined = " | ".join(details)
+            if cv2.getTextSize(combined, self._FONT, scale, thickness)[0][0] <= max_text_width:
+                lines.append(combined)
+            else:
+                lines.extend(details)
+        for index, line in enumerate(lines):
+            while line and cv2.getTextSize(line, self._FONT, scale, thickness)[0][0] > max_text_width:
+                line = line[:-1]
+            lines[index] = line
+        text_width = max(cv2.getTextSize(line, self._FONT, scale, thickness)[0][0] for line in lines)
+        plaque_width = text_width + 14
+        plaque_height = len(lines) * line_height + 8
+        left = min(max(4, int(points[:, 0].min()) + 8), width - plaque_width - 4)
+        top = min(max(4, int(points[:, 1].min()) + 8), height - plaque_height - 4)
+        cv2.rectangle(
+            frame, (left, top), (left + plaque_width, top + plaque_height),
+            (22, 24, 26), -1,
+        )
+        for index, line in enumerate(lines):
+            cv2.putText(
+                frame, line, (left + 7, top + line_height + index * line_height),
+                self._FONT, scale, (245, 245, 245), thickness, self._LINE_TYPE,
+            )
 
     @staticmethod
     def _validate_frame(frame: NDArray[np.uint8]) -> None:
