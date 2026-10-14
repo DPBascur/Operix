@@ -196,6 +196,10 @@ def run_video_event_pipeline(
         "offscreen_track_observations": outside_tracks,
         "unique_track_ids": len(track_ids),
         "candidate_count": len(publications),
-        "published_count": sum(item["result"]["status"] == "published" for item in publications),
+        "created_event_count": sum(item["result"]["status"] == "published" for item in publications),
+        "duplicate_event_count": sum(item["result"]["status"] == "duplicate" for item in publications),
+        "published_count": sum(
+            item["result"]["status"] in ("published", "duplicate") for item in publications
+        ),
         "publications": publications,
     }

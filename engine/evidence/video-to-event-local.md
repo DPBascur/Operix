@@ -82,10 +82,67 @@ regla, zona, track, fecha/hora de análisis, estado `Registrado` y
 
 Un primer intento encontró una caja de tracking parcialmente fuera del frame
 y se detuvo. Ya había publicado cuatro eventos antes del fallo. Se conservaron
-esos registros de diagnóstico; por eso la base local muestra ocho eventos en
+esos registros de diagnóstico; por eso la base local mostraba ocho eventos en
 total, pero **solo los cuatro IDs de la tabla** pertenecen a la corrida
-completa. Repetir la ejecución con otro `analysis_run_id` crea nuevos eventos:
-no hay idempotencia entre corridas ni transacción de lote.
+completa. En ese momento, repetir el análisis con otro `analysis_run_id`
+creaba nuevos eventos: todavía no había idempotencia entre corridas.
+
+## Verificación posterior de idempotencia local
+
+El problema anterior motivó una protección mínima. El Motor deriva por defecto
+un `analysis_run_id` UUID estable de SHA-256 de video, pesos y configuración,
+además de los parámetros de YOLO11/ByteTrack. No incluye ruta local ni fecha
+civil. Una ejecución intencionalmente nueva puede indicar otro UUID mediante
+`--analysis-run-id`. PostgreSQL impone unicidad por corrida, vista, frame,
+regla/versión, track y zona. El Backend devuelve 201/`created=true` al crear
+y 200/`created=false` con el mismo Event ID al recibir el mismo candidato.
+El retry omite un PNG válido existente; si falta, puede completar esa evidencia.
+La migración `events.0003_event_candidate_identity` no borra ni inventa
+identidades para eventos históricos.
+
+Se repitió el mismo comando de la sección anterior sobre el mismo clip y
+configuración (`imgsz=640`, confianza 0,10, IoU 0,70, CUDA, `person`,
+ByteTrack vigente), omitiendo `--analysis-run-id` en ambas corridas. Se usó
+la misma ancla **de análisis** `2026-10-14T17:00:00Z`, que no acredita la
+fecha real de captura. El ID derivado fue
+`6ba120ca-43ef-5e50-b5a2-af1fd44912e0` en ambas. Los cuatro candidatos
+correspondieron a frame/track 60/1, 60/2, 134/13 y 201/31.
+
+| Medida | Primera corrida | Reintento con API actualizada |
+| --- | ---: | ---: |
+| Frames procesados | 277/277 | 277/277 |
+| Detecciones `person` / observaciones de tracking | 1.088 / 644 | 1.088 / 644 |
+| Candidatos | 4 | 4 |
+| Eventos nuevos | 4 | 0 |
+| Duplicados lógicos evitados | 0 | 4 |
+| Respuestas de evento | cuatro HTTP 201 | cuatro HTTP 200 |
+| Tiempo de procesamiento, sin carga de modelo | 10,736 s | 10,585 s |
+| FPS efectivo exploratorio | 25,802 | 26,170 |
+
+La corrida lógica contiene **cuatro filas y cuatro PNG válidos**, no ocho.
+Se recuperaron sus imágenes y se comprobó que los SHA-256 coinciden con los
+emitidos por el Motor. El total de la base local pasó de ocho registros
+históricos a doce tras la primera corrida y **continuó en doce** después del
+reintento. Los ocho anteriores se conservaron; no se depuraron ni fusionaron.
+La lista de la API y `/events` sigue mostrándolos, pero no añadió filas por
+repetir esta ejecución lógica.
+
+Entre ambas corridas se detectó un servidor Django local antiguo arrancado
+con `--noreload`: después de aplicar la nueva constraint, su vista anterior
+respondía HTTP 500 ante los cuatro POST repetidos. No insertó nuevas filas.
+Se reinició solo ese servidor con el código actualizado y el reintento
+respondió HTTP 200 en los cuatro casos. Esto es una condición de despliegue:
+la migración y el código de la API deben activarse coordinadamente.
+
+La identidad depende de que el análisis reproduzca los mismos IDs de track y
+frames; variaciones no deterministas pueden producir otras claves sin una
+verdadera identidad semántica de objetos. La primera fecha civil persistida
+se conserva si un retry usa otra ancla. Dos análisis deliberadamente distintos
+requieren un UUID distinto; cambios futuros de algoritmo que no alteren los
+insumos de la identidad derivada también deben tratarse como una ejecución
+nueva mediante ese UUID. No hay transacción de lote ni deduplicación
+retroactiva de registros históricos. Estas mediciones de una corrida no son
+un benchmark comparativo del costo de idempotencia.
 
 ## Alcance y límites
 

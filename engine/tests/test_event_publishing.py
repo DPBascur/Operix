@@ -24,6 +24,7 @@ from operix_engine.event_publishing import (
     EventContext,
     HttpEventSink,
     NoopEventSink,
+    deterministic_analysis_run_id,
     event_candidate_payload,
 )
 from operix_engine.operational_config import load_operational_config
@@ -70,6 +71,27 @@ class EventPublishingTest(unittest.TestCase):
         self.assertEqual(payload["rule_parameters"], dict(self.candidate.parameters))
         self.assertEqual((payload["zone_id"], payload["track_id"]), ("zona_critica_01", 731))
         self.assertEqual(payload["observed_dwell_time_s"], "2.000")
+
+    def test_analysis_identity_is_stable_and_changes_with_source_or_settings(self) -> None:
+        inputs = {
+            "video_sha256": "a" * 64,
+            "weights_sha256": "b" * 64,
+            "config_sha256": "c" * 64,
+            "detector": {"image_size": 640, "confidence_threshold": 0.10},
+            "tracker": {"track_buffer": 30},
+        }
+        first = deterministic_analysis_run_id(**inputs)
+        self.assertEqual(first, deterministic_analysis_run_id(**inputs))
+        self.assertEqual(first, deterministic_analysis_run_id(**{**inputs, "video_sha256": "A" * 64}))
+        for field, value in (
+            ("video_sha256", "d" * 64),
+            ("weights_sha256", "d" * 64),
+            ("config_sha256", "d" * 64),
+            ("detector", {"image_size": 320, "confidence_threshold": 0.10}),
+            ("tracker", {"track_buffer": 60}),
+        ):
+            with self.subTest(field=field):
+                self.assertNotEqual(first, deterministic_analysis_run_id(**{**inputs, field: value}))
 
     def test_context_requires_real_timezone(self) -> None:
         with self.assertRaises(ValueError):
@@ -179,6 +201,44 @@ class EventPublishingTest(unittest.TestCase):
             )
         self.assertEqual((result.status, result.event_id, result.reason),
                          ("failed", EVENT_ID, "evidence_network_error"))
+
+    def test_ambiguous_network_failure_can_retry_same_sink(self) -> None:
+        sink = HttpEventSink("http://127.0.0.1:8000/api/v1")
+        existing = {"id": EVENT_ID, "created": False, "evidence_url": None}
+        with patch("operix_engine.event_publishing.urlopen") as send:
+            send.side_effect = [TimeoutError, self._response(200, json.dumps(existing).encode())]
+            first = sink.publish(self.candidate, self.context)
+            second = sink.publish(self.candidate, self.context)
+        self.assertEqual((first.status, second.status, second.http_status), ("failed", "duplicate", 200))
+        self.assertEqual(second.event_id, EVENT_ID)
+        self.assertEqual(send.call_count, 2)
+
+    def test_retry_existing_evidence_skips_upload(self) -> None:
+        existing = {"id": EVENT_ID, "created": False, "evidence_url": f"/api/v1/events/{EVENT_ID}/evidence/"}
+        with patch("operix_engine.event_publishing.urlopen") as send:
+            send.return_value = self._response(200, json.dumps(existing).encode())
+            result = HttpEventSink("http://127.0.0.1:8000/api/v1").publish(
+                self.candidate, self.context, b"\x89PNG\r\n\x1a\ncontent"
+            )
+        self.assertEqual((result.status, result.http_status), ("duplicate", 200))
+        send.assert_called_once()
+
+    def test_retry_completes_evidence_after_upload_failure(self) -> None:
+        sink = HttpEventSink("http://127.0.0.1:8000/api/v1")
+        existing = {"id": EVENT_ID, "created": False, "evidence_url": None}
+        evidence = b"\x89PNG\r\n\x1a\ncontent"
+        with patch("operix_engine.event_publishing.urlopen") as send:
+            send.side_effect = [
+                self._response(201, json.dumps({"id": EVENT_ID}).encode()),
+                URLError("refused"),
+                self._response(200, json.dumps(existing).encode()),
+                self._response(201, b"{}"),
+            ]
+            first = sink.publish(self.candidate, self.context, evidence)
+            second = sink.publish(self.candidate, self.context, evidence)
+        self.assertEqual((first.status, first.event_id), ("failed", EVENT_ID))
+        self.assertEqual((second.status, second.event_id), ("duplicate", EVENT_ID))
+        self.assertEqual(send.call_count, 4)
 
     def _run_replay(self, *, publish: bool, capture: bool = False) -> tuple[int, dict[str, object]]:
         main = runpy.run_path(str(SCRIPT), run_name="operix_replay_test")["main"]

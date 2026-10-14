@@ -99,3 +99,18 @@ orquestador completo video→detección→tracking→regla→captura todavía no
 conectado, ni hay controles de acceso, retención, respaldo coordinado o
 idempotencia entre ejecuciones. Este ejemplo no debe presentarse como captura
 de una cámara real.
+
+## Evolución posterior: reintentos idempotentes
+
+La descripción anterior corresponde al estado histórico de la prueba de
+tracks. Posteriormente se integró el flujo desde video de demostración y se
+añadió idempotencia mínima: la migración
+`events.0003_event_candidate_identity` impone unicidad por ejecución, vista,
+frame, regla/versión, track y zona. Un POST repetido devuelve el evento
+existente con HTTP 200 y `created=false`; el primer POST conserva HTTP 201.
+La evidencia válida no se duplica y un retry puede completar una imagen
+faltante. El análisis puede derivar un UUID estable de fuente y configuración
+o proporcionar uno nuevo para una ejecución deliberadamente distinta.
+Los eventos históricos siguen intactos. La [prueba integrada posterior](../../engine/evidence/video-to-event-local.md)
+documenta cuatro eventos nuevos en una primera corrida y cero nuevos en su
+reintento. OP-39 no se marca aquí como formalmente cerrada.

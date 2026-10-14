@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from django.test import override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import IntegrityError, transaction
 from rest_framework.test import APITestCase
 
 from .models import Event
@@ -48,6 +49,7 @@ class EventApiTests(APITestCase):
     def test_create_persists_and_preserves_trace(self):
         response = self.create_event()
         self.assertEqual(response.status_code, 201)
+        self.assertIs(response.data["created"], True)
         self.assertEqual(Event.objects.count(), 1)
         saved = Event.objects.get(pk=response.data["id"])
         self.assertEqual(saved.rule_id, "DEMO-R-01")
@@ -56,6 +58,48 @@ class EventApiTests(APITestCase):
         self.assertEqual(str(saved.analysis_run_id), self.payload["analysis_run_id"])
         self.assertEqual(saved.track_id, 36)
         self.assertEqual(saved.zone_id, "DEMO-Z-01")
+
+    def test_retry_returns_existing_event_without_new_row(self):
+        first = self.create_event()
+        retry = deepcopy(self.payload)
+        retry["occurred_at"] = (self.occurred_at + timedelta(minutes=1)).isoformat()
+        second = self.create_event(retry)
+        self.assertEqual((first.status_code, second.status_code), (201, 200))
+        self.assertIs(second.data["created"], False)
+        self.assertEqual(second.data["id"], first.data["id"])
+        self.assertEqual(Event.objects.count(), 1)
+        self.assertEqual(Event.objects.get().occurred_at, self.occurred_at)
+
+    def test_distinct_analysis_frame_and_rule_create_new_events(self):
+        self.assertEqual(self.create_event().status_code, 201)
+        other_run = deepcopy(self.payload)
+        other_run["analysis_run_id"] = str(uuid.uuid4())
+        self.assertEqual(self.create_event(other_run).status_code, 201)
+        other_frame = deepcopy(self.payload)
+        other_frame["frame_index"] += 1
+        self.assertEqual(self.create_event(other_frame).status_code, 201)
+        other_rule = deepcopy(self.payload)
+        other_rule["rule_version"] += 1
+        other_rule["rule_parameters"]["min_duration_s"] = 2.0
+        self.assertEqual(self.create_event(other_rule).status_code, 201)
+        self.assertEqual(Event.objects.count(), 4)
+
+    def test_same_identity_with_incompatible_rule_parameters_is_rejected(self):
+        first = self.create_event()
+        changed = deepcopy(self.payload)
+        changed["rule_parameters"]["min_duration_s"] = 2.0
+        response = self.create_event(changed)
+        self.assertEqual((first.status_code, response.status_code), (201, 409))
+        self.assertEqual(Event.objects.count(), 1)
+
+    def test_database_constraint_rejects_duplicate_key(self):
+        created = self.create_event()
+        event = Event.objects.get(pk=created.data["id"])
+        event.pk = uuid.uuid4()
+        event._state.adding = True
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            event.save(force_insert=True)
+        self.assertEqual(Event.objects.count(), 1)
 
     def test_create_rejects_missing_required_field(self):
         payload = deepcopy(self.payload)
@@ -97,7 +141,9 @@ class EventApiTests(APITestCase):
         older = deepcopy(self.payload)
         older["occurred_at"] = (self.occurred_at - timedelta(hours=1)).isoformat()
         self.assertEqual(self.create_event(older).status_code, 201)
-        newer = self.create_event()
+        newer_payload = deepcopy(self.payload)
+        newer_payload["analysis_run_id"] = str(uuid.uuid4())
+        newer = self.create_event(newer_payload)
         self.assertEqual(newer.status_code, 201)
         response = self.client.get("/api/v1/events/")
         self.assertEqual(response.status_code, 200)
@@ -221,10 +267,28 @@ class EventEvidenceTests(APITestCase):
         self.assertIsNone(self.client.get(f"/api/v1/events/{event_id}/").data["evidence_url"])
         self.assertEqual(self.client.get(f"/api/v1/events/{event_id}/evidence/").status_code, 404)
 
-    def test_duplicate_upload_is_rejected(self):
+    def test_duplicate_upload_reuses_evidence_without_new_file(self):
         event_id = self.create_event().data["id"]
         self.assertEqual(self.upload(event_id).status_code, 201)
-        self.assertEqual(self.upload(event_id).status_code, 409)
+        original_name = Event.objects.get(pk=event_id).evidence_image.name
+        self.assertEqual(self.upload(event_id).status_code, 200)
+        self.assertEqual(Event.objects.get(pk=event_id).evidence_image.name, original_name)
+        storage = Event.objects.get(pk=event_id).evidence_image.storage
+        self.assertEqual(len(storage.listdir(f"events/{event_id}")[1]), 1)
+
+    def test_retry_can_complete_missing_evidence(self):
+        event_id = self.create_event().data["id"]
+        self.assertEqual(self.create_event().status_code, 200)
+        self.assertEqual(self.upload(event_id).status_code, 201)
+        saved = Event.objects.get(pk=event_id)
+        old_name = saved.evidence_image.name
+        saved.evidence_image.storage.delete(old_name)
+        self.assertIsNone(self.create_event().data["evidence_url"])
+        self.assertEqual(self.upload(event_id).status_code, 201)
+        refreshed = Event.objects.get(pk=event_id)
+        self.assertNotEqual(refreshed.evidence_image.name, old_name)
+        self.assertTrue(refreshed.evidence_image.storage.exists(refreshed.evidence_image.name))
+        self.assertEqual(Event.objects.count(), 1)
 
     @override_settings(EVENT_POST_ENABLED=False)
     def test_upload_disabled_with_event_post(self):

@@ -54,7 +54,31 @@ class EventListCreateView(generics.ListCreateAPIView):
     def create(self, request, *args, **kwargs):
         if not settings.EVENT_POST_ENABLED:
             raise PermissionDenied("POST no está habilitado en este entorno.")
-        return super().create(request, *args, **kwargs)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        values = serializer.validated_data
+        identity_fields = (
+            "analysis_run_id", "view_id", "frame_index", "rule_id",
+            "rule_version", "track_id", "zone_id",
+        )
+        identity = {field: values[field] for field in identity_fields}
+        defaults = {field: value for field, value in values.items() if field not in identity}
+        event, created = Event.objects.get_or_create(defaults=defaults, **identity)
+        if not created:
+            # El reloj civil puede ser una ancla de análisis distinta en un retry;
+            # la primera fecha persistida se conserva. El resto debe coincidir.
+            if any(
+                getattr(event, field) != value
+                for field, value in defaults.items()
+                if field != "occurred_at"
+            ):
+                return Response(
+                    {"detail": "La identidad de evento ya existe con datos incompatibles."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+        data = self.get_serializer(event).data
+        data["created"] = created
+        return Response(data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 
 class EventDetailView(generics.RetrieveAPIView):
@@ -134,7 +158,10 @@ class EventEvidenceView(APIView):
         image.seek(0)
         with transaction.atomic():
             event = Event.objects.select_for_update().get(pk=pk)
-            if event.evidence_image:
-                return Response({"detail": "El evento ya tiene evidencia."}, status=status.HTTP_409_CONFLICT)
+            if event.evidence_image and event.evidence_image.storage.exists(event.evidence_image.name):
+                return Response(
+                    EventSerializer(event, context={"request": request}).data,
+                    status=status.HTTP_200_OK,
+                )
             event.evidence_image.save("frame.png", image, save=True)
         return Response(EventSerializer(event, context={"request": request}).data, status=status.HTTP_201_CREATED)

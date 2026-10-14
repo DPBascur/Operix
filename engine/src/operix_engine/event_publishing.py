@@ -9,17 +9,42 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Literal, Protocol
+from typing import Literal, Mapping, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from operix_engine.rules import EventCandidate
+
+
+def deterministic_analysis_run_id(
+    *,
+    video_sha256: str,
+    weights_sha256: str,
+    config_sha256: str,
+    detector: Mapping[str, object],
+    tracker: Mapping[str, object],
+) -> UUID:
+    """Identifica el mismo análisis sin rutas locales ni reloj civil."""
+    hashes = (video_sha256, weights_sha256, config_sha256)
+    if any(not re.fullmatch(r"[0-9a-fA-F]{64}", value) for value in hashes):
+        raise ValueError("La identidad requiere tres SHA-256 válidos")
+    document = {
+        "profile": "video-event-v1",
+        "video_sha256": video_sha256.lower(),
+        "weights_sha256": weights_sha256.lower(),
+        "config_sha256": config_sha256.lower(),
+        "detector": dict(detector),
+        "tracker": dict(tracker),
+    }
+    canonical = json.dumps(document, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return uuid5(NAMESPACE_URL, "operix:analysis:" + canonical)
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,7 +130,7 @@ class NoopEventSink:
 
 
 class HttpEventSink:
-    """Intenta una sola publicación por candidato y sesión; no reintenta fallos ambiguos."""
+    """Reintenta fallos; la API decide si un candidato ya fue persistido."""
 
     def __init__(self, api_base_url: str, *, timeout_s: float = 5.0) -> None:
         parsed = urlparse(api_base_url)
@@ -122,22 +147,22 @@ class HttpEventSink:
             raise ValueError("OPERIX_API_TIMEOUT_S debe ser positivo y finito")
         self._events_url = api_base_url.rstrip("/") + "/events/"
         self._timeout_s = float(timeout_s)
-        self._attempted: set[tuple[UUID, str, int, int, int, str]] = set()
+        self._completed: set[tuple[UUID, str, str, int, int, int, str]] = set()
 
     def publish(
         self, candidate: EventCandidate, context: EventContext, evidence_png: bytes | None = None
     ) -> PublishResult:
         key = (
             context.analysis_run_id,
+            context.view_id,
             candidate.rule_id,
             candidate.rule_version,
             candidate.frame_index,
             candidate.track_id,
             candidate.zone_id,
         )
-        if key in self._attempted:
+        if key in self._completed:
             return PublishResult("duplicate", reason="already_attempted_in_this_session")
-        self._attempted.add(key)
         try:
             payload = event_candidate_payload(candidate, context)
             request = Request(
@@ -165,14 +190,17 @@ class HttpEventSink:
         except (TypeError, ValueError, KeyError, OverflowError):
             return PublishResult("failed", reason="invalid_payload")
 
-        if status != 201:
+        if status not in (200, 201):
             return PublishResult("failed", http_status=status, reason="unexpected_status")
         try:
             document = json.loads(body)
+            if status == 200 and document.get("created") is not False:
+                return PublishResult("failed", http_status=status, reason="unexpected_status")
             event_id = str(UUID(document["id"]))
-        except (UnicodeError, ValueError, TypeError, KeyError):
+        except (AttributeError, UnicodeError, ValueError, TypeError, KeyError):
             return PublishResult("failed", http_status=status, reason="invalid_response")
-        if evidence_png is not None:
+        already_exists = status == 200
+        if evidence_png is not None and not (already_exists and document.get("evidence_url")):
             if not isinstance(evidence_png, bytes) or not evidence_png.startswith(b"\x89PNG\r\n\x1a\n"):
                 return PublishResult("failed", event_id=event_id, reason="invalid_evidence")
             boundary = uuid4().hex
@@ -203,6 +231,12 @@ class HttpEventSink:
                 return PublishResult("failed", http_status=error.code, event_id=event_id, reason="evidence_http_error")
             except (TimeoutError, socket.timeout, URLError, OSError):
                 return PublishResult("failed", event_id=event_id, reason="evidence_network_error")
-            if upload_status != 201:
+            if upload_status not in (200, 201):
                 return PublishResult("failed", http_status=upload_status, event_id=event_id, reason="evidence_unexpected_status")
-        return PublishResult("published", http_status=201, event_id=event_id)
+        self._completed.add(key)
+        return PublishResult(
+            "duplicate" if already_exists else "published",
+            http_status=status,
+            event_id=event_id,
+            reason="already_exists" if already_exists else None,
+        )

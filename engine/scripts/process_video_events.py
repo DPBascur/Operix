@@ -7,13 +7,16 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 from uuid import UUID
 
 from operix_engine.byte_tracker import ByteTrackConfig, ByteTracker
-from operix_engine.event_publishing import EventContext, HttpEventSink
+from operix_engine.event_publishing import (
+    EventContext, HttpEventSink, deterministic_analysis_run_id,
+)
 from operix_engine.operational_config import load_operational_config
 from operix_engine.video_event_pipeline import run_video_event_pipeline
 from operix_engine.yolo_detector import YoloDetector, YoloDetectorConfig
@@ -44,7 +47,10 @@ def main() -> int:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--expected-video-sha256", required=True)
     parser.add_argument("--expected-weights-sha256", required=True)
-    parser.add_argument("--analysis-run-id", type=UUID, required=True)
+    parser.add_argument(
+        "--analysis-run-id", type=UUID,
+        help="UUID explícito para un análisis distinto; por defecto se deriva de fuente y configuración",
+    )
     parser.add_argument("--recording-start-at", type=_datetime, required=True)
     parser.add_argument("--api-base-url", default="http://127.0.0.1:8000/api/v1")
     parser.add_argument("--conf", type=float, default=0.10)
@@ -55,27 +61,50 @@ def main() -> int:
     parsed_url = urlparse(args.api_base_url)
     if parsed_url.scheme != "http" or parsed_url.hostname not in ("localhost", "127.0.0.1"):
         parser.error("La demostración solo permite API HTTP en localhost")
+    hashes = {}
     for name, path, expected in (
         ("video", args.video, args.expected_video_sha256),
         ("pesos", args.weights, args.expected_weights_sha256),
     ):
-        if not path.is_file() or _sha256(path).lower() != expected.lower():
+        if not path.is_file():
+            parser.error(f"{name}: archivo ausente")
+        actual = _sha256(path)
+        if actual.lower() != expected.lower():
             parser.error(f"{name}: archivo ausente o SHA-256 distinto")
+        hashes[name] = actual
 
     config = load_operational_config(args.config)
-    context = EventContext(args.analysis_run_id, config.view_id, args.recording_start_at)
-    detector = YoloDetector(YoloDetectorConfig(
+    detector_config = YoloDetectorConfig(
         args.weights, confidence_threshold=args.conf, device="cuda",
         image_size=args.imgsz, iou_threshold=args.iou,
-    ))
-    tracker = ByteTracker(ByteTrackConfig())
+    )
+    tracker_config = ByteTrackConfig()
+    detector_settings = {
+        "device": detector_config.device,
+        "confidence_threshold": detector_config.confidence_threshold,
+        "image_size": detector_config.image_size,
+        "iou_threshold": detector_config.iou_threshold,
+        "class_filter": "person",
+    }
+    tracker_settings = asdict(tracker_config)
+    analysis_run_id = args.analysis_run_id or deterministic_analysis_run_id(
+        video_sha256=hashes["video"],
+        weights_sha256=hashes["pesos"],
+        config_sha256=_sha256(args.config),
+        detector=detector_settings,
+        tracker=tracker_settings,
+    )
+    context = EventContext(analysis_run_id, config.view_id, args.recording_start_at)
+    detector = YoloDetector(detector_config)
+    tracker = ByteTracker(tracker_config)
     sink = HttpEventSink(args.api_base_url)
     summary = run_video_event_pipeline(
         args.video, detector=detector, tracker=tracker, config=config, sink=sink, context=context
     )
-    summary["video_sha256"] = _sha256(args.video)
+    summary["run_identity"] = "explicit" if args.analysis_run_id else "derived"
+    summary["video_sha256"] = hashes["video"]
     summary["weights_name"] = args.weights.name
-    summary["weights_sha256"] = _sha256(args.weights)
+    summary["weights_sha256"] = hashes["pesos"]
     summary["detector_configuration"] = {
         "model": args.weights.name,
         "device": "cuda", "confidence_threshold": args.conf,

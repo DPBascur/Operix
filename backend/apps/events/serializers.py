@@ -45,6 +45,9 @@ class EventSerializer(serializers.ModelSerializer):
             "created_at",
         )
         read_only_fields = ("id", "created_at", "evidence_url")
+        # El POST repetido se resuelve en la vista con la constraint de PostgreSQL;
+        # el validador automático de unicidad de DRF lo convertiría en 400.
+        validators = []
 
     def get_evidence_url(self, obj):
         if not obj.evidence_image or not obj.evidence_image.storage.exists(obj.evidence_image.name):

@@ -30,6 +30,15 @@ class Event(models.Model):
 
     class Meta:
         ordering = ("-occurred_at", "-created_at", "-id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=(
+                    "analysis_run_id", "view_id", "frame_index", "rule_id",
+                    "rule_version", "track_id", "zone_id",
+                ),
+                name="unique_event_per_analysis_candidate",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.rule_id} v{self.rule_version} · {self.id}"

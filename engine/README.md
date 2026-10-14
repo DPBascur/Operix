@@ -269,9 +269,11 @@ regla, candidato y salida HTTP, pero no ejecuta YOLO11 ni ByteTrack ni prueba
 percepción sobre video. La salida informa estado HTTP e ID persistido. Una falla
 de red, timeout o respuesta inválida se informa sin interrumpir la evaluación
 de los frames restantes; el proceso sale con código no cero si hubo fallos de
-publicación. No hay reintentos automáticos. El sink evita repetir un intento del
-mismo candidato dentro de su sesión, pero el Backend aún no ofrece idempotencia
-entre ejecuciones: volver a correr el comando puede crear otro evento.
+publicación. No hay reintentos automáticos. El sink evita repetir una
+publicación completada dentro de su sesión y permite reintentar fallos; el
+Backend evita duplicados si se reutiliza el mismo `analysis_run_id` para el
+mismo candidato. El ejemplo usa `uuidgen` para una ejecución nueva: en un
+retry debe reutilizarse ese UUID, no generar otro.
 
 `engine/.env.example` documenta las variables sin secretos. No se carga
 automáticamente; la publicación requiere el flag y las variables explícitas.
@@ -295,9 +297,13 @@ este JSONL de tracks; por eso no se usa un frame arbitrario de esos clips.
 adaptadores YOLO11/ByteTrack, el analizador espacio-temporal, `RuleEngine` y
 `HttpEventSink`. Cuando surge un candidato `zone_dwell`, captura y anota el
 frame **real** que lo produjo y lo adjunta al evento persistido. Exige hashes
-esperados del video y de los pesos, un UUID de corrida y una ancla temporal
-explícita con zona horaria. Acepta solo una API HTTP en localhost; no abre
-servicios por sí mismo. Los pesos siguen fuera de Git.
+esperados del video y de los pesos y una ancla temporal explícita con zona
+horaria. Deriva por defecto un UUID estable de los hashes de fuente/modelo,
+configuración y parámetros de procesamiento; `--analysis-run-id` permite
+declarar una ejecución deliberadamente distinta. Repetir el mismo análisis
+devuelve eventos existentes (HTTP 200) y omite evidencia ya disponible;
+un retry puede completar una imagen faltante. Acepta solo una API HTTP en
+localhost; no abre servicios por sí mismo. Los pesos siguen fuera de Git.
 
 La configuración de demostración es
 [`config/examples/desktop-zone-dwell.json`](config/examples/desktop-zone-dwell.json).
