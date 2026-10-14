@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "view_id": "ceiling_04",
+  "coordinate_system": "normalized",
+  "zones": [
+    {
+      "zone_id": "area_transito_demo",
+      "name": "Área de tránsito visible de demostración",
+      "polygon": [[0.03, 0.60], [0.97, 0.60], [0.97, 0.98], [0.03, 0.98]]
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "demo_zone_dwell",
+      "version": 1,
+      "enabled": true,
+      "parameters": {
+        "kind": "zone_dwell",
+        "class_name": "person",
+        "zone_id": "area_transito_demo",
+        "min_duration_s": 2.0
+      }
+    }
+  ]
+}

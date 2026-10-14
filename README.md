@@ -2,7 +2,7 @@
 
 Sistema inteligente para el análisis preventivo de riesgos operacionales mediante visión artificial.
 
-Operix busca transformar secuencias de video en información para revisión preventiva: detectar y seguir objetos de interés, calcular variables descriptivas y evaluar reglas operacionales. El registro persistente de eventos es una etapa futura.
+Operix busca transformar secuencias de video en información para revisión preventiva: detectar y seguir objetos de interés, calcular variables descriptivas y evaluar reglas operacionales. Existe una prueba local que registra los candidatos de una regla en la API con evidencia visual real; no representa todavía un sistema preventivo completo.
 
 > La IA percibe el entorno; las reglas interpretan el contexto.
 
@@ -17,18 +17,18 @@ El aporte del Trabajo de Título consiste en diseñar, integrar y evaluar un sis
 - OP-61: ejecución integrada y consolidación documental completadas.
 - OP-30 (configuración), OP-36 (pertenencia a zonas), OP-37 (variables espacio-temporales) y OP-38 (primera regla configurable) están completadas.
 - OP-42: resguardos de evidencia y alcance del PoC completados académicamente en V0.10.1 para Etapa 2.
-- Persistencia de eventos, Backend/API y Aplicación Web permanecen pendientes.
+- Backend/API con PostgreSQL y frontend `/events` disponibles como prototipos de desarrollo; una prueba local desde video registra eventos `zone_dwell` con evidencia recuperable. Faltan autenticación y operación integrada de producción.
 
 ## Arquitectura y alcance
 
-Video → detección → tracking → variables espacio-temporales → reglas configurables → `EventCandidate` en memoria. La persistencia e histórico pertenecen a etapas posteriores.
+Video → detección → tracking → variables espacio-temporales → reglas configurables → `EventCandidate` en memoria → publicación HTTP opcional → registro técnico en PostgreSQL.
 
-La arquitectura define Aplicación Web, Backend/API, Motor de análisis de video y PostgreSQL. En el sistema futuro, el Motor entregará resultados al Backend/API y este gestionará la persistencia. Esa integración aún no está implementada; el Motor no accede directamente a PostgreSQL.
+La arquitectura define Aplicación Web, Backend/API, Motor de análisis de video y PostgreSQL. Existe una integración local inicial desde video hasta `/events`; el Motor entrega candidatos por HTTP al Backend y no accede directamente a PostgreSQL.
 
 - Procesamiento de video.
 - Detección y seguimiento experimental de `person`; cobertura de maquinaria pendiente de pesos/clases apropiados.
 - Evaluación inicial de una regla operacional configurable (`zone_dwell`).
-- Emisión de candidatos transitorios; todavía no hay registro persistente de eventos.
+- Emisión de candidatos transitorios y publicación local opcional de eventos `zone_dwell` con captura real del frame. No hay clasificación automática de riesgo.
 
 Las reglas y umbrales operacionales son configurables y dependen del escenario y de la organización. Se utiliza el concepto de evento de interés preventivo o condición potencialmente riesgosa, sujeto a revisión humana.
 
@@ -69,7 +69,7 @@ implementación completa del sistema.
 | --- | --- |
 | [frontend/](frontend/README.md) | Aplicación Web |
 | [backend/](backend/README.md) | API, configuración, consultas y persistencia |
-| [engine/](engine/README.md) | Pipeline base ejecutable y módulos operacionales de configuración, zonas, variables espacio-temporales y evaluación inicial de reglas; persistencia pendiente |
+| [engine/](engine/README.md) | Pipeline base, configuración, zonas, variables espacio-temporales, reglas y prueba local de publicación HTTP; la persistencia reside en el Backend |
 | [docs/architecture/](docs/architecture/README.md) | Seis diagramas, cinco ADR y exportación completa de IcePanel de la arquitectura v1.0 |
 | [assets/demo/](assets/demo/README.md) | Dos entradas sintéticas y un video anotado para revisión |
 | [third_party/](third_party/nvidia-warehouse-dataset/NOTICE.md) | Procedencia, atribución y licencia de los clips NVIDIA |
@@ -103,7 +103,7 @@ El Motor dispone de entorno reproducible Windows/CUDA, scripts de ejecución y p
 
 El PoC técnico ejecutado comprende video → OpenCV → YOLO11 → ByteTrack → visualización, con métricas del benchmark independiente de OP-43. La [evidencia consolidada de OP-61](engine/evidence/OP-61-poc.md) registra configuración, entorno, hashes, resultados y limitaciones como evidencia inicial de RF-01, RF-02, RF-03 y RNF-02.
 
-Después de ese hito, el desarrollo incorpora configuración de zonas y reglas (OP-30), pertenencia geométrica (OP-36), variables espacio-temporales (OP-37) y evaluación inicial `zone_dwell` (OP-38). Los candidatos emitidos en memoria no son eventos persistidos ni una clasificación automática de riesgo.
+Después de ese hito, el desarrollo incorporó configuración de zonas y reglas (OP-30), pertenencia geométrica (OP-36), variables espacio-temporales (OP-37) y evaluación inicial `zone_dwell` (OP-38). Una [prueba local posterior](engine/evidence/video-to-event-local.md) enlazó video, regla, evidencia de frame real y evento persistido. Un `EventCandidate` aislado sigue siendo transitorio y no constituye una clasificación automática de riesgo.
 
 La validación principal filtra `person`. Los pesos COCO no contienen `forklift` y no demuestran tracking fiable de maquinaria. Los resultados proceden de muestras sintéticas acotadas; no acreditan funcionamiento universal o sostenido en tiempo real ni validación completa de Operix.
 

@@ -1,10 +1,10 @@
 # Motor de análisis de video
 
-Componente de Operix Architecture v1.0 que transforma video en resultados de análisis. La regla inicial emite candidatos transitorios. Un replay controlado puede publicarlos opcionalmente por HTTP hacia el Backend, que gestiona su persistencia.
+Componente de Operix Architecture v1.0 que transforma video en resultados de análisis. La regla inicial emite candidatos transitorios. Un replay de tracks y una prueba local integrada desde video pueden publicarlos opcionalmente por HTTP hacia el Backend, que gestiona su persistencia.
 
 > La IA percibe el entorno; las reglas interpretan el contexto.
 
-Flujo conceptual: video → detección → tracking → variables espacio-temporales → reglas configurables → `EventCandidate`. La publicación HTTP está integrada por ahora en el replay de tracks de `scripts/evaluate_rules.py`; el orquestador general de video todavía no ejecuta toda esa cadena en una sola pasada.
+Flujo conceptual: video → detección → tracking → variables espacio-temporales → reglas configurables → `EventCandidate`. `scripts/evaluate_rules.py` conserva el replay de tracks; `scripts/process_video_events.py` demuestra la cadena desde video en una sola pasada local controlada.
 
 ## Tecnologías y límites
 
@@ -289,9 +289,29 @@ Para repetir el ejemplo con captura, añada `--capture-evidence` al comando
 anterior. Los videos sintéticos de `assets/demo/` no están sincronizados con
 este JSONL de tracks; por eso no se usa un frame arbitrario de esos clips.
 
+## Prueba local integrada desde video
+
+`scripts/process_video_events.py` inicia en el MP4 original y reutiliza los
+adaptadores YOLO11/ByteTrack, el analizador espacio-temporal, `RuleEngine` y
+`HttpEventSink`. Cuando surge un candidato `zone_dwell`, captura y anota el
+frame **real** que lo produjo y lo adjunta al evento persistido. Exige hashes
+esperados del video y de los pesos, un UUID de corrida y una ancla temporal
+explícita con zona horaria. Acepta solo una API HTTP en localhost; no abre
+servicios por sí mismo. Los pesos siguen fuera de Git.
+
+La configuración de demostración es
+[`config/examples/desktop-zone-dwell.json`](config/examples/desktop-zone-dwell.json).
+La zona y el umbral de 2 s son experimentales y no una regla de seguridad
+universal. El Backend debe estar activo en loopback con `EVENT_POST_ENABLED=1`.
+Para mostrar los eventos reales en el frontend local, seleccionar
+`NEXT_PUBLIC_DATA_SOURCE=api` y apuntar `NEXT_PUBLIC_API_BASE_URL` a la API
+local; configurar el origen local del frontend en `CORS_ALLOWED_ORIGINS`.
+Los comandos, mediciones, IDs y limitaciones de la corrida están en la
+[evidencia técnica](evidence/video-to-event-local.md).
+
 ## Componentes de arquitectura
 
-Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios independientes. Procesamiento, detección, seguimiento, análisis espacio-temporal, configuración y evaluación inicial de reglas están implementados. Existe una salida HTTP opcional para el replay; la gestión persistente corresponde al Backend y la integración del pipeline general sigue pendiente:
+Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios independientes. Procesamiento, detección, seguimiento, análisis espacio-temporal, configuración y evaluación inicial de reglas están implementados. Existe una salida HTTP opcional para el replay y una prueba local integrada desde video; la gestión persistente corresponde al Backend. La orquestación de producción del sistema general sigue pendiente:
 
 1. Procesador de video.
 2. Detector de objetos.
@@ -312,8 +332,9 @@ OP-61 consolidó la ejecución integrada y sus evidencias y quedó cerrada; ese 
 no incorporó reglas, zonas, proximidad ni eventos. Posteriormente
 OP-30, OP-36 y OP-37 añadieron configuración, pertenencia y variables descriptivas;
 OP-38 incorpora evaluación inicial de reglas y candidatos en memoria.
-La primera integración HTTP del replay con Backend, PostgreSQL y `/events`
-constituye un avance parcial de OP-39; la evidencia visual recuperable sigue
-pendiente. La consulta y filtros son un avance parcial de OP-40.
+La integración HTTP del replay y la prueba desde video con Backend,
+PostgreSQL, evidencia visual real y `/events` constituyen avances técnicos
+de OP-39, todavía sin cierre académico formal. La consulta y filtros son un
+avance parcial de OP-40.
 
 Consulte el [índice de arquitectura](../docs/architecture/README.md) para los artefactos vigentes.
