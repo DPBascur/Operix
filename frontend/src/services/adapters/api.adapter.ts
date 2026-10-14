@@ -8,7 +8,7 @@ import type {
   Zone,
 } from "@/types/operix";
 
-import type { FrontendDataAdapter } from "./frontend-data.adapter";
+import type { EventQuery, FrontendDataAdapter } from "./frontend-data.adapter";
 import { MockAdapter } from "./mock.adapter";
 
 type ApiEvent = {
@@ -47,14 +47,19 @@ function isApiEvent(value: unknown): value is ApiEvent {
 export class ApiAdapter implements FrontendDataAdapter {
   private readonly mock = new MockAdapter();
 
-  async listEvents(): Promise<EventListItem[]> {
+  async listEvents(filters: EventQuery = {}): Promise<EventListItem[]> {
     if (!environment.apiBaseUrl) {
       throw new Error("Falta NEXT_PUBLIC_API_BASE_URL para consultar la API.");
     }
-    const response = await fetch(
-      `${environment.apiBaseUrl.replace(/\/$/, "")}/events/`,
-      { cache: "no-store" },
-    );
+    const url = new URL(`${environment.apiBaseUrl.replace(/\/$/, "")}/events/`);
+    const params = new URLSearchParams();
+    if (filters.occurredAfter)
+      params.set("occurred_after", filters.occurredAfter);
+    if (filters.occurredBefore)
+      params.set("occurred_before", filters.occurredBefore);
+    if (filters.eventType) params.set("event_type", filters.eventType);
+    url.search = params.toString();
+    const response = await fetch(url.toString(), { cache: "no-store" });
     if (!response.ok) {
       throw new Error(`La API respondió con estado ${response.status}.`);
     }

@@ -64,6 +64,8 @@ export const mockRecentEvents = [
 export const mockEventRows = [
   {
     id: "mock-row-01",
+    eventType: null,
+    occurredAt: "2026-10-13T10:24:17-03:00",
     title: "Cruce de zona restringida",
     zone: "Zona A",
     rule: "R-01",
@@ -74,6 +76,8 @@ export const mockEventRows = [
   },
   {
     id: "mock-row-02",
+    eventType: "zone_dwell",
+    occurredAt: "2026-10-13T10:21:03-03:00",
     title: "Permanencia prolongada",
     zone: "Zona B",
     rule: "R-03",
@@ -84,6 +88,8 @@ export const mockEventRows = [
   },
   {
     id: "mock-row-03",
+    eventType: null,
+    occurredAt: "2026-10-13T10:18:56-03:00",
     title: "Proximidad entre personas",
     zone: "Zona C",
     rule: "R-05",
@@ -94,6 +100,8 @@ export const mockEventRows = [
   },
   {
     id: "mock-row-04",
+    eventType: null,
+    occurredAt: "2026-10-13T10:15:12-03:00",
     title: "Objeto no autorizado",
     zone: "Zona A",
     rule: "R-02",
@@ -104,6 +112,8 @@ export const mockEventRows = [
   },
   {
     id: "mock-row-05",
+    eventType: null,
+    occurredAt: "2026-10-13T10:12:41-03:00",
     title: "Caída de objeto",
     zone: "Zona D",
     rule: "R-04",

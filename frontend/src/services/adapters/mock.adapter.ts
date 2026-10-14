@@ -14,7 +14,7 @@ import type {
   Zone,
 } from "@/types/operix";
 
-import type { FrontendDataAdapter } from "./frontend-data.adapter";
+import type { EventQuery, FrontendDataAdapter } from "./frontend-data.adapter";
 
 export class MockAdapter implements FrontendDataAdapter {
   async getAnalysisOverview(): Promise<AnalysisOverview> {
@@ -34,11 +34,22 @@ export class MockAdapter implements FrontendDataAdapter {
     return mockEventCandidates;
   }
 
-  async listEvents(): Promise<EventListItem[]> {
-    return mockEventRows.map((event) => ({
-      ...event,
-      objects: "No informados",
-    }));
+  async listEvents(filters: EventQuery = {}): Promise<EventListItem[]> {
+    return mockEventRows
+      .filter((event) => {
+        const occurredAt = new Date(event.occurredAt).getTime();
+        return (
+          (!filters.eventType || event.eventType === filters.eventType) &&
+          (!filters.occurredAfter ||
+            occurredAt >= Date.parse(filters.occurredAfter)) &&
+          (!filters.occurredBefore ||
+            occurredAt <= Date.parse(filters.occurredBefore))
+        );
+      })
+      .map((event) => ({
+        ...event,
+        objects: "No informados",
+      }));
   }
 
   async listOperationalRules(): Promise<OperationalRule[]> {

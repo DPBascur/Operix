@@ -39,6 +39,8 @@ La aplicación queda disponible en `http://localhost:3000`.
 
 Por defecto, el frontend usa `MockAdapter`; esos datos no provienen del Motor Python ni representan persistencia real. Para consultar los eventos persistidos, crear `frontend/.env.local` con `NEXT_PUBLIC_DATA_SOURCE=api` y `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1`, y reiniciar Next.js. Solo `/events` usa la API en este modo; las otras vistas continúan con datos mock. Si la API falla, `/events` muestra un error y permite reintentar, sin sustituir silenciosamente los eventos por mocks. El frontend nunca conecta directamente con el Motor.
 
+En modo API, `/events` consulta PostgreSQL a través de los filtros del Backend `occurred_after`, `occurred_before` y `event_type`. Las fechas y horas se introducen en la hora local del navegador y se envían con zona horaria explícita; el único tipo admitido actualmente es `zone_dwell` (permanencia en zona). Se pueden aplicar y limpiar filtros sin recargar la aplicación. En modo mock se conserva la búsqueda y el filtro de zona locales de la maqueta.
+
 Las rutas `/`, `/analysis`, `/events` y `/rules` muestran datos de desarrollo. Las rutas `/zones` e `/indicators` están preparadas sin simular funcionalidad todavía; `/dashboard` redirige al dashboard principal en `/`.
 
 ## Design tokens

@@ -172,6 +172,39 @@ class EventApiTests(APITestCase):
         })
         self.assertEqual(response.data, [])
 
+    def test_filters_use_inclusive_bounds_and_timezone_offsets(self):
+        ids = []
+        for minutes in (-60, 0, 60):
+            payload = deepcopy(self.payload)
+            payload["analysis_run_id"] = str(uuid.uuid4())
+            payload["occurred_at"] = (self.occurred_at + timedelta(minutes=minutes)).isoformat()
+            ids.append(self.create_event(payload).data["id"])
+        self.assertEqual(len(self.client.get("/api/v1/events/").data), 3)
+        instant = "2026-10-13T09:00:00-03:00"
+        for params, expected in (
+            ({"occurred_after": instant}, ids[1:]),
+            ({"occurred_before": instant}, ids[:2]),
+            ({"occurred_after": instant, "occurred_before": instant}, ids[1:2]),
+            ({"event_type": "zone_dwell"}, ids),
+            ({"event_type": "zone_dwell", "occurred_after": instant,
+              "occurred_before": instant}, ids[1:2]),
+            ({"occurred_after": "2026-10-14T00:00:00Z"}, []),
+        ):
+            with self.subTest(params=params):
+                response = self.client.get("/api/v1/events/", params)
+                self.assertEqual(response.status_code, 200)
+                self.assertCountEqual([item["id"] for item in response.data], expected)
+
+    def test_filter_rejects_reverse_range_and_naive_time(self):
+        for params in (
+            {"occurred_after": "2026-10-13T12:01:00Z", "occurred_before": "2026-10-13T12:00:00Z"},
+            {"occurred_after": "2026-10-13T12:00:00"},
+            {"occurred_before": "2026-10-13T12:00:00"},
+            {"event_type": "unknown"},
+        ):
+            with self.subTest(params=params):
+                self.assertEqual(self.client.get("/api/v1/events/", params).status_code, 400)
+
     def test_invalid_filters_are_rejected(self):
         self.assertEqual(self.client.get("/api/v1/events/?unexpected=x").status_code, 400)
         self.assertEqual(self.client.get("/api/v1/events/?occurred_after=bad").status_code, 400)
