@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import csv
+import hashlib
 import importlib.util
 import tempfile
 import unittest
@@ -17,6 +18,234 @@ from operix_engine.nvidia_dataset import (
 
 
 class NvidiaDatasetTest(unittest.TestCase):
+    def _tooling(self):
+        script = Path(__file__).resolve().parents[1] / "scripts" / "prepare_nvidia_dataset.py"
+        spec = importlib.util.spec_from_file_location("prepare_nvidia_dataset", script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_manual_add_uses_original_yolo_converter_and_preserves_source(self):
+        module = self._tooling()
+        frame = {"agents": {}, "objects": {}}
+        original = json.dumps(frame)
+        review = {"state": "MANUAL_ADD", "actions": [{"action": "ADD",
+                  "target_class": "forklift", "bbox_xyxy": [10, 20, 30, 60],
+                  "reason": "missing_source_annotation"}],
+                  "source_annotation_sha256": "ABC"}
+        boxes = module.apply_manual_review({}, frame, review, 100, 100)
+        self.assertEqual(boxes[0]["bbox"], yolo_box(
+            {"x_min": 10, "y_min": 20, "x_max": 30, "y_max": 60}, 100, 100))
+        self.assertEqual(boxes[0]["source"], "OPERIX_MANUAL")
+        self.assertEqual(boxes[0]["source_annotation_sha256"], "ABC")
+        self.assertEqual(original, json.dumps(frame))
+        self.assertEqual(boxes, module.apply_manual_review({}, frame, review, 100, 100))
+
+    def test_review_plan_materializes_source_hash_without_overwriting(self):
+        module = self._tooling()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.jsonl"
+            source.write_text('{"agents":{},"objects":{}}\n', encoding="utf-8")
+            catalog = root / "catalog.csv"
+            row = {"run_id": "0123456789abcdefabcd_run_1_seed_1234", "seed": "1234",
+                   "scenario": "fire", "camera": "ceiling_04", "split": "train",
+                   "annotation_path": str(source)}
+            with catalog.open("w", newline="", encoding="utf-8") as sink:
+                writer = csv.DictWriter(sink, fieldnames=list(row))
+                writer.writeheader()
+                writer.writerow(row)
+            plan = root / "plan.json"
+            plan.write_text(json.dumps({"schema_version": 1, "dataset_revision": module.REVISION,
+                                        "groups": [{"run_id": row["run_id"], "camera": "ceiling_04",
+                                                    "state": "MANUAL_ADD", "frames": [0],
+                                                    "bbox_xyxy": [10, 20, 30, 60]}]}),
+                            encoding="utf-8")
+            output = root / "overlay.json"
+            self.assertEqual(module.materialize_review_overlay([catalog], plan, output),
+                             {"frames": 1, "runs": 1})
+            review = json.loads(output.read_text(encoding="utf-8"))["frames"][0]
+            self.assertEqual(review["source_annotation_sha256"],
+                             hashlib.sha256(source.read_bytes()).hexdigest().upper())
+            self.assertEqual(review["actions"][0]["reason"], "missing_source_annotation")
+            second = root / "overlay-second.json"
+            module.materialize_review_overlay([catalog], plan, second)
+            self.assertEqual(output.read_bytes(), second.read_bytes())
+            with self.assertRaisesRegex(ValueError, "sobrescribe"):
+                module.materialize_review_overlay([catalog], plan, output)
+
+    def test_manual_review_rejects_duplicate_conflict_and_invalid_coordinates(self):
+        module = self._tooling()
+        frame = {"agents": {}, "objects": {}}
+        action = {"action": "ADD", "target_class": "forklift",
+                  "bbox_xyxy": [10, 20, 30, 60], "reason": "missing_source_annotation"}
+        with self.assertRaisesRegex(ValueError, "duplicada"):
+            module.apply_manual_review({}, frame, {"state": "MANUAL_ADD",
+                                                   "actions": [action, action],
+                                                   "source_annotation_sha256": "ABC"}, 100, 100)
+        with self.assertRaisesRegex(ValueError, "fuera del frame"):
+            module.apply_manual_review({}, frame, {"state": "MANUAL_ADD",
+                                                   "actions": [action | {"bbox_xyxy": [-1, 20, 30, 60]}]},
+                                       100, 100)
+        with self.assertRaisesRegex(ValueError, "contradice"):
+            source = {"agents": {"/Forklift/0": {"label": {"class": "robot"},
+                      "metro_agent_data": {"agent_group": "forklift", "agent_name": "forklift_0",
+                                           "asset_url": "omniverse://x/forklift.usd"},
+                      "annotators": {"bounding_box_2d_tight_fast":
+                                     {"x_min": 10, "y_min": 20, "x_max": 30, "y_max": 60}}}}}
+            module.apply_manual_review({}, source, {"state": "VERIFIED_NEGATIVE", "actions": []},
+                                       100, 100)
+        with self.assertRaisesRegex(ValueError, "conflicto"):
+            module.apply_manual_review({}, source, {"state": "MANUAL_ADD", "actions": [action],
+                                                    "source_annotation_sha256": "ABC"},
+                                       100, 100)
+
+    def test_exclude_frame_is_explicit_and_incompatible_with_add(self):
+        module = self._tooling()
+        frame = {"agents": {}, "objects": {}}
+        review = {"state": "EXCLUDE_FRAME", "actions": [{"action": "EXCLUDE_FRAME"}]}
+        self.assertIsNone(module.apply_manual_review({}, frame, review, 100, 100))
+        with self.assertRaisesRegex(ValueError, "no admite"):
+            module.apply_manual_review({}, frame, {"state": "EXCLUDE_FRAME", "actions":
+                                       [{"action": "EXCLUDE_FRAME"}, {"action": "ADD"}]},
+                                       100, 100)
+
+    def test_curated_export_preserves_jsonl_and_tracks_manual_source(self):
+        import cv2
+        import numpy as np
+        module = self._tooling()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run_id = "0123456789abcdefabcd_run_1_seed_1234"
+            annotation = root / "source.jsonl"
+            annotation.write_text('{"agents": {}, "objects": {}}\n', encoding="utf-8")
+            before = hashlib.sha256(annotation.read_bytes()).hexdigest().upper()
+            video = root / "source.avi"
+            writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*"MJPG"), 30, (1920, 1080))
+            self.assertTrue(writer.isOpened())
+            writer.write(np.zeros((1080, 1920, 3), dtype=np.uint8))
+            writer.release()
+            row = {"run_id": run_id, "seed": "1234", "scenario": "fire", "camera": "ceiling_04",
+                   "split": "train", "video_path": str(video), "annotation_path": str(annotation)}
+            catalog = root / "catalog.csv"
+            with catalog.open("w", newline="", encoding="utf-8") as sink:
+                csv_writer = csv.DictWriter(sink, fieldnames=list(row))
+                csv_writer.writeheader()
+                csv_writer.writerow(row)
+            reviews = root / "reviews.json"
+            reviews.write_text(json.dumps({"schema_version": 1, "dataset_revision": module.REVISION,
+                "frames": [{"run_id": run_id, "seed": "1234", "scenario": "fire",
+                            "camera": "ceiling_04", "frame": 0, "split": "train",
+                            "source_annotation_sha256": before, "state": "MANUAL_ADD",
+                            "actions": [{"action": "ADD", "target_class": "forklift",
+                                         "bbox_xyxy": [100, 200, 300, 500],
+                                         "reason": "missing_source_annotation"}]}]}), encoding="utf-8")
+            plan = root / "protected.json"
+            plan.write_text(json.dumps({"dataset_revision": module.REVISION, "runs": []}),
+                            encoding="utf-8")
+            summary = module.curate_yolo([catalog], reviews, root / "curated", [plan])
+            self.assertEqual(summary, {"reviewed": 1, "exported": 1, "excluded": 0})
+            self.assertEqual(before, hashlib.sha256(annotation.read_bytes()).hexdigest().upper())
+            with (root / "curated" / "box-ledger.jsonl").open(encoding="utf-8") as source:
+                ledger = json.loads(source.readline())
+            self.assertEqual(ledger["boxes"][0]["source"], "OPERIX_MANUAL")
+            self.assertEqual(ledger["source_annotation_sha256"], before)
+            self.assertEqual(ledger["manual_forklift_boxes"], 1)
+            self.assertEqual(ledger["nvidia_forklift_boxes"], 0)
+            with self.assertRaisesRegex(ValueError, "vacía"):
+                module.curate_yolo([catalog], reviews, root / "curated", [plan])
+            plan.write_text(json.dumps({"dataset_revision": module.REVISION,
+                "runs": [{"run_id": run_id, "seed": "1234", "split": "test"}]}),
+                encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "elegible"):
+                module.curate_yolo([catalog], reviews, root / "blocked", [plan])
+
+    def test_v2_plan_reserves_unseen_runs_by_seed_without_annotations(self):
+        script = Path(__file__).resolve().parents[1] / "scripts" / "prepare_nvidia_dataset.py"
+        spec = importlib.util.spec_from_file_location("prepare_nvidia_dataset", script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runs = []
+            splits = {}
+            shards = []
+            scenarios = tuple(module.ARTIFACT_SHARDS)
+            for scenario_index, scenario in enumerate(scenarios):
+                for number in range(120):
+                    seed = str(scenario_index * 10000 + number + 1)
+                    run_id = f"{number + 1:020x}_run_1_seed_{seed}"
+                    runs.append({"run_id": run_id, "seed": seed, "scenario": scenario,
+                                 "source_kind": "multi_camera_run"})
+                    splits[run_id] = "train" if number < 65 else "validation" if number < 90 else "test"
+                for number, start in enumerate(("0" * 20 + "_run_1_seed_0",
+                                                "f" * 20 + "_run_1_seed_999999")):
+                    shards.append({"scenario": scenario, "number": number,
+                                   "shard": f"artifacts/{scenario}/{number:05d}.tar",
+                                   "first_run": start})
+            for filename, rows in (("runs.csv", runs), ("shards.csv", shards)):
+                with (root / filename).open("w", newline="", encoding="utf-8") as sink:
+                    writer = csv.DictWriter(sink, fieldnames=list(rows[0]))
+                    writer.writeheader()
+                    writer.writerows(rows)
+            (root / "registry.json").write_text(json.dumps({"dataset_revision": module.REVISION,
+                                                             "splits": splits}), encoding="utf-8")
+            (root / "v1.json").write_text(json.dumps({"dataset_revision": module.REVISION,
+                                                      "runs": [runs[0]]}), encoding="utf-8")
+            module.plan_v2(root / "runs.csv", root / "registry.json", root / "shards.csv",
+                           root / "v1.json", root / "v2.json")
+            selected = json.loads((root / "v2.json").read_text(encoding="utf-8"))["runs"]
+            self.assertEqual(len(selected), 36)
+            self.assertEqual(len({row["seed"] for row in selected}), 36)
+            self.assertNotIn(runs[0]["run_id"], {row["run_id"] for row in selected})
+            self.assertEqual(sum(row["split"] == "test" for row in selected), 12)
+
+    def test_compose_v2_reuses_only_train_and_validation(self):
+        script = Path(__file__).resolve().parents[1] / "scripts" / "prepare_nvidia_dataset.py"
+        spec = importlib.util.spec_from_file_location("prepare_nvidia_dataset", script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for source_name in ("base", "extra"):
+                for split in ("train", "val"):
+                    stem = f"{source_name}.{split}.0000"
+                    for folder, suffix in (("images", ".jpg"), ("labels", ".txt")):
+                        path = root / source_name / folder / split / f"{stem}{suffix}"
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_bytes(b"sample")
+                    row = {"run_id": source_name, "seed": "1" if source_name == "base" else "2",
+                           "scenario": "fire", "camera": split, "frame": "0", "split": split,
+                           "image_stem": stem, "person_boxes": "0", "forklift_boxes": "0",
+                           "ignored_targets_without_box": "0", "background": "True"}
+                    with (root / source_name / f"manifest-{split}.csv").open(
+                            "w", newline="", encoding="utf-8") as sink:
+                        writer = csv.DictWriter(sink, fieldnames=list(row))
+                        writer.writeheader()
+                        writer.writerow(row)
+            module.compose_v2(root / "base", root / "extra", root / "combined")
+            for split in ("train", "val"):
+                with (root / "combined" / f"manifest-{split}.csv").open(
+                        newline="", encoding="utf-8") as source:
+                    self.assertEqual(len(list(csv.DictReader(source))), 2)
+            self.assertFalse((root / "combined" / "images" / "test").exists())
+
+    def test_test2_negative_measurement_requires_selected_best(self):
+        script = Path(__file__).resolve().parents[1] / "scripts" / "prepare_nvidia_dataset.py"
+        spec = importlib.util.spec_from_file_location("prepare_nvidia_dataset", script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(ValueError, "TEST 2 reservado"):
+                module.mine_hard_negatives(root, root / "best.pt", "test", root / "report.json")
+            with self.assertRaisesRegex(ValueError, "Test reservado"):
+                module.export_yolo(root / "plan.json", root / "catalog.csv", root / "dataset",
+                                   "test")
+            with self.assertRaisesRegex(ValueError, "Solo train/validation"):
+                module.mine_video_negatives(root / "catalog.csv", root / "best.pt", "test",
+                                            root / "report.json")
+
     def test_test_catalog_requires_selected_weights(self):
         script = Path(__file__).resolve().parents[1] / "scripts" / "prepare_nvidia_dataset.py"
         spec = importlib.util.spec_from_file_location("prepare_nvidia_dataset", script)

@@ -10,6 +10,7 @@ import csv
 import hashlib
 import json
 import re
+import shutil
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -18,8 +19,8 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from operix_engine.nvidia_dataset import (
-    CLASS_IDS, HOLDOUT_RUNS, REVISION, audit, build_manifest, iter_frames, observations,
-    read_catalog, select_frames, split_runs,
+    CLASS_IDS, HOLDOUT_RUNS, HOLDOUT_SEEDS, REVISION, audit, build_manifest, iter_frames, observations,
+    read_catalog, select_frames, split_runs, yolo_box,
 )
 
 BASE_URL = ("https://huggingface.co/datasets/nvidia/"
@@ -61,7 +62,7 @@ def read_range(url: str, offset: int, size: int) -> bytes:
             with _RATE_LOCK:
                 now = time.monotonic()
                 delay = max(0.0, _NEXT_REQUEST_AT - now)
-                _NEXT_REQUEST_AT = max(now, _NEXT_REQUEST_AT) + .8
+                _NEXT_REQUEST_AT = max(now, _NEXT_REQUEST_AT) + .15
             if delay:
                 time.sleep(delay)
             request = Request(url, headers={"Range": f"bytes={offset}-{offset + size - 1}"})
@@ -182,10 +183,173 @@ def plan_pilot(runs_index: Path, registry_path: Path, shards_index: Path,
                                  indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+V2_QUOTAS = {
+    "train": {scenario: 4 for scenario in ARTIFACT_SHARDS},
+    "validation": {scenario: 2 for scenario in ARTIFACT_SHARDS},
+    "test": {scenario: 3 for scenario in ARTIFACT_SHARDS},
+}
+
+
+def plan_v2(runs_index: Path, registry_path: Path, shards_index: Path,
+            v1_plan_path: Path, output: Path) -> None:
+    """Reserva runs nuevos por metadata; nunca inspecciona el nuevo test."""
+    registry = load_registry(registry_path)
+    if registry is None:
+        raise ValueError("Falta registro de splits")
+    previous = json.loads(v1_plan_path.read_text(encoding="utf-8"))
+    if previous.get("dataset_revision") != REVISION:
+        raise ValueError("Plan v1 de otra revisión")
+    excluded_runs = {row["run_id"] for row in previous["runs"]} | HOLDOUT_RUNS
+    excluded_seeds = {row["seed"] for row in previous["runs"]} | set(HOLDOUT_SEEDS)
+    with runs_index.open(newline="", encoding="utf-8-sig") as source:
+        runs = list(csv.DictReader(source))
+    with shards_index.open(newline="", encoding="utf-8-sig") as source:
+        shard_rows = list(csv.DictReader(source))
+    candidates = {}
+    for scenario in ARTIFACT_SHARDS:
+        shards = sorted((row for row in shard_rows if row["scenario"] == scenario),
+                        key=lambda row: int(row["number"]))
+        if len(shards) < 2:
+            raise ValueError(f"Índice de shards incompleto: {scenario}")
+        starts = [row["first_run"] for row in shards]
+        if starts != sorted(starts):
+            raise ValueError(f"Índice de shards desordenado: {scenario}")
+        for run in runs:
+            if (run["scenario"] != scenario or run["source_kind"] != "multi_camera_run"
+                    or run["run_id"] in excluded_runs or run["seed"] in excluded_seeds):
+                continue
+            split = registry.get(run["run_id"])
+            if split not in V2_QUOTAS:
+                continue
+            position = bisect.bisect_right(starts, run["run_id"]) - 1
+            if position < 0 or position == len(shards) - 1:
+                continue
+            candidates.setdefault((split, scenario), []).append({
+                "run_id": run["run_id"], "seed": run["seed"], "scenario": scenario,
+                "split": split, "source_shard": shards[position]["shard"],
+                "cameras": list(PILOT_CAMERAS[scenario]),
+            })
+    selected = []
+    used_seeds = set(excluded_seeds)
+    for split, quotas in V2_QUOTAS.items():
+        for scenario, needed in quotas.items():
+            options = sorted(candidates.get((split, scenario), []), key=lambda x: x["run_id"])
+            if len(options) < needed:
+                raise ValueError(f"Pool insuficiente {split}/{scenario}")
+            for rank in range(needed):
+                anchor = round((rank + .5) * len(options) / needed - .5)
+                order = sorted(range(len(options)), key=lambda i: (abs(i - anchor), i))
+                chosen = next((options[i] for i in order if options[i]["seed"] not in used_seeds), None)
+                if chosen is None:
+                    raise ValueError(f"Seeds independientes insuficientes: {split}/{scenario}")
+                selected.append(chosen)
+                used_seeds.add(chosen["seed"])
+    if len(selected) != 36 or len({row["run_id"] for row in selected}) != 36:
+        raise ValueError("Plan v2 incompleto")
+    output = local_output(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps({
+        "dataset_revision": REVISION, "selection_basis": "frozen_registry_metadata_only",
+        "test_2_uninspected": True, "previous_plan_sha256": hashlib.sha256(
+            v1_plan_path.read_bytes()).hexdigest(), "runs": selected,
+    }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
 def choose_cameras(preferred: list[str], available: set[str]) -> list[str]:
     """Elige hasta dos vistas con par RGB/JSONL, sin abrir etiquetas ni imágenes."""
     return ([camera for camera in preferred if camera in available]
             + sorted(available - set(preferred)))[:2]
+
+
+def scan_v2_pairs(plan_path: Path, raw_dir: Path, output: Path) -> None:
+    """Comprueba solo longitud video/JSONL de train/val, sin abrir etiquetas de test."""
+    import cv2
+
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    records = []
+    for run in plan["runs"]:
+        if run["split"] == "test":
+            continue
+        available = []
+        for video_path in sorted(raw_dir.glob(run["run_id"] + ".*.rgb.mp4")):
+            camera = video_path.name[len(run["run_id"]) + 1:-len(".rgb.mp4")]
+            annotation = raw_dir / f"{run['run_id']}.{camera}.object_detection.jsonl"
+            if not annotation.is_file():
+                continue
+            capture = cv2.VideoCapture(str(video_path))
+            try:
+                frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT)) if capture.isOpened() else 0
+            finally:
+                capture.release()
+            with annotation.open(encoding="utf-8") as source:
+                annotated = sum(1 for _ in source)
+            available.append({"camera": camera, "video_frames": frames,
+                              "annotation_frames": annotated, "aligned": frames > 0 and frames == annotated})
+        records.append({"run_id": run["run_id"], "seed": run["seed"],
+                        "split": run["split"], "scenario": run["scenario"],
+                        "cameras": available, "usable": any(item["aligned"] for item in available)})
+    output = local_output(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps({"dataset_revision": REVISION, "runs": records}, indent=2) + "\n",
+                      encoding="utf-8")
+
+
+def replace_unusable_v2_runs(plan_path: Path, scan_path: Path, runs_index: Path,
+                             registry_path: Path, shards_index: Path, v1_plan_path: Path,
+                             output: Path) -> None:
+    """Sustituye solo runs técnicos inviables, por metadata del mismo split/escenario."""
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    previous = json.loads(v1_plan_path.read_text(encoding="utf-8"))
+    scan = json.loads(scan_path.read_text(encoding="utf-8"))
+    invalid = {row["run_id"] for row in scan["runs"] if not row["usable"]}
+    if not invalid:
+        raise ValueError("No hay runs inviables que sustituir")
+    registry = load_registry(registry_path)
+    with runs_index.open(newline="", encoding="utf-8-sig") as source:
+        runs = list(csv.DictReader(source))
+    with shards_index.open(newline="", encoding="utf-8-sig") as source:
+        shard_rows = list(csv.DictReader(source))
+    used_runs = {row["run_id"] for row in plan["runs"] + previous["runs"]} | HOLDOUT_RUNS
+    used_seeds = {row["seed"] for row in plan["runs"] + previous["runs"]} | set(HOLDOUT_SEEDS)
+    replacements = []
+    for original in plan["runs"]:
+        if original["run_id"] not in invalid:
+            continue
+        scenario, split = original["scenario"], original["split"]
+        shards = sorted((row for row in shard_rows if row["scenario"] == scenario),
+                        key=lambda row: int(row["number"]))
+        starts = [row["first_run"] for row in shards]
+        options = []
+        for run in runs:
+            if (run["scenario"] != scenario or run["source_kind"] != "multi_camera_run"
+                    or registry.get(run["run_id"]) != split or run["run_id"] in used_runs
+                    or run["seed"] in used_seeds):
+                continue
+            position = bisect.bisect_right(starts, run["run_id"]) - 1
+            if 0 <= position < len(shards) - 1:
+                options.append((run, shards[position]["shard"]))
+        if not options:
+            raise ValueError(f"Sin reemplazo metadata: {split}/{scenario}")
+        run, shard = min(options, key=lambda pair: (abs(int(pair[0]["run_id"][:20], 16)
+                                                       - int(original["run_id"][:20], 16)),
+                                                    pair[0]["run_id"]))
+        old_run_id = original["run_id"]
+        replacement = {"run_id": run["run_id"], "seed": run["seed"],
+                       "scenario": scenario, "split": split, "source_shard": shard,
+                       "cameras": list(PILOT_CAMERAS[scenario])}
+        original.update(replacement)
+        used_runs.add(run["run_id"])
+        used_seeds.add(run["seed"])
+        replacements.append({"reason": "no_aligned_rgb_jsonl_pair", "old_run_id": old_run_id,
+                             "new_run_id": run["run_id"],
+                             "split": split, "scenario": scenario})
+        invalid.remove(old_run_id)
+    if invalid:
+        raise ValueError(f"Runs inviables no resueltos: {sorted(invalid)}")
+    plan["technical_substitutions"] = replacements
+    output = local_output(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(plan, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def fetch_pilot(plan_path: Path, output_dir: Path, workers: int = 8,
@@ -195,7 +359,7 @@ def fetch_pilot(plan_path: Path, output_dir: Path, workers: int = 8,
         raise ValueError("workers fuera de 1..12")
     output_dir = local_output(output_dir)
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
-    if plan.get("dataset_revision") != REVISION or len(plan.get("runs", [])) != 80:
+    if plan.get("dataset_revision") != REVISION or not plan.get("runs"):
         raise ValueError("Plan piloto incorrecto")
     if not splits or set(splits) - {"train", "validation", "test"}:
         raise ValueError("Splits de descarga inválidos")
@@ -391,6 +555,20 @@ def catalog_from_cache(plan_path: Path, raw_dir: Path, output: Path, split: str,
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     selected = [run for run in plan["runs"] if run["split"] == split]
     rows = []
+
+    def fully_decodable(video_path: Path, expected_frames: int) -> bool:
+        capture = cv2.VideoCapture(str(video_path))
+        count = 0
+        try:
+            while count < expected_frames:
+                ok, image = capture.read()
+                if not ok or image is None or image.shape[:2] != (1080, 1920):
+                    return False
+                count += 1
+            return not capture.read()[0]
+        finally:
+            capture.release()
+
     for run in selected:
         prefix = run["run_id"] + "."
         pairs = {}
@@ -405,10 +583,10 @@ def catalog_from_cache(plan_path: Path, raw_dir: Path, output: Path, split: str,
                     capture.release()
                 with annotation_path.open(encoding="utf-8") as source:
                     annotation_count = sum(1 for _ in source)
-                if frame_count and frame_count == annotation_count:
+                if frame_count and frame_count == annotation_count and fully_decodable(video_path, frame_count):
                     pairs[camera] = (video_path, annotation_path)
                 else:
-                    print(f"Excluida cámara desalineada {run['run_id']} / {camera}: "
+                    print(f"Excluida cámara desalineada o no decodificable {run['run_id']} / {camera}: "
                           f"video={frame_count}, JSONL={annotation_count}", flush=True)
         cameras = choose_cameras(run["cameras"], set(pairs))
         if not cameras:
@@ -431,15 +609,19 @@ def catalog_from_cache(plan_path: Path, raw_dir: Path, output: Path, split: str,
 
 
 def export_yolo(plan_path: Path, catalog_path: Path, output_dir: Path,
-                split: str, frames_per_camera: int = 10) -> None:
+                split: str, frames_per_camera: int = 10,
+                selected_best: Path | None = None) -> None:
     """Exporta un split por vez; test solo debe invocarse tras seleccionar best.pt."""
     import cv2
 
     if split not in {"train", "validation", "test"} or not 8 <= frames_per_camera <= 12:
         raise ValueError("Split o frames_per_camera inválidos")
+    if split == "test" and (selected_best is None or not selected_best.is_file()
+                            or selected_best.suffix != ".pt"):
+        raise ValueError("Test reservado hasta disponer de best.pt seleccionado")
     output_dir = local_output(output_dir)
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
-    if plan.get("dataset_revision") != REVISION or len(plan.get("runs", [])) != 80:
+    if plan.get("dataset_revision") != REVISION or not plan.get("runs"):
         raise ValueError("Plan piloto no válido")
     selected_runs = {row["run_id"]: row for row in plan["runs"] if row["split"] == split}
     with catalog_path.open(newline="", encoding="utf-8-sig") as source:
@@ -532,13 +714,315 @@ def export_yolo(plan_path: Path, catalog_path: Path, output_dir: Path,
         f"{test_entry}names:\n  0: person\n  1: forklift\n", encoding="utf-8")
 
 
+def _box_iou(left: tuple[float, ...], right: tuple[float, ...]) -> float:
+    x1 = max(left[0], right[0])
+    y1 = max(left[1], right[1])
+    x2 = min(left[2], right[2])
+    y2 = min(left[3], right[3])
+    intersection = max(0, x2 - x1) * max(0, y2 - y1)
+    if not intersection:
+        return 0.0
+    area_left = (left[2] - left[0]) * (left[3] - left[1])
+    area_right = (right[2] - right[0]) * (right[3] - right[1])
+    return intersection / (area_left + area_right - intersection)
+
+
+def apply_manual_review(row: dict, frame: dict, review: dict,
+                        width: int, height: int) -> list[dict] | None:
+    """Fusiona cajas sin mutar la fuente; None representa EXCLUDE_FRAME."""
+    state = review.get("state")
+    actions = review.get("actions")
+    if state not in {"SOURCE_OK", "MANUAL_ADD", "VERIFIED_NEGATIVE", "EXCLUDE_FRAME"} \
+            or not isinstance(actions, list):
+        raise ValueError("Estado o acciones de revisión inválidos")
+    source = observations({**row, "width": width, "height": height}, frame)
+    if any(item["target_candidate"] and item["bbox"] is None for item in source) \
+            and state != "EXCLUDE_FRAME":
+        raise ValueError("Target NVIDIA sin caja: EXCLUDE_FRAME obligatorio")
+    boxes = [{"class_id": CLASS_IDS[item["target_candidate"]],
+              "target_class": item["target_candidate"], "bbox": item["bbox"],
+              "source": "NVIDIA", "prim_path": item["prim_path"]}
+             for item in source if item["target_candidate"] and item["bbox"] is not None]
+    source_forklifts = [box for box in boxes if box["target_class"] == "forklift"]
+    if state == "EXCLUDE_FRAME":
+        if actions != [{"action": "EXCLUDE_FRAME"}]:
+            raise ValueError("EXCLUDE_FRAME no admite cajas ni otras acciones")
+        return None
+    if state == "SOURCE_OK" and (not source_forklifts or actions):
+        raise ValueError("SOURCE_OK requiere forklift NVIDIA y ninguna acción")
+    if state == "VERIFIED_NEGATIVE" and (source_forklifts or actions):
+        raise ValueError("Negativo verificado contradice anotación o acciones")
+    if state == "MANUAL_ADD" and not actions:
+        raise ValueError("MANUAL_ADD requiere al menos una caja")
+    manual = []
+    for action in actions:
+        if (state != "MANUAL_ADD" or action.get("action") != "ADD"
+                or action.get("target_class") != "forklift"
+                or action.get("reason") != "missing_source_annotation"):
+            raise ValueError("Solo ADD forklift con motivo trazable")
+        raw = action.get("bbox_xyxy")
+        if (not isinstance(raw, list) or len(raw) != 4
+                or any(isinstance(value, bool) or not isinstance(value, (int, float))
+                       for value in raw)
+                or not 0 <= raw[0] < raw[2] <= width
+                or not 0 <= raw[1] < raw[3] <= height):
+            raise ValueError("Caja manual fuera del frame o no reproducible")
+        normalized = yolo_box(dict(zip(("x_min", "y_min", "x_max", "y_max"), raw)),
+                              width, height)
+        if normalized is None:
+            raise ValueError("Caja manual inválida")
+        candidate = {"class_id": CLASS_IDS["forklift"], "target_class": "forklift",
+                     "bbox": normalized, "bbox_xyxy": raw, "source": "OPERIX_MANUAL",
+                     "reason": "missing_source_annotation",
+                     "source_annotation_sha256": review["source_annotation_sha256"]}
+        def pixel_box(box: dict) -> tuple[float, float, float, float]:
+            cx, cy, w, h = box["bbox"]
+            return ((cx - w / 2) * width, (cy - h / 2) * height,
+                    (cx + w / 2) * width, (cy + h / 2) * height)
+        if any(_box_iou(tuple(raw), pixel_box(box)) >= .5
+               for box in source_forklifts + manual):
+            raise ValueError("Caja manual duplicada o en conflicto con NVIDIA")
+        manual.append(candidate)
+    return boxes + manual
+
+
+def materialize_review_overlay(catalog_paths: list[Path], plan_path: Path,
+                               output_path: Path) -> dict:
+    """Expande decisiones visuales por cámara/frame y fija el hash fuente."""
+    output_path = local_output(output_path)
+    if output_path.exists():
+        raise ValueError("No se sobrescribe un overlay manual existente")
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    if plan.get("schema_version") != 1 or plan.get("dataset_revision") != REVISION:
+        raise ValueError("Plan de revisión incompatible")
+    catalog = {}
+    for path in catalog_paths:
+        with path.open(newline="", encoding="utf-8-sig") as source:
+            for row in csv.DictReader(source):
+                if row["split"] in {"train", "validation"}:
+                    catalog[(row["run_id"], row["camera"])] = row
+    reviews = []
+    seen = set()
+    hashes = {}
+    for group in plan["groups"]:
+        key = (group["run_id"], group["camera"])
+        row = catalog.get(key)
+        if row is None or row["scenario"] not in {"fire", "box_pickup"}:
+            raise ValueError("Cámara no elegible para revisión")
+        if key not in hashes:
+            hashes[key] = hashlib.sha256(Path(row["annotation_path"]).read_bytes()).hexdigest().upper()
+        for frame in group["frames"]:
+            if not isinstance(frame, int) or isinstance(frame, bool) or frame < 0 or (key, frame) in seen:
+                raise ValueError("Frame de revisión duplicado o inválido")
+            seen.add((key, frame))
+            state = group["state"]
+            if state == "MANUAL_ADD":
+                actions = [{"action": "ADD", "target_class": "forklift",
+                            "bbox_xyxy": group["bbox_xyxy"],
+                            "reason": "missing_source_annotation"}]
+            elif state == "EXCLUDE_FRAME":
+                actions = [{"action": "EXCLUDE_FRAME"}]
+            else:
+                actions = []
+            reviews.append({"run_id": row["run_id"], "seed": row["seed"],
+                            "scenario": row["scenario"], "split": row["split"],
+                            "camera": row["camera"], "frame": frame, "state": state,
+                            "source_annotation_sha256": hashes[key], "actions": actions})
+    if not reviews:
+        raise ValueError("Plan sin frames revisados")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps({"schema_version": 1, "dataset_revision": REVISION,
+                                       "frames": reviews}, indent=2, ensure_ascii=False) + "\n",
+                           encoding="utf-8")
+    return {"frames": len(reviews), "runs": len(hashes)}
+
+
+def curate_yolo(catalog_paths: list[Path], reviews_path: Path, output_dir: Path,
+                protected_plans: list[Path]) -> dict:
+    """Exporta solo frames revisados de train/validation con procedencia por caja."""
+    import cv2
+
+    output_dir = local_output(output_dir)
+    if output_dir.exists() and any(output_dir.iterdir()):
+        raise ValueError("La salida curada debe estar vacía para evitar sobreescrituras")
+    payload = json.loads(reviews_path.read_text(encoding="utf-8"))
+    if payload.get("schema_version") != 1 or payload.get("dataset_revision") != REVISION:
+        raise ValueError("Overlay incompatible con la revisión NVIDIA fijada")
+    reviews = payload.get("frames")
+    if not isinstance(reviews, list) or not reviews:
+        raise ValueError("Overlay sin frames")
+    protected_runs = set(HOLDOUT_RUNS)
+    protected_seeds = set(HOLDOUT_SEEDS)
+    for path in protected_plans:
+        plan = json.loads(path.read_text(encoding="utf-8"))
+        if plan.get("dataset_revision") != REVISION:
+            raise ValueError("Plan protegido de otra revisión")
+        for item in plan["runs"]:
+            if item["split"] == "test":
+                protected_runs.add(item["run_id"])
+                protected_seeds.add(item["seed"])
+    catalog = {}
+    for path in catalog_paths:
+        with path.open(newline="", encoding="utf-8-sig") as source:
+            for row in csv.DictReader(source):
+                if row["split"] not in {"train", "validation"}:
+                    continue  # Ni siquiera se abren archivos del test.
+                key = (row["run_id"], row["camera"])
+                if key in catalog and catalog[key] != row:
+                    raise ValueError("Cámara con metadata contradictoria")
+                catalog[key] = row
+    seen = set()
+    prepared = []
+    hash_cache = {}
+    frame_cache = {}
+    for review in reviews:
+        run_id, camera, frame_index = review["run_id"], review["camera"], review["frame"]
+        key = (run_id, camera)
+        if (key, frame_index) in seen:
+            raise ValueError("Frame duplicado en overlay")
+        seen.add((key, frame_index))
+        row = catalog.get(key)
+        if (row is None or row["scenario"] not in {"fire", "box_pickup"}
+                or row["run_id"] in protected_runs or row["seed"] in protected_seeds
+                or review["seed"] != row["seed"] or review["scenario"] != row["scenario"]
+                or review["split"] != row["split"] or not isinstance(frame_index, int)
+                or isinstance(frame_index, bool) or frame_index < 0):
+            raise ValueError("Frame fuera de train/validation elegible")
+        source_path = Path(row["annotation_path"])
+        if key not in hash_cache:
+            hash_cache[key] = hashlib.sha256(source_path.read_bytes()).hexdigest().upper()
+        if review.get("source_annotation_sha256") != hash_cache[key]:
+            raise ValueError("SHA-256 de anotación NVIDIA no coincide")
+        if key not in frame_cache:
+            frame_cache[key] = list(iter_frames({**row, "annotation_path": source_path}))
+        if frame_index >= len(frame_cache[key]):
+            raise ValueError("Frame fuera del JSONL")
+        frame = frame_cache[key][frame_index][1]
+        boxes = apply_manual_review(row, frame, review, 1920, 1080)
+        prepared.append((row, review, boxes))
+    # Todo el overlay se valida antes de generar una sola imagen/etiqueta.
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifests = {"train": [], "val": []}
+    ledger = []
+    captures = {}
+    try:
+        for row, review, boxes in prepared:
+            split = "val" if row["split"] == "validation" else "train"
+            stem = f"{row['run_id']}.{row['camera']}.{review['frame']:04d}"
+            entry = {"run_id": row["run_id"], "seed": row["seed"],
+                     "scenario": row["scenario"], "camera": row["camera"],
+                     "frame": review["frame"], "split": split,
+                     "source_annotation_sha256": review["source_annotation_sha256"],
+                     "review_state": review["state"],
+                     "person_boxes": sum(box["target_class"] == "person" for box in boxes or []),
+                     "forklift_boxes": sum(box["target_class"] == "forklift" for box in boxes or []),
+                     "nvidia_forklift_boxes": sum(box["source"] == "NVIDIA" and
+                                                   box["target_class"] == "forklift" for box in boxes or []),
+                     "manual_forklift_boxes": sum(box["source"] == "OPERIX_MANUAL" for box in boxes or []),
+                     "verified_negative": review["state"] == "VERIFIED_NEGATIVE"}
+            ledger.append({**entry, "boxes": boxes or []})
+            if boxes is None:
+                continue
+            key = (row["run_id"], row["camera"])
+            if key not in captures:
+                captures[key] = cv2.VideoCapture(row["video_path"])
+                if not captures[key].isOpened() or int(captures[key].get(cv2.CAP_PROP_FRAME_WIDTH)) != 1920 \
+                        or int(captures[key].get(cv2.CAP_PROP_FRAME_HEIGHT)) != 1080:
+                    raise ValueError("Video fuente incompatible")
+            capture = captures[key]
+            capture.set(cv2.CAP_PROP_POS_FRAMES, review["frame"])
+            ok, image = capture.read()
+            if not ok or image.shape[:2] != (1080, 1920):
+                raise ValueError("No se pudo decodificar frame revisado")
+            image_path = output_dir / "images" / split / f"{stem}.jpg"
+            label_path = output_dir / "labels" / split / f"{stem}.txt"
+            image_path.parent.mkdir(parents=True, exist_ok=True)
+            label_path.parent.mkdir(parents=True, exist_ok=True)
+            if not cv2.imwrite(str(image_path), image, [cv2.IMWRITE_JPEG_QUALITY, 95]):
+                raise OSError("No se pudo escribir imagen curada")
+            lines = [f"{box['class_id']} " + " ".join(f"{value:.8f}" for value in box["bbox"])
+                     for box in boxes]
+            label_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+            manifests[split].append(entry)
+    finally:
+        for capture in captures.values():
+            capture.release()
+    for split, rows in manifests.items():
+        if not rows:
+            continue
+        with (output_dir / f"manifest-{split}.csv").open("w", newline="", encoding="utf-8") as sink:
+            writer = csv.DictWriter(sink, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
+    with (output_dir / "box-ledger.jsonl").open("w", encoding="utf-8") as sink:
+        for item in ledger:
+            sink.write(json.dumps(item, sort_keys=True, ensure_ascii=False) + "\n")
+    (output_dir / "data.yaml").write_text(
+        f"path: {output_dir.as_posix()}\ntrain: images/train\nval: images/val\n"
+        "names:\n  0: person\n  1: forklift\n", encoding="utf-8")
+    return {"reviewed": len(prepared), "exported": sum(map(len, manifests.values())),
+            "excluded": len(prepared) - sum(map(len, manifests.values()))}
+
+
+def contact_sheet_curated(dataset_dir: Path, output: Path, offset: int = 0,
+                          limit: int = 16) -> None:
+    """Verde=NVIDIA; magenta=manual; cian=negativo verificado."""
+    import cv2
+    import numpy as np
+
+    if offset < 0 or not 1 <= limit <= 16:
+        raise ValueError("Contact sheet admite 1–16 frames y offset no negativo")
+    output = local_output(output)
+    with (dataset_dir / "box-ledger.jsonl").open(encoding="utf-8") as source:
+        rows = [json.loads(line) for line in source]
+    selected = [row for row in rows if row["review_state"] != "EXCLUDE_FRAME"][offset:offset + limit]
+    if not selected:
+        raise ValueError("Sin frames en ese tramo")
+    panels = []
+    for row in selected:
+        split = row["split"]
+        stem = f"{row['run_id']}.{row['camera']}.{row['frame']:04d}"
+        image = cv2.imread(str(dataset_dir / "images" / split / f"{stem}.jpg"))
+        if image is None:
+            raise ValueError("Imagen curada ausente")
+        height, width = image.shape[:2]
+        for box in row["boxes"]:
+            cx, cy, bw, bh = box["bbox"]
+            left = int((cx - bw / 2) * width)
+            top = int((cy - bh / 2) * height)
+            right = int((cx + bw / 2) * width)
+            bottom = int((cy + bh / 2) * height)
+            color = (255, 0, 255) if box["source"] == "OPERIX_MANUAL" else (0, 255, 0)
+            cv2.rectangle(image, (left, top), (right, bottom), color, 4)
+        image = cv2.resize(image, (640, 360))
+        status = "NEGATIVO VERIFICADO" if row["verified_negative"] else row["review_state"]
+        label = f"{row['scenario']} {row['run_id'][:8]} {row['camera']} f{row['frame']} {status}"
+        cv2.putText(image, label, (8, 25), cv2.FONT_HERSHEY_SIMPLEX, .48,
+                    (255, 255, 0), 1, cv2.LINE_AA)
+        panels.append(image)
+    while len(panels) % 4:
+        panels.append(np.zeros_like(panels[0]))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if not cv2.imwrite(str(output), np.vstack(
+            [np.hstack(panels[i:i + 4]) for i in range(0, len(panels), 4)])):
+        raise OSError("No se pudo guardar contact sheet curada")
+
+
 def validate_export(plan_path: Path, dataset_dir: Path, output: Path,
-                    include_test: bool = False) -> None:
+                    include_test: bool = False, previous_plan: Path | None = None) -> None:
     """Valida clases, cajas y separación por run/seed en el dataset local."""
     import cv2
 
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     selected = {row["run_id"]: row for row in plan["runs"]}
+    if previous_plan is not None:
+        previous = json.loads(previous_plan.read_text(encoding="utf-8"))
+        for row in previous["runs"]:
+            if row["split"] == "test":
+                continue  # El test v1 ya conocido jamás integra TEST 2.
+            if row["run_id"] in selected or row["seed"] in {item["seed"] for item in selected.values()}:
+                raise ValueError("Leakage entre planes")
+            selected[row["run_id"]] = row
     names = ("train", "val", "test") if include_test else ("train", "val")
     totals = {}
     seen = {}
@@ -559,7 +1043,7 @@ def validate_export(plan_path: Path, dataset_dir: Path, output: Path,
                 raise ValueError("Imagen fuera del split reservado")
             split_runs.add(row["run_id"])
             split_seeds.add(row["seed"])
-            stem = f"{row['run_id']}.{row['camera']}.{int(row['frame']):04d}"
+            stem = image_stem(row)
             image = dataset_dir / "images" / split / f"{stem}.jpg"
             label = dataset_dir / "labels" / split / f"{stem}.txt"
             if not image.is_file() or not label.is_file():
@@ -635,6 +1119,229 @@ def contact_sheet_yolo(dataset_dir: Path, output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     if not cv2.imwrite(str(output), sheet):
         raise OSError("No se pudo guardar contact sheet")
+
+
+def compose_v2(base_dir: Path, additions_dir: Path, output_dir: Path) -> None:
+    """Reutiliza imágenes/etiquetas v1 train/val y agrega solo nuevos runs."""
+    output_dir = local_output(output_dir)
+    if output_dir.exists() and any(output_dir.iterdir()):
+        raise ValueError("Destino v2 no vacío: no sobrescribir un dataset existente")
+    for split in ("train", "val"):
+        all_rows = []
+        for source_dir in (base_dir, additions_dir):
+            with (source_dir / f"manifest-{split}.csv").open(newline="", encoding="utf-8") as source:
+                rows = list(csv.DictReader(source))
+            if not rows:
+                raise ValueError(f"Manifest vacío: {source_dir} / {split}")
+            for row in rows:
+                stem = image_stem(row)
+                for folder, suffix in (("images", ".jpg"), ("labels", ".txt")):
+                    origin = source_dir / folder / split / f"{stem}{suffix}"
+                    destination = output_dir / folder / split / origin.name
+                    if not origin.is_file() or destination.exists():
+                        raise ValueError(f"Archivo faltante o duplicado: {origin}")
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(origin, destination)
+            all_rows.extend(rows)
+        fieldnames = list(dict.fromkeys(key for row in all_rows for key in row))
+        with (output_dir / f"manifest-{split}.csv").open("w", newline="", encoding="utf-8") as sink:
+            writer = csv.DictWriter(sink, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(all_rows)
+    (output_dir / "data.yaml").write_text(
+        f"path: {output_dir.as_posix()}\ntrain: images/train\nval: images/val\n"
+        "names:\n  0: person\n  1: forklift\n", encoding="utf-8")
+
+
+def image_stem(row: dict) -> str:
+    return row.get("image_stem") or f"{row['run_id']}.{row['camera']}.{int(row['frame']):04d}"
+
+
+def mine_hard_negatives(dataset_dir: Path, weights: Path, split: str,
+                        output: Path, confidence: float = .10,
+                        selected_best: Path | None = None) -> None:
+    """Evalúa falsos forklift en negativos; TEST 2 solo tras elegir best.pt."""
+    if split not in {"train", "val", "test"} or not 0 < confidence < 1:
+        raise ValueError("Split/confidence inválidos para minería")
+    if split == "test" and (selected_best is None or not selected_best.is_file()
+                            or weights.resolve() != selected_best.resolve()):
+        raise ValueError("TEST 2 reservado hasta seleccionar best.pt v2")
+    from ultralytics import YOLO
+
+    with (dataset_dir / f"manifest-{split}.csv").open(newline="", encoding="utf-8") as source:
+        rows = list(csv.DictReader(source))
+    negatives = [row for row in rows if int(row["forklift_boxes"]) == 0
+                 and int(row["ignored_targets_without_box"]) == 0]
+    model = YOLO(str(weights))
+    records = []
+    for start in range(0, len(negatives), 16):
+        batch = negatives[start:start + 16]
+        paths = [dataset_dir / "images" / split / f"{image_stem(row)}.jpg" for row in batch]
+        results = model.predict(source=[str(path) for path in paths], imgsz=640,
+                                conf=confidence, iou=.70, device=0, classes=[1],
+                                verbose=False, batch=8)
+        for row, result in zip(batch, results):
+            scores = [round(float(value), 6) for value in result.boxes.conf.cpu().tolist()]
+            boxes = [[round(float(value), 2) for value in coordinates]
+                     for coordinates in result.boxes.xyxy.cpu().tolist()]
+            records.append({"run_id": row["run_id"], "scenario": row["scenario"],
+                            "camera": row["camera"], "frame": int(row["frame"]),
+                            "image_stem": image_stem(row),
+                            "person_boxes": int(row["person_boxes"]),
+                            "forklift_predictions": len(scores), "max_confidence": max(scores, default=0),
+                            "predictions": [{"confidence": score, "xyxy": box}
+                                            for score, box in zip(scores, boxes)]})
+    output = local_output(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps({"split": split, "confidence": confidence,
+                                  "negative_images": len(records),
+                                  "fp_images": sum(bool(row["forklift_predictions"]) for row in records),
+                                  "fp_boxes": sum(row["forklift_predictions"] for row in records),
+                                  "records": records}, indent=2) + "\n", encoding="utf-8")
+
+
+def hard_negative_sheet(dataset_dir: Path, report_path: Path, output: Path,
+                        limit: int = 12) -> None:
+    """Visualiza los falsos positivos candidatos sin copiar imágenes al dataset."""
+    import cv2
+    import numpy as np
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    if report["split"] not in {"train", "val"}:
+        raise ValueError("La lámina solo puede usar train/validation")
+    chosen = sorted((row for row in report["records"] if row["forklift_predictions"]),
+                    key=lambda row: (-row["max_confidence"], row["image_stem"]))[:limit]
+    if not chosen:
+        raise ValueError("No hay falsos positivos candidatos para revisar")
+    panels = []
+    for row in chosen:
+        image = cv2.imread(str(dataset_dir / "images" / report["split"] /
+                              f"{row['image_stem']}.jpg"))
+        if image is None:
+            raise ValueError(f"Imagen no disponible: {row['image_stem']}")
+        for item in row["predictions"]:
+            x1, y1, x2, y2 = map(int, item["xyxy"])
+            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 255), 3)
+            cv2.putText(image, f"forklift? {item['confidence']:.2f}", (x1, max(24, y1 - 6)),
+                        cv2.FONT_HERSHEY_SIMPLEX, .7, (0, 0, 255), 2)
+        image = cv2.resize(image, (480, 270))
+        cv2.putText(image, f"{row['scenario']} {row['camera']} f{row['frame']}", (6, 255),
+                    cv2.FONT_HERSHEY_SIMPLEX, .5, (255, 255, 255), 1)
+        panels.append(image)
+    while len(panels) % 3:
+        panels.append(np.zeros_like(panels[0]))
+    sheet = np.vstack([np.hstack(panels[i:i + 3]) for i in range(0, len(panels), 3)])
+    output = local_output(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if not cv2.imwrite(str(output), sheet):
+        raise OSError("No se pudo guardar lámina de negativos")
+
+
+def mine_video_negatives(catalog_path: Path, weights: Path, split: str,
+                         output: Path, per_camera: int = 40) -> None:
+    """Busca confusiones v1 en más instantes seguros de train/validation."""
+    if split not in {"train", "validation"} or not 1 <= per_camera <= 80:
+        raise ValueError("Solo train/validation con muestreo acotado")
+    import cv2
+    from ultralytics import YOLO
+
+    with catalog_path.open(newline="", encoding="utf-8-sig") as source:
+        rows = [row for row in csv.DictReader(source) if row["split"] == split]
+    model = YOLO(str(weights))
+    candidates = []
+    sampled = 0
+    for row in rows:
+        capture = cv2.VideoCapture(row["video_path"])
+        try:
+            width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            annotation_row = {**row, "width": width, "height": height}
+            eligible = []
+            for frame_index, frame in iter_frames(annotation_row):
+                items = observations(annotation_row, frame)
+                if any(item["target_candidate"] == "forklift" for item in items):
+                    continue
+                if any(item["target_candidate"] and not item["bbox"] for item in items):
+                    continue
+                people = [item["bbox"] for item in items if item["target_candidate"] == "person"]
+                eligible.append({"frame": frame_index, "person_boxes": people})
+            chosen = [eligible[min(len(eligible) - 1, int((rank + .5) * len(eligible) / min(per_camera, len(eligible))))]
+                      for rank in range(min(per_camera, len(eligible)))] if eligible else []
+            for start in range(0, len(chosen), 8):
+                batch = chosen[start:start + 8]
+                images = []
+                for item in batch:
+                    capture.set(cv2.CAP_PROP_POS_FRAMES, item["frame"])
+                    ok, image = capture.read()
+                    if not ok or image.shape[:2] != (height, width):
+                        raise ValueError(f"Video no decodificable: {row['run_id']} / {row['camera']}")
+                    if int(round(capture.get(cv2.CAP_PROP_POS_FRAMES))) != item["frame"] + 1:
+                        raise ValueError(f"Frame desalineado: {row['run_id']} / {row['camera']}")
+                    images.append(image)
+                results = model.predict(source=images, imgsz=640, conf=.10, iou=.70,
+                                        device=0, classes=[1], verbose=False, batch=8)
+                for item, result in zip(batch, results):
+                    sampled += 1
+                    scores = result.boxes.conf.cpu().tolist()
+                    if not scores:
+                        continue
+                    boxes = result.boxes.xyxy.cpu().tolist()
+                    candidates.append({"run_id": row["run_id"], "seed": row["seed"],
+                                       "scenario": row["scenario"], "camera": row["camera"],
+                                       "split": split, "frame": item["frame"],
+                                       "video_path": row["video_path"],
+                                       "person_boxes": item["person_boxes"],
+                                       "max_confidence": round(max(scores), 6),
+                                       "predictions": [{"confidence": round(float(score), 6),
+                                                        "xyxy": [round(float(x), 2) for x in box]}
+                                                       for score, box in zip(scores, boxes)]})
+        finally:
+            capture.release()
+    output = local_output(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps({"split": split, "sampled_negative_frames": sampled,
+                                  "fp_frames": len(candidates),
+                                  "fp_boxes": sum(len(row["predictions"]) for row in candidates),
+                                  "candidates": candidates}, indent=2) + "\n", encoding="utf-8")
+
+
+def video_hard_negative_sheet(report_path: Path, output: Path, limit: int = 12) -> None:
+    """Revisión visual de los falsos candidatos extraídos de videos train/val."""
+    import cv2
+    import numpy as np
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    if report["split"] not in {"train", "validation"}:
+        raise ValueError("No revisar test")
+    chosen = sorted(report["candidates"], key=lambda row: -row["max_confidence"])[:limit]
+    if not chosen:
+        raise ValueError("Sin falsos candidatos")
+    panels = []
+    for row in chosen:
+        capture = cv2.VideoCapture(row["video_path"])
+        try:
+            capture.set(cv2.CAP_PROP_POS_FRAMES, row["frame"])
+            ok, image = capture.read()
+            if not ok:
+                raise ValueError("Frame no decodificable")
+        finally:
+            capture.release()
+        for prediction in row["predictions"]:
+            x1, y1, x2, y2 = map(int, prediction["xyxy"])
+            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 255), 3)
+            cv2.putText(image, f"forklift? {prediction['confidence']:.2f}",
+                        (x1, max(25, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, .7, (0, 0, 255), 2)
+        image = cv2.resize(image, (480, 270))
+        cv2.putText(image, f"{row['scenario']} {row['camera']} f{row['frame']}",
+                    (6, 255), cv2.FONT_HERSHEY_SIMPLEX, .5, (255, 255, 255), 1)
+        panels.append(image)
+    while len(panels) % 3:
+        panels.append(np.zeros_like(panels[0]))
+    output = local_output(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if not cv2.imwrite(str(output), np.vstack(
+            [np.hstack(panels[i:i + 3]) for i in range(0, len(panels), 3)])):
+        raise OSError("No se pudo guardar lámina")
 
 
 def fetch_member(shard: str, run_id: str, camera: str, output: Path, suffix: str) -> str:
@@ -846,6 +1553,24 @@ def main() -> int:
     pilot.add_argument("--registry", type=Path, required=True)
     pilot.add_argument("--shards-index", type=Path, required=True)
     pilot.add_argument("--output", type=Path, required=True)
+    v2 = sub.add_parser("plan-v2", help="Reserva nuevos train/val/test2 por metadata")
+    v2.add_argument("--runs-index", type=Path, required=True)
+    v2.add_argument("--registry", type=Path, required=True)
+    v2.add_argument("--shards-index", type=Path, required=True)
+    v2.add_argument("--v1-plan", type=Path, required=True)
+    v2.add_argument("--output", type=Path, required=True)
+    pair_scan = sub.add_parser("scan-v2-pairs", help="Detecta desalineación video/JSONL en train/val")
+    pair_scan.add_argument("--plan", type=Path, required=True)
+    pair_scan.add_argument("--raw-dir", type=Path, required=True)
+    pair_scan.add_argument("--output", type=Path, required=True)
+    replace = sub.add_parser("replace-v2-runs", help="Sustituye runs inviables por metadata")
+    replace.add_argument("--plan", type=Path, required=True)
+    replace.add_argument("--scan", type=Path, required=True)
+    replace.add_argument("--runs-index", type=Path, required=True)
+    replace.add_argument("--registry", type=Path, required=True)
+    replace.add_argument("--shards-index", type=Path, required=True)
+    replace.add_argument("--v1-plan", type=Path, required=True)
+    replace.add_argument("--output", type=Path, required=True)
     pilot_fetch = sub.add_parser("fetch-pilot", help="Descarga solo MP4/JSONL elegidos, no shards")
     pilot_fetch.add_argument("--plan", type=Path, required=True)
     pilot_fetch.add_argument("--output-dir", type=Path, required=True)
@@ -858,11 +1583,38 @@ def main() -> int:
     export.add_argument("--output-dir", type=Path, required=True)
     export.add_argument("--split", choices=["train", "validation", "test"], required=True)
     export.add_argument("--frames-per-camera", type=int, default=10)
+    export.add_argument("--selected-best", type=Path,
+                        help="Obligatorio para exportar test tras selección con validation")
     check_export = sub.add_parser("validate-export", help="Valida dataset YOLO sin test por defecto")
     check_export.add_argument("--plan", type=Path, required=True)
     check_export.add_argument("--dataset-dir", type=Path, required=True)
     check_export.add_argument("--output", type=Path, required=True)
     check_export.add_argument("--include-test", action="store_true")
+    check_export.add_argument("--previous-plan", type=Path)
+    compose = sub.add_parser("compose-v2", help="Reutiliza train/val v1 y agrega nuevos runs")
+    compose.add_argument("--base-dir", type=Path, required=True)
+    compose.add_argument("--additions-dir", type=Path, required=True)
+    compose.add_argument("--output-dir", type=Path, required=True)
+    mine = sub.add_parser("mine-hard-negatives", help="Mide falsos forklift en negativos")
+    mine.add_argument("--dataset-dir", type=Path, required=True)
+    mine.add_argument("--weights", type=Path, required=True)
+    mine.add_argument("--split", choices=["train", "val", "test"], required=True)
+    mine.add_argument("--output", type=Path, required=True)
+    mine.add_argument("--confidence", type=float, default=.10)
+    mine.add_argument("--selected-best", type=Path)
+    negative_sheet = sub.add_parser("hard-negative-sheet", help="Revisa falsos candidatos train/val")
+    negative_sheet.add_argument("--dataset-dir", type=Path, required=True)
+    negative_sheet.add_argument("--report", type=Path, required=True)
+    negative_sheet.add_argument("--output", type=Path, required=True)
+    mine_video = sub.add_parser("mine-video-negatives", help="Busca errores v1 en más instantes train/val")
+    mine_video.add_argument("--catalog", type=Path, required=True)
+    mine_video.add_argument("--weights", type=Path, required=True)
+    mine_video.add_argument("--split", choices=["train", "validation"], required=True)
+    mine_video.add_argument("--output", type=Path, required=True)
+    mine_video.add_argument("--per-camera", type=int, default=40)
+    video_sheet = sub.add_parser("video-hard-negative-sheet", help="Revisa candidatos del video")
+    video_sheet.add_argument("--report", type=Path, required=True)
+    video_sheet.add_argument("--output", type=Path, required=True)
     sheet_yolo = sub.add_parser("contact-sheet-yolo", help="Dibuja solo train/val")
     sheet_yolo.add_argument("--dataset-dir", type=Path, required=True)
     sheet_yolo.add_argument("--output", type=Path, required=True)
@@ -873,6 +1625,22 @@ def main() -> int:
     cached_catalog.add_argument("--split", choices=["train", "validation", "test"], required=True)
     cached_catalog.add_argument("--selected-best", type=Path,
                                 help="best.pt ya elegido con validation; obligatorio para test")
+    curate = sub.add_parser("curate-yolo", help="Overlay manual trazable; solo train/validation")
+    curate.add_argument("--catalog", type=Path, action="append", required=True)
+    curate.add_argument("--reviews", type=Path, required=True)
+    curate.add_argument("--protected-plan", type=Path, action="append", required=True,
+                        help="Planes v1/v2: protege test por run y seed")
+    curate.add_argument("--output-dir", type=Path, required=True)
+    review_overlay = sub.add_parser("materialize-review-overlay",
+                                    help="Expande decisiones visuales y fija SHA-256 NVIDIA")
+    review_overlay.add_argument("--catalog", type=Path, action="append", required=True)
+    review_overlay.add_argument("--plan", type=Path, required=True)
+    review_overlay.add_argument("--output", type=Path, required=True)
+    curated_sheet = sub.add_parser("contact-sheet-curated", help="NVIDIA/manual/negativos diferenciados")
+    curated_sheet.add_argument("--dataset-dir", type=Path, required=True)
+    curated_sheet.add_argument("--output", type=Path, required=True)
+    curated_sheet.add_argument("--offset", type=int, default=0)
+    curated_sheet.add_argument("--limit", type=int, default=16)
     args = parser.parse_args()
     if args.command == "fetch-annotation":
         print(fetch_member(args.shard, args.run_id, args.camera, args.output, "object_detection.jsonl"))
@@ -891,17 +1659,46 @@ def main() -> int:
         index_artifact_shards(args.output, args.count_per_scenario)
     elif args.command == "plan-pilot":
         plan_pilot(args.runs_index, args.registry, args.shards_index, args.output)
+    elif args.command == "plan-v2":
+        plan_v2(args.runs_index, args.registry, args.shards_index, args.v1_plan, args.output)
+    elif args.command == "scan-v2-pairs":
+        scan_v2_pairs(args.plan, args.raw_dir, args.output)
+    elif args.command == "replace-v2-runs":
+        replace_unusable_v2_runs(args.plan, args.scan, args.runs_index, args.registry,
+                                 args.shards_index, args.v1_plan, args.output)
     elif args.command == "fetch-pilot":
         fetch_pilot(args.plan, args.output_dir, args.workers,
                     tuple(args.split) if args.split else ("train", "validation", "test"))
     elif args.command == "export-yolo":
-        export_yolo(args.plan, args.catalog, args.output_dir, args.split, args.frames_per_camera)
+        export_yolo(args.plan, args.catalog, args.output_dir, args.split,
+                    args.frames_per_camera, args.selected_best)
     elif args.command == "validate-export":
-        validate_export(args.plan, args.dataset_dir, args.output, args.include_test)
+        validate_export(args.plan, args.dataset_dir, args.output, args.include_test,
+                        args.previous_plan)
+    elif args.command == "compose-v2":
+        compose_v2(args.base_dir, args.additions_dir, args.output_dir)
+    elif args.command == "mine-hard-negatives":
+        mine_hard_negatives(args.dataset_dir, args.weights, args.split, args.output,
+                            args.confidence, args.selected_best)
+    elif args.command == "hard-negative-sheet":
+        hard_negative_sheet(args.dataset_dir, args.report, args.output)
+    elif args.command == "mine-video-negatives":
+        mine_video_negatives(args.catalog, args.weights, args.split, args.output,
+                             args.per_camera)
+    elif args.command == "video-hard-negative-sheet":
+        video_hard_negative_sheet(args.report, args.output)
     elif args.command == "contact-sheet-yolo":
         contact_sheet_yolo(args.dataset_dir, args.output)
     elif args.command == "catalog-from-cache":
         catalog_from_cache(args.plan, args.raw_dir, args.output, args.split, args.selected_best)
+    elif args.command == "curate-yolo":
+        print(json.dumps(curate_yolo(args.catalog, args.reviews, args.output_dir,
+                                     args.protected_plan), ensure_ascii=False))
+    elif args.command == "materialize-review-overlay":
+        print(json.dumps(materialize_review_overlay(args.catalog, args.plan, args.output),
+                         ensure_ascii=False))
+    elif args.command == "contact-sheet-curated":
+        contact_sheet_curated(args.dataset_dir, args.output, args.offset, args.limit)
     else:
         verify_yolo(args.manifest, args.output, args.index)
     return 0
