@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import json
+import csv
+import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +17,83 @@ from operix_engine.nvidia_dataset import (
 
 
 class NvidiaDatasetTest(unittest.TestCase):
+    def test_test_catalog_requires_selected_weights(self):
+        script = Path(__file__).resolve().parents[1] / "scripts" / "prepare_nvidia_dataset.py"
+        spec = importlib.util.spec_from_file_location("prepare_nvidia_dataset", script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(ValueError, "best.pt seleccionado"):
+                module.catalog_from_cache(root / "plan.json", root, root / "test.csv", "test")
+
+    def test_camera_fallback_requires_rgb_annotation_pair(self):
+        script = Path(__file__).resolve().parents[1] / "scripts" / "prepare_nvidia_dataset.py"
+        spec = importlib.util.spec_from_file_location("prepare_nvidia_dataset", script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual(module.choose_cameras(["cam_00", "cam_03"], {"cam_01", "cam_02"}),
+                         ["cam_01", "cam_02"])
+        self.assertEqual(module.choose_cameras(["cam_00", "cam_03"], {"cam_03", "cam_01"}),
+                         ["cam_03", "cam_01"])
+        self.assertEqual(module.choose_cameras(["cam_00", "cam_03"], set()), [])
+
+    def test_blind_test_frame_indices_use_only_count(self):
+        script = Path(__file__).resolve().parents[1] / "scripts" / "prepare_nvidia_dataset.py"
+        spec = importlib.util.spec_from_file_location("prepare_nvidia_dataset", script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual(module.temporal_test_indices(100, 10),
+                         [5, 15, 25, 35, 45, 55, 65, 75, 85, 95])
+        with self.assertRaises(ValueError):
+            module.temporal_test_indices(5, 10)
+
+    def test_pilot_plan_uses_frozen_metadata_splits_without_opening_annotations(self):
+        script = Path(__file__).resolve().parents[1] / "scripts" / "prepare_nvidia_dataset.py"
+        spec = importlib.util.spec_from_file_location("prepare_nvidia_dataset", script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runs_path = root / "runs.csv"
+            registry_path = root / "registry.json"
+            shards_path = root / "shards.csv"
+            plan_path = root / "plan.json"
+            scenarios = ("nearmiss", "forklift_collision", "box_pickup", "fire")
+            runs = []
+            splits = {}
+            for scenario_index, scenario in enumerate(scenarios):
+                for index in range(100):
+                    seed = str(scenario_index * 1000 + index + 1)
+                    run_id = f"{index + 1:020x}_run_1_seed_{seed}"
+                    runs.append({"run_id": run_id, "seed": seed,
+                                 "scenario": scenario, "source_kind": "multi_camera_run"})
+                    splits[run_id] = "train" if index < 70 else "validation" if index < 85 else "test"
+            with runs_path.open("w", newline="", encoding="utf-8") as sink:
+                writer = csv.DictWriter(sink, fieldnames=list(runs[0]))
+                writer.writeheader()
+                writer.writerows(runs)
+            registry_path.write_text(json.dumps({"dataset_revision": module.REVISION,
+                                                 "splits": splits}), encoding="utf-8")
+            shard_rows = []
+            for scenario in scenarios:
+                for number, start in enumerate(("0" * 20 + "_run_1_seed_0",
+                                                "f" * 20 + "_run_1_seed_999999")):
+                    shard_rows.append({"scenario": scenario, "number": number,
+                                       "shard": f"artifacts/{scenario}/{number:05d}.tar",
+                                       "first_run": start})
+            with shards_path.open("w", newline="", encoding="utf-8") as sink:
+                writer = csv.DictWriter(sink, fieldnames=list(shard_rows[0]))
+                writer.writeheader()
+                writer.writerows(shard_rows)
+            module.plan_pilot(runs_path, registry_path, shards_path, plan_path)
+            selected = json.loads(plan_path.read_text(encoding="utf-8"))["runs"]
+            self.assertEqual(len(selected), 80)
+            self.assertEqual(len({row["run_id"] for row in selected}), 80)
+            self.assertEqual(len({row["seed"] for row in selected}), 80)
+            self.assertEqual(sum(row["split"] == "test" for row in selected), 12)
+            self.assertEqual(sum(row["scenario"] == "nearmiss" for row in selected), 30)
+
     def test_mapping_strict(self):
         worker = dict(label_class="character", group="Worker", name="Worker_0",
                       agent_type="IRACharacterAPI", asset_url="person.usd")
