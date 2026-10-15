@@ -6,7 +6,7 @@
     {
       "zone_id": "area_transito_demo",
       "name": "Área de tránsito visible de demostración",
-      "polygon": [[0.03, 0.60], [0.97, 0.60], [0.97, 0.98], [0.03, 0.98]]
+      "polygon": [[0.19, 0.73], [0.77, 0.70], [0.98, 0.98], [0.02, 0.98]]
     }
   ],
   "rules": [
