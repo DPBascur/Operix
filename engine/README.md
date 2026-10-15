@@ -305,10 +305,16 @@ devuelve eventos existentes (HTTP 200) y omite evidencia ya disponible;
 un retry puede completar una imagen faltante. Acepta solo una API HTTP en
 localhost; no abre servicios por sí mismo. Los pesos siguen fuera de Git.
 
-La configuración de demostración es
-[`config/examples/desktop-zone-dwell.json`](config/examples/desktop-zone-dwell.json).
-La zona y el umbral de 2 s son experimentales y no una regla de seguridad
-universal. El Backend debe estar activo en loopback con `EVENT_POST_ENABLED=1`.
+Las configuraciones de demostración para A, B y C son, respectivamente,
+[`desktop-zone-dwell.json`](config/examples/desktop-zone-dwell.json),
+[`warehouse-nearmiss-zone-dwell.json`](config/examples/warehouse-nearmiss-zone-dwell.json)
+y [`warehouse-box-pickup-zone-dwell.json`](config/examples/warehouse-box-pickup-zone-dwell.json).
+Sus polígonos manuales siguen la perspectiva visible del piso; la pertenencia
+geométrica y el render usan la misma `Zone.polygon`. Las zonas y el umbral de 2 s
+son experimentales, no reglas de seguridad universales. Las evidencias históricas
+de Etapa 3 utilizaron polígonos anteriores; véase la
+[síntesis experimental](evidence/etapa3-experimentos.md). El Backend debe estar
+activo en loopback con `EVENT_POST_ENABLED=1`.
 Para mostrar los eventos reales en el frontend local, seleccionar
 `NEXT_PUBLIC_DATA_SOURCE=api` y apuntar `NEXT_PUBLIC_API_BASE_URL` a la API
 local; configurar el origen local del frontend en `CORS_ALLOWED_ORIGINS`.

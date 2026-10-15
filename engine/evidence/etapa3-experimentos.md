@@ -1,0 +1,104 @@
+# Etapa 3 — evaluación experimental del pipeline de percepción y eventos
+
+## Alcance y recursos reproducibles
+
+Esta evidencia consolida seis campañas exploratorias: umbral de confianza, baseline multiescenario, ajuste acotado de ByteTrack, diagnóstico de pérdida por pose, resolución en C y comparación 640/1280 en A/B/C. No es una medición formal de precisión, MOT ni seguridad industrial. Ninguna campaña cambió los pesos, los defaults ni el criterio de la regla. Los resultados proceden de experimentos locales del 14-10-2026 y sus registros detallados anteriores permanecen recuperables en el historial Git.
+
+Los clips sintéticos pertenecen a [NVIDIA PhysicalAI WorldModel Synthetic Warehouse Operations Scenes](https://huggingface.co/datasets/nvidia/PhysicalAI-WorldModel-Synthetic-Warehouse-Operations-Scenes/tree/d5b88d3abcf659f304a107f4336b71b4e2159133), revisión `d5b88d3abcf659f304a107f4336b71b4e2159133`, licencia OpenMDW-1.1; véase el [aviso de terceros](../../third_party/nvidia-warehouse-dataset/NOTICE.md). A/B son assets de demostración ya versionados; C, pesos, JSONL, PNG, MP4 diagnósticos y configuraciones locales permanecen fuera de Git.
+
+| Escenario | Clip / vista | Frames; 30 FPS; 1920×1080 | SHA-256 |
+| --- | --- | ---: | --- |
+| A, evacuación con varias personas | `warehouse_fire_ceiling04.mp4` / `ceiling_04` | 277 | `3ABE9043EE41F898D869890E8636B804186BFAF524DAEA2E6F6831E72711F4D6` |
+| B, persona–montacargas | `forklift_human_nearmiss_ceiling00.mp4` / `ceiling_00` | 300 | `E4795E873DCBDAAA4DC3D42F533052E3C1DB62D1D3EF786C2C90DD4D7681330B` |
+| C, recogida de caja y agachamiento | `008caa590c5e5b7b4bca_run_8_seed_4731920.cam_00.rgb.mp4` / `cam_00` | 418 | `EABF44D7ABE50D1BF4824F238A9F0AC9DDC29419E10D66B89C6A92CB1B98329C` |
+
+Equipo: Windows 10 x64, Ryzen 5 5500, RTX 3070; Python 3.12.10, PyTorch 2.14.0+cu130, OpenCV 5.0.0, Ultralytics 8.4.146 y `lap==0.5.12`. Pesos `yolo11n.pt` COCO, SHA-256 `0EBBC80D4A7680D14987A577CD21342B65ECFD94632BD9A8DA63AE6417644EE1`; CUDA, IoU `0.70`, filtro `person`. Baseline: `confidence=0.10`, `imgsz=640`; ByteTrack `track_high_thresh=0.25`, `track_low_thresh=0.10`, `new_track_thresh=0.25`, `track_buffer=30`, `match_thresh=0.80`, `fuse_score=true`. Regla `demo_zone_dwell` v1, `min_duration_s=2.0` **experimental**, no umbral calibrado de riesgo.
+
+Las primeras campañas utilizaron zonas demostrativas rectangulares; sus hashes JSON históricos son A `4CDB60006900F7547C1699DD5AFE05399607ECA2735E178E42ED7DB535A18B27`, B `7F4600770831C9F73E1FC0E2291717B49121FF106D2E915ACB189AFBF5289D05`, C `57AC51E411A2A355B68A7BEB4E3C7B1BD2E0F248B1CA2ED23AA6EF513C2DB3D7`. Son identidades de **aquellas** corridas; no deben reemplazarse retrospectivamente si evolucionan los polígonos de demo. El punto de pertenencia es el centro inferior de la caja. Para repetir la evaluación lógica se requiere conservar las configuraciones locales B/C o reconstruir su semántica desde el esquema y las coordenadas antiguas: B `(0.20,0.38),(0.62,0.38),(0.62,0.95),(0.20,0.95)`; C `(0.26,0.40),(0.70,0.40),(0.70,0.88),(0.26,0.88)`. A estaba en `engine/config/examples/desktop-zone-dwell.json` antes de su eventual ajuste visual. Reconstruir el contenido semántico no reproduce necesariamente el SHA ni el `analysis_run_id`.
+
+## Confianza YOLO11n: escenario A
+
+Se varió solo `confidence`, con `imgsz=640` y los demás controles fijos. Las primeras corridas pasaron por Django/PostgreSQL local; reintentos de `0.25/0.40/0.50` conservaron exactamente detecciones, IDs y candidatos y no duplicaron filas gracias a idempotencia. El tiempo de esas corridas incluía PNG/HTTP y condiciones de caché distintas; **no** se usa para comparar FPS entre umbrales.
+
+| Confianza | Detecciones `person` | Observaciones | IDs | Huecos internos: episodios / frames | Candidatos `(frame/ID)` |
+| ---: | ---: | ---: | ---: | ---: | --- |
+| 0.10 | 1.088 | 644 | 8 | 4 / 15 | 60/1, 60/2, 134/13, 201/31 |
+| 0.25 | 668 | 632 | 8 | 6 / 18 | 60/1, 134/13, 201/31 |
+| 0.40 | 605 | 592 | 6 | 11 / 18 | 60/1, 140/7, 231/13 |
+| 0.50 | 541 | 537 | 4 | 15 / 53 | 65/1, 168/1, 230/4, 238/5 |
+
+**Decisión:** mantener `0.10` como baseline exploratoria. Menos IDs a umbral alto no prueban mejor tracking: se pierden observaciones, aumentan huecos y los candidatos cambian de modo no monótono. No se midió precisión/recall y se conservan posibles cajas espurias.
+
+## Baseline multiescenario y ByteTrack
+
+El flujo A/B/C inicial fue video → YOLO11n `person` → ByteTrack → variables espacio-temporales → `zone_dwell`. Los FPS siguientes proceden de la ejecución integrada con API/evidencia y **no** de un benchmark controlado. A generó cuatro candidatos duplicados de una corrida previa; B y C publicaron uno y dos nuevos, respectivamente. Un duplicado de API no significa ausencia de candidato.
+
+| Escenario | `person` | Observaciones / IDs | Huecos | Candidatos | FPS integrado exploratorio |
+| --- | ---: | ---: | --- | --- | ---: |
+| A | 1.088 | 644 / 8 | 4 episodios internos; 15 frames | 60/1, 60/2, 134/13, 201/31 | 32,461 |
+| B | 302 | 300 / 1 | 0; ID 1 en 0–299 | 60/1 | 39,891 |
+| C | 361 | 360 / 2 | 58 frames sin track entre IDs 1 y 2 | 60/1, 228/2 | 43,324 |
+
+Se comparó el ByteTrack baseline con `track_buffer=60`, `track_buffer=90` y, por separado, `track_high_thresh=0.20`, en A y C, sin publicar eventos. A mantuvo 8 IDs, 644 observaciones y cuatro candidatos con buffers 30/60/90; el umbral alto 0.20 dejó 639 observaciones y un frame adicional de hueco. C mantuvo **361 detecciones, 360 observaciones, 2 IDs, pérdida 110–167 y dos candidatos** en las cuatro variantes. Con buffer 90 el ID 1 aún estaba *lost* en 167, pero la caja predicha se había desplazado respecto de la detección de retorno; no se reasoció. **Decisión:** no alterar ByteTrack antes de mejorar la detección. El renderer ya rellena el polígono `Zone.polygon` con cyan al 8 % o ámbar para candidato, con borde y rótulo discretos; el aspecto rectangular histórico procede de la configuración de las zonas.
+
+## C: diagnóstico de pose y resolución
+
+En C640 la persona visible se agacha; la última salida de ID 1 es frame 109. Durante **110–166** hay 57 frames sin `person` a confianza 0.10 y una caja errónea `fire hydrant` superpuesta en 57/57. En frame 167 reaparece una caja `person` válida; el ID 2 se emite desde 168. Al bajar solo la confianza a 0.05/0.01 se obtuvieron 2/6 cajas débiles pertinentes en esos 57 frames y 27/100 cajas `person` espurias en otras regiones; tracking y candidatos siguieron en **360 observaciones, 2 IDs, 60/1 y 228/2**. Las seis cajas pertinentes de 0.01 estaban bajo `track_low_thresh=0.10`. La persona continúa visible; no se verificó oclusión completa. **Diagnóstico:** la pérdida principal empieza en el detector; al retorno también hay una limitación de reasociación, pero extender el buffer no la resolvió.
+
+Se comparó después solo `imgsz` en el mismo C, con `confidence=0.10`, IoU 0.70 y tracker/regla fijos. Los FPS del estudio de costo fueron dos pasadas calentadas por tamaño, en orden balanceado; incluyen lectura, inferencia, tracking y regla, no renderer/API/escritura.
+
+| `imgsz` | `person` pertinente en 110–166 | `fire hydrant` superpuesta | Observaciones / IDs | Pérdida visible | Candidatos | FPS calentado agregado |
+| ---: | ---: | ---: | ---: | --- | --- | ---: |
+| 640 | 0/57 | 57/57 | 360 / 2 | 110–167, 58 frames | 60/1, 228/2 | 56,013 |
+| 960 | 28/57 | 49/57 | 388 / 1 | 121–149, 29 frames; y 157 | 60/1, 218/1 | 54,316 |
+| 1280 | 50/57 | 13/57 | 410 / 1 | 137–144, 8 frames | 60/1, 205/1 | 48,530 |
+
+`imgsz=1280` recuperó materialmente `person` y conservó ID 1, aunque hubo un tramo sin salida y **dos** candidatos: la regla de permanencia se rearma al perder observaciones, incluso si luego retorna el mismo ID. No implica precisión formal ni resuelve por completo la confusión. Los picos de memoria PyTorch del estudio fueron aproximadamente 56,4 / 72,0 / 96,1 MiB asignados para 640/960/1280: **no** representan toda la VRAM.
+
+## Comparación posterior A/B/C: 640 frente a 1280
+
+Una misma instancia YOLO se calentó con 20 predicciones por tamaño; se procesaron los videos completos en orden A640 → A1280 → B1280 → B640 → C640 → C1280 → C1280. Cada corrida creó tracker, analizador y regla nuevos; los candidatos quedaron en memoria. `FPS = frames / tiempo` incluye lectura, inferencia, tracking, variables y regla, pero excluye calentamiento, visualización, escritura, HTTP y persistencia. El contrabalanceo de orden fue parcial: los FPS son exploratorios, no sustituyen [OP-43](OP-43-performance.md).
+
+| Escenario | `imgsz` | FPS | Detecciones `person` | Observaciones / IDs | Huecos internos | Frames sin track | Candidatos |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| A | 640 | 52,973 | 1.088 | 644 / 8 | 4 episodios; 15 frames | 0 | 60/1, 60/2, 134/13, 201/31 |
+| A | 1280 | 45,179 | 692 | 644 / 3 | 3 episodios; 37 frames | 0 | 60/1, 60/2, 197/5 |
+| B | 640 | 52,663 | 302 | 300 / 1 | 0 | 0 | 60/1 |
+| B | 1280 | 47,320 | 300 | 300 / 1 | 0 | 0 | 60/1 |
+| C | 640 | 52,140 | 361 | 360 / 2 | 0; separación entre IDs | 58 | 60/1, 228/2 |
+| C | 1280 | 47,067 | 411 | 410 / 1 | 1 episodio; 8 frames | 8 | 60/1, 205/1 |
+| C repetido | 1280 | 46,677 | 411 | 410 / 1 | 1 episodio; 8 frames | 8 | 60/1, 205/1 |
+
+En A1280 disminuyen 36,4 % las cajas `person` y 14,7 % los FPS; las observaciones permanecen en 644 pero aumentan los frames ausentes dentro de IDs y cambian candidatos. Menos IDs podrían indicar menos tracks espurios o otra asociación; **no** prueban mejora sin anotaciones. En B1280, el único ID sigue continuo y el candidato no cambia, con 10,1 % menos FPS; las etiquetas alternativas `suitcase`/`bench` sobre la escena no representan `forklift`. En C1280, `person` aumenta 13,9 %, la pérdida baja de 58 a 8 frames y el FPS baja 9,7 %. La repetición C1280 reprodujo exactamente detecciones, ID, hueco y candidatos; solo varió 0,8 % el FPS. Las imágenes locales comparativas de A/B/C se revisaron visualmente; a C140 ambas resoluciones pierden el track y a C160 solo 1280 conserva una salida de `person`.
+
+**Decisión provisional:** conservar `imgsz=640` como default y evaluar `1280` por escenario cuando exista pérdida por pose como en C. No se recomienda globalmente: A ofrece resultado mixto y B no obtiene ventaja funcional. El error `fire hydrant`/`person` residual mantiene abierta la adaptación futura del detector, sin entrenar ni sustituir pesos en estas campañas.
+
+## Zonas de demostración con perspectiva del piso
+
+Se reemplazaron **solo** los polígonos demostrativos rectangulares de A/B/C por cuadriláteros manuales en coordenadas normalizadas. `Zone.polygon`, `point_in_zone` y `OpenCvRenderer.render_zone` ya aceptaban polígonos arbitrarios; no se modificaron. El renderer rellena exactamente ese polígono con cyan al 8 % y borde fino, o ámbar cuando participa en un candidato. La regla consume la misma configuración, por lo que zona visual y lógica coinciden. No se implementó homografía, segmentación ni editor interactivo. Los archivos nuevos de B/C son ejemplos versionables; los JSON locales originales y hashes históricos anteriores permanecen sin alterar.
+
+| Escenario / configuración vigente de demo | Polígono `(x,y)` en orden | SHA-256 JSON nuevo | Candidatos con zona nueva frente a zona histórica |
+| --- | --- | --- | --- |
+| A / `desktop-zone-dwell.json` | `(0.19,0.73)`, `(0.77,0.70)`, `(0.98,0.98)`, `(0.02,0.98)` | `ACC67314AC43A21B4A867C0A0E336566987E419E0A309058E9A979EEAF6E69A0` | **3 frente a 4:** 60/1, 60/2, 134/13; deja de aparecer 201/31. |
+| B / `warehouse-nearmiss-zone-dwell.json` | `(0.38,0.35)`, `(0.51,0.35)`, `(0.54,0.98)`, `(0.10,0.98)` | `FBDFFCA8D22406BA497C993FBAC4839B8D06E95FD8E9C694C85C580FC5CE380B` | **1 frente a 1:** 60/1. |
+| C / `warehouse-box-pickup-zone-dwell.json` | `(0.24,0.40)`, `(0.43,0.40)`, `(0.96,0.98)`, `(0.01,0.98)` | `951A3092CD7818BDDA192D13404D47DDB4995CA1D3435801EE1C5009194CF42E` | **2 frente a 2:** 60/1 y 228/2. |
+
+La revalidación completa a `imgsz=640` y `confidence=0.10` procesó 277/300/418 frames, mantuvo respectivamente 1.088/302/361 detecciones `person`, 644/300/360 observaciones y 8/1/2 IDs. El único cambio de regla observado fue en A: el candidato 201/31 quedó fuera del área de piso delimitada; **no se movió la zona para recuperarlo**. Las capturas antes/después y de candidatos se revisaron localmente y permanecen fuera de Git. La superposición 2D puede cruzar visualmente un objeto delante del piso; una ocultación física correcta requeriría segmentación o geometría 3D, fuera del alcance actual.
+
+## Preparación del detector adaptado: auditoría de datos, sin entrenamiento
+
+Se consultó el [índice oficial y formato de NVIDIA](https://huggingface.co/datasets/nvidia/PhysicalAI-WorldModel-Synthetic-Warehouse-Operations-Scenes) en la revisión fijada y los índices locales `metadata/runs.parquet` y `metadata/clips.parquet`. El nivel RGB ofrece MP4 por cámara y metadatos por run; el nivel `artifacts/` une por `run_id` y contiene `object_detection.jsonl` y `camera_params.jsonl` por cámara, además de segmentación/IDs. El JSONL de detección tiene una línea por frame con `agents`/`objects`, etiqueta semántica, cajas 2D *tight* y *loose* en píxeles, caja 3D y metadatos del agente. El `prim_path` identifica al agente dentro del run; `semanticId` de caja **no debe asumirse igual al instance ID** de la segmentación NPZ. La relación exacta con la tabla de mapeo de instancias debe verificarse si se usa supervisión temporal. No se descargaron shards completos: se inspeccionaron cabeceras TAR por rangos y fragmentos pequeños de un JSONL de cada escenario.
+
+La taxonomía observada **no es directamente la taxonomía YOLO objetivo**. En near-miss, box-pickup y fire, los trabajadores muestreados tienen `label.class=character` y grupo `Worker`; el montacargas muestreado en near-miss y collision tiene `label.class=robot`, con grupos observados `forklift` y `forklift_group`. La muestra de collision incluye además objetos de escena como `floor`, `wall`, `pillar` y `rack,shelf`, que no son clases objetivo. Por ello, **sí existen cajas 2D aprovechables para construir las dos clases objetivo**, pero no se confirmó una etiqueta semántica nativa `forklift`: mapear indiscriminadamente `robot` a `forklift` sería incorrecto. El conversor propuesto debe aceptar `character`/`Worker` como candidato a `person` y `robot` **solo si** metadatos de grupo/nombre y revisión visual verifican que ese agente es un montacargas. Otros robots y props deben quedar fuera. La distribución global de ambas clases no puede calcularse desde los Parquet: indexan runs/clips, no objetos por frame.
+
+Los índices locales contienen **29.195 runs y 122.967 clips**. Para un piloto con vistas sincronizadas verificables hay 1.642 runs multivista `nearmiss`, 4.120 `forklift_collision`, 2.601 `box_pickup` y 9.064 `fire`. Otros 11.768 registros `nearmiss` son `extras_single_view` sin seed en el índice: no se proponen para el primer split por run/seed. Los runs multivista de los cuatro escenarios muestreados tienen seed no nulo y no se hallaron seeds duplicadas en el índice. Estos números son disponibilidad potencial, **no** conteos de ejemplos positivos confirmados.
+
+**Subset piloto propuesto, sujeto a auditoría de etiquetas:** 120 runs nuevos y una cámara por run, estratificada por perspectiva; 40 near-miss, 20 collision, 40 box-pickup y 20 fire. Seleccionar 12 frames por clip repartidos entre fases de acción, tras inspeccionar anotaciones y visibilidad; ≈**1.440 imágenes**. Split por grupos completos `(scenario, seed, run_id)`, nunca aleatorio por frame ni separando cámaras sincronizadas: near-miss **28/6/6**, collision **14/3/3**, box-pickup **28/6/6**, fire **14/3/3** runs para train/val/test; total **84/18/18 runs**, ≈**1.008/216/216 imágenes**. El run C de agachamiento y los runs A/B ya usados en diagnóstico se excluyen de train/val y quedan como **pruebas diagnósticas externas**; C ya influyó en decisiones experimentales y por eso **no** sustituye al test ciego de 18 runs independientes. Evitar también que un mismo seed o simulación reaparezca en otro split mediante comprobación previa de metadatos.
+
+La distribución objetivo de imágenes es: near-miss ≈480 con persona y montacargas esperados; collision ≈240 con montacargas y persona opcional que debe confirmarse; box-pickup ≈480 con posturas de persona; fire ≈240 con varias personas. Son **asignaciones de muestreo**, no recuentos reales de cajas. Antes de entrenar hay que contar por anotación cajas válidas y tamaños/oclusiones por clase, revisar etiquetas visualmente y reajustar el subset si falta diversidad de caminata, agachamiento, interacción, escala, vista parcial o movimiento del montacargas. Los tamaños medianos RGB del índice son aproximadamente 15,7 MiB (near-miss), 23,4 MiB (collision), 21,5 MiB (box-pickup) y 14,5 MiB (fire) por cámara; los 120 clips representan ≈**2,2 GiB** de MP4 si se obtienen completos. Los JSONL y frames extraídos agregan volumen variable (en muestras, JSONL de detección de ≈1,7–26,8 MB); no se justifica descargar cientos de GiB/TiB ni publicar estos datos en Git.
+
+Para YOLO se necesitaría: localizar RGB y JSONL por mismo `run_id`/cámara; comprobar alineación frame–línea; validar que cada caja *tight* corresponde a una instancia objetivo, tiene área positiva y queda dentro del frame tras clipping explícito; convertir `xyxy` de 1920×1080 a `class_id x_center y_center width height` normalizados; conservar manifiesto de procedencia, seed, cámara y split; revisar ejemplos visuales y contar clases **antes** de fine-tuning. No iniciar entrenamiento ni fijar arquitectura/hiperparámetros hasta verificar el mapeo de etiquetas, cobertura de posturas y licencia/atribución de los derivados.
+
+## Límites y continuidad
+
+Los tres clips son sintéticos y acotados; no existe ground truth de cajas, identidad ni eventos evaluado en estas campañas. No se afirma precisión/recall, falsos positivos formales, MOTA, IDF1, HOTA, ID switches confirmados, validez industrial ni tiempo real sostenido. Los IDs son temporales, no personas identificadas; un candidato no equivale a incidente. Los resultados dependen de clips, equipo y configuración. COCO no tiene clase `forklift`; el pipeline actual filtra solo `person`, sin tracking fiable de maquinaria. La siguiente investigación debe verificar etiquetas y anotaciones reales del dataset y separar train/val/test por run y seed antes de plantear fine-tuning. Solo después de mejorar el detector corresponde reevaluar asociación ByteTrack y, si persisten pérdidas breves, tolerancia temporal configurable de la regla.
