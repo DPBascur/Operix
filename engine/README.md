@@ -321,6 +321,33 @@ local; configurar el origen local del frontend en `CORS_ALLOWED_ORIGINS`.
 Los comandos, mediciones, IDs y limitaciones de la corrida están en la
 [evidencia técnica](evidence/video-to-event-local.md).
 
+## Preparación exploratoria de anotaciones NVIDIA
+
+`scripts/prepare_nvidia_dataset.py` audita anotaciones de la revisión NVIDIA
+`d5b88d3abcf659f304a107f4336b71b4e2159133` sin descargar shards completos
+ni entrenar. `fetch-annotation` lee por HTTP Range un `object_detection.jsonl`
+identificado por shard, run y cámara; la salida debe ubicarse **fuera de Git**.
+`fetch-rgb` obtiene solo un clip para revisión visual si no existe localmente.
+El comando `audit --catalog CATALOGO.csv --output-dir SALIDA` genera allí
+`audit.json`, `combinations.csv` e `instances.csv`. El catálogo UTF-8 tiene
+columnas `run_id,seed,scenario,camera,annotation_path,video_path,width,height`;
+`video_path` es opcional y los paths pueden ser relativos al catálogo. Se
+recomiendan `annotation_sha256` (verificado al leer) y `source_shard` para
+conservar procedencia de cada JSONL.
+Para reservar test antes de inspeccionar nuevos JSONL, exportar localmente
+`run_id,scenario,seed,source_kind` de `metadata/runs.parquet` a CSV y ejecutar
+`reserve-splits --runs-index RUNS.csv --output SPLITS.json --seen-run ID...`.
+Pasar después `--registry SPLITS.json` a `audit` y `build-manifest`: ambos
+rechazan cualquier run reservado como test. El registro es local, no versionado.
+`build-manifest --catalog CATALOGO.csv --output MANIFEST.json` genera solo un
+**candidato** local con muestreo temporal y separación por seed/run; declarar
+con `--seen-run ID` cada run exploratorio ya inspeccionado. A/B/C quedan
+excluidos automáticamente como regresiones conocidas. `contact-sheet` dibuja
+cajas sobre clips locales alineados y `verify-yolo` convierte **una** entrada
+de ejemplo a `0 person` / `1 forklift`. Todas las salidas se rechazan dentro
+del repositorio. El mapeo y las cajas tight 2D requieren revisión visual y
+conteos más amplios antes de cerrar el piloto o un test realmente ciego.
+
 ## Componentes de arquitectura
 
 Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios independientes. Procesamiento, detección, seguimiento, análisis espacio-temporal, configuración y evaluación inicial de reglas están implementados. Existe una salida HTTP opcional para el replay y una prueba local integrada desde video; la gestión persistente corresponde al Backend. La orquestación de producción del sistema general sigue pendiente:
