@@ -68,6 +68,34 @@ PostgreSQL impone unicidad sobre `(analysis_run_id, view_id, frame_index, rule_i
 
 La imagen es opcional: primero se crea o recupera el evento y se obtiene su UUID; después se envía `image` (PNG, máximo 2 MiB), `frame_index` y `video_timestamp_s` por multipart al endpoint de evidencia. Los dos valores temporales deben coincidir con el evento. Solo se admite una imagen válida por evento: un POST repetido devuelve 200 sin guardar otro PNG; si la referencia existe pero el archivo falta, un retry puede completarlo. La referencia se guarda en PostgreSQL mediante `FileField`; los bytes quedan en `OPERIX_MEDIA_ROOT`, nunca como blob de base de datos. Lista y detalle exponen `evidence_url` relativo o `null` si no hay archivo disponible; no exponen rutas del filesystem. El GET de imagen devuelve `image/png` y `Cache-Control: no-store`. Un fallo entre ambos POST aún puede dejar temporalmente un evento sin imagen; un retry del Motor puede completarla.
 
+## Análisis visual temporal
+
+`/analysis` del Frontend crea una sesión mediante `POST /api/v1/analysis/sessions/`
+(multipart con `video` y perfil `A`, `B` o `C`). El Backend guarda el archivo
+en un directorio temporal fuera de Git y lanza el Motor con su propio Python.
+Configurar `OPERIX_PERSON_WEIGHTS` y `OPERIX_FORKLIFT_WEIGHTS` como rutas
+locales a los checkpoints aprobados; `OPERIX_ENGINE_PYTHON` puede indicar el
+Python del Motor si difiere de `engine/.venv/Scripts/python.exe`. Los SHA-256
+congelados se verifican al iniciar; los pesos no se copian al repositorio.
+
+La API admite `PUT .../{id}/zone/` (perfil y/o vértices normalizados) cuando
+no se procesa, `POST .../{id}/start/` para iniciar o reanalizar el mismo video,
+`GET .../{id}/status/`, `GET .../{id}/stream/` (MJPEG durante el análisis),
+`GET .../{id}/result/` (MP4 H.264 con soporte de rangos),
+`POST .../{id}/stop/` para cancelar conservando la fuente, y
+`DELETE .../{id}/` para cerrar y borrar la sesión. Al completar se retienen
+temporalmente la fuente, el resultado y el snapshot de configuración; el MP4
+conserva el FPS de la fuente, distinto del FPS de procesamiento. En Windows el
+Motor requiere un codificador H.264 disponible mediante OpenCV/MSMF. No crea
+tablas nuevas ni publica eventos.
+Máximo dos sesiones simultáneas y 250 MiB por archivo por defecto; ajustar
+`OPERIX_ANALYSIS_MAX_SESSIONS`, `OPERIX_ANALYSIS_MAX_UPLOAD_BYTES` y
+`OPERIX_ANALYSIS_RETENTION_SECONDS` si corresponde. Las salidas temporales se
+eliminan tras 3600 s de inactividad por defecto; las consultas de una pestaña
+abierta renuevan esa actividad. El preview puede mostrar menos FPS que la
+fuente. La API no incorpora autenticación: limitar su acceso
+a una red local controlada.
+
 ## Validación
 
 ```bash

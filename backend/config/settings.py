@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "corsheaders",
+    "apps.analysis",
     "apps.events",
 ]
 
@@ -90,3 +91,19 @@ STATIC_URL = "static/"
 _media_setting = Path(os.environ.get("OPERIX_MEDIA_ROOT", "media"))
 MEDIA_ROOT = (_media_setting if _media_setting.is_absolute() else BASE_DIR / _media_setting).resolve()
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+OPERIX_ENGINE_PYTHON = os.environ.get(
+    "OPERIX_ENGINE_PYTHON", str(BASE_DIR.parent / "engine/.venv/Scripts/python.exe")
+)
+OPERIX_PERSON_WEIGHTS = os.environ.get("OPERIX_PERSON_WEIGHTS", "")
+OPERIX_FORKLIFT_WEIGHTS = os.environ.get("OPERIX_FORKLIFT_WEIGHTS", "")
+OPERIX_ANALYSIS_MAX_UPLOAD_BYTES = int(os.environ.get("OPERIX_ANALYSIS_MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))
+OPERIX_ANALYSIS_MAX_SESSIONS = int(os.environ.get("OPERIX_ANALYSIS_MAX_SESSIONS", "2"))
+OPERIX_ANALYSIS_RETENTION_SECONDS = int(os.environ.get("OPERIX_ANALYSIS_RETENTION_SECONDS", "3600"))
+OPERIX_DEMO_VIDEO_A = os.environ.get("OPERIX_DEMO_VIDEO_A", "").strip() or str(
+    BASE_DIR.parent / "assets/demo/warehouse_fire_ceiling04.mp4"
+)
+OPERIX_DEMO_VIDEO_B = os.environ.get("OPERIX_DEMO_VIDEO_B", "").strip() or str(
+    BASE_DIR.parent / "assets/demo/forklift_human_nearmiss_ceiling00.mp4"
+)
+# C se mantiene fuera del repositorio; cada instalación local decide su ruta.
+OPERIX_DEMO_VIDEO_C = os.environ.get("OPERIX_DEMO_VIDEO_C", "")

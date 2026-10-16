@@ -19,6 +19,7 @@ from operix_engine.visualization import (
     TrajectoryPoint,
     VisualizationConfig,
 )
+from operix_engine.zone_geometry import NormalizedPoint, point_in_zone
 
 
 def detection(
@@ -138,6 +139,26 @@ class OpenCvRendererTest(unittest.TestCase):
         )
         labels = [call.args[1] for call in put_text.call_args_list]
         self.assertEqual(labels, ["Area transito", "Regla: zone_dwell", "Frame 60"])
+
+    def test_eight_vertex_zone_uses_exact_logical_geometry_and_jpeg_preview(self) -> None:
+        zone = Zone(
+            "floor", "Pasillo central",
+            ((0.2, 0.2), (0.5, 0.2), (0.7, 0.4), (0.9, 0.8),
+             (0.8, 0.95), (0.1, 0.95), (0.05, 0.7), (0.1, 0.4)),
+        )
+        original_alpha = self.renderer._ZONE_FILL_ALPHA
+        with patch("operix_engine.visualization.cv2.fillPoly", wraps=cv2.fillPoly) as fill:
+            annotated = self.renderer.render_zone(self.frame, zone)
+        expected = np.asarray(
+            [(round(x * 179), round(y * 139)) for x, y in zone.polygon],
+            dtype=np.int32,
+        )
+        np.testing.assert_array_equal(fill.call_args.args[1][0], expected)
+        self.assertTrue(point_in_zone(NormalizedPoint(0.5, 0.7), zone))
+        self.assertFalse(point_in_zone(NormalizedPoint(0.02, 0.02), zone))
+        self.assertEqual(self.renderer._ZONE_FILL_ALPHA, original_alpha)
+        self.assertEqual(annotated.shape, self.frame.shape)
+        self.assertTrue(cv2.imencode(".jpg", annotated)[0])
 
     def test_zone_rejects_invalid_render_metadata(self) -> None:
         zone = Zone("aisle", "Pasillo", ((0.1, 0.2), (0.9, 0.2), (0.5, 0.9)))

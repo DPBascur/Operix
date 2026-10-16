@@ -74,6 +74,8 @@ export function AppShell({
   activePath: string;
   children: ReactNode;
 }) {
+  const isAnalysis = activePath === "/analysis";
+  const contextLabel = isAnalysis ? "Análisis local" : "Datos de desarrollo";
   return (
     <div className="app-shell min-h-screen bg-surface-muted text-foreground">
       <a className="skip-link" href="#main-content">
@@ -90,10 +92,12 @@ export function AppShell({
           </span>
           <span>
             <span className="block text-sm font-semibold">
-              {mockCurrentUser.displayName}
+              {isAnalysis ? "Sesión local" : mockCurrentUser.displayName}
             </span>
             <span className="block text-xs text-text-secondary">
-              {mockCurrentUser.role} · Mock
+              {isAnalysis
+                ? "Motor de Operix"
+                : `${mockCurrentUser.role} · Mock`}
             </span>
           </span>
         </div>
@@ -104,12 +108,12 @@ export function AppShell({
             <Brand />
           </div>
           <span className="hidden text-xs font-medium text-text-secondary lg:inline-flex">
-            Datos de desarrollo
+            {contextLabel}
           </span>
           <div className="flex items-center gap-2 sm:gap-3">
             <ThemeSelector />
             <span className="hidden text-xs text-text-secondary sm:inline-flex lg:hidden">
-              Datos de desarrollo
+              {contextLabel}
             </span>
             <MobileNavigation>
               <Navigation activePath={activePath} />

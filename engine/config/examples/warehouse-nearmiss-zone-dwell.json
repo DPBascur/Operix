@@ -5,8 +5,8 @@
   "zones": [
     {
       "zone_id": "pasillo_persona_demo",
-      "name": "Área visible de tránsito y permanencia de la persona",
-      "polygon": [[0.38, 0.35], [0.51, 0.35], [0.54, 0.98], [0.10, 0.98]]
+      "name": "Pasillo de tránsito",
+      "polygon": [[0.38, 0.35], [0.51, 0.35], [0.52, 0.53], [0.53, 0.75], [0.54, 0.98], [0.10, 0.98], [0.22, 0.70], [0.30, 0.51]]
     }
   ],
   "rules": [
