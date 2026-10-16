@@ -321,6 +321,27 @@ local; configurar el origen local del frontend en `CORS_ALLOWED_ORIGINS`.
 Los comandos, mediciones, IDs y limitaciones de la corrida están en la
 [evidencia técnica](evidence/video-to-event-local.md).
 
+## Percepción experimental de person y forklift
+
+La integración experimental de dos canales puede revisarse localmente con
+`scripts/run_dual_perception.py`. Acepta `--person-weights` y
+`--forklift-weights` como rutas explícitas fuera de Git, junto con sus SHA-256
+esperados. El canal `person` usa únicamente la clase `person` del modelo
+adaptado (`imgsz=640`, confidence `0.10`, NMS IoU `0.70`); descarta su salida
+`forklift`. El canal especializado usa únicamente `forklift` (`imgsz=640`,
+confidence `0.45`, NMS IoU `0.55`). Cada canal mantiene su propio ByteTrack;
+la identidad lógica es `(clase, track_id)`. Los pesos se cargan una vez por
+video. `--disable-person` o `--disable-forklift` permite medir un canal aislado.
+
+El comando exige `VIDEO`, `--config`, `--output-dir` (fuera del repositorio),
+`--expected-video-sha256` y los pesos/hashes de cada canal activo. Produce
+`observations.jsonl`, `annotated.mp4` y `summary.json`; `--capture-frames N...`
+guarda PNG locales solo cuando ambas clases tienen tracks. El resumen contiene
+FPS efectivo, tiempos de inferencia/tracking, conteos, huecos, candidatos
+`zone_dwell` de **person** y memoria CUDA. No publica eventos ni activa reglas
+para `forklift`. Esta integración es experimental en A/B/C; no acredita
+validación industrial, rendimiento sostenido ni cobertura general.
+
 ## Preparación exploratoria de anotaciones NVIDIA
 
 `scripts/prepare_nvidia_dataset.py` audita anotaciones de la revisión NVIDIA

@@ -174,18 +174,24 @@ class OpenCvRenderer:
 
         annotated = frame.copy()
         for track in tracks:
-            color = self._track_color(track.track_id)
+            color = self._track_color(track.track_id, track.class_name)
             self._draw_trajectory(
                 annotated,
                 trajectory_map.get(track.track_id, ()),
                 color,
             )
         for track in tracks:
+            if track.class_name == "person":
+                label = f"Person P-{track.track_id} {track.confidence:.2f}"
+            elif track.class_name == "forklift":
+                label = f"Forklift F-{track.track_id} {track.confidence:.2f}"
+            else:
+                label = f"ID {track.track_id} {track.class_name} {track.confidence:.2f}"
             self._draw_box_and_label(
                 annotated,
                 track.bounding_box,
-                f"ID {track.track_id} {track.class_name} {track.confidence:.2f}",
-                self._track_color(track.track_id),
+                label,
+                self._track_color(track.track_id, track.class_name),
             )
         return annotated
 
@@ -307,7 +313,9 @@ class OpenCvRenderer:
                 raise TypeError("Las trayectorias solo pueden contener TrajectoryPoint")
 
     @staticmethod
-    def _track_color(track_id: int) -> tuple[int, int, int]:
+    def _track_color(track_id: int, class_name: str = "person") -> tuple[int, int, int]:
+        if class_name == "forklift":
+            return (40, 155, 235)  # BGR: ámbar suave, separado del cyan de zona.
         return (
             64 + (track_id * 67) % 192,
             64 + (track_id * 97) % 192,

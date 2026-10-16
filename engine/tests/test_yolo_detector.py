@@ -7,6 +7,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -31,6 +32,7 @@ class FakeResult:
 
 class FakeModel:
     names = {0: "person"}
+    device = "cpu"
 
     def __init__(self, result: FakeResult) -> None:
         self.result = result
@@ -116,6 +118,12 @@ class YoloDetectorTest(unittest.TestCase):
         missing = Path(self.directory.name) / "missing.pt"
         with self.assertRaisesRegex(ValueError, "No existe"):
             YoloDetectorConfig(missing)
+
+    def test_reports_effective_predictor_device(self) -> None:
+        detector, model, _ = self.make_detector(FakeResult(None))
+        self.assertEqual(detector.model_device, "cpu")
+        model.predictor = SimpleNamespace(model=SimpleNamespace(device="cuda:0"))
+        self.assertEqual(detector.model_device, "cuda:0")
 
 
 if __name__ == "__main__":

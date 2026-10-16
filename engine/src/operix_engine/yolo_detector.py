@@ -62,6 +62,12 @@ class YoloDetector:
             return {int(class_id): str(name) for class_id, name in names.items()}
         return {class_id: str(name) for class_id, name in enumerate(names)}
 
+    @property
+    def model_device(self) -> str:
+        """Dispositivo efectivo del modelo, útil para validar inferencia CUDA."""
+        predictor = getattr(self._model, "predictor", None)
+        return str(predictor.model.device) if predictor is not None else str(self._model.device)
+
     def detect(self, frame: NDArray[np.uint8]) -> tuple[Detection, ...]:
         self._validate_frame(frame)
         results = self._model.predict(
