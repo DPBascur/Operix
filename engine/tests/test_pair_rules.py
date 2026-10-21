@@ -72,6 +72,78 @@ class PairProximityRuleTest(unittest.TestCase):
         self.assertEqual(len(emitted), 1)
         self.assertEqual(emitted[0].frame_index, 2)
 
+    def test_temporal_exact_two_seconds_triggers(self):
+        self.configure(minimum_duration_seconds=2.0)
+        self.step(0, self.person, self.forklift, timestamp=0.0)
+        candidate = self.step(1, self.person, self.forklift, timestamp=2.0).candidates[0]
+        self.assertEqual(candidate.observed_duration_s, 2.0)
+
+    def test_temporal_subtraction_roundoff_triggers_without_rewriting_elapsed(self):
+        start = 199 / 30
+        for end, minimum in ((259 / 30, 2.0), (289 / 30, 3.0)):
+            with self.subTest(minimum=minimum):
+                self.configure(minimum_duration_seconds=minimum)
+                elapsed = end - start
+                self.assertLess(elapsed, minimum)
+                self.step(0, self.person, self.forklift, timestamp=start)
+                candidate = self.step(1, self.person, self.forklift, timestamp=end).candidates[0]
+                self.assertEqual(candidate.observed_duration_s, elapsed)
+                self.assertEqual(candidate.started_timestamp_s, start)
+                self.assertEqual(candidate.timestamp_s, end)
+
+    def test_temporal_materially_short_durations_do_not_trigger(self):
+        for elapsed in (1.999, 1.99):
+            with self.subTest(elapsed=elapsed):
+                self.configure(minimum_duration_seconds=2.0)
+                self.step(0, self.person, self.forklift, timestamp=0.0)
+                result = self.step(1, self.person, self.forklift, timestamp=elapsed)
+                self.assertEqual(result.candidates, ())
+                self.assertEqual(result.evaluations[0].reason, "insufficient_duration")
+
+    def test_temporal_above_threshold_triggers(self):
+        self.configure(minimum_duration_seconds=2.0)
+        self.step(0, self.person, self.forklift, timestamp=0.0)
+        self.assertEqual(len(self.step(1, self.person, self.forklift, timestamp=2.001).candidates), 1)
+
+    def test_temporal_tolerance_is_absolute_and_only_numeric(self):
+        for minimum, elapsed, expected in (
+            (2.0, 2.0 - 0.5e-9, 1),
+            (2.0, 2.0 - 2e-9, 0),
+            (1_000_000.0, 1_000_000.0 - 1e-6, 0),
+        ):
+            with self.subTest(minimum=minimum, elapsed=elapsed):
+                self.configure(minimum_duration_seconds=minimum)
+                self.step(0, self.person, self.forklift, timestamp=0.0)
+                self.assertEqual(len(self.step(1, self.person, self.forklift, timestamp=elapsed).candidates), expected)
+
+    def test_temporal_roundoff_does_not_duplicate_candidates(self):
+        self.configure(minimum_duration_seconds=2.0)
+        self.step(0, self.person, self.forklift, timestamp=199 / 30)
+        self.assertEqual(len(self.step(1, self.person, self.forklift, timestamp=259 / 30).candidates), 1)
+        self.assertEqual(self.step(2, self.person, self.forklift, timestamp=260 / 30).candidates, ())
+
+    def test_temporal_roundoff_keeps_false_condition_and_explicit_reset(self):
+        self.configure(minimum_duration_seconds=2.0)
+        self.step(0, self.person, self.forklift, timestamp=199 / 30)
+        self.assertEqual(len(self.step(1, self.person, self.forklift, timestamp=259 / 30).candidates), 1)
+        self.assertEqual(self.step(2, self.person, track("forklift", x=0.8), timestamp=9.0).candidates, ())
+        self.assertEqual(self.step(3, self.person, self.forklift, timestamp=10.0).candidates, ())
+        self.assertEqual(self.step(4, self.person, self.forklift, timestamp=11.999).candidates, ())
+        self.assertEqual(len(self.step(5, self.person, self.forklift, timestamp=12.0).candidates), 1)
+        self.engine.reset()
+        self.assertEqual(self.step(6, self.person, self.forklift, timestamp=13.0).candidates, ())
+
+    def test_temporal_tolerance_does_not_relax_distance(self):
+        self.configure(minimum_duration_seconds=2.0)
+        self.step(0, self.person, self.forklift, timestamp=199 / 30)
+        state = self.analyzer.update(1, (self.person, self.forklift))
+        state = replace(state, timestamp_s=259 / 30, proximities=(
+            replace(state.proximities[0], normalized_distance=math.nextafter(0.25, math.inf)),
+        ))
+        result = self.engine.evaluate(state)
+        self.assertEqual(result.candidates, ())
+        self.assertEqual(result.evaluations[0].reason, "outside_distance")
+
     def test_distance_break_then_reentry_requires_new_full_duration(self):
         for frame in range(3):
             self.step(frame, self.person, self.forklift)

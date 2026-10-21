@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import math
 import unittest
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 
 from operix_engine.detection import BoundingBox
@@ -66,6 +66,63 @@ class RuleEngineTest(unittest.TestCase):
             self.step(frame, make_track())
         result = self.step(4, make_track())
         self.assertEqual(result.candidates[0].observed_dwell_time_s, 2.0)
+
+    def supplied_dwell(self, frame_index: int, elapsed: float, *, inside: bool = True):
+        """Inyecta la variable recibida; RuleEngine no debe recalcular permanencia."""
+        state = self.analyzer.update(frame_index, (make_track(inside=inside),))
+        obj = state.objects[0]
+        membership = replace(obj.zones[0], dwell_time_s=elapsed)
+        return self.engine.evaluate(replace(state, objects=(replace(obj, zones=(membership,)),)))
+
+    def test_temporal_exact_two_seconds_triggers(self) -> None:
+        self.configure(min_duration_s=2.0)
+        self.assertEqual(len(self.supplied_dwell(0, 2.0).candidates), 1)
+
+    def test_temporal_subtraction_roundoff_triggers_without_rewriting_dwell(self) -> None:
+        for index, (end, minimum) in enumerate(((259 / 30, 2.0), (289 / 30, 3.0))):
+            with self.subTest(minimum=minimum):
+                self.configure(min_duration_s=minimum)
+                elapsed = end - 199 / 30
+                self.assertLess(elapsed, minimum)
+                candidate = self.supplied_dwell(index, elapsed).candidates[0]
+                self.assertEqual(candidate.observed_dwell_time_s, elapsed)
+
+    def test_temporal_materially_short_durations_do_not_trigger(self) -> None:
+        self.configure(min_duration_s=2.0)
+        for index, elapsed in enumerate((1.999, 1.99)):
+            with self.subTest(elapsed=elapsed):
+                result = self.supplied_dwell(index, elapsed)
+                self.assertEqual(result.candidates, ())
+                self.assertEqual(result.evaluations[0].reason, "insufficient_dwell")
+
+    def test_temporal_above_threshold_triggers(self) -> None:
+        self.configure(min_duration_s=2.0)
+        self.assertEqual(len(self.supplied_dwell(0, 2.001).candidates), 1)
+
+    def test_temporal_tolerance_is_absolute_and_only_numeric(self) -> None:
+        for index, (minimum, elapsed, expected) in enumerate((
+            (2.0, 2.0 - 0.5e-9, 1),
+            (2.0, 2.0 - 2e-9, 0),
+            (1_000_000.0, 1_000_000.0 - 1e-6, 0),
+        )):
+            with self.subTest(minimum=minimum, elapsed=elapsed):
+                self.configure(min_duration_s=minimum)
+                self.assertEqual(len(self.supplied_dwell(index, elapsed).candidates), expected)
+
+    def test_temporal_roundoff_does_not_duplicate_candidates(self) -> None:
+        self.configure(min_duration_s=2.0)
+        self.assertEqual(len(self.supplied_dwell(0, 259 / 30 - 199 / 30).candidates), 1)
+        self.assertEqual(self.supplied_dwell(1, 260 / 30 - 199 / 30).candidates, ())
+
+    def test_temporal_roundoff_keeps_outside_rearm_and_explicit_reset(self) -> None:
+        self.configure(min_duration_s=2.0)
+        elapsed = 259 / 30 - 199 / 30
+        self.assertEqual(len(self.supplied_dwell(0, elapsed).candidates), 1)
+        self.assertEqual(self.supplied_dwell(1, elapsed, inside=False).candidates, ())
+        self.assertEqual(self.supplied_dwell(2, 1.999).candidates, ())
+        self.assertEqual(len(self.supplied_dwell(3, elapsed).candidates), 1)
+        self.engine.reset()
+        self.assertEqual(len(self.supplied_dwell(4, elapsed).candidates), 1)
 
     def test_above_threshold_is_positive_without_duplicate(self) -> None:
         for frame in range(5):

@@ -16,6 +16,17 @@ from operix_engine.operational_config import OperationalConfig, RuleConfig
 from operix_engine.spatiotemporal import FrameSpatialState, ObjectIdentity
 
 
+# Tolerancia exclusivamente numérica en segundos; no es una gracia operacional.
+_TEMPORAL_ABS_TOLERANCE_S = 1e-9
+
+
+def _duration_reached(elapsed_s: float, minimum_s: float) -> bool:
+    """Comparación inclusiva sin retrasar la igualdad por representación float."""
+    return elapsed_s > minimum_s or math.isclose(
+        elapsed_s, minimum_s, rel_tol=0.0, abs_tol=_TEMPORAL_ABS_TOLERANCE_S
+    )
+
+
 class RuleEngineError(ValueError):
     """Configuración de regla o secuencia de frames no válida."""
 
@@ -272,7 +283,7 @@ class RuleEngine:
                 key = (rule.config.rule_id, rule.config.version, interaction, rule.zone_id)
                 episode = previous.get(key, _PairEpisode(frame.frame_index, frame.timestamp_s, False))
                 duration = frame.timestamp_s - episode.started_timestamp_s
-                satisfied = duration >= rule.minimum_duration_seconds
+                satisfied = _duration_reached(duration, rule.minimum_duration_seconds)
                 if satisfied and not episode.triggered:
                     candidates.append(PairEventCandidate(
                         rule.config.rule_id, rule.config.version, frame.frame_index, frame.timestamp_s,
@@ -341,7 +352,7 @@ class RuleEngine:
                     evaluated, satisfied, reason = False, False, "zone_missing"
                 elif not inside:
                     evaluated, satisfied, reason = True, False, "outside_zone"
-                elif dwell < rule.min_duration_s:
+                elif not _duration_reached(dwell, rule.min_duration_s):
                     evaluated, satisfied, reason = True, False, "insufficient_dwell"
                 else:
                     evaluated, satisfied, reason = True, True, None
