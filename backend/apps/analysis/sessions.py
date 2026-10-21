@@ -66,6 +66,7 @@ class AnalysisSession:
     _guard: threading.RLock = field(default_factory=threading.RLock, repr=False)
     _cleanup_timer: threading.Timer | None = field(default=None, repr=False)
     preview_clock: PreviewClock = field(default_factory=PreviewClock, repr=False)
+    failure_detail: str | None = None
 
     def touch(self) -> None:
         self.last_access = time.monotonic()
@@ -117,10 +118,23 @@ class AnalysisSession:
                 (self.profile != self.result_config["profile"] or self.zone != self.result_config["zone"])
             )
             payload["state"] = self.state
+            if self.failure_detail is not None:
+                payload["detail"] = self.failure_detail
             clock = self.preview_clock
             enabled = payload.get("preview_sample_fps") is not None
+            # El reloj sigue avanzando aunque el navegador cierre/reabra MJPEG.
+            # Sin consumidor inicial, el resultado completo no espera un stream inexistente.
+            if enabled and clock.started_at is not None and payload.get("preview_latest_frame") is not None:
+                clock.select(
+                    now=time.monotonic(), source_fps=payload["source_fps"],
+                    sample_fps=payload["preview_sample_fps"], latest=payload["preview_latest_frame"],
+                    total=payload.get("total") or payload["frame"], completed=self.state == "completed",
+                )
             payload["preview"] = {
-                "pending": enabled and not clock.finished and self.state not in {"cancelled", "error"},
+                "pending": enabled and not clock.finished and (
+                    self.state in {"preparing", "processing"} or
+                    (self.state == "completed" and clock.started_at is not None)
+                ),
                 "frame_index": clock.frame_index,
                 "source_timestamp": (
                     clock.frame_index / payload["source_fps"]
@@ -378,6 +392,16 @@ def _clear_run_outputs(session: AnalysisSession) -> None:
 
 
 def start_session(session: AnalysisSession) -> None:
+    # Política local explícita: una inferencia GPU a la vez, sin cola distribuida.
+    # El lock cubre comprobación + Popen para dos solicitudes simultáneas.
+    with _lock:
+        for other in _sessions.values():
+            if other is not session and other.process is not None and other.process.poll() is None:
+                raise ValueError("Ya hay otro análisis en curso. Espere a que termine o deténgalo.")
+        _start_session(session)
+
+
+def _start_session(session: AnalysisSession) -> None:
     with session._guard:
         if session.state not in RESTARTABLE or (
             session.process is not None and session.process.poll() is None
@@ -391,6 +415,7 @@ def start_session(session: AnalysisSession) -> None:
         _clear_run_outputs(session)
         session.run += 1
         session.result_config = None
+        session.failure_detail = None
         session.active_config = {
             "profile": session.profile,
             "zone": json.loads(json.dumps(session.zone)),
@@ -426,12 +451,27 @@ def start_session(session: AnalysisSession) -> None:
             )
         except OSError:
             session.state = "error"
-            raise
+            session.failure_detail = "No se pudo iniciar el Motor. Revise la configuración local e inténtelo de nuevo."
+            logger.exception("No se pudo iniciar el proceso del Motor")
+            raise RuntimeError(session.failure_detail) from None
 
     process = session.process
 
     def watch() -> None:
-        process.wait()
+        try:
+            process.wait(timeout=settings.OPERIX_ANALYSIS_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            with session._guard:
+                if session.process is not process:
+                    return
+                session.state = "error"
+                session.failure_detail = "El análisis superó el tiempo máximo. Puede volver a intentarlo."
+                process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
         with session._guard:
             if session.process is not process:
                 return
