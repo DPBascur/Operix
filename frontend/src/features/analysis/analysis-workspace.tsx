@@ -175,7 +175,10 @@ export function AnalysisWorkspace({
     const state = session?.state;
     if (!id || !state) return;
     const current = generation.current;
-    const active = state === "preparing" || state === "processing";
+    const active =
+      state === "preparing" ||
+      state === "processing" ||
+      session?.preview?.pending;
     const timer = window.setInterval(
       () => {
         analysisService
@@ -193,10 +196,10 @@ export function AnalysisWorkspace({
             }
           });
       },
-      active ? 450 : 20_000,
+      active ? 200 : 20_000,
     );
     return () => window.clearInterval(timer);
-  }, [session?.id, session?.state]);
+  }, [session?.id, session?.state, session?.preview?.pending]);
 
   async function selectVideo(selected: File | undefined) {
     if (!selected) return;
@@ -435,16 +438,20 @@ export function AnalysisWorkspace({
       ? analysisService.getAnalysisSourceUrl(session.id)
       : null);
   const selectedProfile = profiles.find((item) => item.id === profile);
+  const previewPending = session?.preview?.pending === true;
   const canEdit =
     !!session &&
     ["ready", "completed", "cancelled", "error"].includes(session.state) &&
-    !busy;
+    !busy &&
+    !previewPending;
   const showStream =
-    !!session && ["preparing", "processing"].includes(session.state);
+    !!session &&
+    (["preparing", "processing"].includes(session.state) || previewPending);
   const showResult =
     !!session &&
     session.state === "completed" &&
     !!session.result &&
+    !previewPending &&
     !editing &&
     !suspendResult;
   const showReference =
@@ -457,7 +464,9 @@ export function AnalysisWorkspace({
   const contextState = visibleError
     ? "No fue posible completar la operación"
     : session
-      ? labels[session.state]
+      ? session.state === "completed" && previewPending
+        ? "Análisis completado · terminando vista previa a velocidad 1×…"
+        : labels[session.state]
       : "Sin fuente preparada";
 
   function moveVertexWithKeyboard(
@@ -686,10 +695,14 @@ export function AnalysisWorkspace({
 
             <div className="analysis-toolbar">
               {session &&
-                ["preparing", "processing"].includes(session.state) && (
+                (["preparing", "processing"].includes(session.state) ||
+                  previewPending) && (
                   <div className="analysis-toolbar-status" role="status">
                     <strong>
-                      Procesando ·{" "}
+                      {session.state === "completed"
+                        ? "Analizado"
+                        : "Procesando"}{" "}
+                      ·{" "}
                       {session.percent == null
                         ? "—"
                         : `${session.percent.toFixed(1)} %`}

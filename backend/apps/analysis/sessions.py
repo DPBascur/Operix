@@ -17,6 +17,8 @@ from pathlib import Path
 
 from django.conf import settings
 
+from .preview import PreviewClock
+
 
 ROOT = Path(__file__).resolve().parents[3]
 PROFILES = {
@@ -63,6 +65,7 @@ class AnalysisSession:
     last_access: float = field(default_factory=time.monotonic)
     _guard: threading.RLock = field(default_factory=threading.RLock, repr=False)
     _cleanup_timer: threading.Timer | None = field(default=None, repr=False)
+    preview_clock: PreviewClock = field(default_factory=PreviewClock, repr=False)
 
     def touch(self) -> None:
         self.last_access = time.monotonic()
@@ -114,6 +117,17 @@ class AnalysisSession:
                 (self.profile != self.result_config["profile"] or self.zone != self.result_config["zone"])
             )
             payload["state"] = self.state
+            clock = self.preview_clock
+            enabled = payload.get("preview_sample_fps") is not None
+            payload["preview"] = {
+                "pending": enabled and not clock.finished and self.state not in {"cancelled", "error"},
+                "frame_index": clock.frame_index,
+                "source_timestamp": (
+                    clock.frame_index / payload["source_fps"]
+                    if clock.frame_index is not None and payload.get("source_fps") else None
+                ),
+                "playback_rate": 1,
+            }
             return payload
 
     def schedule_cleanup(self) -> None:
@@ -146,6 +160,8 @@ class AnalysisSession:
             self.result_config = None
             for filename in ("status.json", "frame.jpg", "annotated.partial.mp4", "annotated.mp4", "error.log"):
                 (self.directory / filename).unlink(missing_ok=True)
+            shutil.rmtree(self.directory / "preview", ignore_errors=True)
+            self.preview_clock = PreviewClock()
         self.schedule_cleanup()
 
     def close(self) -> None:
@@ -352,6 +368,8 @@ def expire_session(session_id: uuid.UUID) -> None:
 
 
 def _clear_run_outputs(session: AnalysisSession) -> None:
+    shutil.rmtree(session.directory / "preview", ignore_errors=True)
+    session.preview_clock = PreviewClock()
     for filename in (
         "status.json", "frame.jpg", "annotated.partial.mp4", "annotated.mp4",
         "error.log", "polygon.json", "run_config.json",
@@ -431,8 +449,40 @@ def start_session(session: AnalysisSession) -> None:
 
 def stream_frames(session: AnalysisSession):
     last_frame = None
+    run = session.run
     while True:
         status = session.status()
+        if session.run != run or status["state"] in {"cancelled", "error", "ready"}:
+            break
+        if status.get("preview_sample_fps") is not None:
+            latest = status.get("preview_latest_frame")
+            if latest is not None:
+                with session._guard:
+                    index = session.preview_clock.select(
+                        now=time.monotonic(), source_fps=status["source_fps"],
+                        sample_fps=status["preview_sample_fps"], latest=latest,
+                        total=status.get("total") or status["frame"],
+                        completed=status["state"] == "completed",
+                    )
+                    finished = session.preview_clock.finished
+                if index != last_frame:
+                    try:
+                        frame = (session.directory / "preview" / f"{index:09d}.jpg").read_bytes()
+                    except OSError:
+                        pass
+                    else:
+                        last_frame = index
+                        yield (
+                            b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                            + str(len(frame)).encode()
+                            + f"\r\nX-Frame-Index: {index}\r\nX-Source-Timestamp: {index / status['source_fps']:.6f}"
+                              f"\r\nX-Latest-Processed-Frame: {status['frame'] - 1}\r\n\r\n".encode()
+                            + frame + b"\r\n"
+                        )
+                if finished:
+                    break
+            time.sleep(0.01)  # Solo el consumidor HTTP espera; nunca el Motor.
+            continue
         frame_path = session.directory / "frame.jpg"
         if frame_path.exists():
             try:

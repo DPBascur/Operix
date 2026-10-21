@@ -16,26 +16,25 @@ class PreviewScheduleTest(unittest.TestCase):
 
     def test_first_and_final_preview_are_always_published(self):
         due = self.worker._preview_due
-        self.assertTrue(due(0, 300, 0.0, None, 10.0))
-        self.assertTrue(due(299, 300, 1.001, 1.0, 10.0))
+        self.assertTrue(due(0, 300, 30.0, None, 10.0))
+        self.assertTrue(due(299, 300, 30.0, 297, 10.0))
 
     def test_preview_throttle_never_drops_analysis_indices(self):
         processed, previews = [], []
         previous = None
         for index in range(300):
             processed.append(index)
-            now = index / 100
-            if self.worker._preview_due(index, 300, now, previous, 10.0):
+            if self.worker._preview_due(index, 300, 30.0, previous, 10.0):
                 previews.append(index)
-                previous = now
+                previous = index
         self.assertEqual(processed, list(range(300)))
-        self.assertLess(len(previews), 40)
+        self.assertEqual(previews, list(range(0, 300, 3)) + [299])
         self.assertEqual((previews[0], previews[-1]), (0, 299))
 
     def test_invalid_preview_rate_is_rejected(self):
         for rate in (0, -1, float("nan"), float("inf")):
             with self.subTest(rate=rate), self.assertRaises(ValueError):
-                self.worker._preview_due(0, 300, 0.0, None, rate)
+                self.worker._preview_due(0, 300, 30.0, None, rate)
 
     def test_prefetch_preserves_partial_tail_and_frame_order(self):
         class Perception:

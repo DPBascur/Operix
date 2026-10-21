@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Daniel Felipe Peña Bascur
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Procesa una sesión web local y publica el último JPEG mediante archivos temporales."""
+"""Procesa libremente y publica muestras JPEG indexadas por tiempo de fuente."""
 
 from __future__ import annotations
 
@@ -49,13 +49,14 @@ def _status(directory: Path, **fields: object) -> None:
     )
 
 
-def _preview_due(frame_index, total, now, previous, fps):
-    """Limita solo el JPEG de supervisión; nunca el análisis ni el MP4 final."""
-    if not math.isfinite(fps) or fps <= 0:
-        raise ValueError("preview_fps debe ser positivo y finito")
+def _preview_due(frame_index, total, source_fps, previous, fps):
+    """Muestrea la fuente, no el throughput; la API reproduce estas muestras a 1×."""
+    if any(not math.isfinite(rate) or rate <= 0 for rate in (fps, source_fps)):
+        raise ValueError("Los FPS de fuente y preview deben ser positivos y finitos")
     return (
         previous is None or frame_index == 0 or frame_index + 1 == total
-        or now - previous >= 1.0 / fps
+        or math.floor(frame_index * fps / source_fps + 1e-9)
+        > math.floor(previous * fps / source_fps + 1e-9)
     )
 
 
@@ -71,6 +72,18 @@ def _validated_zone(config, polygon_path: Path | None):
 
     point_in_zone(NormalizedPoint(0, 0), zone)
     return replace(config, zones=(zone,))
+
+
+def _publish_preview(frame, directory: Path, frame_index: int, width: int) -> None:
+    preview = frame
+    if width and frame.shape[1] > width:
+        height = round(frame.shape[0] * width / frame.shape[1])
+        preview = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
+    success, encoded = cv2.imencode(".jpg", preview, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    if not success:
+        raise RuntimeError("No se pudo codificar el frame de preview")
+    # JPEG comprimidos en disco temporal; no se acumulan frames raw en RAM.
+    _write_atomic(directory / f"{frame_index:09d}.jpg", encoded.tobytes())
 
 
 def _analyzed_batches(frames, perception, batch_size, synchronize):
@@ -171,6 +184,8 @@ def process(args: argparse.Namespace) -> None:
         frames = iter(_analyzed_frames(source.frames(), perception, batch_size, torch.cuda.synchronize))
         last_preview = None
         preview_fps = getattr(args, "preview_fps", 10.0)
+        preview_dir = args.session_dir / "preview"
+        preview_dir.mkdir(exist_ok=True)
         try:
             while True:
                 try:
@@ -208,19 +223,9 @@ def process(args: argparse.Namespace) -> None:
                 writer.write(annotated)
                 video_write_ms = (time.perf_counter_ns() - tick) / 1e6
                 tick = time.perf_counter_ns()
-                now = time.perf_counter()
-                if _preview_due(frame_index, total, now, last_preview, preview_fps):
-                    preview = annotated
-                    if args.preview_width and metadata.width > args.preview_width:
-                        preview_height = round(metadata.height * args.preview_width / metadata.width)
-                        preview = cv2.resize(
-                            annotated, (args.preview_width, preview_height), interpolation=cv2.INTER_AREA,
-                        )
-                    success, encoded = cv2.imencode(".jpg", preview, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                    if not success:
-                        raise RuntimeError("No se pudo codificar el frame de preview")
-                    _write_atomic(args.session_dir / "frame.jpg", encoded.tobytes())
-                    last_preview = now
+                if _preview_due(frame_index, total, metadata.declared_fps, last_preview, preview_fps):
+                    _publish_preview(annotated, preview_dir, frame_index, args.preview_width)
+                    last_preview = frame_index
                 jpeg_ms = (time.perf_counter_ns() - tick) / 1e6
                 processed = frame_index + 1
                 if frame_index >= 20:
@@ -242,6 +247,7 @@ def process(args: argparse.Namespace) -> None:
                     percent=round(100 * processed / total, 1) if total else None,
                     fps=round(processed / elapsed, 2), width=metadata.width,
                     height=metadata.height, source_fps=metadata.declared_fps,
+                    preview_sample_fps=preview_fps, preview_latest_frame=last_preview,
                     person_detections=len(observed.person_detections),
                     forklift_detections=len(observed.forklift_detections),
                     person_tracks=len(observed.person_tracks),
@@ -252,6 +258,10 @@ def process(args: argparse.Namespace) -> None:
                     totals_ms["status_ipc"] += (time.perf_counter_ns() - tick) / 1e6
             if processed == 0:
                 raise ValueError("El video no contiene frames decodificables")
+            if last_preview != processed - 1:
+                # También termina correctamente cuando la fuente no declaró su cantidad de frames.
+                _publish_preview(annotated, preview_dir, processed - 1, args.preview_width)
+                last_preview = processed - 1
         finally:
             frames.close()
             writer.release()
@@ -276,9 +286,10 @@ def process(args: argparse.Namespace) -> None:
         os.replace(partial_result, final_result)
         _status(
             args.session_dir, state="completed", frame=processed,
-            total=total, percent=100, fps=round(processed / max(time.perf_counter() - started, 1e-9), 2),
+            total=processed, percent=100, fps=round(processed / max(time.perf_counter() - started, 1e-9), 2),
             width=metadata.width, height=metadata.height,
             source_fps=metadata.declared_fps,
+            preview_sample_fps=preview_fps, preview_latest_frame=last_preview,
             person_detections=len(observed.person_detections),
             forklift_detections=len(observed.forklift_detections),
             person_tracks=len(observed.person_tracks),

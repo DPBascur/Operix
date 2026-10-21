@@ -63,6 +63,12 @@ export interface AnalysisSessionStatus {
   source_fps?: number;
   result_video?: AnalysisResultConfig["video"];
   timing_ms?: Record<string, number>;
+  preview?: {
+    pending: boolean;
+    frame_index: number | null;
+    source_timestamp: number | null;
+    playback_rate: number;
+  };
   person_detections: number;
   forklift_detections: number;
   person_tracks: number;
