@@ -24,6 +24,7 @@ La aplicación queda disponible en `http://localhost:3000`.
 - `pnpm start`: ejecuta el build de producción.
 - `pnpm lint`: validación con ESLint.
 - `pnpm typecheck`: validación de TypeScript.
+- `pnpm test`: pruebas deterministas del editor sin navegador ni dependencias nuevas. Node 24.2.0 puede informar advertencias de Type Stripping experimental; no requiere cambiar el tipo de módulo del proyecto.
 - `pnpm format`: aplica Prettier.
 - `pnpm format:check`: comprueba el formato.
 

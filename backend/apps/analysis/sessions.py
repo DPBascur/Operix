@@ -98,7 +98,8 @@ class AnalysisSession:
                     pass
             if self.process is not None and self.process.poll() is not None and self.state not in TERMINAL:
                 self.state = "error"
-                payload.update(state="error", detail="El Motor terminó antes de completar el análisis.")
+                self.failure_detail = "El Motor terminó antes de completar el análisis. Puede volver a intentarlo."
+                payload.update(state="error", detail=self.failure_detail)
             if self.state == "completed":
                 result = self.directory / "annotated.mp4"
                 if result.is_file() and self.active_config is not None:
