@@ -152,3 +152,21 @@ class SessionHardeningTests(SimpleTestCase):
         self.assertIsNone(sessions.get_session(identity))
         self.assertFalse(directory.exists())
         self.assertEqual(APIClient().get(f"/api/v1/analysis/sessions/{identity}/status/").status_code, 404)
+
+    def test_unwritable_directory_error_does_not_expose_path(self):
+        with patch("apps.analysis.views.start_session", side_effect=OSError("sensitive-path")):
+            response = APIClient().post(f"/api/v1/analysis/sessions/{self.session.id}/start/")
+        self.assertEqual(response.status_code, 400)
+        self.assertNotIn("sensitive-path", response.content.decode())
+        self.assertIn("permisos", response.json()["detail"])
+
+    def test_zone_edit_rechecks_state_under_guard(self):
+        original = self.session.zone
+        def racing_status():
+            self.session.state = "processing"
+            return {"state": "ready"}
+        with patch.object(self.session, "status", side_effect=racing_status):
+            response = APIClient().put(f"/api/v1/analysis/sessions/{self.session.id}/zone/",
+                                       {"profile": "A"}, format="json")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.session.zone, original)
