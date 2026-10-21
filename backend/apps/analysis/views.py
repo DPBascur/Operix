@@ -95,8 +95,10 @@ class SessionStartView(APIView):
             start_session(session)
         except ValueError as error:
             return Response({"detail": str(error)}, status=409)
-        except (RuntimeError, OSError) as error:
+        except RuntimeError as error:
             return Response({"detail": str(error)}, status=400)
+        except OSError:
+            return Response({"detail": "No se pudieron preparar los archivos temporales del análisis. Revise espacio y permisos."}, status=400)
         return Response(session.status(), status=202)
 
 
@@ -126,6 +128,8 @@ class SessionZoneView(APIView):
             ):
                 return Response({"detail": "Vértices normalizados inválidos"}, status=400)
         with session._guard:
+            if session.state not in {"ready", "completed", "cancelled", "error"}:
+                return Response({"detail": "La zona no puede editarse mientras se procesa"}, status=409)
             session.profile = profile
             session.zone = {**zone, "polygon": polygon}
         return Response(session.status())
