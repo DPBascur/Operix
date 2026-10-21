@@ -54,11 +54,78 @@ class EventCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class InteractionIdentity:
+    """Par con roles explícitos; los IDs numéricos son locales a cada clase."""
+
+    person: ObjectIdentity
+    forklift: ObjectIdentity
+
+
+@dataclass(frozen=True, slots=True)
+class PairRuleEvaluation:
+    rule_id: str
+    rule_version: int
+    frame_index: int
+    timestamp_s: float
+    interaction: InteractionIdentity
+    zone_id: str
+    parameters: Mapping[str, object]
+    observed_normalized_distance: float
+    observed_duration_s: float
+    satisfied: bool
+    reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class PairEventCandidate:
+    """Interés preventivo para revisión humana; únicamente en memoria, sin persistencia."""
+
+    rule_id: str
+    rule_version: int
+    frame_index: int
+    timestamp_s: float
+    interaction: InteractionIdentity
+    zone_id: str
+    parameters: Mapping[str, object]
+    started_frame_index: int
+    started_timestamp_s: float
+    observed_normalized_distance: float
+    observed_duration_s: float
+
+    @property
+    def candidate_type(self) -> str:
+        return "person_forklift_proximity"
+
+    @property
+    def reason(self) -> str:
+        return "Interacción person-forklift con proximidad sostenida; requiere revisión humana"
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialización explicable; no convierte el candidato al contrato HTTP de eventos."""
+        return {
+            "candidate_type": self.candidate_type,
+            "rule_id": self.rule_id, "rule_version": self.rule_version,
+            "frame_index": self.frame_index, "timestamp_s": self.timestamp_s,
+            "interaction": {
+                role: {"class_name": identity.class_name, "track_id": identity.track_id}
+                for role, identity in (("person", self.interaction.person),
+                                       ("forklift", self.interaction.forklift))
+            },
+            "zone_id": self.zone_id, "parameters": dict(self.parameters),
+            "started_frame_index": self.started_frame_index,
+            "started_timestamp_s": self.started_timestamp_s,
+            "observed_normalized_distance": self.observed_normalized_distance,
+            "observed_duration_s": self.observed_duration_s,
+            "reason": self.reason,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class RuleFrameResult:
     frame_index: int
     timestamp_s: float
-    evaluations: tuple[RuleEvaluation, ...]
-    candidates: tuple[EventCandidate, ...]
+    evaluations: tuple[RuleEvaluation | PairRuleEvaluation, ...]
+    candidates: tuple[EventCandidate | PairEventCandidate, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,7 +137,54 @@ class _ZoneDwellRule:
     parameters: Mapping[str, object]
 
 
-def _validate_rule(rule: RuleConfig, zone_ids: set[str]) -> _ZoneDwellRule:
+@dataclass(frozen=True, slots=True)
+class _PairProximityRule:
+    config: RuleConfig
+    person_class: str
+    forklift_class: str
+    zone_id: str
+    max_distance: float
+    minimum_duration_seconds: float
+    parameters: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class _PairEpisode:
+    started_frame_index: int
+    started_timestamp_s: float
+    triggered: bool
+
+
+def _validate_pair_rule(rule: RuleConfig, zone_ids: set[str]) -> _PairProximityRule:
+    # No hay distancia/duración industrial por defecto: la configuración debe declararlas.
+    required = {"kind", "zone_id", "max_distance", "minimum_duration_seconds"}
+    optional = {"person_class", "forklift_class"}
+    values = dict(rule.parameters)
+    if required - values.keys() or values.keys() - (required | optional):
+        raise RuleEngineError(f"{rule.rule_id}: parámetros de proximidad faltantes o desconocidos")
+    values.setdefault("person_class", "person")
+    values.setdefault("forklift_class", "forklift")
+    for name in ("person_class", "forklift_class", "zone_id"):
+        if not isinstance(values[name], str) or not values[name].strip():
+            raise RuleEngineError(f"{rule.rule_id}: {name} debe ser texto no vacío")
+    if values["person_class"] == values["forklift_class"]:
+        raise RuleEngineError(f"{rule.rule_id}: las clases de los dos roles deben ser distintas")
+    if values["zone_id"] not in zone_ids:
+        raise RuleEngineError(f"{rule.rule_id}: zone_id debe identificar una zona configurada")
+    for name in ("max_distance", "minimum_duration_seconds"):
+        value = values[name]
+        if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+            raise RuleEngineError(f"{rule.rule_id}: {name} debe ser finito y >= 0")
+    return _PairProximityRule(
+        rule, values["person_class"], values["forklift_class"], values["zone_id"],
+        float(values["max_distance"]), float(values["minimum_duration_seconds"]),
+        MappingProxyType(values),
+    )
+
+
+def _validate_rule(rule: RuleConfig, zone_ids: set[str]) -> _ZoneDwellRule | _PairProximityRule:
+    if rule.parameters.get("kind") == "person_forklift_proximity":
+        return _validate_pair_rule(rule, zone_ids)
     expected = {"kind", "class_name", "zone_id", "min_duration_s"}
     actual = set(rule.parameters)
     if actual != expected:
@@ -113,6 +227,69 @@ class RuleEngine:
         """Olvida activaciones y orden temporal al comenzar una sesión nueva."""
         self._last_frame_index: int | None = None
         self._active: set[tuple[str, int, ObjectIdentity, str]] = set()
+        self._pair_episodes: dict[tuple[str, int, InteractionIdentity, str], _PairEpisode] = {}
+        self._last_timestamp_s: float | None = None
+
+    def _evaluate_pair_rule(
+        self,
+        rule: _PairProximityRule,
+        frame: FrameSpatialState,
+        previous: dict[tuple[str, int, InteractionIdentity, str], _PairEpisode],
+        episodes: dict[tuple[str, int, InteractionIdentity, str], _PairEpisode],
+    ) -> tuple[list[PairRuleEvaluation], list[PairEventCandidate]]:
+        """Consume membresías/distancias ya calculadas; no recalcula geometría."""
+        evaluations, candidates = [], []
+        if not rule.config.enabled:
+            return evaluations, candidates
+        objects = {obj.identity: obj for obj in frame.objects}
+        for proximity in frame.proximities:
+            a, b = proximity.identity_a, proximity.identity_b
+            if a.class_name == rule.person_class and b.class_name == rule.forklift_class:
+                interaction = InteractionIdentity(a, b)
+            elif b.class_name == rule.person_class and a.class_name == rule.forklift_class:
+                interaction = InteractionIdentity(b, a)
+            else:
+                continue
+            members = tuple(objects.get(identity) for identity in
+                            (interaction.person, interaction.forklift))
+            memberships = tuple(
+                next((zone for zone in obj.zones if zone.zone_id == rule.zone_id), None)
+                if obj is not None else None for obj in members
+            )
+            distance = proximity.normalized_distance
+            if any(obj is None for obj in members):
+                reason = "object_missing"
+            elif any(zone is None for zone in memberships):
+                reason = "zone_missing"
+            elif not all(zone.inside for zone in memberships):
+                reason = "outside_zone"
+            elif not math.isfinite(distance) or distance < 0 or distance > rule.max_distance:
+                reason = "outside_distance"
+            else:
+                reason = None
+            duration, satisfied = 0.0, False
+            if reason is None:
+                key = (rule.config.rule_id, rule.config.version, interaction, rule.zone_id)
+                episode = previous.get(key, _PairEpisode(frame.frame_index, frame.timestamp_s, False))
+                duration = frame.timestamp_s - episode.started_timestamp_s
+                satisfied = duration >= rule.minimum_duration_seconds
+                if satisfied and not episode.triggered:
+                    candidates.append(PairEventCandidate(
+                        rule.config.rule_id, rule.config.version, frame.frame_index, frame.timestamp_s,
+                        interaction, rule.zone_id, rule.parameters, episode.started_frame_index,
+                        episode.started_timestamp_s, distance, duration,
+                    ))
+                episodes[key] = _PairEpisode(
+                    episode.started_frame_index, episode.started_timestamp_s,
+                    episode.triggered or satisfied,
+                )
+                if not satisfied:
+                    reason = "insufficient_duration"
+            evaluations.append(PairRuleEvaluation(
+                rule.config.rule_id, rule.config.version, frame.frame_index, frame.timestamp_s,
+                interaction, rule.zone_id, rule.parameters, distance, duration, satisfied, reason,
+            ))
+        return evaluations, candidates
 
     def evaluate(self, frame: FrameSpatialState) -> RuleFrameResult:
         """Evalúa OP-37 sin recalcular sus variables ni modificar el frame."""
@@ -122,6 +299,11 @@ class RuleEngine:
             raise RuleEngineError("frame_index debe ser entero no negativo")
         if self._last_frame_index is not None and frame.frame_index <= self._last_frame_index:
             raise RuleEngineError("frame_index debe avanzar estrictamente")
+        if any(isinstance(rule, _PairProximityRule) for rule in self._rules):
+            if (type(frame.timestamp_s) not in (int, float) or not math.isfinite(frame.timestamp_s)
+                    or frame.timestamp_s < 0 or (self._last_timestamp_s is not None
+                    and frame.timestamp_s <= self._last_timestamp_s)):
+                raise RuleEngineError("timestamp_s debe ser finito, no negativo y avanzar estrictamente")
 
         previous = (
             self._active
@@ -130,9 +312,21 @@ class RuleEngine:
             else set()
         )
         active: set[tuple[str, int, ObjectIdentity, str]] = set()
-        evaluations: list[RuleEvaluation] = []
-        candidates: list[EventCandidate] = []
+        previous_pairs = (
+            self._pair_episodes if self._last_frame_index is not None
+            and frame.frame_index == self._last_frame_index + 1 else {}
+        )
+        episodes: dict[tuple[str, int, InteractionIdentity, str], _PairEpisode] = {}
+        evaluations: list[RuleEvaluation | PairRuleEvaluation] = []
+        candidates: list[EventCandidate | PairEventCandidate] = []
         for rule in self._rules:
+            if isinstance(rule, _PairProximityRule):
+                pair_evaluations, pair_candidates = self._evaluate_pair_rule(
+                    rule, frame, previous_pairs, episodes,
+                )
+                evaluations.extend(pair_evaluations)
+                candidates.extend(pair_candidates)
+                continue
             for obj in frame.objects:
                 membership = next(
                     (zone for zone in obj.zones if zone.zone_id == rule.zone_id), None
@@ -170,7 +364,9 @@ class RuleEngine:
                             )
                         )
         self._active = active
+        self._pair_episodes = episodes
         self._last_frame_index = frame.frame_index
+        self._last_timestamp_s = frame.timestamp_s
         return RuleFrameResult(
             frame.frame_index, frame.timestamp_s, tuple(evaluations), tuple(candidates)
         )
