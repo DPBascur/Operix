@@ -101,11 +101,30 @@ un límite de 1800 s por trabajo, configurable mediante
 informa un error reintentable sin publicar el MP4 parcial. Al desconectarse
 MJPEG, las consultas de estado permiten terminar el reloj de preview; un
 resultado sin consumidor de preview no espera indefinidamente un stream.
+El cierre normal de la API termina sus workers registrados y libera sus sesiones;
+una terminación forzada del sistema operativo no ejecuta este hook y requiere
+supervisión externa de procesos. No se buscan ni terminan procesos ajenos.
 El preview puede mostrar menos FPS que la
 fuente. La API no incorpora autenticación: limitar su acceso
 a una red local controlada.
 
 ## Validación
+
+### Frecuencias históricas (OP-41, prototipo de consulta)
+
+`GET /api/v1/events/frequencies/` devuelve `total`, `by_period` (día UTC),
+`by_type`, `timezone=UTC` y `period=day`. Usa los mismos filtros inclusivos de
+la lista (`occurred_after`, `occurred_before`, `event_type`) y rechaza filtros
+desconocidos o inválidos. Una única consulta PostgreSQL agrupa por día/tipo;
+ambas proyecciones y el total derivan del mismo resultado. No agrega escrituras,
+tablas, migraciones, tipos de evento ni dependencias. Los días sin registros no
+se rellenan. Estos conteos describen registros persistidos, incluidos ensayos
+de desarrollo; no acreditan tasas de incidentes ni riesgo operacional.
+
+Las pruebas contrastan un conteo independiente, cambios de día UTC, límites
+inclusivos, lista filtrada, resultado vacío, validación y rechazo de escrituras.
+La revisión académica de cierre de OP-32/41 y actualización del backlog quedan
+fuera de este prototipo autónomo.
 
 ```bash
 set -a; source .env; set +a

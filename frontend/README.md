@@ -41,7 +41,15 @@ Por defecto, el frontend usa `MockAdapter`; esos datos no provienen del Motor Py
 
 En modo API, `/events` consulta PostgreSQL a través de los filtros del Backend `occurred_after`, `occurred_before` y `event_type`. Las fechas y horas se introducen en la hora local del navegador y se envían con zona horaria explícita; el único tipo admitido actualmente es `zone_dwell` (permanencia en zona). Se pueden aplicar y limpiar filtros sin recargar la aplicación. En modo mock se conserva la búsqueda y el filtro de zona locales de la maqueta.
 
-Las rutas `/` y `/rules` muestran datos de desarrollo. `/analysis` procesa video real si el Backend está configurado; `/events` consulta datos persistidos en modo API. Las rutas `/zones` e `/indicators` están preparadas sin simular funcionalidad todavía; `/dashboard` redirige al dashboard principal en `/`.
+Las rutas `/` y `/rules` muestran datos de desarrollo. `/analysis` procesa video real si el Backend está configurado; `/events` consulta datos persistidos en modo API. `/zones` está preparada sin simular funcionalidad todavía; `/dashboard` redirige al dashboard principal en `/`.
+
+En modo API, `/indicators` consulta `GET /api/v1/events/frequencies/` para contar
+registros por día UTC y por tipo, con filtros inclusivos Desde/Hasta y tipo.
+Incluye carga, error reintentable, resultado vacío y limpieza de filtros; no
+reemplaza fallos por mocks. Son frecuencias del histórico persistido, incluidos
+registros de desarrollo/demostración, no tasas de incidentes ni métricas de
+riesgo, personas únicas o validación industrial. Solo se muestran días con
+registros; actualmente existe un único tipo admitido, `zone_dwell`.
 
 ## Design tokens
 
