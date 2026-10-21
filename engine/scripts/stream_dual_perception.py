@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
@@ -47,6 +49,16 @@ def _status(directory: Path, **fields: object) -> None:
     )
 
 
+def _preview_due(frame_index, total, now, previous, fps):
+    """Limita solo el JPEG de supervisión; nunca el análisis ni el MP4 final."""
+    if not math.isfinite(fps) or fps <= 0:
+        raise ValueError("preview_fps debe ser positivo y finito")
+    return (
+        previous is None or frame_index == 0 or frame_index + 1 == total
+        or now - previous >= 1.0 / fps
+    )
+
+
 def _validated_zone(config, polygon_path: Path | None):
     if polygon_path is None:
         return config
@@ -59,6 +71,49 @@ def _validated_zone(config, polygon_path: Path | None):
 
     point_in_zone(NormalizedPoint(0, 0), zone)
     return replace(config, zones=(zone,))
+
+
+def _analyzed_batches(frames, perception, batch_size, synchronize):
+    """Lectura acotada; nunca omite frames ni reordena tracking/análisis."""
+    if type(batch_size) is not int or batch_size <= 0:
+        raise ValueError("batch_size debe ser entero positivo")
+    iterator = iter(frames)
+    while True:
+        batch = []
+        for _ in range(batch_size):
+            tick = time.perf_counter_ns()
+            try:
+                index, frame = next(iterator)
+            except StopIteration:
+                break
+            batch.append((index, frame, (time.perf_counter_ns() - tick) / 1e6))
+        if not batch:
+            return
+        if batch_size == 1:
+            results = (perception.process(batch[0][1], synchronize=synchronize),)
+        else:
+            results = perception.process_batch(
+                tuple(item[1] for item in batch), synchronize=synchronize,
+            )
+        yield tuple((index, frame, observed, timing, decode_ms)
+                    for (index, frame, decode_ms), (observed, timing)
+                    in zip(batch, results, strict=True))
+
+
+def _analyzed_frames(frames, perception, batch_size, synchronize):
+    """Solapa un lote siguiente con render/IPC del actual; memoria acotada a dos."""
+    batches = iter(_analyzed_batches(frames, perception, batch_size, synchronize))
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="operix-perception") as pool:
+        future = pool.submit(next, batches, None)
+        try:
+            while True:
+                batch = future.result()
+                if batch is None:
+                    return
+                future = pool.submit(next, batches, None)
+                yield from batch
+        finally:
+            future.cancel()
 
 
 def process(args: argparse.Namespace) -> None:
@@ -112,16 +167,17 @@ def process(args: argparse.Namespace) -> None:
             "rules", "renderer", "jpeg", "video_write", "status_ipc",
         )}
         measured = 0
-        frames = iter(source.frames())
+        batch_size = getattr(args, "batch_size", 4)
+        frames = iter(_analyzed_frames(source.frames(), perception, batch_size, torch.cuda.synchronize))
+        last_preview = None
+        preview_fps = getattr(args, "preview_fps", 10.0)
         try:
             while True:
-                tick = time.perf_counter_ns()
                 try:
-                    frame_index, frame = next(frames)
+                    entry = next(frames)
                 except StopIteration:
                     break
-                decode_ms = (time.perf_counter_ns() - tick) / 1e6
-                observed, timing = perception.process(frame, synchronize=torch.cuda.synchronize)
+                frame_index, frame, observed, timing, decode_ms = entry
                 if frame_index == 0:
                     devices = (
                         perception.person.detector.model_device,
@@ -152,16 +208,19 @@ def process(args: argparse.Namespace) -> None:
                 writer.write(annotated)
                 video_write_ms = (time.perf_counter_ns() - tick) / 1e6
                 tick = time.perf_counter_ns()
-                preview = annotated
-                if args.preview_width and metadata.width > args.preview_width:
-                    preview_height = round(metadata.height * args.preview_width / metadata.width)
-                    preview = cv2.resize(
-                        annotated, (args.preview_width, preview_height), interpolation=cv2.INTER_AREA,
-                    )
-                success, encoded = cv2.imencode(".jpg", preview, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                if not success:
-                    raise RuntimeError("No se pudo codificar el frame de preview")
-                _write_atomic(args.session_dir / "frame.jpg", encoded.tobytes())
+                now = time.perf_counter()
+                if _preview_due(frame_index, total, now, last_preview, preview_fps):
+                    preview = annotated
+                    if args.preview_width and metadata.width > args.preview_width:
+                        preview_height = round(metadata.height * args.preview_width / metadata.width)
+                        preview = cv2.resize(
+                            annotated, (args.preview_width, preview_height), interpolation=cv2.INTER_AREA,
+                        )
+                    success, encoded = cv2.imencode(".jpg", preview, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                    if not success:
+                        raise RuntimeError("No se pudo codificar el frame de preview")
+                    _write_atomic(args.session_dir / "frame.jpg", encoded.tobytes())
+                    last_preview = now
                 jpeg_ms = (time.perf_counter_ns() - tick) / 1e6
                 processed = frame_index + 1
                 if frame_index >= 20:
@@ -194,6 +253,7 @@ def process(args: argparse.Namespace) -> None:
             if processed == 0:
                 raise ValueError("El video no contiene frames decodificables")
         finally:
+            frames.close()
             writer.release()
         capture = cv2.VideoCapture(str(partial_result))
         try:
@@ -230,6 +290,8 @@ def process(args: argparse.Namespace) -> None:
             timing_ms={name: round(value / measured, 3) for name, value in totals_ms.items()}
             if measured else None,
             profiling_frames=measured,
+            performance={"detection_batch_size": batch_size, "preview_target_fps": preview_fps,
+                         "detector_timing": "amortized batch milliseconds per frame"},
         )
 
 
@@ -244,6 +306,8 @@ def main() -> int:
     parser.add_argument("--forklift-weights", required=True, type=Path)
     parser.add_argument("--forklift-sha256", required=True)
     parser.add_argument("--preview-width", type=int, default=1280)
+    parser.add_argument("--preview-fps", type=float, default=10.0)
+    parser.add_argument("--batch-size", type=int, default=4)
     args = parser.parse_args()
     try:
         process(args)
