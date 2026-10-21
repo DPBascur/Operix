@@ -2129,21 +2129,16 @@ a {
   }
 }
 .analysis-zone-toolbar {
-  position: absolute;
-  top: 1rem;
-  right: 1rem;
-  left: 1rem;
-  z-index: 4;
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.45rem;
   border: 1px solid rgb(255 255 255 / 0.16);
-  border-radius: 0.7rem;
-  background: rgb(12 15 19 / 0.76);
+  border-radius: 0;
+  background: var(--analysis-background);
   padding: 0.5rem;
   color: #f5f6f8;
-  backdrop-filter: blur(18px);
 }
 .analysis-zone-toolbar .button {
   min-height: 2.75rem;
@@ -2548,11 +2543,7 @@ a {
     flex: 0 0 auto;
   }
   .analysis-zone-toolbar {
-    top: 0.6rem;
-    right: 0.6rem;
-    left: 0.6rem;
-    max-height: 45%;
-    overflow-y: auto;
+    padding: 0.6rem;
   }
   .analysis-summary {
     width: 100%;
