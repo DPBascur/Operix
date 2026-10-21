@@ -129,7 +129,7 @@ def _analyzed_frames(frames, perception, batch_size, synchronize):
             future.cancel()
 
 
-def process(args: argparse.Namespace) -> None:
+def process(args: argparse.Namespace, *, detector_factory=None) -> None:
     from run_dual_perception import checked_file
 
     checked_file(args.person_weights, args.person_sha256, "person_weights")
@@ -142,7 +142,7 @@ def process(args: argparse.Namespace) -> None:
     histories = {name: TrajectoryAccumulator(visual) for name in ("person", "forklift")}
 
     def channel(name: str, weights: Path, confidence: float, iou: float):
-        detector = YoloDetector(YoloDetectorConfig(
+        detector = (detector_factory or YoloDetector)(YoloDetectorConfig(
             weights, confidence_threshold=confidence, device="cuda",
             image_size=640, iou_threshold=iou,
         ))
@@ -263,8 +263,10 @@ def process(args: argparse.Namespace) -> None:
                 _publish_preview(annotated, preview_dir, processed - 1, args.preview_width)
                 last_preview = processed - 1
         finally:
-            frames.close()
-            writer.release()
+            try:
+                frames.close()
+            finally:
+                writer.release()
         capture = cv2.VideoCapture(str(partial_result))
         try:
             encoded_frames = int(round(capture.get(cv2.CAP_PROP_FRAME_COUNT)))
