@@ -88,11 +88,20 @@ temporalmente la fuente, el resultado y el snapshot de configuración; el MP4
 conserva el FPS de la fuente, distinto del FPS de procesamiento. En Windows el
 Motor requiere un codificador H.264 disponible mediante OpenCV/MSMF. No crea
 tablas nuevas ni publica eventos.
-Máximo dos sesiones simultáneas y 250 MiB por archivo por defecto; ajustar
+Máximo dos sesiones temporales y 250 MiB por archivo por defecto; ajustar
 `OPERIX_ANALYSIS_MAX_SESSIONS`, `OPERIX_ANALYSIS_MAX_UPLOAD_BYTES` y
 `OPERIX_ANALYSIS_RETENTION_SECONDS` si corresponde. Las salidas temporales se
 eliminan tras 3600 s de inactividad por defecto; las consultas de una pestaña
-abierta renuevan esa actividad. El preview puede mostrar menos FPS que la
+abierta renuevan esa actividad. En un proceso de API local solo se admite un
+análisis GPU activo: un segundo inicio se rechaza con HTTP 409 sin modificar
+sus salidas y puede reintentarse al terminar el primero. No es un bloqueo
+distribuido; ejecutar una sola instancia de API para esta demo. El worker tiene
+un límite de 1800 s por trabajo, configurable mediante
+`OPERIX_ANALYSIS_TIMEOUT_SECONDS`; al superarlo se termina el proceso y se
+informa un error reintentable sin publicar el MP4 parcial. Al desconectarse
+MJPEG, las consultas de estado permiten terminar el reloj de preview; un
+resultado sin consumidor de preview no espera indefinidamente un stream.
+El preview puede mostrar menos FPS que la
 fuente. La API no incorpora autenticación: limitar su acceso
 a una red local controlada.
 
