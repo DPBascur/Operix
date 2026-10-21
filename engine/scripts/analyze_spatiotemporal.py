@@ -98,6 +98,8 @@ def main() -> int:
                     "timestamp_s": state.timestamp_s,
                     "track_id_a": pair.track_id_a,
                     "track_id_b": pair.track_id_b,
+                    "class_name_a": pair.class_name_a,
+                    "class_name_b": pair.class_name_b,
                     "normalized_distance": pair.normalized_distance,
                 })
             expected_frame += 1
@@ -110,6 +112,7 @@ def main() -> int:
     )
     pair_columns = (
         "frame_index", "timestamp_s", "track_id_a", "track_id_b", "normalized_distance",
+        "class_name_a", "class_name_b",
     )
     for path, columns, rows in (
         (args.output_objects, object_columns, object_rows),

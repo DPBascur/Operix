@@ -5,13 +5,14 @@
 from __future__ import annotations
 
 import math
+import json
 import unittest
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, asdict, replace
 from pathlib import Path
 
 from operix_engine.detection import BoundingBox
 from operix_engine.operational_config import Zone, load_operational_config
-from operix_engine.spatiotemporal import SpatiotemporalAnalyzer
+from operix_engine.spatiotemporal import ObjectIdentity, SpatiotemporalAnalyzer
 from operix_engine.tracking import Track
 from operix_engine.zone_geometry import NormalizedPoint
 
@@ -155,6 +156,102 @@ class SpatiotemporalTest(unittest.TestCase):
         result = self.analyzer.update(0, (self.inside,))
         with self.assertRaises(FrozenInstanceError):
             result.objects[0].position = NormalizedPoint(0.3, 0.4)  # type: ignore[misc]
+
+    def test_identity_is_class_scoped_hashable_and_immutable(self) -> None:
+        person, forklift = ObjectIdentity("person", 1), ObjectIdentity("forklift", 1)
+        self.assertNotEqual(person, forklift)
+        self.assertEqual(len({person, forklift, ObjectIdentity("person", 1)}), 2)
+        with self.assertRaises(FrozenInstanceError):
+            person.track_id = 2
+        for name, track_id in (("", 1), (0, 1), ("person", 0), ("person", True)):
+            with self.subTest(name=name, track_id=track_id), self.assertRaises(ValueError):
+                ObjectIdentity(name, track_id)
+
+    def test_same_numeric_id_coexists_with_original_box_and_confidence(self) -> None:
+        forklift = replace(make_track(1, 0.8, 0.7), class_name="forklift", confidence=0.8)
+        result = self.analyzer.update(0, (self.inside, forklift))
+        objects = {obj.identity: obj for obj in result.objects}
+        self.assertEqual(len(objects), 2)
+        for track in (self.inside, forklift):
+            obj = objects[ObjectIdentity(track.class_name, track.track_id)]
+            self.assertEqual((obj.class_name, obj.track_id), (track.class_name, track.track_id))
+            self.assertEqual((obj.bounding_box, obj.confidence), (track.bounding_box, track.confidence))
+
+    def test_multiclass_histories_dwell_and_loss_are_independent(self) -> None:
+        forklift = replace(make_track(1, 0.5, 0.5), class_name="forklift")
+        for frame in (0, 1):
+            self.analyzer.update(frame, (self.inside, forklift))
+        only_forklift = self.analyzer.update(2, (forklift,)).objects[0]
+        self.assertEqual(only_forklift.zones[0].dwell_time_s, 2 / 30)
+        recovered = self.analyzer.update(3, (self.inside, forklift))
+        objects = {obj.class_name: obj for obj in recovered.objects}
+        self.assertEqual(objects["person"].zones[0].dwell_time_s, 0)
+        self.assertEqual(objects["forklift"].zones[0].dwell_time_s, 3 / 30)
+        self.assertEqual(tuple(s.frame_index for s in objects["person"].trajectory), (3,))
+        self.assertEqual(tuple(s.frame_index for s in objects["forklift"].trajectory), (0, 1, 2, 3))
+        self.assertEqual(objects["person"].trajectory[-1].position, NormalizedPoint(0.4, 0.5))
+        self.assertEqual(objects["forklift"].trajectory[-1].position, NormalizedPoint(0.5, 0.5))
+
+    def test_zone_memberships_keep_class_and_independent_inside_state(self) -> None:
+        forklift = replace(self.outside, class_name="forklift")
+        result = self.analyzer.update(0, (self.inside, forklift))
+        memberships = {obj.zones[0].identity: obj.zones[0] for obj in result.objects}
+        self.assertTrue(memberships[ObjectIdentity("person", 1)].inside)
+        self.assertFalse(memberships[ObjectIdentity("forklift", 1)].inside)
+
+    def test_cross_class_proximity_is_symmetric_and_class_scoped(self) -> None:
+        person = make_track(1, 0.7, 0.6)
+        forklift = replace(make_track(1, 0.3, 0.3), class_name="forklift")
+        pair = self.analyzer.update(0, (person, forklift)).proximities[0]
+        self.assertEqual({pair.identity_a, pair.identity_b},
+                         {ObjectIdentity("person", 1), ObjectIdentity("forklift", 1)})
+        self.assertAlmostEqual(pair.normalized_distance, 0.5)
+        self.analyzer.reset()
+        self.assertEqual(pair, self.analyzer.update(0, (forklift, person)).proximities[0])
+
+    def test_same_class_proximities_work_for_person_and_forklift(self) -> None:
+        for name in ("person", "forklift"):
+            with self.subTest(class_name=name):
+                self.analyzer.reset()
+                tracks = tuple(replace(make_track(i, x, 0.5), class_name=name)
+                               for i, x in ((1, 0.4), (2, 0.8)))
+                pair = self.analyzer.update(0, tracks).proximities[0]
+                self.assertEqual((pair.identity_a, pair.identity_b),
+                                 (ObjectIdentity(name, 1), ObjectIdentity(name, 2)))
+                self.assertAlmostEqual(pair.normalized_distance, 0.4)
+
+    def test_duplicate_identity_rejected_without_advancing_multiclass_state(self) -> None:
+        forklift = replace(self.inside, class_name="forklift")
+        self.analyzer.update(0, (self.inside, forklift))
+        with self.assertRaisesRegex(ValueError, "duplicado"):
+            self.analyzer.update(1, (self.inside, forklift, forklift))
+        result = self.analyzer.update(1, (self.inside, forklift))
+        self.assertTrue(all(obj.zones[0].dwell_time_s == 1 / 30 for obj in result.objects))
+
+    def test_changing_local_class_id_does_not_change_semantic_identity(self) -> None:
+        self.analyzer.update(0, (self.inside,))
+        obj = self.analyzer.update(1, (replace(self.inside, class_id=99),)).objects[0]
+        self.assertEqual(obj.identity, ObjectIdentity("person", 1))
+        self.assertEqual(obj.zones[0].dwell_time_s, 1 / 30)
+
+    def test_multiclass_gap_and_reset_clear_both_histories(self) -> None:
+        tracks = (self.inside, replace(self.inside, class_name="forklift"))
+        self.analyzer.update(0, tracks)
+        result = self.analyzer.update(2, tracks)
+        self.assertTrue(all(len(obj.trajectory) == 1 and obj.zones[0].dwell_time_s == 0
+                            for obj in result.objects))
+        self.analyzer.reset()
+        self.assertEqual(len(self.analyzer.update(0, tracks).objects), 2)
+
+    def test_multiclass_state_serializes_structured_identities(self) -> None:
+        result = self.analyzer.update(0, (self.inside, replace(self.inside, class_name="forklift")))
+        payload = json.loads(json.dumps(asdict(result), allow_nan=False))
+        identities = [obj["identity"] for obj in payload["objects"]]
+        self.assertIn({"class_name": "person", "track_id": 1}, identities)
+        self.assertIn({"class_name": "forklift", "track_id": 1}, identities)
+        pair = payload["proximities"][0]
+        self.assertNotEqual(pair["identity_a"], pair["identity_b"])
+        self.assertEqual(pair["track_id_a"], pair["track_id_b"])
 
 
 if __name__ == "__main__":

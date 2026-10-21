@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from operix_engine.operational_config import OperationalConfig, RuleConfig
-from operix_engine.spatiotemporal import FrameSpatialState
+from operix_engine.spatiotemporal import FrameSpatialState, ObjectIdentity
 
 
 class RuleEngineError(ValueError):
@@ -112,7 +112,7 @@ class RuleEngine:
     def reset(self) -> None:
         """Olvida activaciones y orden temporal al comenzar una sesión nueva."""
         self._last_frame_index: int | None = None
-        self._active: set[tuple[str, int, int, str]] = set()
+        self._active: set[tuple[str, int, ObjectIdentity, str]] = set()
 
     def evaluate(self, frame: FrameSpatialState) -> RuleFrameResult:
         """Evalúa OP-37 sin recalcular sus variables ni modificar el frame."""
@@ -129,7 +129,7 @@ class RuleEngine:
             and frame.frame_index == self._last_frame_index + 1
             else set()
         )
-        active: set[tuple[str, int, int, str]] = set()
+        active: set[tuple[str, int, ObjectIdentity, str]] = set()
         evaluations: list[RuleEvaluation] = []
         candidates: list[EventCandidate] = []
         for rule in self._rules:
@@ -159,7 +159,7 @@ class RuleEngine:
                     )
                 )
                 if satisfied:
-                    key = (rule.config.rule_id, rule.config.version, obj.track_id, rule.zone_id)
+                    key = (rule.config.rule_id, rule.config.version, obj.identity, rule.zone_id)
                     active.add(key)
                     if key not in previous:
                         candidates.append(

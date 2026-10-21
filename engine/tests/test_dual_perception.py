@@ -5,6 +5,12 @@
 from __future__ import annotations
 
 import unittest
+import importlib.util
+import sys
+import tempfile
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import cv2
@@ -124,10 +130,138 @@ class DualPerceptionTest(unittest.TestCase):
         config = OperationalConfig(1, "view", (zone,), (rule,))
         analyzer = SpatiotemporalAnalyzer(width=120, height=100, fps=30, zones=config.zones)
         result, _ = self.dual.process(self.frame)
-        evaluated = RuleEngine(config).evaluate(analyzer.update(0, result.person_tracks))
+        evaluated = RuleEngine(config).evaluate(
+            analyzer.update(0, result.person_tracks + result.forklift_tracks)
+        )
         self.assertEqual(len(evaluated.candidates), 1)
         self.assertEqual(evaluated.candidates[0].class_name, "person")
         self.assertEqual(evaluated.candidates[0].track_id, 1)
+
+    def test_multiclass_person_rule_matches_person_only_across_loss_and_recovery(self):
+        zone = Zone("all", "Zona", ((0, 0), (1, 0), (1, 1), (0, 1)))
+        rule = RuleConfig("demo_zone_dwell", 1, True, {
+            "kind": "zone_dwell", "class_name": "person", "zone_id": "all", "min_duration_s": 1.0,
+        })
+        config = OperationalConfig(1, "view", (zone,), (rule,))
+        mixed_analyzer = SpatiotemporalAnalyzer(width=120, height=100, fps=2, zones=config.zones)
+        person_analyzer = SpatiotemporalAnalyzer(width=120, height=100, fps=2, zones=config.zones)
+        mixed_rules, person_rules = RuleEngine(config), RuleEngine(config)
+        emitted = []
+        for frame in range(8):
+            self.person_model.detections = () if frame == 4 else (PERSON,)
+            observed, _ = self.dual.process(self.frame)
+            mixed = mixed_rules.evaluate(mixed_analyzer.update(
+                frame, observed.person_tracks + observed.forklift_tracks,
+            ))
+            baseline = person_rules.evaluate(person_analyzer.update(frame, observed.person_tracks))
+            self.assertEqual(mixed.candidates, baseline.candidates)
+            self.assertTrue(all(not item.satisfied and item.reason == "class_mismatch"
+                                for item in mixed.evaluations if item.class_name == "forklift"))
+            emitted.extend(mixed.candidates)
+        self.assertEqual([item.frame_index for item in emitted], [2, 7])
+        self.assertTrue(all(item.class_name == "person" for item in emitted))
+
+    def test_forklift_only_spatial_state_does_not_emit_person_candidates(self):
+        zone = Zone("all", "Zona", ((0, 0), (1, 0), (1, 1), (0, 1)))
+        rule = RuleConfig("demo_zone_dwell", 1, True, {
+            "kind": "zone_dwell", "class_name": "person", "zone_id": "all", "min_duration_s": 0.0,
+        })
+        config = OperationalConfig(1, "view", (zone,), (rule,))
+        analyzer = SpatiotemporalAnalyzer(width=120, height=100, fps=30, zones=config.zones)
+        rules = RuleEngine(config)
+        self.person_model.detections = ()
+        for frame in range(3):
+            observed, _ = self.dual.process(self.frame)
+            spatial = analyzer.update(frame, observed.person_tracks + observed.forklift_tracks)
+            self.assertEqual(len(spatial.objects), 1)
+            self.assertEqual(spatial.objects[0].class_name, "forklift")
+            self.assertEqual(rules.evaluate(spatial).candidates, ())
+
+    def test_both_orchestrators_deliver_both_classes_to_spatial_analysis(self):
+        scripts = Path(__file__).resolve().parents[1] / "scripts"
+        zone = Zone("all", "Zona", ((0, 0), (1, 0), (1, 1), (0, 1)))
+        rule = RuleConfig("demo_zone_dwell", 1, True, {
+            "kind": "zone_dwell", "class_name": "person", "zone_id": "all", "min_duration_s": 0.0,
+        })
+        config = OperationalConfig(1, "view", (zone,), (rule,))
+
+        def load_script(name):
+            spec = importlib.util.spec_from_file_location(name, scripts / f"{name}.py")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+
+        diagnostic = load_script("run_dual_perception")
+        streaming = load_script("stream_dual_perception")
+
+        def detector(settings):
+            model = self.person_model if settings.weights_path.name == "person.pt" else self.forklift_model
+            model.model_device = "cuda:0"
+            return model
+
+        for module in (diagnostic, streaming):
+            with self.subTest(script=module.__name__), tempfile.TemporaryDirectory() as directory:
+                session_dir = Path(directory) / "session"
+                session_dir.mkdir()
+                person_weights = Path(directory) / "person.pt"
+                forklift_weights = Path(directory) / "forklift.pt"
+                person_weights.touch()
+                forklift_weights.touch()
+                # Solo un archivo temporal para probar la finalización; no contiene video real.
+                (session_dir / "annotated.partial.mp4").touch()
+                args = SimpleNamespace(
+                    video=Path("synthetic.mp4"), config=Path("synthetic.json"),
+                    person_weights=person_weights, forklift_weights=forklift_weights,
+                    expected_video_sha256="0" * 64, expected_person_sha256="0" * 64,
+                    expected_forklift_sha256="0" * 64, person_sha256="0" * 64,
+                    forklift_sha256="0" * 64, output_dir=Path(directory) / "diagnostic",
+                    session_dir=session_dir, polygon=None, disable_person=False,
+                    disable_forklift=False, person_conf=0.10, person_iou=0.70,
+                    forklift_conf=0.45, forklift_iou=0.55, device="cpu",
+                    capture_frames=(), preview_width=0,
+                )
+                source = MagicMock()
+                source.__enter__.return_value = source
+                source.metadata.return_value = SimpleNamespace(
+                    width=120, height=100, declared_fps=30.0, declared_frame_count=2,
+                )
+                source.frames.return_value = iter(((0, self.frame), (1, self.frame)))
+                writer = MagicMock()
+                writer.isOpened.return_value = True
+                writer.getBackendName.return_value = "synthetic"
+                capture = MagicMock()
+                capture.get.side_effect = lambda key: {
+                    cv2.CAP_PROP_FRAME_COUNT: 2, cv2.CAP_PROP_FPS: 30,
+                    cv2.CAP_PROP_FRAME_WIDTH: 120, cv2.CAP_PROP_FRAME_HEIGHT: 100,
+                }[key]
+                capture.read.side_effect = ((True, self.frame), (True, self.frame), (False, None))
+                analyzer = SpatiotemporalAnalyzer(width=120, height=100, fps=30, zones=(zone,))
+                rules = RuleEngine(config)
+                with (
+                    patch.dict(sys.modules, {"run_dual_perception": diagnostic}),
+                    patch.object(diagnostic, "checked_file", return_value="0" * 64),
+                    patch.object(module, "YoloDetector", side_effect=detector),
+                    patch.object(module, "ByteTracker", side_effect=lambda _: FakeTracker()),
+                    patch.object(module, "RecordedVideoSource", return_value=source),
+                    patch.object(module, "load_operational_config", return_value=config),
+                    patch.object(module, "SpatiotemporalAnalyzer", return_value=analyzer),
+                    patch.object(module, "RuleEngine", return_value=rules),
+                    patch.object(module.cv2, "VideoWriter", return_value=writer),
+                    patch.object(module.cv2, "VideoCapture", return_value=capture),
+                    patch.object(module.torch.cuda, "is_available", return_value=True),
+                    patch.object(module.torch.cuda, "synchronize"),
+                    patch.object(rules, "evaluate", wraps=rules.evaluate) as evaluate,
+                ):
+                    if module is diagnostic:
+                        summary = module.run(args)
+                        self.assertEqual(summary["candidate_count"], 1)
+                    else:
+                        module.process(args)
+                    self.assertEqual(evaluate.call_count, 2)
+                    for call in evaluate.call_args_list:
+                        objects = call.args[0].objects
+                        self.assertEqual({obj.class_name for obj in objects}, {"person", "forklift"})
+                        self.assertEqual({obj.track_id for obj in objects}, {1})
 
     def test_visualization_namespaces_labels_and_trajectories(self):
         result, _ = self.dual.process(self.frame)

@@ -129,10 +129,11 @@ def process(args: argparse.Namespace) -> None:
                     if any(not device.startswith("cuda") for device in devices):
                         raise RuntimeError("Un detector no quedó en CUDA")
                 tick = time.perf_counter_ns()
-                visible_person, _, _ = _visible_tracks(
-                    observed.person_tracks, metadata.width, metadata.height,
+                visible_tracks, _, _ = _visible_tracks(
+                    observed.person_tracks + observed.forklift_tracks,
+                    metadata.width, metadata.height,
                 )
-                result = rules.evaluate(analyzer.update(frame_index, visible_person))
+                result = rules.evaluate(analyzer.update(frame_index, visible_tracks))
                 if any(candidate.class_name != "person" for candidate in result.candidates):
                     raise RuntimeError("La regla existente recibió forklift")
                 rules_ms = (time.perf_counter_ns() - tick) / 1e6

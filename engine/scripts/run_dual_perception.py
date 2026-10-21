@@ -131,8 +131,12 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                             missing_frames[name].append(frame_index)
                         for track in current_tracks:
                             track_observations[name][track.track_id].append(frame_index)
-                    person_tracks, _, _ = _visible_tracks(observed.person_tracks, metadata.width, metadata.height)
-                    spatial = analyzer.update(frame_index, person_tracks)
+                    # Conservar IDs locales: el analizador distingue (clase, track_id).
+                    visible_tracks, _, _ = _visible_tracks(
+                        observed.person_tracks + observed.forklift_tracks,
+                        metadata.width, metadata.height,
+                    )
+                    spatial = analyzer.update(frame_index, visible_tracks)
                     rule_result = rules.evaluate(spatial)
                     if any(item.class_name != "person" for item in rule_result.candidates):
                         raise RuntimeError("Una regla existente recibió forklift")
