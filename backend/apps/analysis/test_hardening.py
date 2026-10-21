@@ -170,3 +170,17 @@ class SessionHardeningTests(SimpleTestCase):
                                        {"profile": "A"}, format="json")
         self.assertEqual(response.status_code, 409)
         self.assertEqual(self.session.zone, original)
+
+    def test_graceful_shutdown_closes_only_registered_sessions(self):
+        process = Mock()
+        process.poll.return_value = None
+        self.session.process = process
+        self.session.state = "processing"
+        unrelated = self.root / "unrelated.txt"
+        unrelated.write_text("preserve", encoding="utf-8")
+        sessions.close_all_sessions()
+        process.terminate.assert_called_once()
+        self.assertEqual(sessions._sessions, {})
+        self.assertFalse(self.session.directory.exists())
+        self.assertFalse(self.other.directory.exists())
+        self.assertEqual(unrelated.read_text(encoding="utf-8"), "preserve")

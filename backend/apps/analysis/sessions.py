@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import hashlib
 import json
 import logging
@@ -365,6 +366,17 @@ def _remove_directory_when_released(directory: Path) -> None:
     logger.warning("No se pudo liberar el directorio temporal de una sesión de análisis")
 
 
+def close_all_sessions() -> None:
+    """Cierre normal de esta instancia de API; no inspecciona procesos ajenos."""
+    with _lock:
+        identities = tuple(_sessions)
+    for identity in identities:
+        try:
+            remove_session(identity)
+        except OSError:
+            logger.exception("No se pudo liberar una sesión al cerrar la API")
+
+
 def expire_session(session_id: uuid.UUID) -> None:
     session = get_session(session_id)
     if session is None:
@@ -536,3 +548,6 @@ def stream_frames(session: AnalysisSession):
         if status["state"] in TERMINAL:
             break
         time.sleep(0.06)
+
+
+atexit.register(close_all_sessions)
