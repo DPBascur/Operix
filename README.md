@@ -18,6 +18,7 @@ El aporte del Trabajo de Título consiste en diseñar, integrar y evaluar un sis
 - OP-30 (configuración), OP-36 (pertenencia a zonas), OP-37 (variables espacio-temporales) y OP-38 (primera regla configurable) están completadas.
 - OP-42: resguardos de evidencia y alcance del PoC completados académicamente en V0.11 para Etapa 2.
 - Backend/API con PostgreSQL y frontend `/events` disponibles como prototipos de desarrollo; una prueba local desde video registra eventos `zone_dwell` con evidencia recuperable. Faltan autenticación y operación integrada de producción.
+- El análisis web temporal integra percepción experimental dual `person`/`forklift`, zonas editables, preview a velocidad de fuente y resultado MP4. Requiere checkpoints locales verificados; no constituye validación industrial.
 
 ## Arquitectura y alcance
 
@@ -26,7 +27,7 @@ Video → detección → tracking → variables espacio-temporales → reglas co
 La arquitectura define Aplicación Web, Backend/API, Motor de análisis de video y PostgreSQL. Existe una integración local inicial desde video hasta `/events`; el Motor entrega candidatos por HTTP al Backend y no accede directamente a PostgreSQL.
 
 - Procesamiento de video.
-- Detección y seguimiento experimental de `person`; cobertura de maquinaria pendiente de pesos/clases apropiados.
+- Detección y seguimiento experimental multiclase mediante dos checkpoints especializados, con identidades independientes por clase. La cobertura de maquinaria no está validada para uso industrial.
 - Evaluación inicial de una regla operacional configurable (`zone_dwell`).
 - Emisión de candidatos transitorios y publicación local opcional de eventos `zone_dwell` con captura real del frame. No hay clasificación automática de riesgo.
 
@@ -57,7 +58,7 @@ cd Operix
 git switch dev
 ```
 
-`main` conserva el hito estable `v0.1.0`; `dev` es la rama habitual de desarrollo.
+`v0.1.0` identifica el hito histórico del pipeline base; no se mueve con la evolución de las ramas. `dev` es la rama habitual de desarrollo.
 Los seis diagramas y los cinco ADR de la arquitectura base v1.0 están
 disponibles en [docs/architecture/](docs/architecture/README.md), junto con
 la exportación completa de IcePanel. Documentan el diseño aprobado, no la
@@ -105,7 +106,7 @@ El PoC técnico ejecutado comprende video → OpenCV → YOLO11 → ByteTrack �
 
 Después de ese hito, el desarrollo incorporó configuración de zonas y reglas (OP-30), pertenencia geométrica (OP-36), variables espacio-temporales (OP-37) y evaluación inicial `zone_dwell` (OP-38). Una [prueba local posterior](engine/evidence/video-to-event-local.md) enlazó video, regla, evidencia de frame real y evento persistido. Un `EventCandidate` aislado sigue siendo transitorio y no constituye una clasificación automática de riesgo.
 
-La validación principal filtra `person`. Los pesos COCO no contienen `forklift` y no demuestran tracking fiable de maquinaria. Los resultados proceden de muestras sintéticas acotadas; no acreditan funcionamiento universal o sostenido en tiempo real ni validación completa de Operix.
+La validación histórica de OP-61 filtra `person`: los pesos COCO no contienen `forklift`. El desarrollo experimental posterior usa percepción dual y no cambia retrospectivamente esa evidencia. Los resultados proceden de muestras acotadas; no acreditan tracking fiable de maquinaria en entornos industriales, funcionamiento universal o sostenido en tiempo real ni validación completa de Operix.
 
 ## Datos de demostración
 
