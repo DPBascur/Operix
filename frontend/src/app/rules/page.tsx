@@ -1,118 +1,72 @@
 "use client";
 
-import { Plus, ShieldAlert, Trash2 } from "lucide-react";
-import { useState } from "react";
-
-import { Button } from "@/components/ui/button";
+import { ChevronDown } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { MockDataNotice } from "@/components/ui/mock-data-notice";
-import { PageHeader } from "@/components/ui/page-header";
-import { Toggle } from "@/components/ui/toggle";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { mockRuleRows } from "@/mocks/ui-data";
 
 export default function RulesPage() {
-  const [enabledRuleIds, setEnabledRuleIds] = useState<string[]>(() =>
-    mockRuleRows.filter((rule) => rule.enabled).map((rule) => rule.id),
-  );
   return (
     <AppShell activePath="/rules">
-      <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
-        <PageHeader
-          action={
-            <Button disabled title="Disponible con la futura API">
-              <Plus aria-hidden="true" size={17} />
-              Nueva regla
-            </Button>
-          }
-          description="Revisa la presentación de reglas configurables antes de integrar la API."
-          eyebrow="Configuración"
-          title="Reglas operacionales"
-        />
+      <div className="page-wrap operational-page">
+        <header className="compact-page-header">
+          <div>
+            <h2 className="compact-page-title">Interpretación operacional</h2>
+            <p className="compact-page-copy">
+              La percepción observa objetos; las reglas interpretan el contexto.
+            </p>
+          </div>
+          <span className="source-indicator">Referencia no persistente</span>
+        </header>
         <MockDataNotice />
-        <section aria-label="Reglas simuladas" className="space-y-3">
-          {mockRuleRows.map(({ id, title, description, zone, tone }) => (
-            <article
-              className="surface-card flex flex-col gap-4 rounded-card border border-border bg-surface-elevated p-5 shadow-card sm:flex-row sm:items-center sm:p-6"
-              key={id}
-            >
-              <span className="flex size-11 shrink-0 items-center justify-center rounded-control bg-brand-accent/10 text-accent">
-                <ShieldAlert aria-hidden="true" size={21} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-3">
-                  <StatusBadge tone={tone}>{id}</StatusBadge>
-                  <h2 className="font-semibold text-foreground">{title}</h2>
-                </div>
-                <p className="mt-2 text-sm leading-6 text-text-secondary">
-                  {description}
-                </p>
-                <p className="mt-2 text-xs font-medium text-text-secondary">
-                  Zona asociada: {zone}
-                </p>
-                <details className="rule-details mt-2">
-                  <summary className="cursor-pointer py-2 text-xs font-medium text-primary">
-                    Condiciones y parámetros
-                  </summary>
-                  <dl className="mt-2 grid gap-2 text-xs">
-                    <div>
-                      <dt className="font-semibold">Tipo</dt>
-                      <dd className="mt-1 text-text-secondary">{title}</dd>
-                    </div>
-                    <div>
-                      <dt className="font-semibold">Condición</dt>
-                      <dd className="mt-1 text-text-secondary">
-                        {description}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="font-semibold">Parámetros</dt>
-                      <dd className="mt-1 text-text-secondary">
-                        Umbrales no definidos en esta demostración.
-                      </dd>
-                    </div>
-                  </dl>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <Button disabled title="Requiere integración con la API">
-                      Guardar regla
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      disabled
-                      title="Requiere integración con la API"
-                      aria-label={`Eliminar regla ${id}`}
-                    >
-                      <Trash2 size={15} aria-hidden="true" />
-                      Eliminar regla
-                    </Button>
+
+        <section aria-labelledby="rules-list-title" className="structured-list">
+          <div className="structured-list-head" aria-hidden="true">
+            <span>Regla</span>
+            <span>Zona</span>
+            <span>Estado</span>
+          </div>
+          <h2 id="rules-list-title" className="sr-only">
+            Reglas configuradas
+          </h2>
+          {mockRuleRows.map(({ id, title, description, zone, enabled }) => {
+            return (
+              <article className="rule-row" key={id}>
+                <div className="min-w-0">
+                  <div className="flex items-baseline gap-3">
+                    <span className="technical-id">{id}</span>
+                    <h3 className="text-sm font-semibold">{title}</h3>
                   </div>
-                </details>
-              </div>
-              <div className="flex items-center justify-between gap-4 sm:justify-end">
-                <label
-                  className={`flex items-center gap-2 text-xs font-medium ${enabledRuleIds.includes(id) ? "text-active" : "text-text-secondary"}`}
-                >
-                  <Toggle
-                    checked={enabledRuleIds.includes(id)}
-                    onChange={(event) =>
-                      setEnabledRuleIds((current) =>
-                        event.target.checked
-                          ? [...current, id]
-                          : current.filter((currentId) => currentId !== id),
-                      )
-                    }
-                    aria-label={`${id}: ${enabledRuleIds.includes(id) ? "habilitada" : "deshabilitada"} en esta demostración`}
-                  />
-                  <span>
-                    {enabledRuleIds.includes(id)
-                      ? "Habilitada"
-                      : "Deshabilitada"}
-                    {" · Mock"}
-                  </span>
-                </label>
-              </div>
-            </article>
-          ))}
+                  <p className="mt-1 max-w-2xl text-sm leading-5 text-text-secondary">
+                    {description}
+                  </p>
+                  <details className="rule-details mt-2">
+                    <summary className="inline-flex cursor-pointer items-center gap-1 py-1 text-xs font-semibold text-text-secondary hover:text-foreground">
+                      Condiciones <ChevronDown size={13} aria-hidden="true" />
+                    </summary>
+                    <dl className="mt-2 grid gap-2 border-l border-border pl-3 text-xs text-text-secondary">
+                      <div>
+                        <dt className="inline font-semibold text-foreground">
+                          Observa:{" "}
+                        </dt>
+                        <dd className="inline">{title}</dd>
+                      </div>
+                      <div>
+                        <dt className="inline font-semibold text-foreground">
+                          Condición:{" "}
+                        </dt>
+                        <dd className="inline">{description}</dd>
+                      </div>
+                    </dl>
+                  </details>
+                </div>
+                <p className="text-xs text-text-secondary">{zone}</p>
+                <p className="text-right text-xs text-text-secondary">
+                  {enabled ? "Activa en muestra" : "Inactiva en muestra"}
+                </p>
+              </article>
+            );
+          })}
         </section>
       </div>
     </AppShell>

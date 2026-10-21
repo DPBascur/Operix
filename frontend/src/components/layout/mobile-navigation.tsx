@@ -30,7 +30,7 @@ export function MobileNavigation({ children }: { children: ReactNode }) {
   return (
     <div
       ref={root}
-      className="relative lg:hidden"
+      className="mobile-navigation-root relative"
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
       }}

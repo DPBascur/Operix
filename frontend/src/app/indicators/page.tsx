@@ -1,35 +1,49 @@
-import { BarChart3 } from "lucide-react";
-
 import { AppShell } from "@/components/layout/app-shell";
-import { PageHeader } from "@/components/ui/page-header";
-import { SectionCard } from "@/components/ui/section-card";
-import { StatusBadge } from "@/components/ui/status-badge";
+
+const prerequisites = [
+  ["Histórico", "Resultados comparables entre sesiones"],
+  ["Persistencia", "Series temporales verificables"],
+  ["Definición", "Indicadores y umbrales acordados"],
+];
 
 export default function IndicatorsPage() {
   return (
     <AppShell activePath="/indicators">
-      <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
-        <PageHeader
-          description="Vista preparada para indicadores operacionales futuros. No hay datos persistidos ni histórico disponible."
-          eyebrow="Seguimiento"
-          title="Indicadores"
-        />
-        <SectionCard className="flex min-h-72 flex-col items-center justify-center text-center">
-          <BarChart3
-            aria-hidden="true"
-            className="text-text-secondary"
-            size={26}
-          />
-          <h2 className="mt-4 text-lg font-semibold">Sin indicadores reales</h2>
-          <p className="mt-2 max-w-md text-sm leading-6 text-text-secondary">
-            La estructura está lista para mostrar métricas cuando el Backend
-            proporcione datos. Esta vista no representa un histórico de
-            análisis.
-          </p>
-          <div className="mt-4">
-            <StatusBadge tone="neutral">Sin histórico real</StatusBadge>
+      <div className="page-wrap operational-page">
+        <header className="compact-page-header">
+          <div>
+            <h2 className="compact-page-title">Indicadores</h2>
+            <p className="compact-page-copy">
+              Esta vista se habilitará cuando existan datos históricos válidos.
+            </p>
           </div>
-        </SectionCard>
+          <span className="source-indicator">Sin histórico</span>
+        </header>
+
+        <section
+          className="indicators-empty"
+          aria-labelledby="indicators-title"
+        >
+          <div className="max-w-xl">
+            <p className="section-heading">Estado de datos</p>
+            <h2 id="indicators-title">
+              No hay resultados agregados que mostrar
+            </h2>
+            <p>
+              Operix no convierte datos de demostración en métricas. Los
+              indicadores aparecerán cuando Backend y definición técnica
+              permitan afirmaciones reproducibles.
+            </p>
+          </div>
+          <dl className="readiness-list">
+            {prerequisites.map(([term, detail]) => (
+              <div key={term}>
+                <dt>{term}</dt>
+                <dd>{detail}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
       </div>
     </AppShell>
   );

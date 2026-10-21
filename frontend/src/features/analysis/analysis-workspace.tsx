@@ -2,6 +2,9 @@
 /* eslint-disable @next/next/no-img-element -- MJPEG multipart necesita img nativo. */
 
 import {
+  ChevronDown,
+  Info,
+  MoreHorizontal,
   Pause,
   Play,
   RotateCcw,
@@ -10,7 +13,13 @@ import {
   Upload,
   Waypoints,
 } from "lucide-react";
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from "react";
 import { Button } from "@/components/ui/button";
 import {
   analysisService,
@@ -68,10 +77,23 @@ function validPolygon(vertices: NormalizedVertex[]): boolean {
   return true;
 }
 
-export function AnalysisWorkspace() {
+function readableError(message: string): string {
+  if (/failed to fetch|networkerror|load failed/i.test(message)) {
+    return "No se pudo conectar con el servicio de análisis.";
+  }
+  return message;
+}
+
+export function AnalysisWorkspace({
+  initialProfile = "A",
+  initialManual = false,
+}: {
+  initialProfile?: AnalysisProfile;
+  initialManual?: boolean;
+}) {
   const [file, setFile] = useState<File | null>(null);
   const [localUrl, setLocalUrl] = useState<string | null>(null);
-  const [profile, setProfile] = useState<AnalysisProfile>("A");
+  const [profile, setProfile] = useState<AnalysisProfile>(initialProfile);
   const [profiles, setProfiles] = useState<AnalysisProfileDefinition[]>([]);
   const [demoSource, setDemoSource] = useState<DemoVideoSource | null>(null);
   const [session, setSession] = useState<AnalysisSessionStatus | null>(null);
@@ -87,11 +109,14 @@ export function AnalysisWorkspace() {
   const [draft, setDraft] = useState<NormalizedVertex[]>([]);
   const [closed, setClosed] = useState(true);
   const [selectedVertex, setSelectedVertex] = useState<number | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const dragging = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const localUrlRef = useRef<string | null>(null);
   const generation = useRef(0);
+  const initialProfileRef = useRef(initialProfile);
+  const initialManualRef = useRef(initialManual);
 
   useEffect(() => {
     return () => {
@@ -107,11 +132,14 @@ export function AnalysisWorkspace() {
       .then(async (catalog) => {
         if (!active) return;
         setProfiles(catalog);
-        const initial = catalog.find((item) => item.id === "A");
+        if (initialManualRef.current) return;
+        const initial = catalog.find(
+          (item) => item.id === initialProfileRef.current,
+        );
         if (!initial?.default_demo_video) return;
         setBusy(true);
         const created = await analysisService.createDemoSession(
-          "A",
+          initialProfileRef.current,
           initial.default_demo_video.id,
         );
         createdId = created.id;
@@ -421,130 +449,90 @@ export function AnalysisWorkspace() {
     !suspendResult;
   const showReference =
     !!sourceName && !!referenceUrl && !showStream && !showResult;
-  return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_18rem]">
-      <section aria-label="Video de análisis" className="min-w-0 space-y-4">
-        <div
-          className="relative overflow-hidden rounded-panel border border-analysis-border bg-analysis-background"
-          style={{ aspectRatio: `${videoInfo.width} / ${videoInfo.height}` }}
-        >
-          {!sourceName && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-brand-neutral">
-              <Upload size={30} aria-hidden="true" />
-              <p className="text-lg font-semibold">
-                No hay un análisis en curso.
-              </p>
-              <p className="max-w-sm text-sm opacity-75">
-                Seleccione un video o configure una demo para revisar su zona.
-              </p>
-            </div>
-          )}
-          {showReference && referenceUrl && (
-            <video
-              ref={videoRef}
-              src={referenceUrl}
-              controls={!editing}
-              preload="metadata"
-              className="absolute inset-0 h-full w-full object-contain"
-              onLoadedMetadata={(event) => {
-                const video = event.currentTarget;
-                setVideoInfo({
-                  width: video.videoWidth,
-                  height: video.videoHeight,
-                  duration: video.duration,
-                });
-              }}
-            />
-          )}
-          {showStream && (
-            <img
-              key={`${session.id}-${session.run}`}
-              src={analysisService.getAnalysisStreamUrl(session.id)}
-              alt="Video procesado: personas, montacargas, IDs y zona"
-              className="absolute inset-0 h-full w-full object-contain"
-            />
-          )}
-          {showResult && (
-            <video
-              key={`${session.id}-${session.run}-result`}
-              src={analysisService.getAnalysisResultUrl(
-                session.id,
-                session.run,
-              )}
-              controls
-              preload="metadata"
-              aria-label="Resultado anotado de Operix"
-              className="absolute inset-0 h-full w-full object-contain"
-            />
-          )}
-          {showReference && session && (
-            <svg
-              viewBox="0 0 100 100"
-              preserveAspectRatio="none"
-              className={`absolute inset-0 h-full w-full ${editing ? "touch-none cursor-crosshair" : "pointer-events-none"}`}
-              aria-label={
-                editing
-                  ? "Editor de polígono normalizado"
-                  : "Zona de referencia"
-              }
-              onPointerDown={(event) => {
-                if (!editing || closed || event.target !== event.currentTarget)
-                  return;
-                setDraft((current) => [...current, pointInFrame(event)]);
-              }}
-              onPointerMove={(event) => {
-                if (dragging.current === null) return;
-                const point = pointInFrame(event);
-                setDraft((current) =>
-                  current.map((value, index) =>
-                    index === dragging.current ? point : value,
-                  ),
-                );
-              }}
-              onPointerUp={() => {
-                dragging.current = null;
-              }}
-            >
-              {draft.length > 1 && (
-                <polygon
-                  points={draft
-                    .map(([x, y]) => `${x * 100},${y * 100}`)
-                    .join(" ")}
-                  fill={closed ? "rgba(47,209,200,0.08)" : "none"}
-                  stroke="#2fd1c8"
-                  strokeWidth="0.25"
-                  vectorEffect="non-scaling-stroke"
-                  pointerEvents="none"
-                />
-              )}
-              {editing &&
-                draft.map(([x, y], index) => (
-                  <circle
-                    key={index}
-                    cx={x * 100}
-                    cy={y * 100}
-                    r={selectedVertex === index ? 1.1 : 0.8}
-                    fill="#fff"
-                    stroke="#087c79"
-                    strokeWidth="0.25"
-                    onPointerDown={(event) => {
-                      event.stopPropagation();
-                      dragging.current = index;
-                      setSelectedVertex(index);
-                      event.currentTarget.setPointerCapture(event.pointerId);
-                    }}
-                  />
-                ))}
-            </svg>
-          )}
-        </div>
+  const visibleError = error
+    ? readableError(error)
+    : session?.detail
+      ? readableError(session.detail)
+      : null;
+  const contextState = visibleError
+    ? "No fue posible completar la operación"
+    : session
+      ? labels[session.state]
+      : "Sin fuente preparada";
 
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-control bg-primary px-4 text-sm font-semibold text-primary-foreground">
-            <Upload size={17} aria-hidden="true" />{" "}
-            {session ? "Nuevo video" : "Seleccionar video"}
+  function moveVertexWithKeyboard(
+    event: KeyboardEvent<SVGCircleElement>,
+    index: number,
+  ) {
+    const step = event.shiftKey ? 0.01 : 0.005;
+    const movement: Partial<Record<string, NormalizedVertex>> = {
+      ArrowLeft: [-step, 0],
+      ArrowRight: [step, 0],
+      ArrowUp: [0, -step],
+      ArrowDown: [0, step],
+    };
+    const delta = movement[event.key];
+    if (!delta) return;
+    event.preventDefault();
+    setSelectedVertex(index);
+    setDraft((current) =>
+      current.map((point, currentIndex) =>
+        currentIndex === index
+          ? [
+              Math.max(0, Math.min(1, point[0] + delta[0])),
+              Math.max(0, Math.min(1, point[1] + delta[1])),
+            ]
+          : point,
+      ),
+    );
+  }
+
+  return (
+    <div className="analysis-workspace">
+      <section
+        className="analysis-contextbar"
+        aria-label="Contexto del análisis"
+      >
+        <div className="min-w-0">
+          <p className={`analysis-state ${visibleError ? "is-error" : ""}`}>
+            {contextState}
+          </p>
+          <p className="mt-1 truncate text-xs text-text-secondary">
+            {sourceName
+              ? `${sourceName} · ${sourceKind === "demo" ? "demo incluida" : "video manual"}`
+              : "Seleccione una demo o un video local para comenzar."}
+          </p>
+        </div>
+        <div className="analysis-context-actions">
+          <div className="analysis-profiles" aria-label="Perfil de zona">
+            {(["A", "B", "C"] as AnalysisProfile[]).map((item) => {
+              const profileName =
+                profiles.find((candidate) => candidate.id === item)
+                  ?.display_name ??
+                (item === "A"
+                  ? "Warehouse fire"
+                  : item === "B"
+                    ? "Nearmiss"
+                    : "Box pickup");
+
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  className={`analysis-profile ${profile === item ? "is-active" : ""}`}
+                  aria-pressed={profile === item}
+                  disabled={busy || (!!session && !canEdit)}
+                  onClick={() => void changeProfile(item)}
+                >
+                  <span className="block">Perfil {item}</span>
+                  <span className="analysis-profile-name">{profileName}</span>
+                </button>
+              );
+            })}
+          </div>
+          <label className="analysis-context-button">
+            <Upload size={16} aria-hidden="true" /> Cambiar fuente
             <input
-              ref={fileInputRef}
               type="file"
               accept=".mp4,.mov,.avi,video/mp4"
               className="sr-only"
@@ -554,272 +542,530 @@ export function AnalysisWorkspace() {
               }}
             />
           </label>
-          {sourceKind === "manual" && selectedProfile?.default_demo_video && (
-            <Button
-              variant="secondary"
-              disabled={busy || !canEdit}
-              onClick={() => {
-                setBusy(true);
-                setError(null);
-                selectProfileDemo(profile)
-                  .catch((cause: unknown) =>
-                    setError(
-                      cause instanceof Error
-                        ? cause.message
-                        : "No se pudo restaurar la demo.",
-                    ),
-                  )
-                  .finally(() => {
-                    setSuspendResult(false);
-                    setBusy(false);
-                  });
-              }}
-            >
-              Usar video demo
-            </Button>
-          )}
-          {canEdit && !editing && (
-            <Button onClick={() => void start()} variant="primary">
-              {state === "ready" ? (
-                <Play size={16} aria-hidden="true" />
-              ) : (
-                <RotateCcw size={16} aria-hidden="true" />
-              )}
-              {state === "ready"
-                ? "Iniciar análisis"
-                : state === "error"
-                  ? "Volver a intentar"
-                  : "Volver a analizar"}
-            </Button>
-          )}
-          {session && ["preparing", "processing"].includes(session.state) && (
-            <Button
-              onClick={() => void stop()}
-              disabled={busy}
-              variant="destructive"
-            >
-              <Square size={16} aria-hidden="true" /> Detener
-            </Button>
-          )}
-          {canEdit && !editing && (
-            <Button
-              onClick={() => {
-                videoRef.current?.pause();
-                setEditing(true);
-              }}
-              variant="secondary"
-            >
-              <Waypoints size={16} aria-hidden="true" /> Editar zona
-            </Button>
-          )}
-          {session && canEdit && (
-            <Button onClick={() => void clearSession()} variant="secondary">
-              <Trash2 size={16} aria-hidden="true" /> Limpiar sesión
-            </Button>
-          )}
+          <button
+            type="button"
+            className="analysis-context-button"
+            aria-expanded={inspectorOpen}
+            onClick={() => setInspectorOpen((current) => !current)}
+          >
+            <Info size={16} aria-hidden="true" /> Detalles
+          </button>
         </div>
-        {editing && (
-          <div className="flex flex-wrap items-center gap-2 rounded-card border border-border bg-surface p-3 text-sm">
-            <Button
-              variant="secondary"
-              onClick={() => videoRef.current?.pause()}
-            >
-              <Pause size={15} /> Pausar frame
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setDraft([]);
-                setClosed(false);
-                setSelectedVertex(null);
-              }}
-            >
-              Nueva zona
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => setClosed(true)}
-              disabled={closed || draft.length < 3}
-            >
-              Cerrar polígono
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setDraft((points) =>
-                  points.filter((_, index) => index !== selectedVertex),
-                );
-                setSelectedVertex(null);
-              }}
-              disabled={selectedVertex === null || draft.length <= 3}
-            >
-              Eliminar vértice
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setDraft(session?.zone.polygon ?? []);
-                setEditing(false);
-              }}
-            >
-              Cancelar
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                void applyZone();
-              }}
-              disabled={!closed || !validPolygon(draft) || busy}
-            >
-              Aplicar zona
-            </Button>
-            <span className="text-text-secondary">
-              {draft.length} vértices · coordenadas normalizadas
-            </span>
-          </div>
-        )}
-        <p role="status" className="text-sm text-text-secondary">
-          {busy && !showStream
-            ? "Preparando sesión…"
-            : session
-              ? labels[session.state]
-              : sourceName
-                ? "Video listo para preparar."
-                : "No hay un análisis en curso."}
-          {error && <span className="ml-2 text-danger">{error}</span>}
-          {session?.detail && (
-            <span className="ml-2 text-danger">{session.detail}</span>
-          )}
-        </p>
-        {session?.pending_changes && (
-          <p className="rounded-control border border-warning/50 bg-warning/10 px-3 py-2 text-sm text-foreground">
-            Hay cambios de zona pendientes. Vuelva a analizar para aplicarlos al
-            resultado.
-          </p>
-        )}
-        {showResult && (
-          <p className="text-sm text-text-secondary">
-            Resultado reproducible: use los controles del video para pausar,
-            buscar posición o volver al inicio.
-          </p>
-        )}
       </section>
 
-      <aside
-        aria-label="Estado del análisis"
-        className="self-start rounded-panel border border-border bg-surface p-5"
-      >
-        <h2 className="mb-4 text-base font-semibold">Estado del análisis</h2>
-        <label className="mb-4 block text-sm text-text-secondary">
-          Perfil de zona
-          <select
-            value={profile}
-            disabled={busy || (!!session && !canEdit)}
-            onChange={(event) =>
-              void changeProfile(event.target.value as AnalysisProfile)
-            }
-            className="mt-1 block w-full rounded-control border border-border bg-surface px-3 py-2 text-foreground"
+      <div className="analysis-layout">
+        <section aria-label="Video de análisis" className="analysis-view">
+          <div className="analysis-media-frame">
+            <div
+              className={`analysis-stage ${sourceName ? "has-source" : "is-empty"}`}
+              style={{
+                aspectRatio: `${videoInfo.width} / ${videoInfo.height}`,
+              }}
+            >
+              {!sourceName && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-white/80">
+                  <Upload size={30} aria-hidden="true" />
+                  <p className="text-lg font-semibold">Sin fuente de video</p>
+                  <p className="max-w-sm text-sm opacity-75">
+                    Seleccione un archivo o use una demo.
+                  </p>
+                </div>
+              )}
+              {showReference && referenceUrl && (
+                <video
+                  ref={videoRef}
+                  src={referenceUrl}
+                  controls={!editing}
+                  preload="metadata"
+                  className="absolute inset-0 h-full w-full object-contain"
+                  onLoadedMetadata={(event) => {
+                    const video = event.currentTarget;
+                    setVideoInfo({
+                      width: video.videoWidth,
+                      height: video.videoHeight,
+                      duration: video.duration,
+                    });
+                  }}
+                />
+              )}
+              {showStream && (
+                <img
+                  key={`${session.id}-${session.run}`}
+                  src={analysisService.getAnalysisStreamUrl(session.id)}
+                  alt="Video procesado: personas, montacargas, IDs y zona"
+                  className="absolute inset-0 h-full w-full object-contain"
+                />
+              )}
+              {showResult && (
+                <video
+                  key={`${session.id}-${session.run}-result`}
+                  src={analysisService.getAnalysisResultUrl(
+                    session.id,
+                    session.run,
+                  )}
+                  controls
+                  preload="metadata"
+                  aria-label="Resultado anotado de Operix"
+                  className="absolute inset-0 h-full w-full object-contain"
+                />
+              )}
+              {showReference && session && (
+                <svg
+                  viewBox="0 0 100 100"
+                  preserveAspectRatio="none"
+                  className={`absolute inset-0 h-full w-full ${editing ? "touch-none cursor-crosshair" : "pointer-events-none"}`}
+                  aria-label={
+                    editing
+                      ? "Editor de polígono normalizado"
+                      : "Zona de referencia"
+                  }
+                  onPointerDown={(event) => {
+                    if (
+                      !editing ||
+                      closed ||
+                      event.target !== event.currentTarget
+                    )
+                      return;
+                    setDraft((current) => [...current, pointInFrame(event)]);
+                  }}
+                  onPointerMove={(event) => {
+                    if (dragging.current === null) return;
+                    const point = pointInFrame(event);
+                    setDraft((current) =>
+                      current.map((value, index) =>
+                        index === dragging.current ? point : value,
+                      ),
+                    );
+                  }}
+                  onPointerUp={() => {
+                    dragging.current = null;
+                  }}
+                >
+                  {draft.length > 1 && (
+                    <polygon
+                      points={draft
+                        .map(([x, y]) => `${x * 100},${y * 100}`)
+                        .join(" ")}
+                      fill={closed ? "rgba(47,209,200,0.08)" : "none"}
+                      stroke="#2fd1c8"
+                      strokeWidth="0.25"
+                      vectorEffect="non-scaling-stroke"
+                      pointerEvents="none"
+                    />
+                  )}
+                  {editing &&
+                    draft.map(([x, y], index) => (
+                      <circle
+                        key={index}
+                        cx={x * 100}
+                        cy={y * 100}
+                        r={selectedVertex === index ? 1.1 : 0.8}
+                        fill="#fff"
+                        stroke="#087c79"
+                        strokeWidth="0.25"
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`Vértice ${index + 1}, x ${(x * 100).toFixed(1)} %, y ${(y * 100).toFixed(1)} %. Use las flechas para moverlo; mantenga Mayús para un desplazamiento mayor.`}
+                        onFocus={() => setSelectedVertex(index)}
+                        onKeyDown={(event) =>
+                          moveVertexWithKeyboard(event, index)
+                        }
+                        onPointerDown={(event) => {
+                          event.stopPropagation();
+                          dragging.current = index;
+                          setSelectedVertex(index);
+                          event.currentTarget.setPointerCapture(
+                            event.pointerId,
+                          );
+                        }}
+                      />
+                    ))}
+                </svg>
+              )}
+            </div>
+
+            <div className="analysis-toolbar">
+              {session &&
+                ["preparing", "processing"].includes(session.state) && (
+                  <div className="analysis-toolbar-status" role="status">
+                    <strong>
+                      Procesando ·{" "}
+                      {session.percent == null
+                        ? "—"
+                        : `${session.percent.toFixed(1)} %`}
+                    </strong>
+                    <span>
+                      {session.person_detections} personas ·{" "}
+                      {session.forklift_detections} montacargas ·{" "}
+                      {session.fps == null ? "—" : session.fps.toFixed(2)} FPS
+                    </span>
+                  </div>
+                )}
+              <label
+                className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-control px-4 text-sm font-semibold ${session ? "border border-border-strong bg-transparent text-foreground" : "bg-primary text-primary-foreground"}`}
+              >
+                <Upload size={17} aria-hidden="true" />{" "}
+                {session ? "Nuevo video" : "Seleccionar video"}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".mp4,.mov,.avi,video/mp4"
+                  className="sr-only"
+                  onChange={(event) => {
+                    void selectVideo(event.target.files?.[0]);
+                    event.target.value = "";
+                  }}
+                />
+              </label>
+              {sourceKind === "manual" &&
+                selectedProfile?.default_demo_video && (
+                  <Button
+                    variant="secondary"
+                    disabled={busy || !canEdit}
+                    onClick={() => {
+                      setBusy(true);
+                      setError(null);
+                      selectProfileDemo(profile)
+                        .catch((cause: unknown) =>
+                          setError(
+                            cause instanceof Error
+                              ? cause.message
+                              : "No se pudo restaurar la demo.",
+                          ),
+                        )
+                        .finally(() => {
+                          setSuspendResult(false);
+                          setBusy(false);
+                        });
+                    }}
+                  >
+                    Usar video demo
+                  </Button>
+                )}
+              {canEdit && !editing && (
+                <Button
+                  className="order-first"
+                  onClick={() => void start()}
+                  variant="primary"
+                >
+                  {state === "ready" ? (
+                    <Play size={16} aria-hidden="true" />
+                  ) : (
+                    <RotateCcw size={16} aria-hidden="true" />
+                  )}
+                  {state === "ready"
+                    ? "Iniciar análisis"
+                    : state === "error"
+                      ? "Volver a intentar"
+                      : "Volver a analizar"}
+                </Button>
+              )}
+              {session &&
+                ["preparing", "processing"].includes(session.state) && (
+                  <Button
+                    onClick={() => void stop()}
+                    disabled={busy}
+                    variant="destructive"
+                  >
+                    <Square size={16} aria-hidden="true" /> Detener
+                  </Button>
+                )}
+              {canEdit && !editing && (
+                <Button
+                  onClick={() => {
+                    videoRef.current?.pause();
+                    setEditing(true);
+                  }}
+                  variant="outline"
+                >
+                  <Waypoints size={16} aria-hidden="true" /> Editar zona
+                </Button>
+              )}
+              {session && canEdit && (
+                <details className="analysis-more">
+                  <summary aria-label="Más opciones">
+                    <MoreHorizontal size={18} aria-hidden="true" />
+                  </summary>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Upload size={15} aria-hidden="true" /> Nuevo video
+                    </button>
+                    <button type="button" onClick={() => void clearSession()}>
+                      <Trash2 size={15} aria-hidden="true" /> Limpiar sesión
+                    </button>
+                  </div>
+                </details>
+              )}
+            </div>
+            {editing && (
+              <div className="analysis-zone-toolbar">
+                <Button
+                  variant="secondary"
+                  onClick={() => videoRef.current?.pause()}
+                >
+                  <Pause size={15} /> Pausar frame
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setDraft([]);
+                    setClosed(false);
+                    setSelectedVertex(null);
+                  }}
+                >
+                  Nueva zona
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => setClosed(true)}
+                  disabled={closed || draft.length < 3}
+                >
+                  Cerrar polígono
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setDraft((points) =>
+                      points.filter((_, index) => index !== selectedVertex),
+                    );
+                    setSelectedVertex(null);
+                  }}
+                  disabled={selectedVertex === null || draft.length <= 3}
+                >
+                  Eliminar vértice
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setDraft(session?.zone.polygon ?? []);
+                    setEditing(false);
+                  }}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    void applyZone();
+                  }}
+                  disabled={!closed || !validPolygon(draft) || busy}
+                >
+                  Aplicar zona
+                </Button>
+                <span className="text-text-secondary">
+                  {draft.length} vértices · arrastre o use flechas con foco
+                </span>
+              </div>
+            )}
+          </div>
+          <p
+            role={visibleError ? "alert" : "status"}
+            className={`analysis-feedback ${visibleError ? "has-error" : ""}`}
           >
-            <option value="A">A · warehouse fire</option>
-            <option value="B">B · nearmiss</option>
-            <option value="C">C · box pickup</option>
-          </select>
-        </label>
-        <dl className="space-y-3 text-sm">
-          {[
-            [
-              "Estado",
-              session
+            {busy && !showStream
+              ? "Preparando sesión…"
+              : session
                 ? labels[session.state]
                 : sourceName
-                  ? "Video listo"
-                  : "Vacío",
-            ],
-            [
-              "Fuente",
-              sourceKind === "demo"
-                ? "Demo incluida"
-                : sourceKind === "manual"
-                  ? "Video manual"
-                  : "—",
-            ],
-            ["Video", sourceName ?? "—"],
-            [
-              "Tamaño",
-              sourceBytes ? `${(sourceBytes / 1048576).toFixed(1)} MiB` : "—",
-            ],
-            [
-              "Duración",
-              sourceName && videoInfo.duration
-                ? `${videoInfo.duration.toFixed(1)} s`
-                : "—",
-            ],
-            [
-              "Resolución",
-              sourceName ? `${videoInfo.width} × ${videoInfo.height}` : "—",
-            ],
-            [
-              "Frame",
-              session ? `${session.frame} / ${session.total ?? "—"}` : "—",
-            ],
-            [
-              "Progreso",
-              session?.percent == null
-                ? "—"
-                : `${session.percent.toFixed(1)} %`,
-            ],
-            [
-              "Rendimiento",
-              session?.fps == null
-                ? "—"
-                : `${session.fps.toFixed(2)} FPS del Motor`,
-            ],
-            [
-              "Personas",
-              session && session.run > 0
-                ? String(session.person_detections)
-                : "—",
-            ],
-            [
-              "Montacargas",
-              session && session.run > 0
-                ? String(session.forklift_detections)
-                : "—",
-            ],
-            [
-              "Zona",
-              showResult
-                ? (session.result?.zone.name ?? "—")
-                : (session?.zone.name ?? "—"),
-            ],
-            ["Perfil del resultado", session?.result?.profile ?? "—"],
-            ["Regla", session ? "zone_dwell · solo person" : "—"],
-            [
-              "FPS del video",
-              session?.result
-                ? `${session.result.video.fps.toFixed(2)} FPS`
-                : "—",
-            ],
-          ].map(([label, value]) => (
-            <div
-              key={label}
-              className="flex justify-between gap-3 border-b border-border/60 pb-2"
+                  ? "Video listo para preparar."
+                  : "No hay un análisis en curso."}
+            {visibleError && (
+              <span className="analysis-error-message">{visibleError}</span>
+            )}
+          </p>
+          {session?.pending_changes && (
+            <p className="rounded-control border border-warning/50 bg-warning/10 px-3 py-2 text-sm text-foreground">
+              Hay cambios de zona pendientes. Vuelva a analizar para aplicarlos
+              al resultado.
+            </p>
+          )}
+          {showResult && (
+            <p className="analysis-result-help">
+              Resultado reproducible: use los controles del video para pausar,
+              buscar posición o volver al inicio.
+            </p>
+          )}
+          {session && (
+            <section
+              className="analysis-summary"
+              aria-label="Resumen de percepción"
             >
-              <dt className="text-text-secondary">{label}</dt>
-              <dd
-                className="max-w-[11rem] truncate text-right font-medium tabular-nums"
-                title={value}
-              >
-                {value}
-              </dd>
+              <div>
+                <span>Personas</span>
+                <strong>
+                  {session.run > 0 ? session.person_detections : "—"}
+                </strong>
+              </div>
+              <div>
+                <span>Montacargas</span>
+                <strong>
+                  {session.run > 0 ? session.forklift_detections : "—"}
+                </strong>
+              </div>
+              <div>
+                <span>FPS Motor</span>
+                <strong>
+                  {session.fps == null ? "—" : session.fps.toFixed(2)}
+                </strong>
+              </div>
+              <div>
+                <span>Progreso</span>
+                <strong>
+                  {session.percent == null
+                    ? "—"
+                    : `${session.percent.toFixed(1)} %`}
+                </strong>
+              </div>
+            </section>
+          )}
+        </section>
+
+        <aside
+          aria-label="Estado del análisis"
+          className={`analysis-inspector ${inspectorOpen ? "is-open" : ""}`}
+        >
+          <div className="analysis-inspector-head">
+            <div>
+              <span className="eyebrow">Inspector</span>
+              <h2>Detalles del análisis</h2>
             </div>
-          ))}
-        </dl>
-        <p className="mt-4 text-xs leading-5 text-text-secondary">
-          Durante el análisis, el preview sigue al Motor. El resultado terminado
-          se reproduce al FPS de la fuente.
-        </p>
-      </aside>
+            <button
+              type="button"
+              onClick={() => setInspectorOpen(false)}
+              aria-label="Cerrar detalles"
+            >
+              <ChevronDown size={18} aria-hidden="true" />
+            </button>
+          </div>
+          <div className="analysis-group">
+            <p className="section-heading">Sesión</p>
+            <dl className="analysis-data mt-3">
+              <dt>Estado</dt>
+              <dd>
+                {session
+                  ? labels[session.state].replace(".", "")
+                  : sourceName
+                    ? "Video listo"
+                    : "Vacío"}
+              </dd>
+              <dt>Fuente</dt>
+              <dd>
+                {sourceKind === "demo"
+                  ? "Demo incluida"
+                  : sourceKind === "manual"
+                    ? "Video manual"
+                    : "—"}
+              </dd>
+              {sourceName && (
+                <>
+                  <dt>Video</dt>
+                  <dd title={sourceName}>{sourceName}</dd>
+                </>
+              )}
+              <dt>Perfil</dt>
+              <dd>{profile}</dd>
+            </dl>
+          </div>
+
+          {session && session.run > 0 && (
+            <div className="analysis-group">
+              <div className="flex items-center justify-between gap-3">
+                <p className="section-heading">Progreso</p>
+                <span className="text-xs font-semibold tabular-nums">
+                  {session?.percent == null
+                    ? "—"
+                    : `${session.percent.toFixed(1)} %`}
+                </span>
+              </div>
+              <div className="analysis-progress mt-3" aria-hidden="true">
+                <span style={{ width: `${session?.percent ?? 0}%` }} />
+              </div>
+              <dl className="analysis-data mt-3">
+                <dt>Frame</dt>
+                <dd>
+                  {session ? `${session.frame} / ${session.total ?? "—"}` : "—"}
+                </dd>
+                <dt>Motor</dt>
+                <dd>
+                  {session?.fps == null ? "—" : `${session.fps.toFixed(2)} FPS`}
+                </dd>
+                <dt>Fuente</dt>
+                <dd>
+                  {session?.result
+                    ? `${session.result.video.fps.toFixed(2)} FPS`
+                    : "—"}
+                </dd>
+              </dl>
+            </div>
+          )}
+
+          {session && session.run > 0 && (
+            <div className="analysis-group">
+              <p className="section-heading">Percepción</p>
+              <div className="mt-3 grid grid-cols-2 gap-px bg-border">
+                <div className="bg-surface py-3 pr-3">
+                  <span className="block text-2xl font-semibold tabular-nums">
+                    {session && session.run > 0
+                      ? session.person_detections
+                      : "—"}
+                  </span>
+                  <span className="text-xs text-text-secondary">PERSON</span>
+                </div>
+                <div className="bg-surface py-3 pl-3">
+                  <span className="block text-2xl font-semibold tabular-nums">
+                    {session && session.run > 0
+                      ? session.forklift_detections
+                      : "—"}
+                  </span>
+                  <span className="text-xs text-text-secondary">FORKLIFT</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {session && (
+            <div className="analysis-group">
+              <p className="section-heading">Contexto</p>
+              <dl className="analysis-data mt-3">
+                <dt>Zona</dt>
+                <dd>
+                  {showResult
+                    ? (session.result?.zone.name ?? "—")
+                    : (session?.zone.name ?? "—")}
+                </dd>
+                <dt>Regla</dt>
+                <dd>{session ? "zone_dwell · solo person" : "—"}</dd>
+                <dt>Resolución</dt>
+                <dd>
+                  {sourceName
+                    ? `${videoInfo.width} × ${videoInfo.height}`
+                    : "—"}
+                </dd>
+                <dt>Duración</dt>
+                <dd>
+                  {sourceName && videoInfo.duration
+                    ? `${videoInfo.duration.toFixed(1)} s`
+                    : "—"}
+                </dd>
+                <dt>Tamaño</dt>
+                <dd>
+                  {sourceBytes
+                    ? `${(sourceBytes / 1048576).toFixed(1)} MiB`
+                    : "—"}
+                </dd>
+              </dl>
+            </div>
+          )}
+          {!session && (
+            <p className="analysis-inspector-note">
+              La configuración y la evidencia aparecerán al preparar una fuente.
+            </p>
+          )}
+        </aside>
+      </div>
     </div>
   );
 }

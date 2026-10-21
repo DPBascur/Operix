@@ -2,35 +2,61 @@ import {
   Activity,
   BarChart3,
   CalendarClock,
+  Clapperboard,
+  CircleDot,
   House,
   Map,
   ShieldCheck,
-  UserRound,
   type LucideIcon,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ThemeSelector } from "@/components/ui/theme-selector";
-import { mockCurrentUser } from "@/mocks/ui-data";
 import { MobileNavigation } from "./mobile-navigation";
 
-const navigationItems: { href: string; label: string; icon: LucideIcon }[] = [
-  { href: "/", label: "Dashboard", icon: House },
-  { href: "/analysis", label: "Análisis", icon: Activity },
-  { href: "/events", label: "Eventos", icon: CalendarClock },
-  { href: "/rules", label: "Reglas", icon: ShieldCheck },
-  { href: "/zones", label: "Zonas", icon: Map },
-  { href: "/indicators", label: "Indicadores", icon: BarChart3 },
+const navigationGroups: {
+  label: string;
+  items: { href: string; label: string; icon: LucideIcon }[];
+}[] = [
+  {
+    label: "Operación",
+    items: [
+      { href: "/", label: "Inicio", icon: House },
+      { href: "/sources", label: "Fuentes", icon: Clapperboard },
+      { href: "/analysis", label: "Análisis", icon: Activity },
+      { href: "/events", label: "Eventos", icon: CalendarClock },
+    ],
+  },
+  {
+    label: "Contexto",
+    items: [
+      { href: "/rules", label: "Reglas", icon: ShieldCheck },
+      { href: "/zones", label: "Zonas", icon: Map },
+      { href: "/indicators", label: "Indicadores", icon: BarChart3 },
+    ],
+  },
 ];
 
-function Brand() {
+const routeNames: Record<string, string> = {
+  "/": "Centro operativo",
+  "/sources": "Fuentes",
+  "/analysis": "Análisis de video",
+  "/events": "Eventos",
+  "/rules": "Reglas",
+  "/zones": "Zonas",
+  "/indicators": "Indicadores",
+};
+
+function Brand({
+  onDark = false,
+  showDescriptor = false,
+}: {
+  onDark?: boolean;
+  showDescriptor?: boolean;
+}) {
   return (
-    <Link
-      className="flex shrink-0 items-center gap-1.5 lg:gap-2"
-      href="/"
-      aria-label="Operix · Inicio"
-    >
+    <Link className="brand" href="/" aria-label="Operix · Inicio">
       <span className="brand-symbol" aria-hidden="true">
         <Image
           src="/brand/operix-symbol.png"
@@ -41,32 +67,53 @@ function Brand() {
           priority
         />
       </span>
-      <span className="text-base font-bold tracking-[0.1em] text-foreground">
-        OPERIX
+      <span className="brand-copy">
+        <span
+          className={`brand-name ${onDark ? "text-[var(--sidebar-foreground)]" : "text-foreground"}`}
+        >
+          OPERIX
+        </span>
+        {showDescriptor && (
+          <span className="brand-descriptor">
+            Análisis preventivo operacional
+          </span>
+        )}
       </span>
     </Link>
   );
 }
+
 function Navigation({ activePath }: { activePath: string }) {
   return (
-    <nav aria-label="Navegación principal">
-      <ul className="space-y-1.5">
-        {navigationItems.map(({ href, label, icon: Icon }) => (
-          <li key={href}>
-            <Link
-              aria-current={activePath === href ? "page" : undefined}
-              className={`navigation-item flex min-h-11 items-center gap-3 rounded-control px-3 py-2.5 text-sm font-medium ${activePath === href ? "text-accent" : "text-text-secondary hover:bg-brand-accent/5 hover:text-primary"}`}
-              href={href}
-            >
-              <Icon aria-hidden="true" className="navigation-icon" size={19} />
-              <span>{label}</span>
-            </Link>
-          </li>
-        ))}
-      </ul>
+    <nav aria-label="Navegación principal" className="navigation-groups">
+      {navigationGroups.map((group) => (
+        <section className="navigation-group" key={group.label}>
+          <h2 className="sr-only">{group.label}</h2>
+          <ul className="space-y-0.5">
+            {group.items.map(({ href, label, icon: Icon }) => (
+              <li key={href}>
+                <Link
+                  aria-current={activePath === href ? "page" : undefined}
+                  className="navigation-item"
+                  href={href}
+                >
+                  <Icon
+                    aria-hidden="true"
+                    className="navigation-icon"
+                    size={16}
+                    strokeWidth={1.8}
+                  />
+                  <span>{label}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
     </nav>
   );
 }
+
 export function AppShell({
   activePath,
   children,
@@ -74,47 +121,47 @@ export function AppShell({
   activePath: string;
   children: ReactNode;
 }) {
-  const isAnalysis = activePath === "/analysis";
-  const contextLabel = isAnalysis ? "Análisis local" : "Datos de desarrollo";
   return (
-    <div className="app-shell min-h-screen bg-surface-muted text-foreground">
+    <div className="app-shell min-h-screen bg-background text-foreground">
       <a className="skip-link" href="#main-content">
         Saltar al contenido
       </a>
-      <aside className="app-sidebar fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-border bg-surface px-5 py-6 lg:flex">
-        <Brand />
-        <div className="mt-8">
+      <aside className="app-sidebar fixed inset-y-0 left-0 z-30 flex-col bg-[var(--sidebar)]">
+        <div className="brand-lockup">
+          <Brand onDark showDescriptor />
+        </div>
+        <div className="mt-7">
           <Navigation activePath={activePath} />
         </div>
-        <div className="mt-auto flex items-center gap-3 border-t border-border px-1 pt-5">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-surface-muted text-text-secondary">
-            <UserRound size={19} aria-hidden="true" />
-          </span>
-          <span>
-            <span className="block text-sm font-semibold">
-              {isAnalysis ? "Sesión local" : mockCurrentUser.displayName}
-            </span>
-            <span className="block text-xs text-text-secondary">
-              {isAnalysis
-                ? "Motor de Operix"
-                : `${mockCurrentUser.role} · Mock`}
-            </span>
-          </span>
+        <div className="mt-auto border-t border-white/8 px-2 pt-3">
+          <div className="flex items-center gap-2 text-[0.68rem] text-[var(--sidebar-muted)]">
+            <CircleDot
+              aria-hidden="true"
+              size={12}
+              className="text-[#47B88A]"
+            />
+            <span>Entorno local</span>
+          </div>
         </div>
       </aside>
-      <div className="min-w-0 lg:ml-64">
-        <header className="app-header sticky top-0 z-20 flex min-h-18 items-center justify-between gap-2 border-b border-border bg-surface px-4 py-2 sm:px-6 lg:px-8">
-          <div className="lg:hidden">
+      <div className="app-content min-w-0">
+        <header className="app-header sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border bg-surface/95 px-4 backdrop-blur-sm sm:px-5 lg:px-6">
+          <div className="mobile-header-context lg:hidden">
             <Brand />
+            <span className="mobile-route-name">{routeNames[activePath]}</span>
           </div>
-          <span className="hidden text-xs font-medium text-text-secondary lg:inline-flex">
-            {contextLabel}
-          </span>
-          <div className="flex items-center gap-2 sm:gap-3">
-            <ThemeSelector />
-            <span className="hidden text-xs text-text-secondary sm:inline-flex lg:hidden">
-              {contextLabel}
+          <h1 className="route-title text-sm font-semibold tracking-[-0.01em]">
+            {routeNames[activePath]}
+          </h1>
+          <div className="flex items-center gap-2">
+            <span className="system-status hidden items-center gap-2 text-[0.75rem] text-text-secondary sm:inline-flex">
+              <span
+                className="size-1.5 rounded-full bg-success"
+                aria-hidden="true"
+              />
+              Sistema local
             </span>
+            <ThemeSelector />
             <MobileNavigation>
               <Navigation activePath={activePath} />
             </MobileNavigation>

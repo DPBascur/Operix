@@ -1,42 +1,70 @@
-import { Map } from "lucide-react";
-
+import { ArrowRight, Crosshair } from "lucide-react";
+import Link from "next/link";
 import { AppShell } from "@/components/layout/app-shell";
 import { MockDataNotice } from "@/components/ui/mock-data-notice";
-import { PageHeader } from "@/components/ui/page-header";
-import { SectionCard } from "@/components/ui/section-card";
-import { StatusBadge } from "@/components/ui/status-badge";
 
 export default function ZonesPage() {
   return (
     <AppShell activePath="/zones">
-      <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
-        <PageHeader
-          description="Espacio de demostración para la futura definición espacial de zonas."
-          eyebrow="Configuración"
-          title="Zonas"
-        />
-        <MockDataNotice />
-        <SectionCard>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold">Espacio de definición</h2>
-            <StatusBadge tone="neutral">Sin video conectado</StatusBadge>
+      <div className="page-wrap operational-page">
+        <header className="compact-page-header">
+          <div>
+            <h2 className="compact-page-title">Contexto espacial</h2>
+            <p className="compact-page-copy">
+              La geometría se define sobre la fuente que será analizada.
+            </p>
           </div>
-          <div className="mt-5 flex min-h-72 items-center justify-center rounded-panel border border-dashed border-border bg-surface-muted p-6 text-center">
-            <div className="max-w-sm">
-              <Map
-                aria-hidden="true"
-                className="mx-auto text-text-secondary"
-                size={26}
-              />
-              <p className="mt-3 font-semibold">Lienzo de zonas pendiente</p>
-              <p className="mt-2 text-sm leading-6 text-text-secondary">
-                Aquí se delimitarán las áreas operacionales cuando exista un
-                video conectado. No hay zonas editables ni persistidas en esta
-                vista.
+          <span className="source-indicator">Sin video conectado</span>
+        </header>
+        <MockDataNotice />
+
+        <section
+          className="zone-workbench"
+          aria-labelledby="zone-workbench-title"
+        >
+          <div className="zone-preview">
+            <div className="zone-preview-crosshair" aria-hidden="true">
+              <Crosshair size={24} strokeWidth={1.4} />
+            </div>
+            <div className="zone-preview-copy">
+              <h2 id="zone-workbench-title">Vista espacial no disponible</h2>
+              <p>
+                Abra una fuente para editar el polígono en su contexto visual.
               </p>
             </div>
           </div>
-        </SectionCard>
+          <aside className="zone-properties" aria-label="Propiedades de zona">
+            <div>
+              <p className="section-heading">Flujo</p>
+              <ol className="zone-steps">
+                <li>
+                  <span>1</span>
+                  <div>
+                    <strong>Fuente</strong>
+                    <small>Video o demo</small>
+                  </div>
+                </li>
+                <li>
+                  <span>2</span>
+                  <div>
+                    <strong>Zona</strong>
+                    <small>Polígono normalizado</small>
+                  </div>
+                </li>
+                <li>
+                  <span>3</span>
+                  <div>
+                    <strong>Regla</strong>
+                    <small>Contexto operacional</small>
+                  </div>
+                </li>
+              </ol>
+            </div>
+            <Link className="button button-primary" href="/analysis">
+              Abrir análisis <ArrowRight size={15} aria-hidden="true" />
+            </Link>
+          </aside>
+        </section>
       </div>
     </AppShell>
   );

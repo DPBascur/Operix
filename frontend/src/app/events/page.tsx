@@ -1,34 +1,27 @@
 import { AppShell } from "@/components/layout/app-shell";
 import { MockDataNotice } from "@/components/ui/mock-data-notice";
-import { PageHeader } from "@/components/ui/page-header";
-import { SectionCard } from "@/components/ui/section-card";
-import { EventsTable } from "@/features/events/events-table";
 import { environment } from "@/config/environment";
+import { EventsTable } from "@/features/events/events-table";
 
 export default function EventsPage() {
   return (
     <AppShell activePath="/events">
-      <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
-        <PageHeader
-          description={
-            environment.dataSource === "api"
-              ? "Consulta los eventos técnicos registrados por la API."
-              : "Explora los candidatos generados por los datos de demostración del frontend."
-          }
-          eyebrow="Monitoreo"
-          title="Eventos"
-        />
-        {environment.dataSource === "mock" ? (
-          <MockDataNotice />
-        ) : (
-          <p className="text-sm text-text-secondary">
-            Datos persistidos de la API local. No implican procesamiento de
-            video en tiempo real.
-          </p>
-        )}
-        <SectionCard>
+      <div className="page-wrap operational-page">
+        <header className="compact-page-header">
+          <div>
+            <h2 className="compact-page-title">Investigación de eventos</h2>
+            <p className="compact-page-copy">
+              Tipo, hora, zona y evidencia del registro operacional.
+            </p>
+          </div>
+          <span className="source-indicator">
+            {environment.dataSource === "api" ? "API local" : "Datos mock"}
+          </span>
+        </header>
+        {environment.dataSource === "mock" && <MockDataNotice />}
+        <section className="event-ledger" aria-label="Investigación de eventos">
           <EventsTable />
-        </SectionCard>
+        </section>
       </div>
     </AppShell>
   );

@@ -78,3 +78,16 @@ export interface DashboardSummary {
   enabledRules: number;
   zones: number;
 }
+
+export type VideoSourceType = "demo" | "local" | "camera";
+export type VideoSourceStatus = "available" | "unconfigured" | "offline";
+
+export interface VideoSource {
+  id: string;
+  name: string;
+  type: VideoSourceType;
+  status: VideoSourceStatus;
+  previewUrl?: string;
+  location?: string;
+  analysisState?: AnalysisStatus;
+}

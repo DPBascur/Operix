@@ -131,7 +131,7 @@ export function EventsTable() {
     <>
       {environment.dataSource === "api" ? (
         <form
-          className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_auto] xl:items-end"
+          className="grid gap-3 border-b border-border pb-5 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_auto] xl:items-end"
           onSubmit={applyFilters}
         >
           <label className="grid gap-1 text-xs font-medium text-text-secondary">
@@ -155,7 +155,7 @@ export function EventsTable() {
           <label className="grid gap-1 text-xs font-medium text-text-secondary">
             Tipo de evento
             <select
-              className="min-h-10 rounded-control border border-border bg-surface px-3 text-sm text-foreground"
+              className="select-control"
               onChange={(event) =>
                 setEventType(event.target.value as "" | "zone_dwell")
               }
@@ -169,7 +169,7 @@ export function EventsTable() {
         </form>
       ) : (
         <div className="flex flex-col gap-3 sm:flex-row">
-          <label className="flex flex-1 items-center gap-2 rounded-control border border-border bg-surface px-3 py-2.5 text-sm text-text-secondary focus-within:border-brand-accent">
+          <label className="flex flex-1 items-center gap-2 rounded-control border border-border bg-surface-elevated px-3 py-2.5 text-sm text-text-secondary focus-within:border-accent">
             <Search aria-hidden="true" size={17} />
             <span className="sr-only">Buscar evento o regla</span>
             <Input
@@ -215,6 +215,13 @@ export function EventsTable() {
           </Button>
         )}
       </div>
+      {loading && (
+        <div className="event-loading" aria-hidden="true">
+          {Array.from({ length: 5 }, (_, index) => (
+            <span key={index} />
+          ))}
+        </div>
+      )}
       {error && (
         <div role="alert" className="mb-4 text-sm text-danger">
           <p>{error}</p>
@@ -243,7 +250,7 @@ export function EventsTable() {
             {filteredEvents.map((event) => (
               <li className="py-4 first:pt-1 last:pb-0" key={event.id}>
                 <div className="flex items-start gap-3">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-control bg-brand-accent/10 text-accent">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-control bg-surface-muted text-accent">
                     <Activity aria-hidden="true" size={17} />
                   </span>
                   <div className="min-w-0 flex-1">
@@ -264,9 +271,9 @@ export function EventsTable() {
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-text-secondary">Regla</dt>
+                    <dt className="text-text-secondary">Fuente</dt>
                     <dd className="mt-0.5 font-medium text-foreground">
-                      {event.rule}
+                      No informada
                     </dd>
                   </div>
                   <div>
@@ -292,20 +299,6 @@ export function EventsTable() {
                       )}
                     </dd>
                   </div>
-                  <div>
-                    <dt className="text-text-secondary">
-                      {environment.dataSource === "mock"
-                        ? "Confianza mock"
-                        : "Confianza"}
-                    </dt>
-                    <dd className="mt-0.5 font-medium tabular-nums text-foreground">
-                      {event.confidence === null
-                        ? "No informada"
-                        : event.confidence.toLocaleString("es-CL", {
-                            style: "percent",
-                          })}
-                    </dd>
-                  </div>
                 </dl>
               </li>
             ))}
@@ -329,13 +322,11 @@ export function EventsTable() {
               <thead className="border-b border-border text-xs uppercase tracking-wide text-text-secondary">
                 <tr>
                   {[
-                    "Evento",
-                    "Zona",
-                    "Regla",
-                    "Objetos",
-                    "Confianza",
                     "Hora",
-                    "Estado",
+                    "Evento",
+                    "Fuente",
+                    "Zona",
+                    "Objetos",
                     "Evidencia",
                   ].map((heading) => (
                     <th
@@ -354,21 +345,20 @@ export function EventsTable() {
                     id,
                     title,
                     zone: eventZone,
-                    rule,
-                    confidence,
                     objects,
                     time,
-                    status,
-                    tone,
                     evidenceUrl,
                   }) => (
                     <tr
-                      className="transition-colors hover:bg-brand-accent/5"
+                      className="transition-colors hover:bg-surface-muted"
                       key={id}
                     >
+                      <td className="px-3 py-4 tabular-nums text-text-secondary">
+                        {time}
+                      </td>
                       <td className="px-3 py-4">
                         <div className="flex items-center gap-3">
-                          <span className="flex size-9 items-center justify-center rounded-control bg-brand-accent/10 text-accent">
+                          <span className="flex size-9 items-center justify-center rounded-control bg-surface-muted text-accent">
                             <Activity aria-hidden="true" size={17} />
                           </span>
                           <span className="font-semibold text-foreground">
@@ -377,26 +367,13 @@ export function EventsTable() {
                         </div>
                       </td>
                       <td className="px-3 py-4 text-text-secondary">
-                        {eventZone}
+                        No informada
                       </td>
-                      <td className="px-3 py-4 font-medium text-primary">
-                        {rule}
+                      <td className="px-3 py-4 text-text-secondary">
+                        {eventZone}
                       </td>
                       <td className="px-3 py-4 text-xs text-text-secondary">
                         {objects}
-                      </td>
-                      <td className="px-3 py-4 tabular-nums">
-                        {confidence === null
-                          ? "No informada"
-                          : confidence.toLocaleString("es-CL", {
-                              style: "percent",
-                            })}
-                      </td>
-                      <td className="px-3 py-4 tabular-nums text-text-secondary">
-                        {time}
-                      </td>
-                      <td className="px-3 py-4">
-                        <StatusBadge tone={tone}>{status}</StatusBadge>
                       </td>
                       <td className="px-3 py-4 text-xs text-text-secondary">
                         {evidenceUrl ? (
