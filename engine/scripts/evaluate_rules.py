@@ -14,10 +14,11 @@ from pathlib import Path
 from uuid import UUID
 
 from operix_engine.detection import BoundingBox
+from operix_engine.candidate_transport import candidate_payload, candidate_payloads
 from operix_engine.event_evidence import render_track_frame
 from operix_engine.event_publishing import EventContext, HttpEventSink
 from operix_engine.operational_config import load_operational_config
-from operix_engine.rules import RuleEngine
+from operix_engine.rules import PairEventCandidate, RuleEngine
 from operix_engine.spatiotemporal import SpatiotemporalAnalyzer
 from operix_engine.tracking import Track
 
@@ -107,23 +108,15 @@ def main() -> int:
                 for item in record["tracks"]
             )
             result = engine.evaluate(analyzer.update(frame_index, tracks))
-            candidates.extend(
-                {
-                    "rule_id": candidate.rule_id,
-                    "rule_version": candidate.rule_version,
-                    "frame_index": candidate.frame_index,
-                    "timestamp_s": candidate.timestamp_s,
-                    "track_id": candidate.track_id,
-                    "class_name": candidate.class_name,
-                    "zone_id": candidate.zone_id,
-                    "parameters": dict(candidate.parameters),
-                    "observed_inside": candidate.observed_inside,
-                    "observed_dwell_time_s": candidate.observed_dwell_time_s,
-                }
-                for candidate in result.candidates
-            )
+            candidates.extend(candidate_payloads(result.candidates))
             if sink is not None and context is not None:
                 for candidate in result.candidates:
+                    if isinstance(candidate, PairEventCandidate):
+                        publications.append({
+                            "candidate": candidate_payload(candidate),
+                            "status": "skipped", "reason": "pair_persistence_not_supported",
+                        })
+                        continue
                     try:
                         evidence = (
                             render_track_frame(

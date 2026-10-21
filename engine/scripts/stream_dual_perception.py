@@ -16,6 +16,7 @@ import cv2
 import torch
 
 from operix_engine.byte_tracker import ByteTrackConfig, ByteTracker
+from operix_engine.candidate_transport import candidate_payloads
 from operix_engine.dual_perception import ClassPerceptionChannel, DualPerception
 from operix_engine.operational_config import load_operational_config
 from operix_engine.rules import RuleEngine
@@ -134,8 +135,7 @@ def process(args: argparse.Namespace) -> None:
                     metadata.width, metadata.height,
                 )
                 result = rules.evaluate(analyzer.update(frame_index, visible_tracks))
-                if any(candidate.class_name != "person" for candidate in result.candidates):
-                    raise RuntimeError("La regla existente recibió forklift")
+                frame_candidates = candidate_payloads(result.candidates)
                 rules_ms = (time.perf_counter_ns() - tick) / 1e6
                 tick = time.perf_counter_ns()
                 annotated = frame
@@ -187,6 +187,7 @@ def process(args: argparse.Namespace) -> None:
                     forklift_detections=len(observed.forklift_detections),
                     person_tracks=len(observed.person_tracks),
                     forklift_tracks=len(observed.forklift_tracks),
+                    candidates=frame_candidates,
                 )
                 if frame_index >= 20:
                     totals_ms["status_ipc"] += (time.perf_counter_ns() - tick) / 1e6
@@ -222,6 +223,7 @@ def process(args: argparse.Namespace) -> None:
             forklift_detections=len(observed.forklift_detections),
             person_tracks=len(observed.person_tracks),
             forklift_tracks=len(observed.forklift_tracks),
+            candidates=frame_candidates,
             result_video={"codec": "H.264/avc1", "encoder_backend": output_backend,
                           "fps": encoded_fps, "frames": encoded_frames,
                           "width": encoded_width, "height": encoded_height},

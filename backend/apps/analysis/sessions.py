@@ -79,6 +79,8 @@ class AnalysisSession:
                 "percent": None, "fps": None, "person_detections": 0,
                 "forklift_detections": 0, "person_tracks": 0, "forklift_tracks": 0,
                 "run": self.run, "result": None,
+                # Solo candidatos del último frame comunicado por IPC; no es un histórico.
+                "candidates": [],
             }
             path = self.directory / "status.json"
             if path.exists() and self.state in {"preparing", "processing", "completed", "error"}:

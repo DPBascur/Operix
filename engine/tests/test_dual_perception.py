@@ -178,12 +178,22 @@ class DualPerceptionTest(unittest.TestCase):
             self.assertEqual(rules.evaluate(spatial).candidates, ())
 
     def test_both_orchestrators_deliver_both_classes_to_spatial_analysis(self):
+        self._exercise_orchestrators(pair_enabled=False)
+
+    def test_both_orchestrators_transport_mixed_candidates_without_single_object_assumptions(self):
+        self._exercise_orchestrators(pair_enabled=True)
+
+    def _exercise_orchestrators(self, *, pair_enabled):
         scripts = Path(__file__).resolve().parents[1] / "scripts"
         zone = Zone("all", "Zona", ((0, 0), (1, 0), (1, 1), (0, 1)))
         rule = RuleConfig("demo_zone_dwell", 1, True, {
             "kind": "zone_dwell", "class_name": "person", "zone_id": "all", "min_duration_s": 0.0,
         })
-        config = OperationalConfig(1, "view", (zone,), (rule,))
+        pair_rule = RuleConfig("pair_demo", 1, pair_enabled, {
+            "kind": "person_forklift_proximity", "zone_id": "all",
+            "max_distance": 1.0, "minimum_duration_seconds": 0.0,
+        })
+        config = OperationalConfig(1, "view", (zone,), (rule, pair_rule))
 
         def load_script(name):
             spec = importlib.util.spec_from_file_location(name, scripts / f"{name}.py")
@@ -251,12 +261,28 @@ class DualPerceptionTest(unittest.TestCase):
                     patch.object(module.torch.cuda, "is_available", return_value=True),
                     patch.object(module.torch.cuda, "synchronize"),
                     patch.object(rules, "evaluate", wraps=rules.evaluate) as evaluate,
+                    patch.object(streaming, "_status", wraps=streaming._status) as status,
                 ):
                     if module is diagnostic:
                         summary = module.run(args)
-                        self.assertEqual(summary["candidate_count"], 1)
+                        self.assertEqual(summary["candidate_count"], 2 if pair_enabled else 1)
+                        payloads = summary["candidates"]
+                        lines = (args.output_dir / "observations.jsonl").read_text(encoding="utf-8").splitlines()
+                        import json
+                        self.assertEqual(json.loads(lines[0])["candidates"], payloads)
                     else:
                         module.process(args)
+                        updates = [call.kwargs for call in status.call_args_list
+                                   if call.kwargs["state"] == "processing"]
+                        payloads = updates[0]["candidates"]
+                        self.assertEqual(updates[1]["candidates"], [])
+                    self.assertEqual(payloads[0]["candidate_kind"], "zone_dwell")
+                    self.assertEqual(payloads[0]["track_id"], 1)
+                    if pair_enabled:
+                        self.assertEqual(payloads[1]["candidate_kind"], "person_forklift_proximity")
+                        self.assertEqual({subject["class_name"] for subject in payloads[1]["subjects"]},
+                                         {"person", "forklift"})
+                        self.assertNotIn("track_id", payloads[1])
                     self.assertEqual(evaluate.call_count, 2)
                     for call in evaluate.call_args_list:
                         objects = call.args[0].objects

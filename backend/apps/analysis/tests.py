@@ -14,6 +14,62 @@ from rest_framework.test import APIClient
 from . import sessions
 
 
+class AnalysisCandidateTransportTests(SimpleTestCase):
+    """GET de candidatos transitorios; SimpleTestCase prohíbe consultas a la BD."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.identity = uuid.uuid4()
+        self.session = sessions.AnalysisSession(
+            id=self.identity, directory=Path(self.directory.name), filename="synthetic.mp4",
+            profile="A", video_path=Path(self.directory.name) / "unused.mp4",
+            source_sha256="0" * 64, source_bytes=0, source_kind="manual",
+            demo_source_id=None, zone={}, state="processing",
+        )
+        registry = patch.dict(sessions._sessions, {self.identity: self.session})
+        registry.start()
+        self.addCleanup(registry.stop)
+        self.client = APIClient()
+        self.url = f"/api/v1/analysis/sessions/{self.identity}/status/"
+
+    def update(self, **fields):
+        (self.session.directory / "status.json").write_text(
+            json.dumps({"state": "processing", "frame": 5, **fields}), encoding="utf-8",
+        )
+
+    def test_get_preserves_mixed_candidates_and_both_class_scoped_identities(self):
+        single = {"candidate_kind": "zone_dwell", "track_id": 1, "class_name": "person",
+                  "subjects": [{"role": "object", "class_name": "person", "track_id": 1}]}
+        pair = {"candidate_kind": "person_forklift_proximity", "subjects": [
+            {"role": "person", "class_name": "person", "track_id": 1},
+            {"role": "forklift", "class_name": "forklift", "track_id": 1},
+        ], "observed_normalized_distance": 0.2,
+            "parameters": {"max_distance": 0.25, "minimum_duration_seconds": 1.0},
+            "started_frame_index": 2, "started_timestamp_s": 1.0,
+            "frame_index": 4, "timestamp_s": 2.0}
+        self.update(candidates=[single, pair])
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["candidates"], [single, pair])
+        self.assertNotIn("track_id", response.json()["candidates"][1])
+        self.assertEqual(response.json()["frame"], 5)
+        self.assertEqual(response.json()["state"], "processing")
+
+    def test_candidates_are_latest_frame_only_without_accumulation(self):
+        self.update(candidates=[{"candidate_kind": "zone_dwell", "track_id": 1}])
+        self.assertEqual(len(self.client.get(self.url).json()["candidates"]), 1)
+        self.update(candidates=[])
+        self.assertEqual(self.client.get(self.url).json()["candidates"], [])
+
+    def test_legacy_status_without_candidates_remains_compatible(self):
+        self.update(person_tracks=2)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["person_tracks"], 2)
+        self.assertEqual(response.json()["candidates"], [])
+
+
 @override_settings(
     OPERIX_ANALYSIS_MAX_UPLOAD_BYTES=1024,
     OPERIX_ANALYSIS_MAX_SESSIONS=2,

@@ -16,6 +16,7 @@ import cv2
 import torch
 
 from operix_engine.byte_tracker import ByteTrackConfig, ByteTracker
+from operix_engine.candidate_transport import candidate_payloads
 from operix_engine.dual_perception import ClassPerceptionChannel, DualPerception
 from operix_engine.operational_config import load_operational_config
 from operix_engine.rules import RuleEngine
@@ -138,15 +139,11 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     )
                     spatial = analyzer.update(frame_index, visible_tracks)
                     rule_result = rules.evaluate(spatial)
-                    if any(item.class_name != "person" for item in rule_result.candidates):
-                        raise RuntimeError("Una regla existente recibió forklift")
-                    candidates.extend({
-                        "frame_index": item.frame_index, "class_name": item.class_name,
-                        "track_id": item.track_id, "zone_id": item.zone_id,
-                        "rule_id": item.rule_id,
-                    } for item in rule_result.candidates)
+                    frame_candidates = candidate_payloads(rule_result.candidates)
+                    candidates.extend(frame_candidates)
                     jsonl.write(json.dumps({
                         "frame_index": frame_index,
+                        "candidates": frame_candidates,
                         "detections": {
                             name: [asdict(item) for item in getattr(observed, f"{name}_detections")]
                             for name in ("person", "forklift")
@@ -160,10 +157,13 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     render_start = time.perf_counter()
                     annotated = frame
                     for zone in config.zones:
-                        event = any(item.zone_id == zone.zone_id for item in rule_result.candidates)
+                        zone_candidate = next(
+                            (item for item in frame_candidates if item["zone_id"] == zone.zone_id), None,
+                        )
+                        event = zone_candidate is not None
                         annotated = renderer.render_zone(
                             annotated, zone, event=event,
-                            rule_kind="zone_dwell" if event else None,
+                            rule_kind=zone_candidate["candidate_kind"] if event else None,
                             frame_index=frame_index if event else None,
                         )
                     for name in ("person", "forklift"):
