@@ -144,6 +144,8 @@ class SessionHardeningTests(SimpleTestCase):
         self.session.process = Mock()
         self.session.process.poll.return_value = 1
         self.assertEqual(self.session.status()["state"], "error")
+        self.session.process = None  # El watcher ya recogió el proceso.
+        self.assertIn("volver a intentarlo", self.session.status()["detail"])
 
     def test_removed_session_cannot_reuse_old_outputs(self):
         identity, directory = self.session.id, self.session.directory
