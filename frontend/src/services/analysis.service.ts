@@ -89,15 +89,28 @@ function sessionUrl(id = ""): string {
   return `${apiBaseUrl()}/analysis/sessions/${id ? `${id}/` : ""}`;
 }
 
+export class AnalysisRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, { cache: "no-store", ...init });
+  const response = await fetch(url, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(120_000),
+    ...init,
+  });
   const data: unknown = await response.json();
   if (!response.ok) {
     const detail =
       typeof data === "object" && data !== null && "detail" in data
         ? String(data.detail)
         : `La API respondió ${response.status}.`;
-    throw new Error(detail);
+    throw new AnalysisRequestError(detail, response.status);
   }
   return data as T;
 }
@@ -140,7 +153,11 @@ export const analysisService = {
     });
   },
   async closeAnalysisSession(id: string) {
-    const response = await fetch(sessionUrl(id), { method: "DELETE" });
+    const response = await fetch(sessionUrl(id), {
+      method: "DELETE",
+      keepalive: true,
+      signal: AbortSignal.timeout(10_000),
+    });
     if (!response.ok && response.status !== 404) {
       throw new Error(`No se pudo cerrar la sesión (${response.status}).`);
     }

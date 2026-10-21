@@ -13,22 +13,18 @@ import {
   Upload,
   Waypoints,
 } from "lucide-react";
-import {
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type PointerEvent,
-} from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
 import {
   analysisService,
+  AnalysisRequestError,
   type AnalysisProfile,
   type AnalysisProfileDefinition,
   type AnalysisSessionStatus,
   type DemoVideoSource,
   type NormalizedVertex,
 } from "@/services/analysis.service";
+import { pointInFrame } from "./zone-editor-geometry";
 
 const labels = {
   ready: "Video listo para analizar.",
@@ -38,14 +34,6 @@ const labels = {
   error: "Error de análisis.",
   cancelled: "Análisis detenido.",
 } as const;
-
-function pointInFrame(event: PointerEvent<SVGSVGElement>): NormalizedVertex {
-  const bounds = event.currentTarget.getBoundingClientRect();
-  return [
-    Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)),
-    Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height)),
-  ];
-}
 
 function validPolygon(vertices: NormalizedVertex[]): boolean {
   if (vertices.length < 3) return false;
@@ -78,6 +66,9 @@ function validPolygon(vertices: NormalizedVertex[]): boolean {
 }
 
 function readableError(message: string): string {
+  if (/timeout|timed out|aborted/i.test(message)) {
+    return "El servicio tardó demasiado en responder. Revise la conexión y vuelva a intentarlo.";
+  }
   if (/failed to fetch|networkerror|load failed/i.test(message)) {
     return "No se pudo conectar con el servicio de análisis.";
   }
@@ -115,18 +106,32 @@ export function AnalysisWorkspace({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const localUrlRef = useRef<string | null>(null);
   const generation = useRef(0);
+  const ownedSessionId = useRef<string | null>(null);
+  const pollFailed = useRef(false);
   const initialProfileRef = useRef(initialProfile);
   const initialManualRef = useRef(initialManual);
 
   useEffect(() => {
     return () => {
+      generation.current += 1;
       if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current);
+      if (ownedSessionId.current) {
+        void analysisService
+          .closeAnalysisSession(ownedSessionId.current)
+          .catch(() => {
+            // La retención del Backend libera la sesión si la red ya no está disponible.
+          });
+      }
     };
   }, []);
 
   useEffect(() => {
+    ownedSessionId.current = session?.id ?? null;
+  }, [session?.id]);
+
+  useEffect(() => {
     let active = true;
-    let createdId: string | null = null;
+    const current = generation.current;
     analysisService
       .getProfiles()
       .then(async (catalog) => {
@@ -142,8 +147,7 @@ export function AnalysisWorkspace({
           initialProfileRef.current,
           initial.default_demo_video.id,
         );
-        createdId = created.id;
-        if (!active) {
+        if (!active || generation.current !== current) {
           await analysisService.closeAnalysisSession(created.id);
           return;
         }
@@ -166,7 +170,6 @@ export function AnalysisWorkspace({
       });
     return () => {
       active = false;
-      if (createdId) void analysisService.closeAnalysisSession(createdId);
     };
   }, []);
 
@@ -179,26 +182,51 @@ export function AnalysisWorkspace({
       state === "preparing" ||
       state === "processing" ||
       session?.preview?.pending;
-    const timer = window.setInterval(
-      () => {
-        analysisService
-          .getAnalysisStatus(id)
-          .then((updated) => {
-            if (generation.current === current) setSession(updated);
-          })
-          .catch((cause: unknown) => {
-            if (generation.current === current) {
+    let listening = true;
+    let timer: number;
+    const poll = () => {
+      let failed = false;
+      analysisService
+        .getAnalysisStatus(id)
+        .then((updated) => {
+          if (listening && generation.current === current) {
+            setSession(updated);
+            if (pollFailed.current) setError(null);
+            pollFailed.current = false;
+          }
+        })
+        .catch((cause: unknown) => {
+          failed = true;
+          if (listening && generation.current === current) {
+            pollFailed.current = true;
+            if (cause instanceof AnalysisRequestError && cause.status === 404) {
+              setSession(null);
+              setEditing(false);
               setError(
-                cause instanceof Error
-                  ? cause.message
-                  : "No se pudo consultar el estado.",
+                "La sesión ya no está disponible. Seleccione de nuevo el perfil o cargue un video.",
               );
+              return;
             }
-          });
-      },
-      active ? 200 : 20_000,
-    );
-    return () => window.clearInterval(timer);
+            setError(
+              cause instanceof Error
+                ? cause.message
+                : "No se pudo consultar el estado.",
+            );
+          }
+        })
+        .finally(() => {
+          if (listening)
+            timer = window.setTimeout(
+              poll,
+              failed ? 5000 : active ? 200 : 20_000,
+            );
+        });
+    };
+    timer = window.setTimeout(poll, active ? 200 : 20_000);
+    return () => {
+      listening = false;
+      window.clearTimeout(timer);
+    };
   }, [session?.id, session?.state, session?.preview?.pending]);
 
   async function selectVideo(selected: File | undefined) {
@@ -470,7 +498,7 @@ export function AnalysisWorkspace({
       : "Sin fuente preparada";
 
   function moveVertexWithKeyboard(
-    event: KeyboardEvent<SVGCircleElement>,
+    event: KeyboardEvent<SVGEllipseElement>,
     index: number,
   ) {
     const step = event.shiftKey ? 0.01 : 0.005;
@@ -495,6 +523,8 @@ export function AnalysisWorkspace({
       ),
     );
   }
+
+  const ZoneOutline = closed ? "polygon" : "polyline";
 
   return (
     <div className="analysis-workspace">
@@ -635,43 +665,55 @@ export function AnalysisWorkspace({
                       event.target !== event.currentTarget
                     )
                       return;
-                    setDraft((current) => [...current, pointInFrame(event)]);
+                    const point = pointInFrame(event);
+                    if (point) setDraft((current) => [...current, point]);
                   }}
                   onPointerMove={(event) => {
-                    if (dragging.current === null) return;
+                    const draggedVertex = dragging.current;
+                    if (draggedVertex === null) return;
                     const point = pointInFrame(event);
+                    if (!point) return;
                     setDraft((current) =>
                       current.map((value, index) =>
-                        index === dragging.current ? point : value,
+                        index === draggedVertex ? point : value,
                       ),
                     );
                   }}
                   onPointerUp={() => {
                     dragging.current = null;
                   }}
+                  onPointerCancel={() => {
+                    dragging.current = null;
+                  }}
                 >
                   {draft.length > 1 && (
-                    <polygon
+                    <ZoneOutline
                       points={draft
                         .map(([x, y]) => `${x * 100},${y * 100}`)
                         .join(" ")}
                       fill={closed ? "rgba(47,209,200,0.08)" : "none"}
                       stroke="#2fd1c8"
-                      strokeWidth="0.25"
+                      strokeWidth="2"
                       vectorEffect="non-scaling-stroke"
                       pointerEvents="none"
                     />
                   )}
                   {editing &&
                     draft.map(([x, y], index) => (
-                      <circle
+                      <ellipse
                         key={index}
                         cx={x * 100}
                         cy={y * 100}
-                        r={selectedVertex === index ? 1.1 : 0.8}
-                        fill="#fff"
+                        rx={selectedVertex === index ? 1.1 : 0.8}
+                        ry={
+                          ((selectedVertex === index ? 1.1 : 0.8) *
+                            videoInfo.width) /
+                          videoInfo.height
+                        }
+                        fill={selectedVertex === index ? "#2fd1c8" : "#fff"}
                         stroke="#087c79"
-                        strokeWidth="0.25"
+                        strokeWidth="2"
+                        vectorEffect="non-scaling-stroke"
                         tabIndex={0}
                         role="button"
                         aria-label={`Vértice ${index + 1}, x ${(x * 100).toFixed(1)} %, y ${(y * 100).toFixed(1)} %. Use las flechas para moverlo; mantenga Mayús para un desplazamiento mayor.`}
@@ -681,6 +723,10 @@ export function AnalysisWorkspace({
                         }
                         onPointerDown={(event) => {
                           event.stopPropagation();
+                          if (!closed && index === 0 && draft.length >= 3) {
+                            setClosed(true);
+                            return;
+                          }
                           dragging.current = index;
                           setSelectedVertex(index);
                           event.currentTarget.setPointerCapture(
@@ -722,6 +768,7 @@ export function AnalysisWorkspace({
                 <input
                   ref={fileInputRef}
                   type="file"
+                  disabled={busy}
                   accept=".mp4,.mov,.avi,video/mp4"
                   className="sr-only"
                   onChange={(event) => {
@@ -869,7 +916,10 @@ export function AnalysisWorkspace({
                   Aplicar zona
                 </Button>
                 <span className="text-text-secondary">
-                  {draft.length} vértices · arrastre o use flechas con foco
+                  {draft.length} vértices ·{" "}
+                  {closed
+                    ? "arrastre o use flechas con foco"
+                    : "marque puntos y pulse el primero para cerrar"}
                 </span>
               </div>
             )}
