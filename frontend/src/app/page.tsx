@@ -1,4 +1,4 @@
-import { CircleCheck } from "lucide-react";
+import { Info } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { RecentActivity } from "@/features/home/recent-activity";
 import { SourceCatalog } from "@/features/sources/source-catalog";
@@ -17,10 +17,10 @@ export default function HomePage() {
             </p>
           </div>
           <div className="system-availability">
-            <CircleCheck aria-hidden="true" />
+            <Info aria-hidden="true" />
             <div>
-              <strong>Entorno local disponible</strong>
-              <span>Servicios preparados para una sesión</span>
+              <strong>Entorno de desarrollo local</strong>
+              <span>Disponibilidad sujeta a la configuración de servicios</span>
             </div>
           </div>
         </header>
