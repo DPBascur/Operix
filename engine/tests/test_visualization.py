@@ -167,6 +167,32 @@ class OpenCvRendererTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.renderer.render_zone(self.frame, zone, frame_index=-1)
 
+    def test_cached_zone_is_pixel_identical_to_full_frame_blending(self) -> None:
+        random = np.random.default_rng(60)
+        for height, width in ((140, 180), (1080, 1920), (1, 1)):
+            frame = random.integers(0, 256, (height, width, 3), dtype=np.uint8)
+            original = frame.copy()
+            for polygon in (
+                ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)),
+                ((0.38, 0.35), (0.51, 0.35), (0.52, 0.53), (0.53, 0.75),
+                 (0.54, 0.98), (0.10, 0.98), (0.22, 0.70), (0.30, 0.51)),
+            ):
+                zone = Zone("demo", "Pasillo", polygon)
+                points = np.asarray([(round(x * (width - 1)), round(y * (height - 1)))
+                                     for x, y in polygon], dtype=np.int32)
+                for event in (False, True, False):
+                    with self.subTest(shape=frame.shape, event=event, polygon=polygon):
+                        color = self.renderer._ZONE_EVENT_COLOR if event else self.renderer._ZONE_NORMAL_COLOR
+                        expected = frame.copy()
+                        mask = np.zeros((height, width), dtype=np.uint8)
+                        cv2.fillPoly(mask, [points], 255)
+                        blend = cv2.addWeighted(expected, 0.92, np.full_like(expected, color), 0.08, 0)
+                        expected[mask != 0] = blend[mask != 0]
+                        cv2.polylines(expected, [points], True, color, 2, cv2.LINE_AA)
+                        self.renderer._draw_zone_label(expected, zone.name, points, None, None)
+                        np.testing.assert_array_equal(self.renderer.render_zone(frame, zone, event=event), expected)
+                        np.testing.assert_array_equal(frame, original)
+
 
 class TrajectoryAccumulatorTest(unittest.TestCase):
     def test_uses_box_center_and_returns_only_active_tracks(self) -> None:

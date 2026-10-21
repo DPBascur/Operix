@@ -125,6 +125,34 @@ class YoloDetectorTest(unittest.TestCase):
         model.predictor = SimpleNamespace(model=SimpleNamespace(device="cuda:0"))
         self.assertEqual(detector.model_device, "cuda:0")
 
+    def test_batch_preserves_result_order_and_detection_parameters(self) -> None:
+        first = FakeResult(FakeBoxes([[1, 2, 30, 40]], [0.875], [0]))
+        second = FakeResult(FakeBoxes([[3, 4, 32, 42]], [0.75], [0]))
+        detector, model, _ = self.make_detector(first)
+        calls = []
+        def predict(**kwargs):
+            calls.append(kwargs)
+            return [first, second]
+        model.predict = predict
+        results = detector.detect_batch((self.frame, self.frame.copy()))
+        self.assertEqual([items[0].bounding_box.x_min for items in results], [1, 3])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual((calls[0]["conf"], calls[0]["iou"], calls[0]["imgsz"]), (0.40, 0.50, 320))
+        self.assertIs(calls[0]["source"][0], self.frame)
+
+    def test_empty_batch_does_not_call_backend(self) -> None:
+        detector, model, _ = self.make_detector(FakeResult(None))
+        self.assertEqual(detector.detect_batch(()), ())
+        self.assertEqual(model.calls, [])
+
+    def test_batch_rejects_mixed_shapes_and_missing_results(self) -> None:
+        detector, model, _ = self.make_detector(FakeResult(None))
+        with self.assertRaises(ValueError):
+            detector.detect_batch((self.frame, np.zeros((24, 32, 3), dtype=np.uint8)))
+        self.assertEqual(model.calls, [])
+        with self.assertRaises(RuntimeError):
+            detector.detect_batch((self.frame, self.frame))
+
 
 if __name__ == "__main__":
     unittest.main()

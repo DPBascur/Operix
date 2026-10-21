@@ -77,6 +77,31 @@ class DualPerceptionTest(unittest.TestCase):
         self.assertGreaterEqual(timing.person_inference_s, 0)
         self.assertEqual((self.person_model.calls, self.forklift_model.calls), (1, 1))
 
+    def test_batch_fallback_keeps_all_frames_and_class_local_tracking(self):
+        results = self.dual.process_batch((self.frame,) * 5)
+        self.assertEqual(len(results), 5)
+        self.assertEqual(self.person_tracker.calls, [(PERSON,)] * 5)
+        self.assertEqual(self.forklift_tracker.calls, [(FORKLIFT,)] * 5)
+        self.assertTrue(all(r.track_identities == (("person", 1), ("forklift", 1))
+                            for r, _ in results))
+
+    def test_batch_detector_filters_each_frame_without_reordering(self):
+        self.person_model.detect_batch = lambda frames: (
+            (PERSON, FORKLIFT_FROM_PERSON_MODEL), (), (PERSON,),
+        )
+        results = self.dual.process_batch((self.frame,) * 3)
+        self.assertEqual([r.person_detections for r, _ in results], [(PERSON,), (), (PERSON,)])
+        self.assertEqual(self.person_tracker.calls, [(PERSON,), (), (PERSON,)])
+        self.assertEqual(len(self.forklift_tracker.calls), 3)
+
+    def test_empty_or_invalid_batch_does_not_advance_trackers(self):
+        self.assertEqual(self.dual.process_batch(()), ())
+        self.person_model.detect_batch = lambda frames: ()
+        with self.assertRaises(RuntimeError):
+            self.dual.process_batch((self.frame,))
+        self.assertEqual(self.person_tracker.calls, [])
+        self.assertEqual(self.forklift_tracker.calls, [])
+
     def test_both_trackers_advance_when_their_class_is_absent(self):
         self.person_model.detections = (FORKLIFT_FROM_PERSON_MODEL,)
         self.forklift_model.detections = ()

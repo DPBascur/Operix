@@ -141,6 +141,9 @@ class OpenCvRenderer:
 
     def __init__(self, config: VisualizationConfig | None = None) -> None:
         self.config = config or VisualizationConfig()
+        # Caché acotada a la última geometría; no retiene frames ni estado lógico.
+        self._zone_geometry_key = None
+        self._zone_geometry_buffers = None
 
     def render_detections(
         self,
@@ -218,19 +221,31 @@ class OpenCvRenderer:
             raise ValueError("frame_index debe ser entero no negativo")
 
         height, width = frame.shape[:2]
-        points = np.asarray(
-            [(round(x * (width - 1)), round(y * (height - 1))) for x, y in zone.polygon],
-            dtype=np.int32,
-        )
+        geometry_key = (height, width, tuple(zone.polygon))
+        if geometry_key != self._zone_geometry_key:
+            points = np.asarray(
+                [(round(x * (width - 1)), round(y * (height - 1))) for x, y in zone.polygon],
+                dtype=np.int32,
+            )
+            x, y, box_width, box_height = cv2.boundingRect(points)
+            full_mask = np.zeros((height, width), dtype=np.uint8)
+            cv2.fillPoly(full_mask, [points], 255)
+            mask = full_mask[y:y + box_height, x:x + box_width].copy()
+            solids = {}
+            for fill_color in (self._ZONE_NORMAL_COLOR, self._ZONE_EVENT_COLOR):
+                solid = np.empty((box_height, box_width, 3), dtype=np.uint8)
+                solid[:] = fill_color
+                solids[fill_color] = solid
+            self._zone_geometry_key = geometry_key
+            self._zone_geometry_buffers = (points, x, y, box_width, box_height, mask, solids)
+        points, x, y, box_width, box_height, mask, solids = self._zone_geometry_buffers
         color = self._ZONE_EVENT_COLOR if event else self._ZONE_NORMAL_COLOR
         annotated = frame.copy()
-        mask = np.zeros((height, width), dtype=np.uint8)
-        cv2.fillPoly(mask, [points], 255)
-        solid = np.full_like(annotated, color)
+        region = annotated[y:y + box_height, x:x + box_width]
         blended = cv2.addWeighted(
-            annotated, 1 - self._ZONE_FILL_ALPHA, solid, self._ZONE_FILL_ALPHA, 0,
+            region, 1 - self._ZONE_FILL_ALPHA, solids[color], self._ZONE_FILL_ALPHA, 0,
         )
-        annotated[mask != 0] = blended[mask != 0]
+        cv2.copyTo(blended, mask, region)
         cv2.polylines(annotated, [points], True, color, 2, self._LINE_TYPE)
         self._draw_zone_label(annotated, zone.name, points, rule_kind, frame_index)
         return annotated

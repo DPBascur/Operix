@@ -126,3 +126,50 @@ class DualPerception:
         for channel in (self.person, self.forklift):
             if channel is not None:
                 channel.reset()
+
+    def process_batch(
+        self, frames: tuple[NDArray[np.uint8], ...], *,
+        synchronize: Callable[[], None] | None = None,
+        clock: Callable[[], float] = time.perf_counter,
+    ) -> tuple[tuple[PerceptionFrame, PerceptionTiming], ...]:
+        """Agrupa solo detección; ambos trackers avanzan una vez por frame y en orden.
+
+        El tiempo de detección del lote se reparte por frame para telemetría;
+        no representa la latencia individual de un frame esperando su lote.
+        """
+        if not frames:
+            return ()
+        detections, inference_times = [], []
+        for channel in (self.person, self.forklift):
+            if channel is None:
+                detections.append(tuple(() for _ in frames))
+                inference_times.append(0.0)
+                continue
+            if synchronize is not None:
+                synchronize()
+            start = clock()
+            batch_detector = getattr(channel.detector, "detect_batch", None)
+            if batch_detector is None:
+                observed = tuple(channel.detect(frame) for frame in frames)
+            else:
+                batch = batch_detector(frames)
+                if len(batch) != len(frames):
+                    raise RuntimeError("El detector no conservó el tamaño del lote")
+                observed = tuple(tuple(d for d in items if d.class_name == channel.class_name)
+                                 for items in batch)
+            if synchronize is not None:
+                synchronize()
+            inference_times.append((clock() - start) / len(frames))
+            detections.append(observed)
+        results = []
+        for index in range(len(frames)):
+            tracks, tracking_times = [], []
+            for role, channel in enumerate((self.person, self.forklift)):
+                start = clock()
+                tracks.append(channel.track(detections[role][index]) if channel else ())
+                tracking_times.append(clock() - start if channel else 0.0)
+            results.append((
+                PerceptionFrame(detections[0][index], detections[1][index], tracks[0], tracks[1]),
+                PerceptionTiming(*inference_times, *tracking_times),
+            ))
+        return tuple(results)

@@ -112,6 +112,25 @@ class YoloDetector:
             )
         return tuple(detections)
 
+    def detect_batch(
+        self, frames: tuple[NDArray[np.uint8], ...],
+    ) -> tuple[tuple[Detection, ...], ...]:
+        """Detecta un lote homogéneo sin cambiar escala, NMS ni orden de salida."""
+        if not frames:
+            return ()
+        for frame in frames:
+            self._validate_frame(frame)
+            if frame.shape != frames[0].shape:
+                raise ValueError("El lote requiere frames de la misma forma")
+        results = self._model.predict(
+            source=list(frames), conf=self.config.confidence_threshold,
+            device=self.config.device, imgsz=self.config.image_size,
+            iou=self.config.iou_threshold, save=False, show=False, verbose=False,
+        )
+        if len(results) != len(frames):
+            raise RuntimeError("YOLO devolvió una cantidad de resultados distinta al lote")
+        return tuple(self._convert_result(result) for result in results)
+
     @staticmethod
     def _as_list(values: Any) -> list[Any]:
         if hasattr(values, "detach"):
