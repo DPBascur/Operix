@@ -91,6 +91,11 @@ Un entorno futuro, como macOS con MPS, podrá incorporar su propio archivo lock 
 
 ## Procesar una exportación PERSON de CVAT
 
+El protocolo para adquirir un **holdout PERSON independiente y reservado** está
+en [PERSON-INDEPENDENT-HOLDOUT-PROTOCOL.md](evidence/PERSON-INDEPENDENT-HOLDOUT-PROTOCOL.md).
+No contiene videos ni evaluación congelada; los artefactos pesados quedan fuera
+del repositorio.
+
 Codex procesa cada export; quien anota solo necesita revisar todos los frames en CVAT,
 exportar COCO 1.0 y confirmar que terminó. Desde `engine/`, con el entorno
 editable instalado, el comando de procesamiento es:
