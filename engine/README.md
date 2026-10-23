@@ -304,6 +304,16 @@ retry debe reutilizarse ese UUID, no generar otro.
 `engine/.env.example` documenta las variables sin secretos. No se carga
 automáticamente; la publicación requiere el flag y las variables explícitas.
 
+El orquestador de **video** `process_video_events.py`, a diferencia del replay
+anterior, reintenta hasta tres veces errores transitorios de red, timeout o HTTP
+429/500/502/503/504, con esperas de 0.1 y 0.2 s. Mantiene exactamente candidato,
+UUID y PNG del frame original; informa `publish_attempts`. No reintenta errores
+de validación ni 409. Tras agotar intentos informa fallo, sin una cola duradera.
+Los conteos de creados/duplicados describen confirmaciones recibidas; si se creó
+una fila pero falló la imagen, su ID se conserva y no se afirma una publicación
+completa hasta recuperar la evidencia. No se deduce el conteo real de DB de una
+respuesta perdida. La idempotencia sigue siendo responsabilidad de PostgreSQL.
+
 Con `--capture-evidence`, el replay genera un PNG **del estado sintético exacto
 del frame que emitió el candidato** (zona y caja del track, rotulado
 `SINTETICO`) y lo adjunta después del POST del evento mediante multipart. No

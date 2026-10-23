@@ -15,7 +15,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from operix_engine.detection import BoundingBox
-from operix_engine.event_publishing import EventContext, EventSink
+from operix_engine.event_publishing import EventContext, EventSink, publish_with_retries
 from operix_engine.operational_config import OperationalConfig, Zone
 from operix_engine.rules import EventCandidate, RuleEngine
 from operix_engine.spatiotemporal import SpatiotemporalAnalyzer
@@ -143,7 +143,7 @@ def run_video_event_pipeline(
                         frame, frame_index, candidate, tracks, zones[candidate.zone_id],
                         renderer, frame_trajectories,
                     )
-                    publication = sink.publish(candidate, context, evidence)
+                    publication, attempts = publish_with_retries(sink, candidate, context, evidence)
                     obj = next(obj for obj in spatial.objects if obj.track_id == candidate.track_id)
                     publications.append({
                         "candidate": {
@@ -159,6 +159,7 @@ def run_video_event_pipeline(
                             "normalized_position": asdict(obj.position),
                         },
                         "result": asdict(publication),
+                        "publish_attempts": attempts,
                         "source_frame_sha256": hashlib.sha256(frame.tobytes()).hexdigest(),
                         "evidence_png_sha256": hashlib.sha256(evidence).hexdigest(),
                         "evidence_bytes": len(evidence),

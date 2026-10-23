@@ -11,6 +11,7 @@ import json
 import math
 import re
 import socket
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -128,6 +129,28 @@ class NoopEventSink:
         self, candidate: EventCandidate, context: EventContext, evidence_png: bytes | None = None
     ) -> PublishResult:
         return PublishResult("skipped")
+
+
+def publish_with_retries(
+    sink: EventSink, candidate: EventCandidate, context: EventContext,
+    evidence_png: bytes | None = None, *, max_attempts: int = 3,
+) -> tuple[PublishResult, int]:
+    """Reintentos acotados del mismo candidato; no cambia su identidad ni evidencia."""
+    if type(max_attempts) is not int or not 1 <= max_attempts <= 3:
+        raise ValueError("max_attempts debe estar entre 1 y 3")
+    known_event_id = None
+    for attempt in range(1, max_attempts + 1):
+        result = sink.publish(candidate, context, evidence_png)
+        known_event_id = result.event_id or known_event_id
+        transient = result.reason in {"timeout", "network_error", "evidence_network_error"} or (
+            result.http_status in {429, 500, 502, 503, 504}
+        )
+        if result.status != "failed" or not transient or attempt == max_attempts:
+            if result.event_id is None and known_event_id:
+                result = PublishResult(result.status, result.http_status, known_event_id, result.reason)
+            return result, attempt
+        time.sleep(0.1 * attempt)
+    raise AssertionError("Bucle de publicación sin resultado")  # pragma: no cover
 
 
 class HttpEventSink:

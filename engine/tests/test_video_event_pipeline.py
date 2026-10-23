@@ -62,6 +62,48 @@ class _Sink:
 
 
 class VideoEventPipelineTest(unittest.TestCase):
+    def test_transient_failure_retries_the_same_candidate_and_real_frame(self):
+        from operix_engine.event_publishing import publish_with_retries
+        from unittest.mock import Mock
+        candidate = object()
+        context = object()
+        evidence = b"same-frame"
+        sink = Mock()
+        sink.publish.side_effect = [PublishResult("failed", reason="timeout"),
+                                   PublishResult("duplicate", 200, "existing-id")]
+        with patch("operix_engine.event_publishing.time.sleep"):
+            result, attempts = publish_with_retries(sink, candidate, context, evidence)
+        self.assertEqual((result.status, attempts), ("duplicate", 2))
+        self.assertEqual(sink.publish.call_count, 2)
+        self.assertEqual(sink.publish.call_args_list[0], sink.publish.call_args_list[1])
+
+    def test_retry_is_bounded_and_does_not_retry_permanent_errors(self):
+        from operix_engine.event_publishing import publish_with_retries
+        from unittest.mock import Mock
+        for failure, expected in ((PublishResult("failed", 503, reason="http_error"), 3),
+                                  (PublishResult("failed", 400, reason="http_error"), 1),
+                                  (PublishResult("failed", reason="invalid_payload"), 1)):
+            with self.subTest(failure=failure):
+                sink = Mock()
+                sink.publish.return_value = failure
+                with patch("operix_engine.event_publishing.time.sleep"):
+                    result, attempts = publish_with_retries(sink, object(), object())
+                self.assertEqual((result.status, attempts), ("failed", expected))
+                self.assertEqual(sink.publish.call_count, expected)
+
+    def test_failed_image_retry_keeps_existing_event_identifier(self):
+        from operix_engine.event_publishing import publish_with_retries
+        from unittest.mock import Mock
+        sink = Mock()
+        sink.publish.side_effect = [
+            PublishResult("failed", event_id="created-id", reason="evidence_network_error"),
+            PublishResult("failed", reason="network_error"),
+            PublishResult("failed", reason="timeout"),
+        ]
+        with patch("operix_engine.event_publishing.time.sleep"):
+            result, attempts = publish_with_retries(sink, object(), object(), b"same-frame")
+        self.assertEqual((result.event_id, attempts), ("created-id", 3))
+
     def test_tracker_predictions_outside_frame_are_clipped_or_dropped(self):
         partial = Track(1, 0, "person", 0.9, BoundingBox(180, 30, 210, 70))
         outside = Track(2, 0, "person", 0.9, BoundingBox(205, 30, 220, 70))
@@ -96,6 +138,26 @@ class VideoEventPipelineTest(unittest.TestCase):
         self.assertEqual(decoded.shape, (100, 200, 3))
         self.assertEqual(tuple(decoded[90, 190]), (17, 97, 102))
         self.assertEqual(result["publications"][0]["candidate"]["normalized_position"], {"x": 0.25, "y": 0.7})
+
+    def test_pipeline_recovers_after_transient_backend_failure(self):
+        zone = Zone("demo", "Zona sintética", ((.1,.1),(.9,.1),(.9,.9),(.1,.9)))
+        rule = RuleConfig("dwell", 1, True, {
+            "kind": "zone_dwell", "class_name": "person", "zone_id": "demo", "min_duration_s": 1,
+        })
+        from unittest.mock import Mock
+        sink = Mock()
+        sink.publish.side_effect = [PublishResult("failed", reason="timeout"),
+                                   PublishResult("published", 201, "recovered")]
+        context = EventContext(UUID("12222222-2222-4222-8222-222222222222"),
+                               "synthetic", datetime(2026, 10, 23, tzinfo=timezone.utc))
+        with patch("operix_engine.video_event_pipeline.RecordedVideoSource", _Source), \
+                patch("operix_engine.event_publishing.time.sleep"):
+            result = run_video_event_pipeline(Path("controlled.avi"), detector=_Detector(),
+                tracker=_Tracker(), config=OperationalConfig(1, "synthetic", (zone,), (rule,)),
+                sink=sink, context=context)
+        self.assertEqual((result["candidate_count"], result["published_count"]), (1, 1))
+        self.assertEqual(result["publications"][0]["publish_attempts"], 2)
+        self.assertEqual(sink.publish.call_args_list[0], sink.publish.call_args_list[1])
 
 
 if __name__ == "__main__":

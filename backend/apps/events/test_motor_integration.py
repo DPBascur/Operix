@@ -91,6 +91,27 @@ class MotorPersistenceIntegrationTests(LiveServerTestCase):
         self.assertLess(abs(float(event.observed_dwell_time_s) - 1 / 30), 1e-9)
         self.assertEqual(event.rule_parameters["min_duration_s"], 1 / 30)
 
+    def test_motor_recovers_from_one_http_503_without_duplicate_event(self):
+        from unittest.mock import patch
+        from rest_framework.response import Response
+        from .views import EventListCreateView
+        original = EventListCreateView.create
+        calls = []
+
+        def transient(view, request, *args, **kwargs):
+            calls.append(request.data["analysis_run_id"])
+            if len(calls) == 1:
+                return Response({"detail": "TEST_DATA transient failure"}, status=503)
+            return original(view, request, *args, **kwargs)
+
+        with patch.object(EventListCreateView, "create", transient):
+            result = self.execute_motor(uuid4())
+        self.assertEqual(result["published_count"], 1)
+        self.assertEqual(result["publications"][0]["publish_attempts"], 2)
+        self.assertEqual(calls[0], calls[1])
+        self.assertEqual(Event.objects.count(), 1)
+        self.assertTrue(Event.objects.get().evidence_image)
+
     def test_video_candidate_http_postgresql_evidence_query_and_indicator(self):
         run = uuid4()
         first = self.execute_motor(run)
