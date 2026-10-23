@@ -243,6 +243,41 @@ La campaña local está en `Operix-experiments/person-ground-truth-campaign-2026
 
 En el momento de preparar los paquetes, el gate local estaba **bloqueado**: 0 positivos HUMAN_VERIFIED, 20 negativos frente a un piso operativo **provisional y configurable** de 30, 0 grupos positivos con procedencia fuerte, 253 revisiones pendientes, 0/5 tareas exportadas/completadas y ningún evaluation set congelado. El piso de 30 solo exige mejorar el baseline de 20, **no** demuestra representatividad; el mínimo de tres grupos independientes es estructural para train/calibration/evaluation y tampoco garantiza diversidad. La carpeta local contiene el reporte de criterios y `ADDITIONAL_PERSON_DATA_NEEDED.md`: hacen falta escenas industriales reales independientes, otras cámaras/iluminaciones/escalas, oclusiones, operadores y negativos difíciles con procedencia y permiso claros. En esta preparación no se ejecutó entrenamiento, inferencia, comparación formal, calibración, cambio productivo ni uso de TEST2 o REAL_HOLDOUT_V2.
 
+## Reclasificación del set YouTube y holdout final v2 — 23-10-2026
+
+Por decisión humana, test4–test8 pasan a **`PERSON_YOUTUBE_DIAGNOSTIC_SET_V1`**:
+`DIAGNOSTIC_ONLY`, `NOT_LOCKED_EVALUATION`, `PROVENANCE_PARTIAL`,
+`RIGHTS_UNVERIFIED`. Se conservan los **68 frames, 43 positivos, 25 negativos,
+89 cajas**, exports humanos, URLs, familias A={001,003,005}, B={002}, C={004},
+hashes, recibos, QA y manifests. No se mueve la carpeta histórica para evitar
+romper referencias. El nuevo `dataset-status.json` y la metadata de ingestión
+reemplazan metodológicamente el estado candidato de los artefactos históricos,
+que se preservan; las cinco versiones anteriores de metadata quedan archivadas
+localmente con un inventario de hashes. No hubo pérdida ni repetición de anotación.
+
+La reclasificación excluye este set de locked evaluation, selección de threshold
+o ganador final y métricas finales del sistema. Podrá servir como diagnóstico,
+stress testing o comparación cualitativa/secundaria, sujeto a resolver el uso
+permitido; la decisión no concede derechos ni autoriza distribuir el material.
+
+Se prepara fuera de Git `Operix-experiments/person-independent-holdout-v2-2026-10-23/`,
+vacío y separado del set diagnóstico. El [protocolo vigente](PERSON-INDEPENDENT-HOLDOUT-PROTOCOL.md)
+prioriza grabaciones originales autorizadas o licencias externas verificadas;
+requiere fuente/familia, autor, cámara, contexto general y respaldo de permiso.
+El gate final exige derechos confirmados mediante allowlist, al menos tres familias
+independientes (preferiblemente 4–5), revisión humana completa, QA limpio y cero
+leakage contra campaña/TEST3, set diagnóstico y registro completo de entrenamiento/
+desarrollo. Este último registro y las atestaciones se completarán antes del freeze.
+El tooling rechaza expresamente el set diagnóstico y registra familias, versión de
+protocolo y auditoría de exclusiones en un futuro freeze. No se ha congelado material.
+
+**Decisiones: `PERSON_YOUTUBE_DIAGNOSTIC_SET_PRESERVED` +
+`PERSON_FINAL_HOLDOUT_ACQUISITION_READY`.** Se pueden recibir nuevas fuentes válidas;
+la adquisición lista no implica datos disponibles ni evaluación habilitada. No se
+ejecutó ningún modelo, entrenamiento ni calibración. TEST2 y REAL_HOLDOUT_V2 intactos.
+Las secciones siguientes conservan la trazabilidad de los cortes anteriores; sus
+estados de candidato/holdout quedan sustituidos por esta reclasificación.
+
 ## Procedencia YouTube del holdout PERSON — 23-10-2026
 
 El usuario confirmó que los cinco clips proceden de material de la [playlist pública](https://www.youtube.com/playlist?list=PLqtixnvhnjREmrai3YUMTTjvZotRC5j9_). El origen local se actualiza a `YOUTUBE_PLAYLIST_SOURCE` como declaración de procedencia, separada de derechos y de independencia. La consulta pública con yt-dlp 2026.10.21 recuperó 78 entradas y un aviso de cuatro videos no disponibles. Se guardaron metadata, miniaturas y storyboards fuera de Git; no se descargaron videos de nuevo. Los siguientes mapeos tienen confianza visual alta por coincidencia de secuencias, cámara/rotulación y duración aproximada, sin equivalencia binaria demostrada ni offsets de recorte certificados.

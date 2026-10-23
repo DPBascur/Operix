@@ -3,19 +3,29 @@
 Este protocolo prepara material **nuevo y reservado** para evaluar detección `person`.
 No incorpora videos de la campaña Keremberke, TEST3, TEST2 ni REAL_HOLDOUT_V2; no
 entrena, calibra, selecciona modelos ni ejecuta inferencia. El ground truth humano
-completo no demuestra por sí solo independencia de escenas. El estado actual es
-`PERSON_HOLDOUT_ACQUISITION_READY`: todavía no hay nuevos videos ni evaluation congelada.
+completo no demuestra por sí solo independencia de escenas. Protocolo vigente:
+`PERSON_FINAL_HOLDOUT_V2`. El set YouTube previo se conserva como
+`PERSON_YOUTUBE_DIAGNOSTIC_SET_V1`, `DIAGNOSTIC_ONLY`, `NOT_LOCKED_EVALUATION`.
+Sus 68 frames y 89 cajas no habilitan selección de threshold/ganador final ni
+métricas finales. Los derechos siguen sin verificar; la reclasificación metodológica
+no otorga permiso de uso ni distribución. No se repite anotación ni se mueve material.
+El nuevo root local `Operix-experiments/person-independent-holdout-v2-2026-10-23/`
+está preparado para adquirir fuentes válidas y todavía no contiene videos.
 
 ## Material y procedencia
 
 Solicitar **3–5 videos nuevos de 30–90 s**, preferentemente cinco sesiones de
 captura distintas, no cortes de una misma sesión. Cada video recibe un ID único
-`HOLDOUT_PERSON_###`; todos sus frames conservan ese `source_group`. Priorizar
+`HOLDOUT_PERSON_###`, sin reutilizar IDs excluidos (comenzar, por ejemplo, en 006).
+Todos sus frames conservan ese `source_group`. Registrar también `source_family`:
+los clips de una misma sesión/captura comparten familia incluso con SHA distintos.
+El mínimo es **tres familias independientes**, preferiblemente cuatro o cinco.
+El freeze cuenta familias, no archivos ni IDs. Priorizar
 personas con y sin forklift, operador visible, oclusión, tamaños y distancias
 variadas, varias personas, fondos difíciles y segmentos sin personas. Buscar
 ángulos, cámaras, iluminaciones y orientaciones distintas. No se exige que cada
 video cubra todos los casos ni que todos contengan forklift. Tres grupos es el
-mínimo estructural; cinco ofrecen mejor diversidad, no garantía estadística.
+mínimo estructural, ahora contado por familias; cinco ofrecen mejor diversidad, no garantía estadística.
 
 Registrar para cada fuente: nombre original sin ruta privada, SHA-256, fecha de
 ingreso, origen, cámara/fuente, resolución, FPS, duración, frames, codec,
@@ -26,6 +36,22 @@ independiente: se exige revisión y atestación humana de esa separación. No
 elegir videos ni frames a partir de predicciones, errores, confidence o
 resultados de CURRENT/COCO/PERSON v2.
 
+## Requisitos del ingreso final v2
+
+Prioridad: grabación original con permiso/consentimiento apropiado; alternativamente
+fuente externa con licencia explícita compatible y verificada. Metadata obligatoria:
+`source_group`, `source_family`, `source_file`, `sha256`, `acquisition_date`,
+`recorded_by`, `camera_or_source`, `location_context_general`, resolución, FPS,
+duración, escenario, `rights_basis`, `consent_or_permission_status` y notas.
+Además se exige referencia verificable de captura (`provenance_reference`) y del
+permiso (`rights_evidence`), sin publicar información privada. La confirmación CLI
+solo registra la declaración humana: no verifica jurídicamente una licencia.
+
+`rights_basis` admite exclusivamente `USER_ORIGINAL_RECORDING`,
+`EXPLICIT_PERMISSION`, `CC_BY_VERIFIED` u `OTHER_VERIFIED_LICENSE`.
+Se requieren `KNOWN_PROVENANCE`, `RIGHTS_CONFIRMED` y permiso/consentimiento
+`CONFIRMED`; etiquetas genéricas o licencia desconocida no permiten freeze.
+
 ## Ingestión y muestreo sin detector
 
 Ejecutar desde `engine/`, con el Python del entorno instalado de forma editable.
@@ -33,8 +59,8 @@ Los comandos son para Codex; Daniel solo proporciona material y anota en CVAT.
 `--output-root` debe estar **fuera del repositorio**:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/ingest_person_holdout_video.py --video <VIDEO_NUEVO> --output-root <CARPETA_LOCAL_FUERA_DE_GIT> --source-group HOLDOUT_PERSON_001 --origin <ORIGEN> --camera-or-source <CAMARA> --scenario <ESCENARIO> --rights-or-license <DERECHOS_VERIFICABLES> --notes <NOTAS>
-.\.venv\Scripts\python.exe scripts/prepare_person_holdout_cvat.py --output-root <CARPETA_LOCAL_FUERA_DE_GIT> --source-group HOLDOUT_PERSON_001 --sample-count 16
+.\.venv\Scripts\python.exe scripts/ingest_person_holdout_video.py --video <VIDEO_NUEVO> --output-root <ROOT_V2_FUERA_DE_GIT> --source-group HOLDOUT_PERSON_006 --source-family CAPTURA_001 --origin <ORIGEN> --recorded-by <AUTOR> --camera-or-source <CAMARA> --location-context-general <CONTEXTO_GENERAL> --scenario <ESCENARIO> --provenance-reference <REFERENCIA_CAPTURA> --rights-or-license <PERMISO_O_LICENCIA> --rights-basis USER_ORIGINAL_RECORDING --rights-evidence <REFERENCIA_PERMISO> --confirm-provenance-and-rights --notes <NOTAS>
+.\.venv\Scripts\python.exe scripts/prepare_person_holdout_cvat.py --output-root <ROOT_V2_FUERA_DE_GIT> --source-group HOLDOUT_PERSON_006 --sample-count 16
 ```
 
 La ingestión calcula el SHA-256 y metadata OpenCV, comprueba decodificación y
@@ -48,6 +74,9 @@ filtran frames por resultado. Elegir el número de muestras **antes** de ver
 predicciones; evitar cientos de frames redundantes del mismo video. El paquete
 CVAT contiene `images.zip`, `manifest.csv`, `sampling.json` y plantillas vacías,
 sin preanotaciones.
+
+Presupuesto inicial: **12–20 frames por familia**, repartidos entre sus videos
+si una captura tiene varios clips. No multiplicar el presupuesto al cortar una sesión.
 
 ## Anotación humana
 
@@ -64,7 +93,7 @@ reciben cajas separadas. Frame completamente revisado sin persona es
 Tras confirmación humana, Codex usa:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/process_person_holdout_export.py --output-root <CARPETA_LOCAL_FUERA_DE_GIT> --source-group HOLDOUT_PERSON_001 --reviewer <REVISOR> --confirm-full-frame-human-review
+.\.venv\Scripts\python.exe scripts/process_person_holdout_export.py --output-root <ROOT_V2_FUERA_DE_GIT> --source-group HOLDOUT_PERSON_006 --reviewer <REVISOR> --confirm-full-frame-human-review
 ```
 
 ## Aislamiento, readiness y freeze
@@ -84,10 +113,23 @@ licencia y ausencia de solapamiento de escenas. No se reconstruyen TRAIN ni
 CALIBRATION en esta tarea. TEST3 permanece en desarrollo y nunca se mezcla con
 el holdout reservado.
 
-Solo con **al menos tres grupos independientes**, originales y frames
+Solo con **al menos tres familias independientes**, originales y frames
 trazables por SHA, positivos y negativos humanos, cero ambigüedades/bloqueos,
 recibos completos, derechos claros y atestación humana explícita de
 independencia puede ejecutarse el comando de freeze:
+
+El registro local `holdout-policy.json` exige tres coberturas: `campaign`
+(incluye TEST3), `youtube_diagnostic` y `training_development`. Cada manifiesto
+CSV debe tener `image_sha256`, `source_group` y SHA propio verificado; se compara
+también `video_sha256` y `source_family` cuando están disponibles. Cualquier coincidencia de imagen,
+grupo, familia registrada o video bloquea el freeze. Las familias relacionadas se excluyen mediante
+revisión humana de procedencia: un hash diferente no demuestra ausencia de leakage.
+El registro completo de training/development debe incorporarse y atestarse antes
+de marcar `training_development_coverage_confirmed=true`; actualmente está pendiente.
+También se exige `no_model_access_attested=true` después de confirmar que ningún
+detector accedió al nuevo material. No abrir TEST2 ni REAL_HOLDOUT_V2 para esto.
+La política, las referencias de exclusión y el mapeo de familias quedan vinculados
+por hashes al freeze. Su modificación invalida la verificación posterior.
 
 ```powershell
 .\.venv\Scripts\python.exe scripts/freeze_person_independent_holdout.py --output-root <CARPETA_LOCAL_FUERA_DE_GIT> --attestor <RESPONSABLE> --attest-independent-groups
