@@ -78,13 +78,17 @@ def plan_split(rows: list[dict], *, seed: int, minimum_positive_groups: int = 3,
     for row in rows:
         if row["annotation_status"] not in {"HUMAN_VERIFIED", "VERIFIED_NEGATIVE"}:
             continue
-        if row.get("source") == "TEST3" or row.get("split_eligibility") == "DEVELOPMENT_ONLY":
+        if row.get("source") == "TEST3" or row.get("split_eligibility") != "ELIGIBLE":
             continue
         groups[row["source_group"]].append(row)
-    positive = [g for g, members in groups.items() if any(int(m["person_box_count"]) > 0 for m in members)]
-    negative = [g for g, members in groups.items() if any(m["annotation_status"] == "VERIFIED_NEGATIVE" for m in members)]
+    strong_groups = {g for g, members in groups.items() if all(
+        m.get("provenance") == "STRONG" and m.get("source_group_confidence") == "STRONG"
+        for m in members)}
+    positive = [g for g in strong_groups if any(int(m["person_box_count"]) > 0 for m in groups[g])]
+    negative = [g for g in strong_groups if any(m["annotation_status"] == "VERIFIED_NEGATIVE"
+                                                for m in groups[g])]
     if len(positive) < minimum_positive_groups or len(negative) < minimum_negative_groups:
-        raise ValueError("grupos positivos/negativos humanos insuficientes para tres splits")
+        raise ValueError("grupos positivos/negativos elegibles con procedencia fuerte insuficientes para tres splits")
     def order(group: str) -> str:
         return hashlib.sha256(f"{seed}:{group}".encode()).hexdigest()
     positive.sort(key=order)
@@ -119,8 +123,13 @@ def readiness(rows: list[dict], tasks: dict[str, dict], issues: list[dict],
                  and int(r["person_box_count"]) > 0]
     negatives = [r for r in rows if r["annotation_status"] in {
         "VERIFIED_NEGATIVE", "VALID_FULL_FRAME_NEGATIVE"}]
-    groups = {r["source_group"] for r in positives if r.get("provenance") == "STRONG"
-              and r.get("source") != "TEST3"}
+    def strong_eligible(row: dict) -> bool:
+        return (row.get("provenance") == "STRONG"
+                and row.get("source_group_confidence") == "STRONG"
+                and row.get("split_eligibility") == "ELIGIBLE"
+                and row.get("source") != "TEST3")
+    groups = {r["source_group"] for r in positives if strong_eligible(r)}
+    negative_groups = {r["source_group"] for r in negatives if strong_eligible(r)}
     blockers = []
     if not positives:
         blockers.append("NO_HUMAN_VERIFIED_POSITIVES")
@@ -128,6 +137,8 @@ def readiness(rows: list[dict], tasks: dict[str, dict], issues: list[dict],
         blockers.append("INSUFFICIENT_VERIFIED_NEGATIVES")
     if len(groups) < minimum_independent_groups:
         blockers.append("INSUFFICIENT_STRONG_POSITIVE_SOURCE_GROUPS")
+    if len(negative_groups) < minimum_independent_groups:
+        blockers.append("INSUFFICIENT_STRONG_NEGATIVE_SOURCE_GROUPS")
     if any(row["annotation_status"] in {"UNANNOTATED", "PENDING_HUMAN_REANNOTATION",
                                          "PENDING_FULL_FRAME_NEGATIVE_REVIEW", "REVIEW_AMBIGUOUS"}
            for row in rows):
@@ -149,13 +160,28 @@ def readiness(rows: list[dict], tasks: dict[str, dict], issues: list[dict],
         warnings.append("HEAVY_OCCLUSION_COVERAGE_NOT_DOCUMENTED")
     if not any("FORKLIFT_OPERATOR" in r.get("difficulty_tags", "").split("|") for r in positives):
         warnings.append("FORKLIFT_OPERATOR_COVERAGE_NOT_DOCUMENTED")
+    if not blockers:
+        decision = "PERSON_V2_READY_TO_TRAIN"
+    elif any(code in blockers for code in ("ANNOTATION_REVIEW_PENDING", "TASKS_INCOMPLETE",
+                                          "NO_HUMAN_VERIFIED_POSITIVES")):
+        decision = "PERSON_V2_BLOCKED_BY_ANNOTATION"
+    elif "QA_BLOCKERS" in blockers:
+        decision = "PERSON_V2_BLOCKED_BY_DATA_QUALITY"
+    elif any(code in blockers for code in ("INSUFFICIENT_STRONG_POSITIVE_SOURCE_GROUPS",
+                                          "INSUFFICIENT_STRONG_NEGATIVE_SOURCE_GROUPS")):
+        decision = "PERSON_V2_BLOCKED_BY_PROVENANCE"
+    elif "INSUFFICIENT_VERIFIED_NEGATIVES" in blockers:
+        decision = "PERSON_V2_BLOCKED_BY_DATA_DIVERSITY"
+    else:
+        decision = "PERSON_V2_BLOCKED_BY_SPLIT"
     return {
-        "decision": "PERSON_V2_READY_TO_TRAIN" if not blockers else "PERSON_V2_BLOCKED_BY_ANNOTATION",
+        "decision": decision,
         "criteria": {"minimum_negative_images": minimum_negative_images,
                      "minimum_independent_strong_positive_groups": minimum_independent_groups,
                      "requires_all_tasks_complete": True, "requires_frozen_evaluation": True},
         "counts": dict(sorted(counts.items())), "verified_positive_images": len(positives),
         "verified_negative_images": len(negatives), "strong_positive_groups": len(groups),
+        "strong_negative_groups": len(negative_groups),
         "blockers": blockers, "warnings": warnings,
     }
 
@@ -163,9 +189,12 @@ def readiness(rows: list[dict], tasks: dict[str, dict], issues: list[dict],
 def freeze_payload(rows: list[dict], split: dict[str, str]) -> dict:
     selected = [r for r in rows if split.get(r["source_group"]) == "LOCKED_EVALUATION"]
     if not selected or any(r["annotation_status"] not in {"HUMAN_VERIFIED", "VERIFIED_NEGATIVE"}
-                           or r.get("provenance") != "STRONG" or not r.get("label_sha256")
+                           or r.get("provenance") != "STRONG"
+                           or r.get("source_group_confidence") != "STRONG"
+                           or r.get("split_eligibility") != "ELIGIBLE"
+                           or r.get("source") == "TEST3" or not r.get("label_sha256")
                            for r in selected):
-        raise ValueError("evaluation requiere imágenes humanas completas, procedencia fuerte y hashes de labels")
+        raise ValueError("evaluation requiere imágenes humanas elegibles, independientes y hashes de labels")
     if not any(int(r["person_box_count"]) > 0 for r in selected) or not any(
             r["annotation_status"] == "VERIFIED_NEGATIVE" for r in selected):
         raise ValueError("evaluation requiere positivos y negativos")

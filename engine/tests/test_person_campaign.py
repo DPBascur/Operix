@@ -50,9 +50,11 @@ class PersonCampaignTest(unittest.TestCase):
         rows = []
         for i in range(3):
             rows.append({"source_group": f"positive:{i}", "annotation_status": "HUMAN_VERIFIED",
-                         "person_box_count": "1", "source": "OTHER", "split_eligibility": "ELIGIBLE"})
+                         "person_box_count": "1", "source": "OTHER", "split_eligibility": "ELIGIBLE",
+                         "provenance": "STRONG", "source_group_confidence": "STRONG"})
             rows.append({"source_group": f"negative:{i}", "annotation_status": "VERIFIED_NEGATIVE",
-                         "person_box_count": "0", "source": "OTHER", "split_eligibility": "ELIGIBLE"})
+                         "person_box_count": "0", "source": "OTHER", "split_eligibility": "ELIGIBLE",
+                         "provenance": "STRONG", "source_group_confidence": "STRONG"})
         rows.append({"source_group": "TEST3_VIDEO", "annotation_status": "HUMAN_VERIFIED",
                      "person_box_count": "1", "source": "TEST3", "split_eligibility": "DEVELOPMENT_ONLY"})
         split = plan_split(rows, seed=42)
@@ -61,9 +63,19 @@ class PersonCampaignTest(unittest.TestCase):
         self.assertEqual(split, plan_split(rows, seed=42))
         with self.assertRaises(ValueError):
             plan_split(rows[:2], seed=42)
+        weak = [{**row, "provenance": "WEAK"} if row.get("source") != "TEST3" else row
+                for row in rows]
+        with self.assertRaisesRegex(ValueError, "procedencia fuerte"):
+            plan_split(weak, seed=42)
+        ineligible = [{**row, "split_eligibility": "PENDING_REVIEW"}
+                      if row.get("source") != "TEST3" else row for row in rows]
+        with self.assertRaisesRegex(ValueError, "elegibles"):
+            plan_split(ineligible, seed=42)
 
     def test_freeze_requires_strong_verified_positive_and_negative(self):
-        base = {"source_group": "group:1", "provenance": "STRONG", "label_sha256": "B",
+        base = {"source_group": "group:1", "provenance": "STRONG",
+                "source_group_confidence": "STRONG", "split_eligibility": "ELIGIBLE",
+                "source": "OTHER", "label_sha256": "B",
                 "image_sha256": "A", "annotation_status": "HUMAN_VERIFIED",
                 "person_box_count": "1", "image_id": "a"}
         negative = {**base, "image_id": "b", "annotation_status": "VERIFIED_NEGATIVE",
@@ -74,17 +86,36 @@ class PersonCampaignTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             freeze_payload([{**base, "provenance": "WEAK"}, negative],
                            {"group:1": "LOCKED_EVALUATION"})
+        with self.assertRaises(ValueError):
+            freeze_payload([{**base, "source_group_confidence": "WEAK"}, negative],
+                           {"group:1": "LOCKED_EVALUATION"})
 
     def test_readiness_gate_needs_human_provenance_and_freeze(self):
         rows = [{"source_group": "s1", "provenance": "STRONG", "source": "OTHER",
+                 "source_group_confidence": "STRONG", "split_eligibility": "ELIGIBLE",
                  "annotation_status": "HUMAN_VERIFIED", "person_box_count": "1"},
                 {"source_group": "s2", "provenance": "STRONG", "source": "OTHER",
+                 "source_group_confidence": "STRONG", "split_eligibility": "ELIGIBLE",
                  "annotation_status": "VERIFIED_NEGATIVE", "person_box_count": "0"}]
         result = readiness(rows, {"task": {"completed": True}}, [], False,
                            minimum_negative_images=1, minimum_independent_groups=3,
                            split={"s1": "TRAIN", "s2": "CALIBRATION"})
         self.assertIn("EVALUATION_NOT_FROZEN", result["blockers"])
-        self.assertEqual(result["decision"], "PERSON_V2_BLOCKED_BY_ANNOTATION")
+        self.assertEqual(result["decision"], "PERSON_V2_BLOCKED_BY_PROVENANCE")
+
+    def test_complete_annotations_with_weak_provenance_are_not_ready(self):
+        rows = [{"source_group": "weak:1", "provenance": "WEAK", "source": "OTHER",
+                 "source_group_confidence": "WEAK", "split_eligibility": "PENDING_REVIEW",
+                 "annotation_status": "HUMAN_VERIFIED", "person_box_count": "2"},
+                {"source_group": "weak:2", "provenance": "WEAK", "source": "OTHER",
+                 "source_group_confidence": "WEAK", "split_eligibility": "PENDING_REVIEW",
+                 "annotation_status": "VERIFIED_NEGATIVE", "person_box_count": "0"}]
+        result = readiness(rows, {"task": {"completed": True}}, [], False,
+                           minimum_negative_images=1)
+        self.assertEqual(result["decision"], "PERSON_V2_BLOCKED_BY_PROVENANCE")
+        self.assertNotIn("ANNOTATION_REVIEW_PENDING", result["blockers"])
+        self.assertEqual(result["strong_positive_groups"], 0)
+        self.assertEqual(result["strong_negative_groups"], 0)
 
     def make_task_export(self, folder: Path, *, confirmed: bool = True,
                          bbox: list[float] | None = None) -> tuple[Path, list[dict]]:
@@ -231,7 +262,8 @@ class PersonCampaignTest(unittest.TestCase):
             result = module.process(campaign)
             self.assertEqual(result["qa"]["completed_tasks"], 1)
             self.assertEqual(result["qa"]["blocking_issues"], 0)
-            self.assertEqual(result["readiness"], "PERSON_V2_BLOCKED_BY_ANNOTATION")
+            self.assertEqual(result["readiness"], "PERSON_V2_BLOCKED_BY_PROVENANCE")
+            self.assertEqual(result["split"], "BLOCKED")
             labels = (campaign / "final" / "labels" / "OTHER_a.txt").read_text(encoding="utf-8")
             self.assertEqual(labels, "0 0.25000000 0.40000000 0.30000000 0.40000000\n")
             manifest = module.csv_rows(campaign / "final" / "verified-manifest.csv")
