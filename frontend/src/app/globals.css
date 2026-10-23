@@ -2089,9 +2089,13 @@ a {
   background: transparent;
 }
 .analysis-media-frame {
-  --analysis-video-height: clamp(19rem, calc(100dvh - 27rem), 62rem);
+  --analysis-video-height: min(72dvh, 44rem);
+  --analysis-stage-ratio: 1.7778;
   position: relative;
-  width: min(100%, calc(var(--analysis-video-height) * 1.7778));
+  width: min(
+    100%,
+    calc(var(--analysis-video-height) * var(--analysis-stage-ratio))
+  );
   margin-inline: auto;
   overflow: hidden;
   border: 1px solid var(--analysis-border);
@@ -2099,11 +2103,25 @@ a {
   background: var(--analysis-background);
   box-shadow: 0 18px 48px rgb(8 10 13 / 0.12);
 }
-.analysis-stage {
+.analysis-media-stage {
+  display: grid;
+  place-items: center;
   width: 100%;
+  aspect-ratio: var(--analysis-stage-ratio);
+  background: var(--analysis-background);
+  container-type: inline-size;
+}
+.analysis-stage {
+  width: min(
+    100%,
+    calc(100cqw / var(--analysis-stage-ratio) * var(--analysis-source-ratio))
+  );
   min-height: 0;
   border: 0;
   background: var(--analysis-background);
+}
+.analysis-stage.is-empty {
+  aspect-ratio: 16 / 9 !important;
 }
 .analysis-toolbar {
   position: relative;
@@ -2620,6 +2638,9 @@ a {
     width: 100%;
     border-inline: 0;
     border-radius: 0;
+  }
+  .analysis-media-frame.is-portrait {
+    --analysis-stage-ratio: 1;
   }
   .analysis-toolbar {
     overflow-x: auto;

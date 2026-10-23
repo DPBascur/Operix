@@ -594,149 +594,158 @@ export function AnalysisWorkspace({
 
       <div className="analysis-layout">
         <section aria-label="Video de análisis" className="analysis-view">
-          <div className="analysis-media-frame">
-            <div
-              className={`analysis-stage ${sourceName ? "has-source" : "is-empty"}`}
-              style={{
-                aspectRatio: `${videoInfo.width} / ${videoInfo.height}`,
-              }}
-            >
-              {!sourceName && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-white/80">
-                  <Upload size={30} aria-hidden="true" />
-                  <p className="text-lg font-semibold">Sin fuente de video</p>
-                  <p className="max-w-sm text-sm opacity-75">
-                    Seleccione un archivo o use una demo.
-                  </p>
-                </div>
-              )}
-              {showReference && referenceUrl && (
-                <video
-                  ref={videoRef}
-                  src={referenceUrl}
-                  controls={!editing}
-                  preload="metadata"
-                  className="absolute inset-0 h-full w-full object-contain"
-                  onLoadedMetadata={(event) => {
-                    const video = event.currentTarget;
-                    setVideoInfo({
-                      width: video.videoWidth,
-                      height: video.videoHeight,
-                      duration: video.duration,
-                    });
-                  }}
-                />
-              )}
-              {showStream && (
-                <img
-                  key={`${session.id}-${session.run}`}
-                  src={analysisService.getAnalysisStreamUrl(session.id)}
-                  alt="Video procesado: personas, montacargas, IDs y zona"
-                  className="absolute inset-0 h-full w-full object-contain"
-                />
-              )}
-              {showResult && (
-                <video
-                  key={`${session.id}-${session.run}-result`}
-                  src={analysisService.getAnalysisResultUrl(
-                    session.id,
-                    session.run,
-                  )}
-                  controls
-                  preload="metadata"
-                  aria-label="Resultado anotado de Operix"
-                  className="absolute inset-0 h-full w-full object-contain"
-                />
-              )}
-              {showReference && session && (
-                <svg
-                  viewBox="0 0 100 100"
-                  preserveAspectRatio="none"
-                  className={`absolute inset-0 h-full w-full ${editing ? "touch-none cursor-crosshair" : "pointer-events-none"}`}
-                  aria-label={
-                    editing
-                      ? "Editor de polígono normalizado"
-                      : "Zona de referencia"
-                  }
-                  onPointerDown={(event) => {
-                    if (
-                      !editing ||
-                      closed ||
-                      event.target !== event.currentTarget
-                    )
-                      return;
-                    const point = pointInFrame(event);
-                    if (point) setDraft((current) => [...current, point]);
-                  }}
-                  onPointerMove={(event) => {
-                    const draggedVertex = dragging.current;
-                    if (draggedVertex === null) return;
-                    const point = pointInFrame(event);
-                    if (!point) return;
-                    setDraft((current) =>
-                      current.map((value, index) =>
-                        index === draggedVertex ? point : value,
-                      ),
-                    );
-                  }}
-                  onPointerUp={() => {
-                    dragging.current = null;
-                  }}
-                  onPointerCancel={() => {
-                    dragging.current = null;
-                  }}
-                >
-                  {draft.length > 1 && (
-                    <ZoneOutline
-                      points={draft
-                        .map(([x, y]) => `${x * 100},${y * 100}`)
-                        .join(" ")}
-                      fill={closed ? "rgba(47,209,200,0.08)" : "none"}
-                      stroke="#2fd1c8"
-                      strokeWidth="2"
-                      vectorEffect="non-scaling-stroke"
-                      pointerEvents="none"
-                    />
-                  )}
-                  {editing &&
-                    draft.map(([x, y], index) => (
-                      <ellipse
-                        key={index}
-                        cx={x * 100}
-                        cy={y * 100}
-                        rx={selectedVertex === index ? 1.1 : 0.8}
-                        ry={
-                          ((selectedVertex === index ? 1.1 : 0.8) *
-                            videoInfo.width) /
-                          videoInfo.height
-                        }
-                        fill={selectedVertex === index ? "#2fd1c8" : "#fff"}
-                        stroke="#087c79"
+          <div
+            className={`analysis-media-frame ${sourceName && videoInfo.height > videoInfo.width ? "is-portrait" : ""}`}
+            style={
+              {
+                "--analysis-source-ratio": videoInfo.width / videoInfo.height,
+              } as React.CSSProperties
+            }
+          >
+            <div className="analysis-media-stage">
+              <div
+                className={`analysis-stage ${sourceName ? "has-source" : "is-empty"}`}
+                style={{
+                  aspectRatio: `${videoInfo.width} / ${videoInfo.height}`,
+                }}
+              >
+                {!sourceName && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-white/80">
+                    <Upload size={30} aria-hidden="true" />
+                    <p className="text-lg font-semibold">Sin fuente de video</p>
+                    <p className="max-w-sm text-sm opacity-75">
+                      Seleccione un archivo o use una demo.
+                    </p>
+                  </div>
+                )}
+                {showReference && referenceUrl && (
+                  <video
+                    ref={videoRef}
+                    src={referenceUrl}
+                    controls={!editing}
+                    preload="metadata"
+                    className="absolute inset-0 h-full w-full object-contain"
+                    onLoadedMetadata={(event) => {
+                      const video = event.currentTarget;
+                      setVideoInfo({
+                        width: video.videoWidth,
+                        height: video.videoHeight,
+                        duration: video.duration,
+                      });
+                    }}
+                  />
+                )}
+                {showStream && (
+                  <img
+                    key={`${session.id}-${session.run}`}
+                    src={analysisService.getAnalysisStreamUrl(session.id)}
+                    alt="Video procesado: personas, montacargas, IDs y zona"
+                    className="absolute inset-0 h-full w-full object-contain"
+                  />
+                )}
+                {showResult && (
+                  <video
+                    key={`${session.id}-${session.run}-result`}
+                    src={analysisService.getAnalysisResultUrl(
+                      session.id,
+                      session.run,
+                    )}
+                    controls
+                    preload="metadata"
+                    aria-label="Resultado anotado de Operix"
+                    className="absolute inset-0 h-full w-full object-contain"
+                  />
+                )}
+                {showReference && session && (
+                  <svg
+                    viewBox="0 0 100 100"
+                    preserveAspectRatio="none"
+                    className={`absolute inset-0 h-full w-full ${editing ? "touch-none cursor-crosshair" : "pointer-events-none"}`}
+                    aria-label={
+                      editing
+                        ? "Editor de polígono normalizado"
+                        : "Zona de referencia"
+                    }
+                    onPointerDown={(event) => {
+                      if (
+                        !editing ||
+                        closed ||
+                        event.target !== event.currentTarget
+                      )
+                        return;
+                      const point = pointInFrame(event);
+                      if (point) setDraft((current) => [...current, point]);
+                    }}
+                    onPointerMove={(event) => {
+                      const draggedVertex = dragging.current;
+                      if (draggedVertex === null) return;
+                      const point = pointInFrame(event);
+                      if (!point) return;
+                      setDraft((current) =>
+                        current.map((value, index) =>
+                          index === draggedVertex ? point : value,
+                        ),
+                      );
+                    }}
+                    onPointerUp={() => {
+                      dragging.current = null;
+                    }}
+                    onPointerCancel={() => {
+                      dragging.current = null;
+                    }}
+                  >
+                    {draft.length > 1 && (
+                      <ZoneOutline
+                        points={draft
+                          .map(([x, y]) => `${x * 100},${y * 100}`)
+                          .join(" ")}
+                        fill={closed ? "rgba(47,209,200,0.08)" : "none"}
+                        stroke="#2fd1c8"
                         strokeWidth="2"
                         vectorEffect="non-scaling-stroke"
-                        tabIndex={0}
-                        role="button"
-                        aria-label={`Vértice ${index + 1}, x ${(x * 100).toFixed(1)} %, y ${(y * 100).toFixed(1)} %. Use las flechas para moverlo; mantenga Mayús para un desplazamiento mayor.`}
-                        onFocus={() => setSelectedVertex(index)}
-                        onKeyDown={(event) =>
-                          moveVertexWithKeyboard(event, index)
-                        }
-                        onPointerDown={(event) => {
-                          event.stopPropagation();
-                          if (!closed && index === 0 && draft.length >= 3) {
-                            setClosed(true);
-                            return;
-                          }
-                          dragging.current = index;
-                          setSelectedVertex(index);
-                          event.currentTarget.setPointerCapture(
-                            event.pointerId,
-                          );
-                        }}
+                        pointerEvents="none"
                       />
-                    ))}
-                </svg>
-              )}
+                    )}
+                    {editing &&
+                      draft.map(([x, y], index) => (
+                        <ellipse
+                          key={index}
+                          cx={x * 100}
+                          cy={y * 100}
+                          rx={selectedVertex === index ? 1.1 : 0.8}
+                          ry={
+                            ((selectedVertex === index ? 1.1 : 0.8) *
+                              videoInfo.width) /
+                            videoInfo.height
+                          }
+                          fill={selectedVertex === index ? "#2fd1c8" : "#fff"}
+                          stroke="#087c79"
+                          strokeWidth="2"
+                          vectorEffect="non-scaling-stroke"
+                          tabIndex={0}
+                          role="button"
+                          aria-label={`Vértice ${index + 1}, x ${(x * 100).toFixed(1)} %, y ${(y * 100).toFixed(1)} %. Use las flechas para moverlo; mantenga Mayús para un desplazamiento mayor.`}
+                          onFocus={() => setSelectedVertex(index)}
+                          onKeyDown={(event) =>
+                            moveVertexWithKeyboard(event, index)
+                          }
+                          onPointerDown={(event) => {
+                            event.stopPropagation();
+                            if (!closed && index === 0 && draft.length >= 3) {
+                              setClosed(true);
+                              return;
+                            }
+                            dragging.current = index;
+                            setSelectedVertex(index);
+                            event.currentTarget.setPointerCapture(
+                              event.pointerId,
+                            );
+                          }}
+                        />
+                      ))}
+                  </svg>
+                )}
+              </div>
             </div>
 
             <div className="analysis-toolbar">
