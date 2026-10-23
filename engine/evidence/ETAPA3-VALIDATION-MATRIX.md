@@ -66,6 +66,7 @@ la reconciliación técnica sin sobrescribir macros, actas ni estados académico
 | E3-MOTOR-BASE | Regresión Motor RF-01–05 | Entorno instalado; fixtures sin modelos | Suite sin fallos; integraciones con pesos omitidas | 301 tests, 299 aprobados, 2 omitidos | PASS; unittest discover |
 | E3-API-BASE | Persistencia, filtros, errores RF-06–08 | PostgreSQL local; DB temporal Django | Sin fallos ni migraciones pendientes | 75/75 tests, check OK, no changes detected | PASS; Django test/check |
 | E3-E2E-01 | Video→candidate→HTTP→DB→evidencia→consulta→indicador | LiveServer, PostgreSQL de tests; video MJPG de 4 frames; percepción fixture | Un evento y PNG recuperable; retry sin duplicado; nueva ejecución separada | Un evento al frame 2, retry conserva ID; otra ejecución crea segundo evento; agregado reconcilia | PASS; `backend/apps/events/test_motor_integration.py` |
+| E3-PNG-01 | RF-06 evidencia legible y acotada | IHDR/CRC válidos con IDAT ilegible, vacío, filtro inválido o expansión excesiva | HTTP 400 sin guardar imagen; PNG correcto sigue recuperable | Antes: 201/200 aceptaban datos inválidos; después: rechazo controlado; Adam7 válido aceptado | PASS; `EventEvidenceTests` |
 
 La prueba E3-E2E-01 usa lectura OpenCV, analizador, regla, renderer, HttpEventSink,
 Django y PostgreSQL reales. Detector/tracker son fixtures deterministas: demuestra

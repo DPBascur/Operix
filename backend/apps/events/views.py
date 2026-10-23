@@ -114,7 +114,7 @@ class EventFrequencyView(APIView):
 
 
 def validate_png(content):
-    """Comprueba estructura PNG y dimensiones sin confiar en nombre o MIME."""
+    """Valida chunks y scanlines PNG con descompresión acotada, sin nuevas dependencias."""
     if len(content) > 2 * 1024 * 1024 or len(content) < 45:
         raise ValidationError({"image": "PNG vacío o superior a 2 MiB."})
     if not content.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -123,6 +123,9 @@ def validate_png(content):
     seen_idat = False
     seen_end = False
     first = True
+    compressed = []
+    header = None
+    palette = False
     while offset + 12 <= len(content):
         length = struct.unpack(">I", content[offset:offset + 4])[0]
         end = offset + 12 + length
@@ -139,15 +142,57 @@ def validate_png(content):
             width, height = struct.unpack(">II", body[:8])
             if not (0 < width <= 4096 and 0 < height <= 4096):
                 break
+            depth, color, compression, filtering, interlace = body[8:]
+            allowed_depths = {0: {1, 2, 4, 8, 16}, 2: {8, 16},
+                              3: {1, 2, 4, 8}, 4: {8, 16}, 6: {8, 16}}
+            if (depth not in allowed_depths.get(color, set()) or compression != 0
+                    or filtering != 0 or interlace not in (0, 1)):
+                break
+            header = (width, height, depth, color, interlace)
             first = False
         elif kind == b"IDAT":
             seen_idat = True
+            compressed.append(body)
+        elif kind == b"PLTE":
+            palette = 0 < length <= 768 and length % 3 == 0
+        elif kind == b"IHDR":
+            break
         elif kind == b"IEND" and length == 0:
             seen_end = end == len(content)
             break
         offset = end
     if not (seen_idat and seen_end):
         raise ValidationError({"image": "Estructura PNG inválida."})
+    width, height, depth, color, interlace = header
+    if color == 3 and not palette:
+        raise ValidationError({"image": "PNG indexado sin paleta válida."})
+    channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[color]
+    # Adam7: dimensiones de cada pasada; no requiere reconstruir una imagen gigante.
+    passes = ((0, 0, 1, 1),) if not interlace else (
+        (0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4),
+        (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2),
+    )
+    rows = []
+    for x, y, dx, dy in passes:
+        w, h = max(0, (width - x + dx - 1) // dx), max(0, (height - y + dy - 1) // dy)
+        if w and h:
+            rows.extend([1 + (w * channels * depth + 7) // 8] * h)
+    expected = sum(rows)
+    if expected > 64 * 1024 * 1024:
+        raise ValidationError({"image": "PNG supera el límite de 64 MiB descomprimidos."})
+    decoder = zlib.decompressobj()
+    try:
+        pixels = decoder.decompress(b"".join(compressed), expected + 1)
+    except zlib.error:
+        raise ValidationError({"image": "Datos de imagen PNG inválidos."}) from None
+    if (len(pixels) != expected or not decoder.eof or decoder.unused_data
+            or decoder.unconsumed_tail):
+        raise ValidationError({"image": "Datos de imagen PNG incompletos o excesivos."})
+    offset = 0
+    for length in rows:
+        if pixels[offset] > 4:
+            raise ValidationError({"image": "Filtro de scanline PNG inválido."})
+        offset += length
 
 
 class EventEvidenceView(APIView):

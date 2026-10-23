@@ -68,6 +68,10 @@ PostgreSQL impone unicidad sobre `(analysis_run_id, view_id, frame_index, rule_i
 
 La imagen es opcional: primero se crea o recupera el evento y se obtiene su UUID; después se envía `image` (PNG, máximo 2 MiB), `frame_index` y `video_timestamp_s` por multipart al endpoint de evidencia. Los dos valores temporales deben coincidir con el evento. Solo se admite una imagen válida por evento: un POST repetido devuelve 200 sin guardar otro PNG; si la referencia existe pero el archivo falta, un retry puede completarlo. La referencia se guarda en PostgreSQL mediante `FileField`; los bytes quedan en `OPERIX_MEDIA_ROOT`, nunca como blob de base de datos. Lista y detalle exponen `evidence_url` relativo o `null` si no hay archivo disponible; no exponen rutas del filesystem. El GET de imagen devuelve `image/png` y `Cache-Control: no-store`. Un fallo entre ambos POST aún puede dejar temporalmente un evento sin imagen; un retry del Motor puede completarla.
 
+La validación PNG comprueba también descompresión, longitud de scanlines y filtros,
+incluido Adam7. Se limita a 4096×4096 y 64 MiB descomprimidos además de los 2 MiB
+de archivo: una firma/CRC correctos no bastan para aceptar evidencia ilegible.
+
 ## Análisis visual temporal
 
 `/analysis` del Frontend crea una sesión mediante `POST /api/v1/analysis/sessions/`

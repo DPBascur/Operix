@@ -300,6 +300,22 @@ class EventEvidenceTests(APITestCase):
         self.assertIsNone(self.client.get(f"/api/v1/events/{event_id}/").data["evidence_url"])
         self.assertEqual(self.client.get(f"/api/v1/events/{event_id}/evidence/").status_code, 404)
 
+    def test_png_with_valid_crc_but_unreadable_pixels_is_rejected(self):
+        def chunk(kind, body):
+            return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
+        event_id = self.create_event().data["id"]
+        for data in (b"not a zlib stream", zlib.compress(b""),
+                     zlib.compress(b"\x05\x00\x00\x00"),
+                     zlib.compress(b"\x00" * 10000)):
+            with self.subTest(data=data[:20]):
+                payload = (b"\x89PNG\r\n\x1a\n"
+                           + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+                           + chunk(b"IDAT", data) + chunk(b"IEND", b""))
+                image = SimpleUploadedFile("frame.png", payload, content_type="image/png")
+                self.assertEqual(self.upload(event_id, image=image).status_code, 400)
+                self.assertFalse(Event.objects.get(pk=event_id).evidence_image)
+
     def test_duplicate_upload_reuses_evidence_without_new_file(self):
         event_id = self.create_event().data["id"]
         self.assertEqual(self.upload(event_id).status_code, 201)
@@ -308,6 +324,22 @@ class EventEvidenceTests(APITestCase):
         self.assertEqual(Event.objects.get(pk=event_id).evidence_image.name, original_name)
         storage = Event.objects.get(pk=event_id).evidence_image.storage
         self.assertEqual(len(storage.listdir(f"events/{event_id}")[1]), 1)
+
+    def test_adam7_png_remains_supported_and_decode_limit_is_enforced(self):
+        from .views import validate_png
+        from rest_framework.exceptions import ValidationError
+
+        def chunk(kind, body):
+            return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
+        def png(width, height, depth, color, interlace, pixels):
+            return (b"\x89PNG\r\n\x1a\n"
+                    + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, depth, color, 0, 0, interlace))
+                    + chunk(b"IDAT", zlib.compress(pixels)) + chunk(b"IEND", b""))
+
+        validate_png(png(1, 1, 8, 2, 1, b"\x00\x00\x00\x00"))
+        with self.assertRaises(ValidationError):
+            validate_png(png(4096, 4096, 16, 6, 0, b""))
 
     def test_retry_can_complete_missing_evidence(self):
         event_id = self.create_event().data["id"]
