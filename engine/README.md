@@ -4,6 +4,11 @@ Componente de Operix Architecture v1.0 que transforma video en resultados de an�
 
 > La IA percibe el entorno; las reglas interpretan el contexto.
 
+Estado de implementación, integración, pruebas y límites actuales:
+[matriz de validación preliminar de Etapa 3](evidence/ETAPA3-VALIDATION-MATRIX.md).
+Separa la persistencia CLI comprobada de las sesiones web temporales y de la
+evaluación PERSON pendiente de anotación humana.
+
 Flujo conceptual: video → detección → tracking → variables espacio-temporales → reglas configurables → `EventCandidate`. `scripts/evaluate_rules.py` conserva el replay de tracks; `scripts/process_video_events.py` demuestra la cadena desde video en una sola pasada local controlada.
 
 ## Tecnologías y límites

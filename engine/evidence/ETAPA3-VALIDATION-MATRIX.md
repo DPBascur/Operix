@@ -11,6 +11,8 @@ satisfecha, no incidente, Near Miss ni responsabilidad personal.
 PERSON final: `WAITING_FOR_HUMAN_ANNOTATION`; cinco familias 101–105 y 92 imágenes
 reservadas. No inferencia, nueva selección, cambio de sampling ni freeze. TEST2
 permanece protegido; YouTube es `DIAGNOSTIC_ONLY`; TEST3 es desarrollo.
+Los hashes de los cinco paquetes CVAT se comprobaron contra el manifest de
+adquisición: 20/20/12/20/20 frames, todos PASS, sin abrir imágenes ni ejecutar modelos.
 FORKLIFT v2 conserva SHA `1465105ea80737ddc65d72e97d6dc24fc253995a98d6d4eea9b377fe3a8edce6`,
 640, confidence 0.45 y NMS 0.55. No se entrena ni calibra en esta campaña.
 
@@ -43,10 +45,13 @@ Arquitectura, gestión y evaluación tampoco se cuentan como código implementad
 
 Revisión conservadora: 33/34/35/36/37/38/41/59/60 tienen implementación y evidencia
 de su aceptación técnica: **9/11 = 81,82 %**. OP-39 y OP-40 se mantienen **PARTIAL**
-por las fronteras descritas. Antes/después de la primera prueba integrada: 9/11.
+por las fronteras descritas. Antes/después de la campaña: 9/11.
 No es porcentaje de todo el backlog ni nota académica, ni equivale a exactitud
 validada de PERSON. El Excel conserva su estado original: esta matriz registra
 la reconciliación técnica sin sobrescribir macros, actas ni estados académicos.
+El 81,82 % demuestra avance del **núcleo técnico delimitado**, no acredita por sí
+solo el 50 % de un denominador académico global no acordado. OP-29/31/32 son
+historias superiores y OP-44/45 validación; no se ocultan ni se marcan completas.
 
 ## Flujo real y simulaciones
 
@@ -71,6 +76,10 @@ la reconciliación técnica sin sobrescribir macros, actas ni estados académico
 | E3-RETRY-01 | RF-06 recuperación acotada | Timeout→éxito; 503 persistente; 400; imagen fallida | Reutilizar candidato/PNG/UUID; máximo 3 intentos; no repetir error permanente | Pipeline recupera un candidato, conserva ID parcial y reporta intentos | PASS; `test_video_event_pipeline.py` |
 | E3-FAIL-01 | RF-06/R-02 fallos controlados | DatabaseError al crear evento; PermissionError al guardar PNG | 503 sin datos privados ni cambios parciales de metadata | Ambos fallaban sin manejar antes; ahora conservan histórico/metadata y no exponen el mensaje interno | PASS; `EventApiTests`, `EventEvidenceTests` |
 | E3-STRESS-01 | RF-07–08/RNF-02 histórico controlado | 1.000 filas TEST_DATA_STRESS en PostgreSQL de tests; cinco filtros; 63 consultas temporizadas | Lista y agregados coinciden con Counter independiente; sin tocar histórico de desarrollo | Conciliación exacta, consultas HTTP 200; resultados opcionales fuera de Git | PASS; `test_validation_stress.py` |
+| E3-RULE-01 | RF-05/PV-01 límites e independencia de pares | Fuera de zona/distancia, uno ausente, igualdad, float, reset y múltiples pares | Emitir una vez por episodio; no recalcular geometría ni relajar distancia | Casos conservados en la suite vigente | PASS funcional; `test_pair_rules.py`, `test_rules.py` |
+| E3-TRACK-01 | RF-03 continuidad funcional | Detecciones sintéticas: movimiento, dos objetos, pérdida breve/larga, reset | Recuperar ID breve; nuevo ID tras buffer; identidad separada | Sin regresión en suite Motor | PASS funcional; `test_byte_tracker.py`, `test_spatiotemporal.py`; sin GT MOT |
+| E3-WEB-01 | RF-07–08 fuente de datos y estado de API | Build de producción, origen local permitido, 25 filas de desarrollo | Diferenciar ejemplo/API, health real y conteo coincidente | API conectada; ejemplo 64, API 25; tabla 25, zonas 22+2+1 | PASS acotado; revisión de navegador y captura local |
+| E3-FINAL-01 | Regresión transversal | Python 3.12.10, PostgreSQL real, Node 24.2.0/pnpm 11.28.2 | Suites y comprobaciones sin fallos | Motor 306: 304 PASS + 2 SKIP; Backend 85/85; Frontend 21/21; lint/tipos/build PASS | PASS; 412 descubiertas, 410 aprobadas, 2 omitidas |
 
 La prueba E3-E2E-01 usa lectura OpenCV, analizador, regla, renderer, HttpEventSink,
 Django y PostgreSQL reales. Detector/tracker son fixtures deterministas: demuestra
@@ -78,13 +87,186 @@ integración, **no evalúa ningún modelo**. Sus filas solo existen en la DB tem
 destruida por Django y sus imágenes se conservan únicamente durante el test.
 Resumen local: `etapa3-autonomous-2026-10-23/baseline/motor-http-postgresql-smoke.json`.
 
-## Pendientes de campaña
+## Hitos publicados y cambios observables
 
-- P0: verificar fronteras de publicación web/pares antes de ampliar persistencia.
-- P1: precisión temporal entre Motor/API; reintentos acotados; PNG decodificable.
-- P1: rendimiento/estrés acotado y documentación de errores, sin usar holdouts.
-- P2: reproducibilidad, revisión de claims y smoke web sin rediseño.
-- BLOCKED: anotación PERSON, validación experta y decisiones de acceso/retención.
+| Commit | Mejora / antes → después | Alcance y límite |
+| --- | --- | --- |
+| `ee541a6` | Integración sin prueba transversal → LiveServer HTTP + PostgreSQL + Motor + PNG + consulta/agregado | Percepción fixture, no exactitud de modelos |
+| `bee649e` | PNG con IDAT ilegible aceptado → scanlines/zlib acotados y rechazo HTTP 400 | No es un decodificador PNG completo |
+| `19a8402` | 1/30 s truncado a 0.033 y rechazado → 0.033333333 aceptado sin bajar umbral | Migración numeric(18,9), sin reescribir observaciones históricas |
+| `22a9421` | Fallo transitorio aborta publicación → máximo tres intentos de la misma identidad/imagen | Solo errores reintentables; no 400/409; replay separado no cambia |
+| `7ff24ee` | DatabaseError/OSError sin respuesta API controlada → HTTP 503 genérico | No revela el texto interno ni inventa éxito |
+| `67d1c6e` | Sin carga histórica conciliada → test reproducible con 1.000 filas y Counter independiente | Solo DB temporal de tests, no carga industrial |
+
+No hay una optimización de velocidad demostrada: los cambios corrigen robustez
+y aumentan evidencia. Motor pasa de 301 a 306 pruebas; Backend de 75 a 85;
+Frontend conserva 21. Quince pruebas adicionales, ninguna dependencia nueva.
+Las dos omisiones del Motor son integraciones con pesos reales; no se presentan
+como aprobadas. Las tres corridas GPU descritas abajo son evidencia separada.
+
+La migración se aplicó también sobre la DB de desarrollo: 25 filas antes/después,
+SHA de su representación semántica idéntico
+`ddf9bec3c41cccd32c24e961753a8491036e9f278801803ca487bf502d14b90c`.
+Un retry antiguo con observación redondeada incompatible continúa devolviendo
+409 y conserva la fila: no se inventa otra identidad para esquivar el conflicto.
+Las DB nuevas se validan mediante las migraciones al crear la DB de tests.
+
+## Rendimiento y estrés preliminar del estado actual
+
+Fecha 23-10-2026. Ryzen 5 5500, RAM 34.244.796.416 bytes, RTX 3070,
+VRAM 8.589.410.304 bytes, driver 616.92, Windows 10 AMD64 build 19045;
+Python 3.12.10, PyTorch 2.14.0+cu130, TorchVision 0.29.0+cu130,
+CUDA 13.0, OpenCV 5.0.0.93, Ultralytics 8.4.146, lap 0.5.12, engine 0.1.0.
+
+Se usa únicamente demo A, 277 frames, 1920×1080, 30 FPS. PERSON actual es
+`DEVELOPMENT_CONFIGURATION / NOT_FINAL_PERSON_EVALUATION`.
+SHA PERSON `21766a9dc664fac06da3b0b457e0449f25e1696acbf8e7e39993c4b42282083f`;
+SHA video `3abe9043ee41f898d869890e8636b804186bfaf524daea2e6f6831e72711f4d6`;
+SHA config `d3026751210776dacdc5226490047fb1c1bf064cdd6877e5ac23b3d6dc39885c`.
+FORKLIFT conserva el SHA y parámetros indicados al inicio. PERSON confidence
+0.10/NMS 0.70; ambos imgsz 640; batch 4, preview 10 FPS/ancho 1280.
+No cambia ByteTrack, reglas ni geometría. Se recargan pesos en cada worker.
+
+| Repetición A | Wall fresco, s | FPS fin a fin del worker | FPS informados por worker | Factor tiempo de proceso / duración del video |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 15.7983011 | 17.534 | 24.48 | 1.711 |
+| 2 | 15.9794500 | 17.335 | 24.12 | 1.731 |
+| 3 | 15.8733053 | 17.451 | 24.35 | 1.719 |
+
+FPS global fresco = 831 / 47.6510564 s ≈ **17.439**. El wall usa
+`perf_counter_ns`, incluye imports, carga, procesamiento, escritura y validación
+del MP4; **excluye HTTP/Frontend/publicación de eventos**. No es latencia de sesión
+web completa. El FPS que informa el worker excluye su carga inicial pero incluye
+validación final: tampoco es una medición pura warm de inferencia.
+
+Las etapas existentes excluyen los primeros 20 frames: 257 observaciones por
+repetición, tiempos amortizados de batch. Promedios de las tres corridas en
+ms/frame: lectura 5.243; PERSON 9.614; FORKLIFT 7.922; tracking 1.448;
+reglas 0.726; renderer 11.045; JPEG 4.790; escritura 2.341; IPC 1.338.
+No se dispone de muestras individuales para un p95 por frame de esas etapas;
+no se fabrica uno ni se equipara suma de etapas con wall completo.
+
+Tres MP4 decodificables completos: H.264/avc1 MSMF, 277 frames, 30 FPS,
+1920×1080, 70.794.289 bytes cada uno; hashes en el resumen local. Los procesos
+terminaron, RSS máximo del árbol 1.760–1.764 MB decimales, handles 1173/1177/1174;
+handles del supervisor 481→482. Esto no demuestra ausencia de fugas a largo
+plazo ni crecimiento del allocator GPU de un proceso residente, no medido.
+No se afirma capacidad sostenida de 30 FPS ni mejora respecto de OP-43:
+modelos, preview, batch y codificador no son comparables.
+
+Se conserva una serie exploratoria anterior con una salida no cero tras marcar
+el video completo; causa no demostrada. Su medición inicial de recursos solo
+incluía el launcher, por lo que no se usa. La serie verificada es independiente,
+no borra esa anomalía ni demuestra que nunca pueda repetirse.
+
+### Histórico PostgreSQL: carga controlada
+
+Test versionado `backend/apps/events/test_validation_stress.py`, commit `67d1c6e`.
+PostgreSQL 17.11; 1.000 eventos marcados TEST_DATA_STRESS, cinco consultas de
+filtros conciliadas y 21 solicitudes por endpoint: primera separada, 20 warm.
+Latencia Django APIClient **en proceso**, con PostgreSQL real, sin TCP/browser.
+La primera solicitud no es un arranque frío de aplicación. p95 nearest-rank
+`ceil(0.95*n)` con n=20; desviación estándar muestral, sin umbral universal.
+La ejecución final coexistió con las otras suites; no es benchmark aislado.
+
+| Endpoint | Primera ms | Media warm ms | Mediana ms | p95 ms | Mín/máx ms | SD ms |
+| --- | ---: | ---: | ---: | ---: | --- | ---: |
+| health | 0.735 | 0.744 | 0.700 | 1.132 | 0.490 / 1.175 | 0.200 |
+| eventos, 1.000 filas | 135.200 | 88.279 | 81.752 | 111.914 | 68.024 / 163.824 | 21.398 |
+| frecuencias, 1.000 filas | 2.127 | 2.177 | 2.068 | 2.829 | 1.715 / 2.934 | 0.348 |
+
+Los datos se crean y destruyen en `test_<POSTGRES_DB>`; el histórico de desarrollo
+conserva 25 filas, sin TEST_DATA_STRESS. Esta prueba no justifica por sí sola
+índices nuevos, paginación ni promesas de escala. No se introducen esas mejoras.
+
+## Reproducción, artefactos y revisión web
+
+Con los entornos de los README instalados y las variables de desarrollo
+cargadas localmente, desde la raíz del repo:
+
+```powershell
+.\engine\.venv\Scripts\python.exe -B -m unittest discover -s engine/tests
+.\engine\.venv\Scripts\python.exe -B engine/scripts/check_environment.py --require-cuda
+```
+
+Desde `backend`, ejecutar `manage.py check`, `makemigrations --check --dry-run`
+y `test --noinput` con su Python virtual. Para repetir solo carga/E2E:
+
+```powershell
+.\.venv\Scripts\python.exe -B manage.py test apps.events.test_motor_integration apps.events.test_validation_stress --noinput
+```
+
+`OPERIX_VALIDATION_OUTPUT_DIR` opcional debe apuntar fuera del repo. Desde
+`frontend`, Node 24.2.0/pnpm 11.28.2: `pnpm test`, `pnpm lint`,
+`pnpm typecheck`, `pnpm build`. No cambiar `.env`, CORS ni dependencias para
+obtener resultados artificialmente verdes.
+
+El harness local de workers y sus tres resúmenes están en el directorio externo
+`etapa3-autonomous-2026-10-23/`: `run_development_worker_baseline.py`,
+`worker-sequential-verified/summary.json`,
+`performance-final/controlled-history-stress.json`, `migration-check.json` y
+`dashboard-api-smoke.png`. No se versionan medios ni rutas personales.
+El resumen de workers registra commit `22a9421`, SHA del harness
+`60a31c685565a2c099f33a130d8b28ed549e3dc6b447a401c6a5315262083f8a`,
+hardware, configuración, hashes de entrada/salida y orden A/A/A.
+Para repetir esa serie local se usa el Python del Motor y el harness con
+`--output-name <nombre-nuevo> --repetitions 3`, sin sobrescribir corridas.
+El test de histórico registra su commit y SHA del propio test; no incorpora
+credenciales ni medios al reporte. Los experimentos locales no están disponibles
+en un clon público: el test versionado sí; para el benchmark se requieren pesos
+y codificador locales, no descargas automáticas.
+
+Smoke del navegador en el origen local autorizado: health conectado,
+dashboard ejemplo/API claramente separados; 25 eventos API, distribución por
+zona 22/2/1 y tabla de eventos con enlaces de evidencia. Los tests de Backend
+comprueban recuperación PNG e idempotencia; no se afirma haber revisado a mano
+todas las imágenes históricas ni un análisis web nuevo publicando eventos.
+Impeccable se utilizó para una auditoría acotada, sin rediseñar: se mantiene
+distinción demo/API, loading, fuente UTC y advertencia de frecuencias no riesgos.
+No es certificación WCAG ni una revisión responsive completa. Un puerto temporal
+no permitido falló por CORS; se usó el origen ya autorizado, sin debilitar CORS.
+
+## Revisión adversarial y pendientes reales
+
+- **BLOCKED — PERSON:** anotación humana completa, revisión y atestación final
+  de independencia. El registro training/development aún requiere cobertura
+  humana confirmada antes de freeze. Cinco familias/92 frames no equivalen a
+  ground truth terminado. No inferencia ni entrenamiento en el holdout.
+- **BLOCKED — publicación web/pares:** decidir activación, identidad de dos
+  entidades, ancla civil del video, significado de inicio/final del episodio,
+  inclusión de demos en histórico y retención/acceso de evidencia persistente.
+  El IPC conserva solo el último frame; no permite reconstruir episodios completos.
+  La regla de pares continúa deshabilitada en perfiles. No activar por inferencia.
+- **BLOCKED — PV-01/PV-02:** validación experta de umbrales, geometría y uso antes
+  de interpretar riesgo, alertas o roles obligatorios. Login local no protege API.
+- **DEFERRED técnico:** cuantización a nueve decimales puede diferir del comparador
+  float en un borde extremo subnanosegundo: elapsed=1/30 y umbral=1/30+0.9e-9
+  es aceptado por Motor, pero 0.033333333 puede ser rechazado por API. No se
+  afirma equivalencia temporal perfecta ni se amplía tolerancia operacional.
+- **DEFERRED técnico:** el validador PNG acota descompresión y verifica scanlines,
+  no reconstruye píxeles/paleta ni todas las reglas de chunks críticos. No llamarlo
+  decodificador PNG completo; evidencia RGB del Motor cubierta por integración.
+- **Limitaciones de prueba:** UI revisada en escritorio, no suite E2E web completa;
+  carga acotada, sin estrés concurrente industrial ni medición VRAM residente;
+  precisión PERSON y MOT no evaluada formalmente; una anomalía de salida previa
+  sin causa demostrada. No hay P0/P1 nuevo reproducible en las suites finales,
+  pero las fronteras funcionales indicadas siguen abiertas.
+
+## Scorecard de evidencia (no calificación)
+
+| Categoría de rúbrica | Peso de referencia | Estado | Sustento / faltante |
+| --- | ---: | --- | --- |
+| Retroalimentación | 20 | PARTIAL | OP-28 y ADR justifican tecnologías; falta nueva validación externa registrada |
+| Mejoras/optimización | 15 | ADEQUATE | Bugs reproducidos y corregidos; no aceleración no medida |
+| Implementación | 10 | ADEQUATE | 9/11 del núcleo técnico; denominador global académico por acordar |
+| Pruebas/resultados | 30 | STRONG | 410 PASS + 2 SKIP; E2E real con percepción fixture; límites de exactitud explícitos |
+| Validación preliminar | 10 | PARTIAL | Tres workers GPU + histórico 1.000 filas; PERSON y continuidad web pendientes |
+| Documentación/trazabilidad | 15 | STRONG | Matriz, commits separados, resultados locales con hashes; Excel no sobrescrito |
+
+**ETAPA3_AUTONOMOUS_ADVANCEMENT_COMPLETE** para esta campaña acotada.
+**ETAPA3_BLOCKED_BY_PERSON_ANNOTATION_AND_OPERATIONAL_PERSISTENCE_DECISIONS**
+para declarar cumplimiento completo. Existe validación preliminar de componentes,
+no un MVP integral universalmente listo ni cierre académico automático.
 
 ## Retroalimentación y mejoras
 

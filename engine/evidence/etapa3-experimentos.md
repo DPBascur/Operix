@@ -1,5 +1,10 @@
 # Etapa 3 — evaluación experimental del pipeline de percepción y eventos
 
+Para el estado transversal al 23-10-2026, pruebas, hardening y pendientes, véase
+la [matriz de validación de Etapa 3](ETAPA3-VALIDATION-MATRIX.md).
+Las campañas siguientes conservan sus configuraciones y resultados históricos;
+no equivalen a una evaluación del holdout PERSON final, aún sin anotación humana.
+
 ## Alcance y recursos reproducibles
 
 Esta evidencia consolida seis campañas exploratorias: umbral de confianza, baseline multiescenario, ajuste acotado de ByteTrack, diagnóstico de pérdida por pose, resolución en C y comparación 640/1280 en A/B/C. No es una medición formal de precisión, MOT ni seguridad industrial. Ninguna campaña cambió los pesos, los defaults ni el criterio de la regla. Los resultados proceden de experimentos locales del 14-10-2026 y sus registros detallados anteriores permanecen recuperables en el historial Git.

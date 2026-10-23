@@ -9,8 +9,14 @@ completo no demuestra por sí solo independencia de escenas. Protocolo vigente:
 Sus 68 frames y 89 cajas no habilitan selección de threshold/ganador final ni
 métricas finales. Los derechos siguen sin verificar; la reclasificación metodológica
 no otorga permiso de uso ni distribución. No se repite anotación ni se mueve material.
-El nuevo root local `Operix-experiments/person-independent-holdout-v2-2026-10-23/`
-está preparado para adquirir fuentes válidas y todavía no contiene videos.
+El root local `Operix-experiments/person-independent-holdout-v2-2026-10-23/`
+ya completó adquisición: cinco familias `HOLDOUT_PERSON_101`–`105`, 92 frames
+en paquetes CVAT y provenance/derechos individuales archivados. Estado al
+23-10-2026: **WAITING_FOR_HUMAN_ANNOTATION**, sin freeze ni acceso de modelos.
+Solo se permite validar estructura, hashes, manifests, provenance y metadata de
+aislamiento. No cambiar sampling/imágenes ni seleccionar/evaluar más vistas.
+La anotación y atestación de cobertura training/development siguen pendientes;
+esta actualización no cambia los criterios del protocolo ni autoriza inferencia.
 
 ## Material y procedencia
 
