@@ -7,6 +7,7 @@ import {
   House,
   Map,
   ShieldCheck,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import Image from "next/image";
@@ -14,6 +15,8 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { ThemeSelector } from "@/components/ui/theme-selector";
 import { MobileNavigation } from "./mobile-navigation";
+import { ApiStatus } from "@/components/ui/api-status";
+import { DemoAccount } from "./demo-account";
 
 const navigationGroups: {
   label: string;
@@ -22,18 +25,19 @@ const navigationGroups: {
   {
     label: "Operación",
     items: [
-      { href: "/", label: "Inicio", icon: House },
+      { href: "/", label: "Resumen", icon: House },
       { href: "/sources", label: "Fuentes", icon: Clapperboard },
       { href: "/analysis", label: "Análisis", icon: Activity },
       { href: "/events", label: "Eventos", icon: CalendarClock },
     ],
   },
   {
-    label: "Contexto",
+    label: "Gestión",
     items: [
       { href: "/rules", label: "Reglas", icon: ShieldCheck },
       { href: "/zones", label: "Zonas", icon: Map },
       { href: "/indicators", label: "Indicadores", icon: BarChart3 },
+      { href: "/users", label: "Usuarios", icon: Users },
     ],
   },
 ];
@@ -46,6 +50,7 @@ const routeNames: Record<string, string> = {
   "/rules": "Reglas",
   "/zones": "Zonas",
   "/indicators": "Indicadores",
+  "/users": "Usuarios y roles",
 };
 
 function Brand({
@@ -88,7 +93,7 @@ function Navigation({ activePath }: { activePath: string }) {
     <nav aria-label="Navegación principal" className="navigation-groups">
       {navigationGroups.map((group) => (
         <section className="navigation-group" key={group.label}>
-          <h2 className="sr-only">{group.label}</h2>
+          <h2 className="navigation-group-label">{group.label}</h2>
           <ul className="space-y-0.5">
             {group.items.map(({ href, label, icon: Icon }) => (
               <li key={href}>
@@ -122,7 +127,7 @@ export function AppShell({
   children: ReactNode;
 }) {
   return (
-    <div className="app-shell min-h-screen bg-background text-foreground">
+    <div className="app-shell refresh-shell min-h-screen bg-background text-foreground">
       <a className="skip-link" href="#main-content">
         Saltar al contenido
       </a>
@@ -154,13 +159,8 @@ export function AppShell({
             {routeNames[activePath]}
           </h1>
           <div className="flex items-center gap-2">
-            <span className="system-status hidden items-center gap-2 text-[0.75rem] text-text-secondary sm:inline-flex">
-              <span
-                className="size-1.5 rounded-full bg-success"
-                aria-hidden="true"
-              />
-              Sistema local
-            </span>
+            <ApiStatus />
+            <DemoAccount />
             <ThemeSelector />
             <MobileNavigation>
               <Navigation activePath={activePath} />

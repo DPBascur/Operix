@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-23T00:49:36Z",
+  "title": "Design System: Operix",
+  "extensions": {
+    "motion": [
+      {"name":"control-state","value":"160ms ease","purpose":"Transición de estados de controles existentes."},
+      {"name":"login-preview","value":"5s cubic-bezier(0.16,1,0.3,1)","purpose":"Dos ciclos de preview ilustrativo, sin movimiento reducido."}
+    ],
+    "breakpoints": [
+      {"name":"compact-user-rows","value":"600px"},
+      {"name":"stacked-panels","value":"767px"},
+      {"name":"mobile-navigation","value":"1023px"}
+    ]
+  },
+  "components": [
+    {"name":"Primario","kind":"button","refersTo":"button-primary","html":"<button class=\"ds-primary\">Guardar cambios</button>","css":".ds-primary{background:var(--primary);color:var(--primary-foreground);border:1px solid transparent;border-radius:0.75rem;padding:0.65rem 1rem;min-height:2.8rem;font:600 0.875rem system-ui;cursor:pointer}.ds-primary:hover{background:var(--primary-hover)}.ds-primary:focus-visible{outline:3px solid var(--primary);outline-offset:3px}.ds-primary:active{transform:translateY(1px)}"},
+    {"name":"Secundario","kind":"button","html":"<button class=\"ds-secondary\">Cancelar</button>","css":".ds-secondary{background:var(--surface-muted);color:var(--foreground);border:1px solid var(--border);border-radius:0.75rem;padding:0.65rem 1rem;min-height:2.8rem;cursor:pointer}.ds-secondary:hover{border-color:var(--primary)}.ds-secondary:focus-visible{outline:2px solid var(--primary);outline-offset:3px}"},
+    {"name":"Outline","kind":"button","html":"<button class=\"ds-outline\">Revisar eventos</button>","css":".ds-outline{background:transparent;color:var(--foreground);border:1px solid var(--border-strong);border-radius:0.75rem;padding:0.65rem 1rem;min-height:2.8rem;cursor:pointer}.ds-outline:hover{background:var(--surface-muted)}.ds-outline:focus-visible{outline:2px solid var(--primary);outline-offset:3px}"},
+    {"name":"Ghost","kind":"button","html":"<button class=\"ds-ghost\">Editar</button>","css":".ds-ghost{background:transparent;color:var(--text-secondary);border:1px solid transparent;border-radius:0.75rem;padding:0.65rem 1rem;min-height:2.8rem;cursor:pointer}.ds-ghost:hover{background:var(--surface-muted);color:var(--foreground)}.ds-ghost:focus-visible{outline:2px solid var(--primary);outline-offset:3px}"},
+    {"name":"Destructivo","kind":"button","html":"<button class=\"ds-danger\">Detener</button>","css":".ds-danger{background:transparent;color:var(--danger);border:1px solid var(--danger);border-radius:0.75rem;padding:0.65rem 1rem;min-height:2.8rem;cursor:pointer}.ds-danger:hover{background:color-mix(in srgb,var(--danger) 12%,var(--surface))}.ds-danger:focus-visible{outline:2px solid var(--danger);outline-offset:3px}"},
+    {"name":"Campo","kind":"input","html":"<label class=\"ds-label\">Nombre visible<input class=\"ds-input\" placeholder=\"Equipo de ejemplo\" /></label>","css":".ds-label{display:grid;gap:0.5rem;color:var(--foreground);font:600 0.85rem system-ui}.ds-input{background:var(--surface);color:var(--foreground);border:1px solid var(--border);border-radius:0.75rem;min-height:3rem;padding:0.5rem 0.65rem;font:400 1rem system-ui}.ds-input:focus-visible{outline:2px solid var(--primary);outline-offset:2px}"},
+    {"name":"Navegación","kind":"nav","html":"<a class=\"ds-nav\" href=\"#\" aria-current=\"page\">Resumen</a>","css":".ds-nav{display:block;padding:0.8rem;border-radius:0.75rem;background:#3767e826;color:#a5baff;text-decoration:none;font:500 0.875rem system-ui}.ds-nav:hover{background:#ffffff0b}.ds-nav:focus-visible{outline:2px solid var(--primary);outline-offset:2px}"},
+    {"name":"Panel","kind":"card","refersTo":"panel","html":"<section class=\"ds-panel\"><h3>Frecuencia diaria</h3><p>Eventos registrados · UTC</p></section>","css":".ds-panel{background:var(--surface);color:var(--foreground);border:1px solid var(--border);border-radius:1rem;padding:1.5rem;font-family:system-ui}.ds-panel h3{font-size:1rem;font-weight:650;margin:0}.ds-panel p{font-size:0.8rem;color:var(--text-secondary);line-height:1.5}"}
+  ],
+  "narrative": {
+    "overview":"Industrial, analítico, moderno y profesional: el carácter acordado por el usuario. El sistema conserva el logo y los colores existentes, con una composición más clara para operar y revisar antecedentes.",
+    "keyCharacteristics":["Procedencia visible","Controles curvos y consistentes","Lectura analítica contextual"],
+    "rules":[],
+    "dos":["Do conservar procedencia y límites junto a los datos.","Do mantener cancelación, foco y alternativa de teclado.","Do separar estados demo de registros reales y errores."],
+    "donts":["Don't presentar una cuenta demo como autorización del servidor.","Don't convertir eventos de reglas en incidentes confirmados.","Don't cambiar geometría, percepción o reglas para favorecer una composición visual."]
+  }
+}

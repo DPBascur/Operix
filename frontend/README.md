@@ -1,6 +1,6 @@
 # Operix Frontend
 
-Base técnica y maqueta visual en desarrollo del frontend de Operix.
+Interfaz de Operix para análisis de video, revisión de eventos e histórico, con acceso y cuentas demostrativas locales explícitas.
 
 ## Requisitos
 
@@ -24,7 +24,7 @@ La aplicación queda disponible en `http://localhost:3000`.
 - `pnpm start`: ejecuta el build de producción.
 - `pnpm lint`: validación con ESLint.
 - `pnpm typecheck`: validación de TypeScript.
-- `pnpm test`: pruebas deterministas del editor sin navegador ni dependencias nuevas. Node 24.2.0 puede informar advertencias de Type Stripping experimental; no requiere cambiar el tipo de módulo del proyecto.
+- `pnpm test`: pruebas deterministas del editor, agregaciones históricas y validación de cuentas demo, sin GPU ni dependencias nuevas. Node 24.2.0 puede informar advertencias de Type Stripping experimental; no requiere cambiar el tipo de módulo del proyecto.
 - `pnpm format`: aplica Prettier.
 - `pnpm format:check`: comprueba el formato.
 
@@ -42,15 +42,14 @@ Por defecto, el frontend usa `MockAdapter`; esos datos no provienen del Motor Py
 
 En modo API, `/events` consulta PostgreSQL a través de los filtros del Backend `occurred_after`, `occurred_before` y `event_type`. Las fechas y horas se introducen en la hora local del navegador y se envían con zona horaria explícita; el único tipo admitido actualmente es `zone_dwell` (permanencia en zona). Se pueden aplicar y limpiar filtros sin recargar la aplicación. En modo mock se conserva la búsqueda y el filtro de zona locales de la maqueta.
 
-Las rutas `/` y `/rules` muestran datos de desarrollo. `/analysis` procesa video real si el Backend está configurado; `/events` consulta datos persistidos en modo API. Las rutas `/zones` e `/indicators` están preparadas sin simular funcionalidad todavía; `/dashboard` redirige al dashboard principal en `/`.
+`/` e `/indicators` muestran el dashboard histórico, con selector explícito de ejemplo ilustrativo o registros API. `/dashboard` redirige a `/`. `/login` y `/users` son una demo local sin contraseñas ni autorización Backend y no bloquean el análisis. `/analysis` y `/events` conservan su integración real; `/rules` mantiene contexto de desarrollo y `/zones` su estado preparatorio. El estado global consulta salud de API/base de datos, no certifica modelos ni GPU. Véase [alcance y contratos del refresh](UI_REFRESH.md).
 
 ## Design tokens
 
-- Midnight Navy — `#0B1320` — texto oscuro y fondos profundos.
-- Deep Blue — `#0F2747` — color principal.
-- Vibrant Blue — `#3B82F6` — acento principal.
-- Teal Cyan — `#2FD1C8` — acento secundario, procesamiento y estados positivos.
-- Cool Gray — `#E5E7EB` — bordes y superficies neutras.
-- White — `#FFFFFF` — fondo base.
+- Azul Operix — `--primary`: `#3767E8` en claro, `#6F8DFF` en oscuro.
+- Superficies — `--background`, `--surface` y `--surface-muted`, con pares claro/oscuro existentes.
+- Sidebar — `--sidebar`: `#101317` en claro, `#080A0D` en oscuro.
+- Turquesa — `#2FD1C8`, reservado al contexto visual del análisis.
+- Estados — `--success`, `--warning`, `--danger`; siempre acompañados de texto.
 
-Los tokens están disponibles como variables CSS globales y utilidades Tailwind con el prefijo `brand-`, por ejemplo `bg-brand-primary`, `text-brand-accent` y `border-brand-neutral`.
+Los tokens se exponen mediante variables CSS y `@theme inline`, por ejemplo `bg-primary`, `text-foreground` y `border-border`. El refresh amplía los controles sin alterar la semántica del pipeline.
