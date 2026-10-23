@@ -89,6 +89,16 @@ El entorno fijado puede reconstruirse como referencia de OP-59 con:
 
 Un entorno futuro, como macOS con MPS, podrá incorporar su propio archivo lock después de ser validado. El lock de Windows no reemplaza `pyproject.toml` ni define compatibilidad universal del motor.
 
+## Procesar una exportación PERSON de CVAT
+
+Desde `engine/`, con el entorno editable instalado, usa el Python del proyecto:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/process_person_cvat_export.py --campaign "C:\ruta\a\la-campaña"
+```
+
+El `python` global no encuentra `operix_engine` si el paquete no está instalado en ese intérprete. El procesador acepta archivos JSON y CSV UTF-8 con o sin BOM, incluido el formato que puede generar PowerShell. Revisa `04-qa/qa-summary.json`, `07-readiness/readiness.json` y `annotation-progress.md` en la campaña después de ejecutarlo.
+
 ## Licencia
 
 El código fuente propio del Operix académico se distribuye bajo

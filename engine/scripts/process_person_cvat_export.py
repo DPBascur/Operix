@@ -20,7 +20,7 @@ def digest(path: Path) -> str:
 
 
 def csv_rows(path: Path) -> list[dict[str, str]]:
-    with path.open(newline="", encoding="utf-8") as stream:
+    with path.open(newline="", encoding="utf-8-sig") as stream:
         return list(csv.DictReader(stream))
 
 
@@ -51,7 +51,7 @@ def inspect_task(task_id: str, expected: list[dict[str, str]], export_dir: Path
         issue("TASK_EXPORT_INCOMPLETE", detail="requiere annotations.zip, completion.json y review.csv")
         return state, issues, labels, statuses
     try:
-        completion = json.loads(receipt.read_text(encoding="utf-8"))
+        completion = json.loads(receipt.read_text(encoding="utf-8-sig"))
         if (completion.get("task_id") != task_id or completion.get("image_count") != len(expected)
             or completion.get("export_sha256", "").upper() != digest(archive)
             or completion.get("confirmation") != "FULL_FRAME_HUMAN_REVIEW_COMPLETED"

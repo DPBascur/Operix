@@ -120,6 +120,21 @@ class PersonCampaignTest(unittest.TestCase):
             self.assertEqual(labels, {})
             self.assertIn("INVALID_HUMAN_COMPLETION_RECEIPT", [r["code"] for r in issues])
 
+    def test_cvat_export_accepts_utf8_bom_in_powershell_receipt_and_review(self):
+        module = self.script("process_person_cvat_export.py")
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary) / "export"
+            self.make_task_export(folder, bbox=[10, 20, 30, 40])
+            for name in ("completion.json", "review.csv"):
+                path = folder / name
+                path.write_bytes(b"\xef\xbb\xbf" + path.read_bytes())
+            expected = [{"filename": "a.jpg", "width": "100", "height": "100"}]
+            state, issues, labels, statuses = module.inspect_task("TASK", expected, folder)
+            self.assertTrue(state["completed"])
+            self.assertFalse(issues)
+            self.assertEqual(statuses, {"a.jpg": "HUMAN_VERIFIED"})
+            self.assertEqual(len(labels["a.jpg"]), 1)
+
     def test_cvat_qa_rejects_out_of_range_and_status_mismatch(self):
         module = self.script("process_person_cvat_export.py")
         with tempfile.TemporaryDirectory() as temporary:

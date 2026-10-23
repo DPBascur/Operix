@@ -169,8 +169,9 @@ def prepare(previous_pack: Path, test3_pack: Path, output: Path) -> dict:
         "6. En `completion.json` completa reviewer, completed_at, export_sha256 (SHA-256 del ZIP; "
         "en PowerShell: `Get-FileHash annotations.zip -Algorithm SHA256`) "
         "y confirmation=`FULL_FRAME_HUMAN_REVIEW_COMPLETED` solo tras revisar toda la tarea.\n"
-        "7. Desde `engine/` ejecuta `python scripts/process_person_cvat_export.py "
-        "--campaign <carpeta-campaña>`. Lee QA, split propuesto, readiness y progreso.\n\n"
+        "7. Desde `engine/` ejecuta `.\\.venv\\Scripts\\python.exe "
+        "scripts/process_person_cvat_export.py --campaign <carpeta-campaña>` "
+        "con el entorno editable instalado. Lee QA, split propuesto, readiness y progreso.\n\n"
         "Los 20 negativos ya verificados no se reanotan. TEST3 es una tarea completa de "
         "desarrollo, nunca un test ciego.\n", encoding="utf-8")
     (output / "05-export-tools" / "README.md").write_text(
