@@ -13,7 +13,7 @@ from pathlib import Path
 from operix_engine.person_holdout import (
     CANDIDATE, FROZEN, acquisition_readiness, group_manifests,
     guard_holdout_assignment, require_outside_repository, sha256_file,
-    validate_source_group,
+    validate_source_group, validate_final_source, audit_exclusions,
 )
 
 
@@ -25,6 +25,8 @@ def read_rows(path: Path) -> list[dict[str, str]]:
 def freeze(root: Path, *, attestor: str, independent_groups_attested: bool,
            minimum_groups: int = 3) -> dict:
     require_outside_repository(root, Path(__file__).resolve().parents[2])
+    if acquisition_readiness(root).get("decision") == "PERSON_YOUTUBE_DIAGNOSTIC_SET_PRESERVED":
+        raise ValueError("DIAGNOSTIC_ONLY: NOT_LOCKED_EVALUATION")
     if not independent_groups_attested or not attestor.strip():
         raise ValueError("requiere atestación humana explícita de independencia")
     if minimum_groups < 3:
@@ -32,6 +34,11 @@ def freeze(root: Path, *, attestor: str, independent_groups_attested: bool,
     groups = group_manifests(root)
     if len(groups) < minimum_groups:
         raise ValueError("grupos independientes insuficientes")
+    for meta in groups:
+        validate_final_source(meta)
+    families = {meta["source_family"] for meta in groups}
+    if len(families) < minimum_groups:
+        raise ValueError("familias independientes insuficientes")
     ids = [validate_source_group(meta["source_group"]) for meta in groups]
     if len(ids) != len(set(ids)) or len({meta["sha256"] for meta in groups}) != len(groups):
         raise ValueError("source_group o video SHA duplicado")
@@ -96,7 +103,8 @@ def freeze(root: Path, *, attestor: str, independent_groups_attested: bool,
             if previous_group and previous_group != group:
                 raise ValueError("frame duplicado exacto entre grupos")
             image_hashes[row["image_sha256"]] = group
-            combined.append({**row, "evaluation_status": FROZEN})
+            combined.append({**row, "source_family": meta["source_family"],
+                             "evaluation_status": FROZEN})
         sources.append({"source_group": group, "source_video_sha256": meta["sha256"],
                         "source_manifest_sha256": sha256_file(root / "01-ingested" / f"{group}.json"),
                         "export_sha256": qa["export_sha256"],
@@ -108,6 +116,7 @@ def freeze(root: Path, *, attestor: str, independent_groups_attested: bool,
             r["annotation_status"] == "VERIFIED_NEGATIVE" for r in combined):
         raise ValueError("holdout requiere positivos y negativos humanos")
     combined.sort(key=lambda row: (row["source_group"], int(row["frame_index"])))
+    exclusion_audit = audit_exclusions(root, combined, {meta["sha256"] for meta in groups})
     csv_target.parent.mkdir(parents=True, exist_ok=True)
     freeze_target.parent.mkdir(parents=True, exist_ok=True)
     with csv_target.open("x", newline="", encoding="utf-8") as stream:
@@ -116,6 +125,10 @@ def freeze(root: Path, *, attestor: str, independent_groups_attested: bool,
         writer.writerows(combined)
     frozen_at = datetime.now().astimezone().isoformat()
     summary = {"status": FROZEN, "frozen_at": frozen_at, "attestor": attestor.strip(),
+               "protocol_version": "PERSON_FINAL_HOLDOUT_V2",
+               "source_families": sorted(families),
+               "family_mapping": {meta["source_group"]: meta["source_family"] for meta in groups},
+               "exclusion_audit": exclusion_audit,
                "independence_attested": True, "minimum_groups": minimum_groups,
                "source_groups": sorted(ids), "sources": sources, "images": len(combined),
                "positive_images": sum(r["annotation_status"] == "HUMAN_VERIFIED" for r in combined),

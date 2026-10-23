@@ -20,11 +20,68 @@ import numpy as np
 
 from operix_engine.person_holdout import (
     acquisition_readiness, guard_holdout_assignment, sample_indices, sha256_file,
-    verify_frozen,
+    verify_frozen, validate_final_source, audit_exclusions,
 )
 
 
 class PersonHoldoutTest(unittest.TestCase):
+    def final_source(self, family="SESSION_A"):
+        return dict(source_family=family, recorded_by="synthetic author",
+                    camera_or_source="test camera", location_context_general="synthetic",
+                    provenance_reference="test session record", rights_evidence="test permission",
+                    rights_basis="USER_ORIGINAL_RECORDING", consent_or_permission_status="CONFIRMED",
+                    provenance_status="KNOWN_PROVENANCE", rights_status="RIGHTS_CONFIRMED")
+
+    def policy(self, root):
+        entries = []
+        for role in ("campaign", "youtube_diagnostic", "training_development"):
+            path = root / (role + ".csv")
+            path.write_text("image_sha256,source_group\n", encoding="utf8")
+            entries.append(dict(role=role, path=str(path), sha256=sha256_file(path)))
+        policy = dict(protocol_version="PERSON_FINAL_HOLDOUT_V2",
+                      training_development_coverage_confirmed=True,
+                      no_model_access_attested=True, exclusion_manifests=entries)
+        (root / "holdout-policy.json").write_text(json.dumps(policy), encoding="utf8")
+        return entries
+
+    def test_final_rights_and_exclusion_gate(self):
+        meta = self.final_source()
+        validate_final_source(meta)
+        for key, value in (("rights_basis", "LICENSE_UNKNOWN"),
+                           ("consent_or_permission_status", "PENDING"),
+                           ("source_family", "UNKNOWN"), ("rights_evidence", None)):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_final_source({**meta, key: value})
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            entries = self.policy(root)
+            audit_exclusions(root, [], set())
+            path = Path(entries[0]["path"])
+            path.write_text("image_sha256,source_group\nABC,OLD\n", encoding="utf8")
+            with self.assertRaisesRegex(ValueError, "alterado"):
+                audit_exclusions(root, [], set())
+            policy = json.loads((root / "holdout-policy.json").read_text())
+            policy["exclusion_manifests"][0]["sha256"] = sha256_file(path)
+            (root / "holdout-policy.json").write_text(json.dumps(policy))
+            with self.assertRaisesRegex(ValueError, "leakage"):
+                audit_exclusions(root, [{"image_sha256": "ABC", "source_group": "NEW"}], set())
+            path.write_text("image_sha256,source_group,source_family\nDEF,OLD,SESSION_A\n")
+            policy["exclusion_manifests"][0]["sha256"] = sha256_file(path)
+            (root / "holdout-policy.json").write_text(json.dumps(policy))
+            with self.assertRaisesRegex(ValueError, "leakage"):
+                audit_exclusions(root, [{"image_sha256": "XYZ", "source_group": "NEW",
+                                        "source_family": "SESSION_A"}], set())
+
+    def test_diagnostic_set_cannot_freeze(self):
+        freeze = self.script("freeze_person_independent_holdout.py").freeze
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "dataset-status.json").write_text(json.dumps({"role": "DIAGNOSTIC_ONLY"}))
+            self.assertEqual(acquisition_readiness(root)["decision"],
+                             "PERSON_YOUTUBE_DIAGNOSTIC_SET_PRESERVED")
+            with self.assertRaisesRegex(ValueError, "DIAGNOSTIC_ONLY"):
+                freeze(root, attestor="test", independent_groups_attested=True)
+
     def script(self, name: str):
         path = Path(__file__).resolve().parents[1] / "scripts" / name
         spec = importlib.util.spec_from_file_location(name[:-3], path)
@@ -120,7 +177,7 @@ class PersonHoldoutTest(unittest.TestCase):
                 self.make_video(video, color=number * 30)
                 ingest(video, root, source_group=group, origin=f"synthetic {number}",
                        camera_or_source=f"camera {number}", scenario="unit test",
-                       rights_or_license="test-only")
+                       rights_or_license="test-only", final_source=self.final_source(f"SESSION_{number}"))
                 result = prepare(root, group, sample_count=3)
                 self.assertEqual(result["frames"], 3)
                 package = root / "03-cvat-packages" / group
@@ -148,6 +205,13 @@ class PersonHoldoutTest(unittest.TestCase):
                                           capture_output=True, text=True, check=False)
                 self.assertEqual(accepted.returncode, 0, accepted.stderr)
                 self.assertEqual(json.loads(accepted.stdout)["qa"]["blocking_issues"], 0)
+            self.policy(root)
+            third = root / "01-ingested" / "HOLDOUT_PERSON_003.json"
+            meta = json.loads(third.read_text())
+            third.write_text(json.dumps({**meta, "source_family": "SESSION_1"}))
+            with self.assertRaisesRegex(ValueError, "familias"):
+                freeze(root, attestor="test", independent_groups_attested=True)
+            third.write_text(json.dumps(meta))
             self.assertEqual(acquisition_readiness(root)["decision"],
                              "PERSON_HOLDOUT_READY_TO_FREEZE")
             with self.assertRaisesRegex(ValueError, "atestación"):

@@ -14,7 +14,7 @@ import cv2
 
 from operix_engine.person_holdout import (
     CANDIDATE, acquisition_readiness, group_manifests, require_outside_repository,
-    sha256_file, validate_source_group,
+    sha256_file, validate_source_group, validate_final_source,
 )
 
 
@@ -23,8 +23,10 @@ def ingest(video: Path, root: Path, *, source_group: str, origin: str,
            lighting: str = "UNKNOWN", environment: str = "UNKNOWN",
            contains_person_expected: str = "UNKNOWN",
            contains_forklift_expected: str = "UNKNOWN", notes: str = "",
-           acquisition_date: str | None = None) -> dict:
+           acquisition_date: str | None = None, final_source: dict | None = None) -> dict:
     source_group = validate_source_group(source_group)
+    if final_source is not None:
+        validate_final_source(final_source)
     repository = Path(__file__).resolve().parents[2]
     require_outside_repository(root, repository)
     if not video.is_file() or video.resolve().is_relative_to(repository):
@@ -94,6 +96,12 @@ def ingest(video: Path, root: Path, *, source_group: str, origin: str,
         "evaluation_status": CANDIDATE, "independence_status": "PENDING_ATTESTATION",
         "model_access_allowed": False,
     }
+    if final_source is not None:
+        allowed = ("source_family", "recorded_by", "location_context_general",
+                   "provenance_reference", "rights_evidence", "rights_basis",
+                   "consent_or_permission_status", "provenance_status", "rights_status")
+        manifest.update({key: final_source[key] for key in allowed})
+        manifest["independence_status"] = "PENDING_FAMILY_ATTESTATION"
     with output_manifest.open("x", encoding="utf-8") as stream:
         json.dump(manifest, stream, ensure_ascii=False, indent=2)
         stream.write("\n")
@@ -117,13 +125,29 @@ def main() -> None:
                         default="UNKNOWN")
     parser.add_argument("--acquisition-date")
     parser.add_argument("--notes", default="")
+    parser.add_argument("--source-family", required=True)
+    parser.add_argument("--recorded-by", required=True)
+    parser.add_argument("--location-context-general", required=True)
+    parser.add_argument("--provenance-reference", required=True)
+    parser.add_argument("--rights-basis", required=True, choices=("USER_ORIGINAL_RECORDING",
+        "EXPLICIT_PERMISSION", "CC_BY_VERIFIED", "OTHER_VERIFIED_LICENSE"))
+    parser.add_argument("--rights-evidence", required=True)
+    parser.add_argument("--confirm-provenance-and-rights", action="store_true", required=True)
     args = parser.parse_args()
     print(json.dumps(ingest(args.video, args.output_root, source_group=args.source_group,
         origin=args.origin, camera_or_source=args.camera_or_source, scenario=args.scenario,
         rights_or_license=args.rights_or_license, lighting=args.lighting,
         environment=args.environment, contains_person_expected=args.contains_person_expected,
         contains_forklift_expected=args.contains_forklift_expected,
-        acquisition_date=args.acquisition_date, notes=args.notes), ensure_ascii=False, indent=2))
+        acquisition_date=args.acquisition_date, notes=args.notes,
+        final_source={"source_family": args.source_family, "recorded_by": args.recorded_by,
+            "camera_or_source": args.camera_or_source,
+            "location_context_general": args.location_context_general,
+            "provenance_reference": args.provenance_reference,
+            "rights_basis": args.rights_basis, "rights_evidence": args.rights_evidence,
+            "consent_or_permission_status": "CONFIRMED",
+            "provenance_status": "KNOWN_PROVENANCE", "rights_status": "RIGHTS_CONFIRMED"}),
+        ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

@@ -14,6 +14,60 @@ from pathlib import Path
 CANDIDATE = "LOCKED_EVALUATION_CANDIDATE"
 FROZEN = "LOCKED_EVALUATION_FROZEN"
 GROUP_PATTERN = re.compile(r"HOLDOUT_PERSON_[0-9]{3,}")
+RIGHTS_BASES = {"USER_ORIGINAL_RECORDING", "EXPLICIT_PERMISSION", "CC_BY_VERIFIED",
+                "OTHER_VERIFIED_LICENSE"}
+
+
+def validate_final_source(meta: dict) -> None:
+    """La declaración y su referencia deben revisarse humanamente antes del freeze."""
+    required = ("source_family", "recorded_by", "camera_or_source",
+                "location_context_general", "provenance_reference", "rights_evidence")
+    if any(not isinstance(meta.get(key), str) or not meta[key].strip() or meta[key].strip().upper() in
+           {"UNKNOWN", "UNVERIFIED", "TBD", "PENDING"} for key in required):
+        raise ValueError("procedencia final incompleta")
+    if meta.get("provenance_status") != "KNOWN_PROVENANCE" or (
+            meta.get("rights_basis") not in RIGHTS_BASES or
+            meta.get("rights_status") != "RIGHTS_CONFIRMED" or
+            meta.get("consent_or_permission_status") != "CONFIRMED"):
+        raise ValueError("procedencia o derechos finales no confirmados")
+
+
+def audit_exclusions(root: Path, records: list[dict], video_hashes: set[str]) -> dict:
+    """Registro local explícito: campaña (incluye TEST3), YouTube y training/development."""
+    policy_path = root / "holdout-policy.json"
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    if (policy.get("protocol_version") != "PERSON_FINAL_HOLDOUT_V2" or
+            policy.get("training_development_coverage_confirmed") is not True or
+            policy.get("no_model_access_attested") is not True):
+        raise ValueError("cobertura de exclusiones/acceso a modelos sin confirmar")
+    entries = policy.get("exclusion_manifests", [])
+    if {entry.get("role") for entry in entries} != {
+            "campaign", "youtube_diagnostic", "training_development"}:
+        raise ValueError("faltan registros de exclusión obligatorios")
+    current_images = {row["image_sha256"].upper() for row in records}
+    current_groups = {row["source_group"] for row in records}
+    current_families = {row["source_family"] for row in records if row.get("source_family")}
+    checked = []
+    for entry in entries:
+        if not isinstance(entry.get("path"), str) or not entry["path"]:
+            raise ValueError("registro de exclusión pendiente")
+        path = Path(entry["path"])
+        if not path.is_absolute() or sha256_file(path) != entry.get("sha256"):
+            raise ValueError("registro de exclusión ausente o alterado")
+        with path.open(newline="", encoding="utf-8-sig") as stream:
+            reader = csv.DictReader(stream)
+            if not {"image_sha256", "source_group"} <= set(reader.fieldnames or []):
+                raise ValueError("registro de exclusión sin SHA/grupo")
+            excluded = list(reader)
+        if any((row["image_sha256"].upper() in current_images or
+                row["source_group"] in current_groups or
+                row.get("source_family", "") in current_families or
+                row.get("video_sha256", "").upper() in video_hashes)
+               for row in excluded):
+            raise ValueError("leakage con material excluido")
+        checked.append({"role": entry["role"], "sha256": entry["sha256"],
+                        "records": len(excluded)})
+    return {"policy_sha256": sha256_file(policy_path), "exclusions": checked}
 
 
 def sha256_file(path: Path) -> str:
@@ -76,6 +130,9 @@ def verify_frozen(root: Path) -> dict:
             sha256_file(frozen_csv) != freeze.get("manifest_csv_sha256")):
         raise ValueError("freeze o manifests alterados")
     payload = json.loads(frozen_json.read_text(encoding="utf-8"))
+    if freeze.get("protocol_version") == "PERSON_FINAL_HOLDOUT_V2":
+        if sha256_file(root / "holdout-policy.json") != freeze["exclusion_audit"]["policy_sha256"]:
+            raise ValueError("política de exclusión alterada")
     with frozen_csv.open(newline="", encoding="utf-8") as stream:
         rows = list(csv.DictReader(stream))
     if rows != payload.get("records") or len(rows) != freeze.get("images") or (
@@ -113,10 +170,21 @@ def verify_frozen(root: Path) -> dict:
                 sha256_file(root / "final" / group / "labels" /
                             (Path(name).stem + ".txt")) != row["label_sha256"]):
             raise ValueError(f"frame/label alterado: {group}/{name}")
+    if freeze.get("protocol_version") == "PERSON_FINAL_HOLDOUT_V2":
+        current_audit = audit_exclusions(root, rows,
+            {source["source_video_sha256"] for source in freeze["sources"]})
+        if current_audit != freeze["exclusion_audit"]:
+            raise ValueError("auditoría de exclusiones alterada")
     return freeze
 
 
 def acquisition_readiness(root: Path, *, minimum_groups: int = 3) -> dict:
+    status_path = root / "dataset-status.json"
+    if status_path.exists():
+        status = json.loads(status_path.read_text(encoding="utf-8"))
+        if status.get("role") == "DIAGNOSTIC_ONLY":
+            return {"decision": "PERSON_YOUTUBE_DIAGNOSTIC_SET_PRESERVED",
+                    "reason": "NOT_LOCKED_EVALUATION"}
     groups = group_manifests(root)
     if not groups:
         return {"decision": "PERSON_HOLDOUT_ACQUISITION_READY", "groups": 0,
@@ -137,6 +205,7 @@ def acquisition_readiness(root: Path, *, minimum_groups: int = 3) -> dict:
                 "reason": "freeze íntegro y atestación registrada"}
     completed = 0
     positives = negatives = 0
+    completed_records = []
     for item in groups:
         group = item["source_group"]
         verified = root / "final" / group / "verified-manifest.csv"
@@ -162,9 +231,19 @@ def acquisition_readiness(root: Path, *, minimum_groups: int = 3) -> dict:
             return {"decision": "PERSON_HOLDOUT_BLOCKED", "groups": len(groups),
                     "reason": f"grupo {group}: {exc}"}
         completed += 1
+        completed_records.extend({**row, "source_family": item.get("source_family", "")}
+                                 for row in records)
         positives += sum(row["annotation_status"] == "HUMAN_VERIFIED" for row in records)
         negatives += sum(row["annotation_status"] == "VERIFIED_NEGATIVE" for row in records)
     if completed == len(groups) and len(groups) >= minimum_groups:
+        try:
+            for meta in groups:
+                validate_final_source(meta)
+            if len({meta["source_family"] for meta in groups}) < minimum_groups:
+                raise ValueError("familias independientes insuficientes")
+            audit_exclusions(root, completed_records, {meta["sha256"] for meta in groups})
+        except (OSError, ValueError, KeyError) as exc:
+            return {"decision": "PERSON_HOLDOUT_BLOCKED", "reason": str(exc)}
         if not positives or not negatives:
             return {"decision": "PERSON_HOLDOUT_BLOCKED", "groups": len(groups),
                     "reason": "se requieren positivos y negativos humanos"}
