@@ -8,6 +8,8 @@ import csv
 import hashlib
 import importlib.util
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -143,6 +145,67 @@ class PersonCampaignTest(unittest.TestCase):
             state, issues, _, _ = module.inspect_task("TASK", expected, folder)
             self.assertFalse(state["completed"])
             self.assertIn("BOX_OUT_OF_RANGE_OR_ZERO_AREA", [r["code"] for r in issues])
+
+    def test_completion_record_requires_human_confirmation_and_does_not_overwrite(self):
+        module = self.script("process_person_cvat_export.py")
+        with tempfile.TemporaryDirectory() as temporary:
+            campaign = Path(temporary)
+            (campaign / "00-inventory").mkdir()
+            row = {"image_id": "OTHER:a", "filename": "a.jpg", "source": "OTHER",
+                   "source_group": "source:1", "width": "100", "height": "100",
+                   "annotation_status": "PENDING_HUMAN_REANNOTATION", "person_box_count": "0",
+                   "recommended_task": "TASK", "image_sha256": "A", "provenance": "STRONG",
+                   "split_eligibility": "ELIGIBLE"}
+            with (campaign / "00-inventory" / "consolidated-images.csv").open(
+                    "w", newline="", encoding="utf-8") as stream:
+                writer = csv.DictWriter(stream, fieldnames=list(row))
+                writer.writeheader()
+                writer.writerow(row)
+            for name in ("03-manifests", "01-cvat-packages/TASK", "04-qa",
+                         "06-split-planning", "07-readiness", "final"):
+                (campaign / name).mkdir(parents=True)
+            (campaign / "03-manifests" / "tasks.json").write_text(
+                json.dumps([{"task_id": "TASK", "images": 1}]), encoding="utf-8")
+            folder = campaign / "exports" / "TASK"
+            self.make_task_export(folder, bbox=[10, 20, 30, 40])
+            (folder / "review.csv").unlink()
+            (folder / "completion.json").unlink()
+            command = [sys.executable, str(Path(module.__file__)), "--campaign", str(campaign),
+                       "--complete-human-task", "TASK", "--reviewer", "Daniel"]
+            result = subprocess.run(command, capture_output=True, text=True, check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse((folder / "review.csv").exists())
+            result = subprocess.run([*command, "--confirm-full-frame-human-review"],
+                                    capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(module.csv_rows(folder / "review.csv")[0]["status"], "HUMAN_VERIFIED")
+            state, issues, _, _ = module.inspect_task("TASK", [{"filename": "a.jpg",
+                "width": "100", "height": "100"}], folder)
+            self.assertTrue(state["completed"], issues)
+            with self.assertRaises(FileExistsError):
+                module.record_human_completion(campaign, "TASK", "Daniel")
+
+    def test_completion_record_preserves_human_ambiguity(self):
+        module = self.script("process_person_cvat_export.py")
+        with tempfile.TemporaryDirectory() as temporary:
+            campaign = Path(temporary)
+            (campaign / "00-inventory").mkdir()
+            (campaign / "00-inventory" / "consolidated-images.csv").write_text(
+                "filename,recommended_task\na.jpg,TASK\n", encoding="utf-8")
+            folder = campaign / "exports" / "TASK"
+            self.make_task_export(folder)
+            (folder / "review.csv").unlink()
+            (folder / "completion.json").unlink()
+            with self.assertRaisesRegex(ValueError, "ajena"):
+                module.record_human_completion(campaign, "TASK", "Daniel", {"other.jpg"})
+            result = module.record_human_completion(campaign, "TASK", "Daniel", {"a.jpg"})
+            self.assertEqual(result["ambiguous"], 1)
+            self.assertEqual(module.csv_rows(folder / "review.csv")[0]["status"],
+                             "REVIEW_AMBIGUOUS")
+            state, issues, _, statuses = module.inspect_task("TASK", [{"filename": "a.jpg",
+                "width": "100", "height": "100"}], folder)
+            self.assertTrue(state["completed"], issues)
+            self.assertEqual(statuses["a.jpg"], "REVIEW_AMBIGUOUS")
 
     def test_post_export_pipeline_writes_normalized_label_without_claiming_readiness(self):
         module = self.script("process_person_cvat_export.py")

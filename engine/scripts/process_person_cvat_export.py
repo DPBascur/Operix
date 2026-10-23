@@ -10,6 +10,7 @@ import hashlib
 import json
 import zipfile
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 
 from operix_engine.person_campaign import freeze_payload, plan_split, readiness
@@ -22,6 +23,54 @@ def digest(path: Path) -> str:
 def csv_rows(path: Path) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8-sig") as stream:
         return list(csv.DictReader(stream))
+
+
+def record_human_completion(campaign: Path, task_id: str, reviewer: str,
+                            ambiguous_images: set[str] | None = None) -> dict:
+    """Registra administración tras confirmación humana, nunca decide las cajas."""
+    if not reviewer.strip():
+        raise ValueError("se requiere el nombre del revisor humano")
+    inventory = csv_rows(campaign / "00-inventory" / "consolidated-images.csv")
+    expected = [row for row in inventory if row["recommended_task"] == task_id]
+    if not expected:
+        raise ValueError(f"tarea desconocida o vacía: {task_id}")
+    export_dir = campaign / "exports" / task_id
+    archive = export_dir / "annotations.zip"
+    review_file = export_dir / "review.csv"
+    receipt = export_dir / "completion.json"
+    if not archive.is_file():
+        raise FileNotFoundError(f"falta export COCO: {archive}")
+    if review_file.exists() or receipt.exists():
+        raise FileExistsError("la revisión administrativa ya existe; no se sobrescribe")
+    with zipfile.ZipFile(archive) as zf:
+        paths = [name for name in zf.namelist() if name.endswith(".json")]
+        if len(paths) != 1:
+            raise ValueError("el export COCO debe contener exactamente un JSON")
+        coco = json.loads(zf.read(paths[0]))
+    images = coco.get("images", [])
+    names = [image["file_name"] for image in images]
+    expected_names = {row["filename"] for row in expected}
+    if len(names) != len(expected) or len(set(names)) != len(names) or set(names) != expected_names:
+        raise ValueError("el export no contiene exactamente las imágenes de la tarea")
+    ambiguous = ambiguous_images or set()
+    if not ambiguous <= expected_names:
+        raise ValueError("imagen ambigua ajena a la tarea")
+    image_ids = {image["id"]: image["file_name"] for image in images}
+    counts = Counter(image_ids.get(ann.get("image_id")) for ann in coco.get("annotations", []))
+    if None in counts:
+        raise ValueError("existen cajas sin imagen de la tarea")
+    now = datetime.now().astimezone().isoformat()
+    write_csv(review_file, [{"image": name,
+                             "status": ("REVIEW_AMBIGUOUS" if name in ambiguous else
+                                        "HUMAN_VERIFIED" if counts[name] else "VERIFIED_NEGATIVE"),
+                             "reviewer": reviewer.strip(), "reviewed_at": now}
+                            for name in names],
+              ["image", "status", "reviewer", "reviewed_at"])
+    receipt.write_text(json.dumps({"task_id": task_id, "reviewer": reviewer.strip(),
+        "completed_at": now, "image_count": len(expected), "export_sha256": digest(archive),
+        "confirmation": "FULL_FRAME_HUMAN_REVIEW_COMPLETED"}, indent=2) + "\n", encoding="utf-8")
+    return {"task_id": task_id, "images": len(expected), "boxes": sum(counts.values()),
+            "ambiguous": len(ambiguous), "export_sha256": digest(archive)}
 
 
 def write_csv(path: Path, rows: list[dict], columns: list[str]) -> None:
@@ -241,7 +290,19 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--minimum-negative-images", type=int, default=30)
     parser.add_argument("--minimum-independent-groups", type=int, default=3)
+    parser.add_argument("--complete-human-task", help="tarea confirmada como revisada íntegramente en CVAT")
+    parser.add_argument("--reviewer", help="identidad del revisor humano que confirmó la tarea")
+    parser.add_argument("--confirm-full-frame-human-review", action="store_true")
+    parser.add_argument("--ambiguous-image", action="append", default=[],
+                        help="nombre de imagen señalada como ambigua por el revisor")
     args = parser.parse_args()
+    if args.complete_human_task:
+        if not args.confirm_full_frame_human_review or not args.reviewer:
+            parser.error("se exige confirmación humana completa y --reviewer")
+        record_human_completion(args.campaign, args.complete_human_task, args.reviewer,
+                                set(args.ambiguous_image))
+    elif args.confirm_full_frame_human_review or args.reviewer or args.ambiguous_image:
+        parser.error("los datos de revisión requieren --complete-human-task")
     print(json.dumps(process(args.campaign, seed=args.seed,
         minimum_negative_images=args.minimum_negative_images,
         minimum_independent_groups=args.minimum_independent_groups), indent=2))

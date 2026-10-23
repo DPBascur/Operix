@@ -91,13 +91,24 @@ Un entorno futuro, como macOS con MPS, podrá incorporar su propio archivo lock 
 
 ## Procesar una exportación PERSON de CVAT
 
-Desde `engine/`, con el entorno editable instalado, usa el Python del proyecto:
+Codex procesa cada export; quien anota solo necesita revisar todos los frames en CVAT,
+exportar COCO 1.0 y confirmar que terminó. Desde `engine/`, con el entorno
+editable instalado, el comando de procesamiento es:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts/process_person_cvat_export.py --campaign "C:\ruta\a\la-campaña"
 ```
 
-El `python` global no encuentra `operix_engine` si el paquete no está instalado en ese intérprete. El procesador acepta archivos JSON y CSV UTF-8 con o sin BOM, incluido el formato que puede generar PowerShell. Revisa `04-qa/qa-summary.json`, `07-readiness/readiness.json` y `annotation-progress.md` en la campaña después de ejecutarlo.
+No se debe usar el `python` global sin instalar `operix-engine`: no encuentra
+`operix_engine`. Para una tarea nueva, **solo después de confirmación humana**,
+Codex puede registrar `review.csv` y `completion.json` con el mismo procesador,
+añadiendo `--complete-human-task TASK_ID --reviewer NOMBRE
+--confirm-full-frame-human-review`. Los estados se derivan de las cajas del
+export; las imágenes irresolubles deben señalarse con `--ambiguous-image NOMBRE`
+y nunca se transforman en verificadas por omisión. El comando no sobrescribe
+recibos existentes. El procesador acepta JSON/CSV UTF-8 con o sin BOM. Revisa
+`04-qa/qa-summary.json`, `07-readiness/readiness.json` y
+`annotation-progress.md` después de ejecutarlo.
 
 ## Licencia
 
