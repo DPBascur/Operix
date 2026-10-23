@@ -107,6 +107,20 @@ a una red local controlada.
 
 ## Validación
 
+### Frecuencias históricas (OP-41)
+
+`GET /api/v1/events/frequencies/` resume eventos persistidos por día **UTC** y
+`event_type`. Acepta los filtros inclusivos `occurred_after`, `occurred_before`
+y `event_type` de la lista de eventos, con zona horaria explícita. Devuelve
+`total`, `by_period`, `by_type`, `timezone=UTC` y `period=day`; no inventa días
+sin registros. Los agregados salen de una consulta PostgreSQL agrupada por
+día/tipo. Es una consulta de solo lectura: no crea migraciones ni tipos de
+evento adicionales. Hoy solo se admite `zone_dwell`.
+
+Los conteos pueden incluir registros de desarrollo: no son tasas verificadas de
+incidentes ni indicadores de riesgo. El protocolo y las pruebas figuran en
+[la evidencia OP-41](evidence/OP-41-event-frequencies.md).
+
 ```bash
 set -a; source .env; set +a
 .venv/bin/python manage.py check

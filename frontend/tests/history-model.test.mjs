@@ -5,6 +5,9 @@ import {
   summarizeHistory,
   formatHistoryTime,
   historyError,
+  monthUtcBounds,
+  parseFrequency,
+  summarizeApiHistory,
 } from "../src/features/dashboard/history-model.ts";
 test("errores de conexión, timeout y JSON usan mensajes recuperables", () => {
   assert.match(
@@ -85,4 +88,71 @@ test("ordena actividad, conserva meses e impide períodos inválidos", () => {
   );
   assert.equal(s.recent[0].id, "b");
   assert.equal(s.days.length, 31);
+});
+
+test("OP-41 usa límites UTC inclusivos sin perder fracciones del último segundo", () => {
+  assert.deepEqual(monthUtcBounds("2026-10"), {
+    start: "2026-10-01T00:00:00.000Z",
+    previous: "2026-09-01T00:00:00.000Z",
+    end: "2026-10-31T23:59:59.999999Z",
+  });
+  assert.equal(monthUtcBounds("2026-02").end, "2026-02-28T23:59:59.999999Z");
+  assert.throws(() => monthUtcBounds("2026-13"));
+});
+
+test("OP-41 reconcilia agregados API con eventos del período", () => {
+  const events = [
+    event("1", "2026-10-01T00:00:00Z"),
+    event("2", "2026-10-31T23:59:59Z"),
+  ];
+  const current = parseFrequency({
+    total: 2,
+    timezone: "UTC",
+    period: "day",
+    by_period: [
+      { date: "2026-10-01", count: 1 },
+      { date: "2026-10-31", count: 1 },
+    ],
+    by_type: [{ event_type: "zone_dwell", count: 2 }],
+  });
+  const previous = parseFrequency({
+    total: 1,
+    timezone: "UTC",
+    period: "day",
+    by_period: [{ date: "2026-09-30", count: 1 }],
+    by_type: [{ event_type: "zone_dwell", count: 1 }],
+  });
+  const summary = summarizeApiHistory(events, "2026-10", current, previous);
+  assert.equal(summary.total, 2);
+  assert.equal(summary.previousCount, 1);
+  assert.equal(summary.change, 100);
+  assert.equal(summary.days[30].count, 1);
+  assert.deepEqual(summary.types, [{ label: "zone_dwell", count: 2 }]);
+  assert.throws(
+    () => summarizeApiHistory([], "2026-10", current, previous),
+    /reconciliar/,
+  );
+});
+
+test("OP-41 vacío no fabrica días, tipos ni porcentaje de comparación", () => {
+  const empty = parseFrequency({
+    total: 0,
+    timezone: "UTC",
+    period: "day",
+    by_period: [],
+    by_type: [],
+  });
+  const summary = summarizeApiHistory([], "2026-10", empty, empty);
+  assert.equal(summary.total, 0);
+  assert.equal(summary.change, null);
+  assert.deepEqual(summary.types, []);
+  assert.equal(
+    summary.days.reduce((total, day) => total + day.count, 0),
+    0,
+  );
+  assert.throws(() => parseFrequency({ ...empty, total: 1 }), /coinciden/);
+  assert.throws(
+    () => parseFrequency({ ...empty, timezone: "America/Santiago" }),
+    /válidas/,
+  );
 });

@@ -16,9 +16,13 @@ import { historyDemo } from "@/services/demo/history-demo";
 import { enterTransition, revealVariants } from "@/lib/motion/presets";
 import {
   parseHistory,
+  parseFrequency,
   formatHistoryTime,
   historyError,
+  monthUtcBounds,
+  summarizeApiHistory,
   summarizeHistory,
+  type EventFrequency,
   type HistoryEvent,
 } from "./history-model";
 
@@ -30,6 +34,11 @@ export function HistoricalDashboard() {
   const [month, setMonth] = useState("2026-10");
   const [periodAnchor, setPeriodAnchor] = useState("2026-10");
   const [records, setRecords] = useState<HistoryEvent[]>([]);
+  const [frequencies, setFrequencies] = useState<{
+    month: string;
+    current: EventFrequency;
+    previous: EventFrequency;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
@@ -42,21 +51,46 @@ export function HistoricalDashboard() {
       setLoading(true);
       setError(null);
       setRecords([]);
+      setFrequencies(null);
       try {
         if (!environment.apiBaseUrl)
           throw new Error(
             "Configure la dirección de la API para consultar el histórico real.",
           );
-        const response = await fetch(
-          `${environment.apiBaseUrl.replace(/\/$/, "")}/events/`,
-          { cache: "no-store", signal: controller.signal },
+        const base = environment.apiBaseUrl.replace(/\/$/, "");
+        const bounds = monthUtcBounds(month);
+        const selected = new URLSearchParams({
+          occurred_after: bounds.start,
+          occurred_before: bounds.end,
+        });
+        const previous = new URLSearchParams({
+          occurred_after: bounds.previous,
+          occurred_before: monthUtcBounds(bounds.previous.slice(0, 7)).end,
+        });
+        const endpoints = [
+          `${base}/events/?${selected}`,
+          `${base}/events/frequencies/?${selected}`,
+          `${base}/events/frequencies/?${previous}`,
+        ];
+        const responses = await Promise.all(
+          endpoints.map((url) =>
+            fetch(url, { cache: "no-store", signal: controller.signal }),
+          ),
         );
-        if (!response.ok)
+        if (responses.some((response) => !response.ok))
           throw new Error(
             "No fue posible consultar los registros. Revise la conexión y vuelva a intentar.",
           );
-        const data = parseHistory(await response.json());
-        if (active) setRecords(data);
+        const [eventsPayload, currentPayload, previousPayload] =
+          await Promise.all(responses.map((response) => response.json()));
+        const data = parseHistory(eventsPayload);
+        const current = parseFrequency(currentPayload);
+        const previousFrequency = parseFrequency(previousPayload);
+        summarizeApiHistory(data, month, current, previousFrequency);
+        if (active) {
+          setRecords(data);
+          setFrequencies({ month, current, previous: previousFrequency });
+        }
       } catch (cause) {
         if (active) setError(historyError(cause));
       } finally {
@@ -70,10 +104,18 @@ export function HistoricalDashboard() {
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [source, revision]);
+  }, [source, month, revision]);
   const summary = useMemo(
-    () => summarizeHistory(source === "demo" ? historyDemo : records, month),
-    [source, records, month],
+    () =>
+      source === "api" && frequencies?.month === month
+        ? summarizeApiHistory(
+            records,
+            month,
+            frequencies.current,
+            frequencies.previous,
+          )
+        : summarizeHistory(source === "demo" ? historyDemo : [], month),
+    [source, records, frequencies, month],
   );
   const max = Math.max(1, ...summary.days.map((d) => d.count));
   const points = summary.days
@@ -163,7 +205,10 @@ export function HistoricalDashboard() {
       <p className="history-source-caption">
         {source === "demo" ? "Datos de ejemplo" : "Registros de la API"} · UTC
       </p>
-      {source === "api" && loading ? (
+      {source === "api" &&
+      (loading ||
+        (!frequencies && !error) ||
+        (frequencies?.month !== month && !error)) ? (
         <div className="dashboard-loading" role="status">
           <span className="spinner" />
           Consultando el histórico…
@@ -178,56 +223,70 @@ export function HistoricalDashboard() {
         </div>
       ) : (
         <>
-          <motion.section
-            className="kpi-strip"
-            aria-label="Estadísticas del período"
-            initial={reduceMotion ? false : "hidden"}
-            animate="visible"
-            transition={{ staggerChildren: reduceMotion ? 0 : 0.045 }}
-          >
-            <motion.div variants={revealVariants} transition={enterTransition}>
-              <span>Eventos del período</span>
-              <strong>{summary.total}</strong>
-              <small>{currentLabel}</small>
-            </motion.div>
-            <motion.div variants={revealVariants} transition={enterTransition}>
-              <span>Frente al mes anterior</span>
-              <strong className="comparison-value">
-                {summary.change === null
-                  ? "—"
-                  : `${summary.change > 0 ? "+" : ""}${summary.change.toFixed(1)} %`}
-                {summary.change !== null &&
-                  (summary.change <= 0 ? (
-                    <ArrowDownRight size={23} />
-                  ) : (
-                    <ArrowUpRight size={23} />
-                  ))}
-              </strong>
-              <small>
-                {summary.previousCount} registros anteriores
-                {summary.previousCount === 0
-                  ? " · sin base de comparación"
-                  : ""}
-              </small>
-            </motion.div>
-            <motion.div variants={revealVariants} transition={enterTransition}>
-              <span>Zonas con registros</span>
-              <strong>{summary.zones.length}</strong>
-              <small>Ubicaciones en el período</small>
-            </motion.div>
-            <motion.div variants={revealVariants} transition={enterTransition}>
-              <span>Mayor recurrencia</span>
-              <strong className="kpi-word">
-                {summary.zones[0]?.label ?? "Sin datos"}
-              </strong>
-              <small>
-                {summary.zones[0]?.count ?? 0} registros · revisar contexto
-              </small>
-            </motion.div>
-          </motion.section>
+          {summary.total > 0 && (
+            <motion.section
+              className="kpi-strip"
+              aria-label="Estadísticas del período"
+              initial={reduceMotion ? false : "hidden"}
+              animate="visible"
+              transition={{ staggerChildren: reduceMotion ? 0 : 0.045 }}
+            >
+              <motion.div
+                variants={revealVariants}
+                transition={enterTransition}
+              >
+                <span>Eventos del período</span>
+                <strong>{summary.total}</strong>
+                <small>{currentLabel}</small>
+              </motion.div>
+              <motion.div
+                variants={revealVariants}
+                transition={enterTransition}
+              >
+                <span>Frente al mes anterior</span>
+                <strong className="comparison-value">
+                  {summary.change === null
+                    ? "—"
+                    : `${summary.change > 0 ? "+" : ""}${summary.change.toFixed(1)} %`}
+                  {summary.change !== null &&
+                    (summary.change <= 0 ? (
+                      <ArrowDownRight size={23} />
+                    ) : (
+                      <ArrowUpRight size={23} />
+                    ))}
+                </strong>
+                <small>
+                  {summary.previousCount} registros anteriores
+                  {summary.previousCount === 0
+                    ? " · sin base de comparación"
+                    : ""}
+                </small>
+              </motion.div>
+              <motion.div
+                variants={revealVariants}
+                transition={enterTransition}
+              >
+                <span>Zonas con registros</span>
+                <strong>{summary.zones.length}</strong>
+                <small>Ubicaciones en el período</small>
+              </motion.div>
+              <motion.div
+                variants={revealVariants}
+                transition={enterTransition}
+              >
+                <span>Mayor recurrencia</span>
+                <strong className="kpi-word">
+                  {summary.zones[0]?.label ?? "Sin datos"}
+                </strong>
+                <small>
+                  {summary.zones[0]?.count ?? 0} registros · revisar contexto
+                </small>
+              </motion.div>
+            </motion.section>
+          )}
           {summary.total === 0 ? (
             <div className="feedback-panel">
-              <h3>Sin registros para este período</h3>
+              <h3>No existen registros para este período</h3>
               <p>
                 Pruebe otro mes o revise la fuente seleccionada. No se
                 reemplazan registros ausentes por ejemplos.

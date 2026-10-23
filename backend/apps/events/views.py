@@ -1,9 +1,12 @@
 import struct
 import zlib
 from decimal import Decimal, InvalidOperation
+from datetime import timezone
 
 from django.conf import settings
 from django.db import DatabaseError, connection, transaction
+from django.db.models import Count
+from django.db.models.functions import TruncDate
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
@@ -36,20 +39,7 @@ class EventListCreateView(generics.ListCreateAPIView):
         queryset = super().get_queryset()
         if self.request.method != "GET":
             return queryset
-        allowed = {"event_type", "occurred_after", "occurred_before"}
-        unknown = set(self.request.query_params) - allowed
-        if unknown:
-            raise ValidationError({"filters": f"Parámetros desconocidos: {', '.join(sorted(unknown))}."})
-        filters = EventFilterSerializer(data=self.request.query_params)
-        filters.is_valid(raise_exception=True)
-        data = filters.validated_data
-        if "event_type" in data:
-            queryset = queryset.filter(event_type=data["event_type"])
-        if "occurred_after" in data:
-            queryset = queryset.filter(occurred_at__gte=data["occurred_after"])
-        if "occurred_before" in data:
-            queryset = queryset.filter(occurred_at__lte=data["occurred_before"])
-        return queryset
+        return filtered_events(queryset, self.request.query_params)
 
     def create(self, request, *args, **kwargs):
         if not settings.EVENT_POST_ENABLED:
@@ -84,6 +74,43 @@ class EventListCreateView(generics.ListCreateAPIView):
 class EventDetailView(generics.RetrieveAPIView):
     serializer_class = EventSerializer
     queryset = Event.objects.all()
+
+
+def filtered_events(queryset, query_params):
+    """Comparte el contrato de filtros y sus límites inclusivos con la lista."""
+    unknown = set(query_params) - {"event_type", "occurred_after", "occurred_before"}
+    if unknown:
+        raise ValidationError({"filters": f"Parámetros desconocidos: {', '.join(sorted(unknown))}."})
+    filters = EventFilterSerializer(data=query_params)
+    filters.is_valid(raise_exception=True)
+    data = filters.validated_data
+    if "event_type" in data:
+        queryset = queryset.filter(event_type=data["event_type"])
+    if "occurred_after" in data:
+        queryset = queryset.filter(occurred_at__gte=data["occurred_after"])
+    if "occurred_before" in data:
+        queryset = queryset.filter(occurred_at__lte=data["occurred_before"])
+    return queryset
+
+
+class EventFrequencyView(APIView):
+    """Frecuencias UTC de eventos persistidos, no indicadores de riesgo."""
+
+    def get(self, request):
+        queryset = filtered_events(Event.objects.all(), request.query_params)
+        grouped = queryset.annotate(day=TruncDate("occurred_at", tzinfo=timezone.utc)).values(
+            "day", "event_type",
+        ).order_by("day", "event_type").annotate(count=Count("id"))
+        by_day, by_type = {}, {}
+        for row in grouped:
+            day, event_type, count = row["day"].isoformat(), row["event_type"], row["count"]
+            by_day[day] = by_day.get(day, 0) + count
+            by_type[event_type] = by_type.get(event_type, 0) + count
+        return Response({
+            "total": sum(by_day.values()), "timezone": "UTC", "period": "day",
+            "by_period": [{"date": day, "count": count} for day, count in sorted(by_day.items())],
+            "by_type": [{"event_type": name, "count": count} for name, count in sorted(by_type.items())],
+        })
 
 
 def validate_png(content):

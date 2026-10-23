@@ -5,6 +5,98 @@ export interface HistoryEvent {
   zone_id: string;
 }
 
+export interface EventFrequency {
+  total: number;
+  timezone: "UTC";
+  period: "day";
+  by_period: { date: string; count: number }[];
+  by_type: { event_type: string; count: number }[];
+}
+
+export function monthUtcBounds(month: string) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))
+    throw new Error("Seleccione un mes válido.");
+  const start = new Date(`${month}-01T00:00:00Z`);
+  const next = new Date(
+    Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1),
+  );
+  const previous = new Date(
+    Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - 1, 1),
+  );
+  const lastSecond = new Date(+next - 1000).toISOString();
+  return {
+    start: start.toISOString(),
+    previous: previous.toISOString(),
+    end: lastSecond.replace(".000Z", ".999999Z"),
+  };
+}
+
+export function parseFrequency(value: unknown): EventFrequency {
+  if (!value || typeof value !== "object")
+    throw new Error("La API no entregó frecuencias válidas.");
+  const data = value as Record<string, unknown>;
+  const rowsValid = (rows: unknown, key: "date" | "event_type") =>
+    Array.isArray(rows) &&
+    rows.every(
+      (row) =>
+        row &&
+        typeof row === "object" &&
+        typeof row[key] === "string" &&
+        Number.isSafeInteger(row.count) &&
+        row.count >= 0,
+    );
+  if (
+    !Number.isSafeInteger(data.total) ||
+    (data.total as number) < 0 ||
+    data.timezone !== "UTC" ||
+    data.period !== "day" ||
+    !rowsValid(data.by_period, "date") ||
+    !rowsValid(data.by_type, "event_type")
+  ) {
+    throw new Error("La API no entregó frecuencias válidas.");
+  }
+  const result = data as unknown as EventFrequency;
+  if (
+    result.by_period.some((row) => !/^\d{4}-\d{2}-\d{2}$/.test(row.date)) ||
+    result.by_period.reduce((sum, row) => sum + row.count, 0) !==
+      result.total ||
+    result.by_type.reduce((sum, row) => sum + row.count, 0) !== result.total
+  ) {
+    throw new Error("Las frecuencias de la API no coinciden con el total.");
+  }
+  return result;
+}
+
+export function summarizeApiHistory(
+  events: HistoryEvent[],
+  month: string,
+  current: EventFrequency,
+  previous: EventFrequency,
+) {
+  const base = summarizeHistory(events, month);
+  if (base.total !== current.total) {
+    throw new Error(
+      "El histórico cambió durante la consulta. Actualice para reconciliar los indicadores.",
+    );
+  }
+  const byDay = new Map(
+    current.by_period.map((row) => [Number(row.date.slice(8)), row.count]),
+  );
+  return {
+    ...base,
+    total: current.total,
+    previousCount: previous.total,
+    change: previous.total
+      ? ((current.total - previous.total) / previous.total) * 100
+      : null,
+    days: base.days.map((row) => ({ ...row, count: byDay.get(row.day) ?? 0 })),
+    types: current.by_type.map((row) => ({
+      label: row.event_type,
+      count: row.count,
+    })),
+  };
+}
+
 /** Texto UTC estable entre ICU de Windows y navegador; evita diferencias de hidratación. */
 export function formatHistoryTime(value: string): string {
   const iso = new Date(value).toISOString();
