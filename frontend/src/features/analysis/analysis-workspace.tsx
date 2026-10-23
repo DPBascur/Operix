@@ -316,6 +316,8 @@ export function AnalysisWorkspace({
 
   async function start() {
     if (!session) return;
+    videoRef.current?.pause();
+    if (videoRef.current) videoRef.current.currentTime = 0;
     generation.current += 1;
     setBusy(true);
     setError(null);
@@ -482,8 +484,7 @@ export function AnalysisWorkspace({
     !previewPending &&
     !editing &&
     !suspendResult;
-  const showReference =
-    !!sourceName && !!referenceUrl && !showStream && !showResult;
+  const showReference = !!sourceName && !!referenceUrl && !showResult;
   const visibleError = error
     ? readableError(error)
     : session?.detail
@@ -622,7 +623,7 @@ export function AnalysisWorkspace({
                   <video
                     ref={videoRef}
                     src={referenceUrl}
-                    controls={!editing}
+                    controls={!editing && !showStream}
                     preload="metadata"
                     className="absolute inset-0 h-full w-full object-contain"
                     onLoadedMetadata={(event) => {
@@ -656,7 +657,7 @@ export function AnalysisWorkspace({
                     className="absolute inset-0 h-full w-full object-contain"
                   />
                 )}
-                {showReference && session && (
+                {showReference && !showStream && session && (
                   <svg
                     viewBox="0 0 100 100"
                     preserveAspectRatio="none"

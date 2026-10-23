@@ -3,7 +3,7 @@ name: Operix
 description: Espacio de revisión preventiva, industrial y analítico
 colors:
   primary: "#3767e8"
-  primary-dark-theme: "#3b82f6"
+  primary-dark-theme: "#2f6fdc"
   surface: "#ffffff"
   background: "#f7f8fa"
   foreground: "#17191d"
@@ -56,7 +56,7 @@ Industrial, analítico, moderno y profesional: el carácter acordado por el usua
 
 ## Colors
 
-El azul identifica acciones, selección y datos destacados; el turquesa permanece vinculado al análisis visual. El modo oscuro usa una escala neutra: fondo `#050607`, shell `#0a0c0e`, sidebar `#0d0f12`, superficie `#111418` y elevación `#171b20`. Divisores `#232830`, texto principal `#f3f5f7` y acento `#3b82f6`. El login comparte esta familia en ambos lados. El botón primario usa texto oscuro sobre azul para conservar contraste de lectura; los campos tienen un borde funcional más visible que los divisores pasivos. El estado de conexión muestra texto y símbolo, no solo color.
+El azul identifica acciones, selección y datos destacados; el turquesa permanece vinculado al análisis visual. El modo oscuro usa una escala neutra: fondo `#050607`, shell `#0a0c0e`, sidebar `#0d0f12`, superficie `#111418` y elevación `#171b20`. Divisores `#232830`, texto principal `#f3f5f7` y acento `#3b82f6`. El login comparte esta familia en ambos lados. El botón primario usa texto blanco sobre un azul ligeramente más profundo (`#2f6fdc`) para conservar contraste de lectura; los campos tienen un borde funcional más visible que los divisores pasivos. El estado de conexión muestra texto y símbolo, no solo color.
 
 ## Typography
 

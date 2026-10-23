@@ -48,10 +48,10 @@
   --control-border: #627080;
   --text-secondary: #a6afba;
   --text-muted: #7d8793;
-  --primary: #3b82f6;
-  --primary-hover: #4c8df7;
-  --primary-active: #2f6fdc;
-  --primary-foreground: #050607;
+  --primary: #2f6fdc;
+  --primary-hover: #3471df;
+  --primary-active: #2a65d1;
+  --primary-foreground: #ffffff;
   --accent: #3b82f6;
   --accent-foreground: #ffffff;
   --accent-soft: rgb(59 130 246 / 0.14);
@@ -1529,6 +1529,9 @@ a {
 }
 :root[data-theme="dark"] .button-secondary {
   border-color: var(--border-strong);
+}
+:root[data-theme="dark"] .button-ghost {
+  color: #ffffff;
 }
 :root[data-theme="dark"] .theme-switch-thumb {
   background: var(--text-secondary);
