@@ -55,13 +55,21 @@ def ingest(video: Path, root: Path, *, source_group: str, origin: str,
         width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = float(capture.get(cv2.CAP_PROP_FPS))
-        frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        declared_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
         fourcc = int(capture.get(cv2.CAP_PROP_FOURCC))
         decoded, first = capture.read()
-        if not decoded or first is None or width < 1 or height < 1 or fps <= 0 or frames < 1:
+        if not decoded or first is None or width < 1 or height < 1 or fps <= 0:
             raise ValueError("video no decodificable o metadata incompleta")
         if (first.shape[1], first.shape[0]) != (width, height):
             raise ValueError("resolución declarada no coincide con el frame decodificado")
+        frames = 1
+        while True:
+            decoded, frame = capture.read()
+            if not decoded or frame is None:
+                break
+            if (frame.shape[1], frame.shape[0]) != (width, height):
+                raise ValueError("resolución variable durante el video")
+            frames += 1
         codec = "".join(chr((fourcc >> 8 * i) & 0xFF) for i in range(4)).strip("\x00")
     finally:
         capture.release()
@@ -76,6 +84,7 @@ def ingest(video: Path, root: Path, *, source_group: str, origin: str,
         "sha256": digest, "acquisition_date": acquired, "origin": origin,
         "camera_or_source": camera_or_source, "width": width, "height": height,
         "resolution": f"{width}x{height}", "fps": fps, "frame_count": frames,
+        "declared_frame_count": declared_frames,
         "duration_seconds": frames / fps,
         "orientation": "PORTRAIT" if height > width else "LANDSCAPE" if width > height else "SQUARE",
         "codec": codec, "scenario": scenario, "lighting": lighting,

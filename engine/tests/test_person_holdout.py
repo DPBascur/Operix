@@ -13,6 +13,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -67,6 +68,41 @@ class PersonHoldoutTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "video SHA-256"):
                 ingest(video, root, source_group="HOLDOUT_PERSON_002", **kwargs)
             self.assertNotIn(str(base), (root / "01-ingested" / "HOLDOUT_PERSON_001.json").read_text())
+
+    def test_ingestion_uses_decodable_frames_when_container_count_is_high(self):
+        module = self.script("ingest_person_holdout_video.py")
+
+        class Capture:
+            remaining = 3
+
+            def isOpened(self):
+                return True
+
+            def get(self, property_id):
+                return {cv2.CAP_PROP_FRAME_WIDTH: 64, cv2.CAP_PROP_FRAME_HEIGHT: 48,
+                        cv2.CAP_PROP_FPS: 10.0, cv2.CAP_PROP_FRAME_COUNT: 5,
+                        cv2.CAP_PROP_FOURCC: 0}[property_id]
+
+            def read(self):
+                if not self.remaining:
+                    return False, None
+                self.remaining -= 1
+                return True, np.zeros((48, 64, 3), dtype=np.uint8)
+
+            def release(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            video = base / "source.avi"
+            video.write_bytes(b"synthetic video placeholder")
+            with patch.object(module.cv2, "VideoCapture", return_value=Capture()):
+                result = module.ingest(video, base / "holdout", source_group="HOLDOUT_PERSON_001",
+                    origin="synthetic", camera_or_source="camera A", scenario="test",
+                    rights_or_license="test-only")
+            self.assertEqual(result["manifest"]["declared_frame_count"], 5)
+            self.assertEqual(result["manifest"]["frame_count"], 3)
+            self.assertEqual(result["manifest"]["duration_seconds"], 0.3)
 
     def test_cvat_package_export_gate_and_immutable_freeze(self):
         ingest = self.script("ingest_person_holdout_video.py").ingest
