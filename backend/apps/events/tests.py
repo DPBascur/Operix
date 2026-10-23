@@ -1,4 +1,5 @@
 import uuid
+import json
 import struct
 import tempfile
 import zlib
@@ -46,6 +47,16 @@ class EventApiTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data, {"status": "ok", "database": "ok"})
 
+    def test_database_outage_is_controlled_without_private_details(self):
+        from unittest.mock import patch
+        from django.db import DatabaseError
+        with patch("apps.events.views.Event.objects.get_or_create",
+                   side_effect=DatabaseError("private database detail")):
+            response = self.create_event()
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn("private", json.dumps(response.data))
+        self.assertEqual(Event.objects.count(), 0)
+
     def test_create_persists_and_preserves_trace(self):
         response = self.create_event()
         self.assertEqual(response.status_code, 201)
@@ -67,6 +78,17 @@ class EventApiTests(APITestCase):
         self.payload["observed_dwell_time_s"] = "0.033"
         self.assertEqual(self.create_event().status_code, 400)
         self.assertEqual(Event.objects.count(), 1)
+
+    def test_historical_rounded_observation_is_not_silently_replaced(self):
+        self.payload["rule_parameters"]["min_duration_s"] = 0.06
+        self.payload["observed_dwell_time_s"] = "0.067"
+        first = self.create_event()
+        self.assertEqual(first.status_code, 201)
+        self.payload["observed_dwell_time_s"] = "0.066666667"
+        self.assertEqual(self.create_event().status_code, 409)
+        self.assertEqual(Event.objects.count(), 1)
+        self.assertEqual(str(Event.objects.get().id), first.data["id"])
+        self.assertEqual(float(Event.objects.get().observed_dwell_time_s), 0.067)
 
     def test_retry_returns_existing_event_without_new_row(self):
         first = self.create_event()
@@ -276,6 +298,16 @@ class EventEvidenceTests(APITestCase):
         self.assertIsNone(created.data["evidence_url"])
         self.assertIsNone(self.client.get("/api/v1/events/").data[0]["evidence_url"])
         self.assertEqual(self.client.get(f"/api/v1/events/{created.data['id']}/evidence/").status_code, 404)
+
+    def test_unwritable_evidence_is_controlled_and_does_not_change_record(self):
+        from unittest.mock import patch
+        event_id = self.create_event().data["id"]
+        with patch("django.core.files.storage.filesystem.FileSystemStorage._save",
+                   side_effect=PermissionError("private filesystem detail")):
+            response = self.upload(event_id)
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn("private", json.dumps(response.data))
+        self.assertFalse(Event.objects.get(pk=event_id).evidence_image)
 
     def test_evidence_is_persisted_and_retrievable(self):
         created = self.create_event()

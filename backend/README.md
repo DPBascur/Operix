@@ -71,6 +71,9 @@ La imagen es opcional: primero se crea o recupera el evento y se obtiene su UUID
 La validación PNG comprueba también descompresión, longitud de scanlines y filtros,
 incluido Adam7. Se limita a 4096×4096 y 64 MiB descomprimidos además de los 2 MiB
 de archivo: una firma/CRC correctos no bastan para aceptar evidencia ilegible.
+Los errores no manejados de PostgreSQL o del almacenamiento se convierten en
+HTTP 503 con mensaje genérico, sin SQL, rutas o credenciales. No se reemplazan
+los errores de validación 400, conflictos 409 ni ausencia de evidencia 404.
 
 `observed_dwell_time_s` conserva nueve decimales para no perder límites como
 1/30 s al transportar duraciones. Acepta los valores históricos de tres decimales;

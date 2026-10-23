@@ -77,6 +77,7 @@ DATABASES = {
 }
 
 REST_FRAMEWORK = {
+    "EXCEPTION_HANDLER": "apps.events.exceptions.api_exception_handler",
     "DEFAULT_AUTHENTICATION_CLASSES": [],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],

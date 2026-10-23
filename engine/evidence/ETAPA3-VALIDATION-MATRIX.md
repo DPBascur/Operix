@@ -69,6 +69,7 @@ la reconciliación técnica sin sobrescribir macros, actas ni estados académico
 | E3-PNG-01 | RF-06 evidencia legible y acotada | IHDR/CRC válidos con IDAT ilegible, vacío, filtro inválido o expansión excesiva | HTTP 400 sin guardar imagen; PNG correcto sigue recuperable | Antes: 201/200 aceptaban datos inválidos; después: rechazo controlado; Adam7 válido aceptado | PASS; `EventEvidenceTests` |
 | E3-TIME-01 | RNF-01/RF-05–06 conservar igualdad temporal | Permanencia y umbral 1/30 s; control inferior 0.033 s | Aceptar la igualdad sin bajar el umbral, rechazar el control inferior | Transporte a 9 decimales, PostgreSQL numeric(18,9), tolerancia numérica 1e-9 s; E2E al frame 1 | PASS; test de transporte, API y LiveServer |
 | E3-RETRY-01 | RF-06 recuperación acotada | Timeout→éxito; 503 persistente; 400; imagen fallida | Reutilizar candidato/PNG/UUID; máximo 3 intentos; no repetir error permanente | Pipeline recupera un candidato, conserva ID parcial y reporta intentos | PASS; `test_video_event_pipeline.py` |
+| E3-FAIL-01 | RF-06/R-02 fallos controlados | DatabaseError al crear evento; PermissionError al guardar PNG | 503 sin datos privados ni cambios parciales de metadata | Ambos fallaban sin manejar antes; ahora conservan histórico/metadata y no exponen el mensaje interno | PASS; `EventApiTests`, `EventEvidenceTests` |
 
 La prueba E3-E2E-01 usa lectura OpenCV, analizador, regla, renderer, HttpEventSink,
 Django y PostgreSQL reales. Detector/tracker son fixtures deterministas: demuestra
