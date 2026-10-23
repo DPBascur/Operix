@@ -59,6 +59,15 @@ class EventApiTests(APITestCase):
         self.assertEqual(saved.track_id, 36)
         self.assertEqual(saved.zone_id, "DEMO-Z-01")
 
+    def test_submillisecond_dwell_boundary_and_materially_lower_value(self):
+        self.payload["rule_parameters"]["min_duration_s"] = 1 / 30
+        self.payload["observed_dwell_time_s"] = "0.033333333"
+        self.assertEqual(self.create_event().status_code, 201)
+        self.payload["frame_index"] += 1
+        self.payload["observed_dwell_time_s"] = "0.033"
+        self.assertEqual(self.create_event().status_code, 400)
+        self.assertEqual(Event.objects.count(), 1)
+
     def test_retry_returns_existing_event_without_new_row(self):
         first = self.create_event()
         retry = deepcopy(self.payload)

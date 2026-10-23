@@ -30,8 +30,9 @@ from operix_engine.tracking import Track
 from operix_engine.video_event_pipeline import run_video_event_pipeline
 
 video, url, run = Path(sys.argv[1]), sys.argv[2], UUID(sys.argv[3])
+fps, duration = float(sys.argv[4]), float(sys.argv[5])
 if not video.exists():
-    writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*"MJPG"), 2, (200, 100))
+    writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*"MJPG"), fps, (200, 100))
     if not writer.isOpened(): raise RuntimeError("Fixture MJPG no disponible")
     try:
         for i in range(4): writer.write(np.full((100, 200, 3), (20, 80, 100+i), np.uint8))
@@ -43,7 +44,7 @@ class Tracker:
     def update(self, detections): return (Track(7, 0, "person", .9, box),)
 zone = Zone("TEST_DATA_ZONE", "Zona sintética", ((.1,.1),(.9,.1),(.9,.9),(.1,.9)))
 rule = RuleConfig("TEST_DATA_RULE", 1, True, {
-    "kind":"zone_dwell", "class_name":"person", "zone_id":zone.zone_id, "min_duration_s":1.0})
+    "kind":"zone_dwell", "class_name":"person", "zone_id":zone.zone_id, "min_duration_s":duration})
 config = OperationalConfig(1, "TEST_DATA_VIEW", (zone,), (rule,))
 context = EventContext(run, config.view_id, datetime(2026,10,23,12,tzinfo=timezone.utc))
 result = run_video_event_pipeline(video, detector=Detector(), tracker=Tracker(),
@@ -73,14 +74,22 @@ class MotorPersistenceIntegrationTests(LiveServerTestCase):
         self.media.enable()
         self.addCleanup(self.media.disable)
 
-    def execute_motor(self, run):
+    def execute_motor(self, run, *, fps=2, duration=1):
         process = subprocess.run([
             str(self.python), "-B", "-c", MOTOR_FIXTURE,
             str(Path(self.temporary.name) / "controlled.avi"),
-            self.live_server_url + "/api/v1", str(run),
+            self.live_server_url + "/api/v1", str(run), str(fps), str(duration),
         ], cwd=self.repository, capture_output=True, text=True, timeout=45)
         self.assertEqual(process.returncode, 0, process.stderr)
         return json.loads(process.stdout)
+
+    def test_fractional_frame_duration_survives_http_and_postgresql(self):
+        result = self.execute_motor(uuid4(), fps=30, duration=1 / 30)
+        self.assertEqual(result["published_count"], 1)
+        event = Event.objects.get()
+        self.assertEqual(event.frame_index, 1)
+        self.assertLess(abs(float(event.observed_dwell_time_s) - 1 / 30), 1e-9)
+        self.assertEqual(event.rule_parameters["min_duration_s"], 1 / 30)
 
     def test_video_candidate_http_postgresql_evidence_query_and_indicator(self):
         run = uuid4()

@@ -70,7 +70,15 @@ class EventPublishingTest(unittest.TestCase):
         self.assertEqual((payload["rule_id"], payload["rule_version"]), ("restricted_zone_presence", 1))
         self.assertEqual(payload["rule_parameters"], dict(self.candidate.parameters))
         self.assertEqual((payload["zone_id"], payload["track_id"]), ("zona_critica_01", 731))
-        self.assertEqual(payload["observed_dwell_time_s"], "2.000")
+        self.assertEqual(payload["observed_dwell_time_s"], "2.000000000")
+
+    def test_transport_preserves_submillisecond_dwell_boundary(self) -> None:
+        candidate = replace(self.candidate, observed_dwell_time_s=1 / 30,
+                            parameters={**self.candidate.parameters, "min_duration_s": 1 / 30})
+        payload = event_candidate_payload(candidate, self.context)
+        self.assertEqual(payload["observed_dwell_time_s"], "0.033333333")
+        self.assertEqual(payload["rule_parameters"]["min_duration_s"], 1 / 30)
+        self.assertEqual(payload["video_timestamp_s"], "2.000")
 
     def test_analysis_identity_is_stable_and_changes_with_source_or_settings(self) -> None:
         inputs = {

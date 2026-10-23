@@ -67,16 +67,16 @@ class EventContext:
             raise ValueError("recording_started_at requiere zona horaria explícita")
 
 
-def _api_seconds(value: float) -> str:
+def _api_seconds(value: float, *, decimal_places: int = 3) -> str:
     if not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
         raise ValueError("Los segundos del candidato deben ser finitos y no negativos")
     try:
-        rounded = Decimal(str(value)).quantize(Decimal("0.001"))
+        rounded = Decimal(str(value)).quantize(Decimal(1).scaleb(-decimal_places))
     except InvalidOperation as error:
         raise ValueError("Los segundos no caben en el contrato API") from error
-    if rounded > Decimal("999999999.999"):
+    if rounded > Decimal("999999999.999999999"):
         raise ValueError("Los segundos no caben en el contrato API")
-    return format(rounded, ".3f")
+    return format(rounded, f".{decimal_places}f")
 
 
 def event_candidate_payload(candidate: EventCandidate, context: EventContext) -> dict[str, object]:
@@ -86,7 +86,8 @@ def event_candidate_payload(candidate: EventCandidate, context: EventContext) ->
     if not isinstance(context, EventContext):
         raise TypeError("context debe ser EventContext")
     timestamp = _api_seconds(candidate.timestamp_s)
-    dwell = _api_seconds(candidate.observed_dwell_time_s)
+    # No reducir a milisegundos una duración que decide un límite temporal.
+    dwell = _api_seconds(candidate.observed_dwell_time_s, decimal_places=9)
     occurred_at = context.recording_started_at + timedelta(seconds=candidate.timestamp_s)
     return {
         "analysis_run_id": str(context.analysis_run_id),

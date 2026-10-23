@@ -24,7 +24,7 @@ class Event(models.Model):
     track_id = models.PositiveIntegerField()
     class_name = models.CharField(max_length=64)
     observed_inside = models.BooleanField()
-    observed_dwell_time_s = models.DecimalField(max_digits=12, decimal_places=3)
+    observed_dwell_time_s = models.DecimalField(max_digits=18, decimal_places=9)
     evidence_image = models.FileField(upload_to=event_evidence_path, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

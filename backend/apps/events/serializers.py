@@ -20,7 +20,7 @@ class EventSerializer(serializers.ModelSerializer):
         max_digits=12, decimal_places=3, min_value=Decimal("0")
     )
     observed_dwell_time_s = serializers.DecimalField(
-        max_digits=12, decimal_places=3, min_value=Decimal("0")
+        max_digits=18, decimal_places=9, min_value=Decimal("0")
     )
 
     class Meta:
@@ -95,7 +95,9 @@ class EventSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({field: "No coincide con los parámetros de la regla."})
         if attrs["observed_inside"] is not True:
             raise serializers.ValidationError({"observed_inside": "Un candidato zone_dwell debe estar dentro de la zona."})
-        if attrs["observed_dwell_time_s"] < Decimal(str(parameters["min_duration_s"])):
+        # Misma tolerancia NUMÉRICA del Motor, no gracia operacional.
+        shortfall = Decimal(str(parameters["min_duration_s"])) - attrs["observed_dwell_time_s"]
+        if shortfall > Decimal("0.000000001"):
             raise serializers.ValidationError({"observed_dwell_time_s": "No alcanza el umbral configurado."})
         return attrs
 

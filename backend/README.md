@@ -72,6 +72,18 @@ La validación PNG comprueba también descompresión, longitud de scanlines y fi
 incluido Adam7. Se limita a 4096×4096 y 64 MiB descomprimidos además de los 2 MiB
 de archivo: una firma/CRC correctos no bastan para aceptar evidencia ilegible.
 
+`observed_dwell_time_s` conserva nueve decimales para no perder límites como
+1/30 s al transportar duraciones. Acepta los valores históricos de tres decimales;
+la respuesta los representa con nueve sin cambiar su valor. La migración 0004
+amplía precisión sin inventar datos históricos. La comparación conserva el umbral
+original y admite únicamente 1e-9 s de error numérico, como el Motor; no añade
+gracia operacional. `video_timestamp_s` mantiene sus tres decimales y los IDs,
+fecha civil, configuración, identidad idempotente y reglas no cambian.
+Un retry de un evento histórico cuya duración ya se había redondeado puede
+devolver 409 si ahora aporta una observación diferente con mayor precisión.
+No se sobrescribe el registro antiguo: usar un UUID nuevo únicamente si se
+pretende una ejecución nueva, no para ocultar el conflicto de trazabilidad.
+
 ## Análisis visual temporal
 
 `/analysis` del Frontend crea una sesión mediante `POST /api/v1/analysis/sessions/`

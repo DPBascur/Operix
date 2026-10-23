@@ -67,6 +67,7 @@ la reconciliación técnica sin sobrescribir macros, actas ni estados académico
 | E3-API-BASE | Persistencia, filtros, errores RF-06–08 | PostgreSQL local; DB temporal Django | Sin fallos ni migraciones pendientes | 75/75 tests, check OK, no changes detected | PASS; Django test/check |
 | E3-E2E-01 | Video→candidate→HTTP→DB→evidencia→consulta→indicador | LiveServer, PostgreSQL de tests; video MJPG de 4 frames; percepción fixture | Un evento y PNG recuperable; retry sin duplicado; nueva ejecución separada | Un evento al frame 2, retry conserva ID; otra ejecución crea segundo evento; agregado reconcilia | PASS; `backend/apps/events/test_motor_integration.py` |
 | E3-PNG-01 | RF-06 evidencia legible y acotada | IHDR/CRC válidos con IDAT ilegible, vacío, filtro inválido o expansión excesiva | HTTP 400 sin guardar imagen; PNG correcto sigue recuperable | Antes: 201/200 aceptaban datos inválidos; después: rechazo controlado; Adam7 válido aceptado | PASS; `EventEvidenceTests` |
+| E3-TIME-01 | RNF-01/RF-05–06 conservar igualdad temporal | Permanencia y umbral 1/30 s; control inferior 0.033 s | Aceptar la igualdad sin bajar el umbral, rechazar el control inferior | Transporte a 9 decimales, PostgreSQL numeric(18,9), tolerancia numérica 1e-9 s; E2E al frame 1 | PASS; test de transporte, API y LiveServer |
 
 La prueba E3-E2E-01 usa lectura OpenCV, analizador, regla, renderer, HttpEventSink,
 Django y PostgreSQL reales. Detector/tracker son fixtures deterministas: demuestra
