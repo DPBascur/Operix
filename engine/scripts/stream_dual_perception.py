@@ -8,6 +8,7 @@ import argparse
 import json
 import math
 import os
+import sys
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
@@ -127,6 +128,23 @@ def _analyzed_frames(frames, perception, batch_size, synchronize):
                 yield from batch
         finally:
             future.cancel()
+
+
+def _release_analysis_resources(frames, writer) -> None:
+    """Intenta ambos cierres y conserva todos los errores, incluido el de análisis."""
+    original = sys.exception()
+    failures = []
+    for close in (frames.close, writer.release):
+        try:
+            close()
+        except BaseException as error:
+            failures.append(error)
+    if failures:
+        if original is not None:
+            raise BaseExceptionGroup("Falló el análisis y su cleanup", [original, *failures]) from None
+        if len(failures) == 1:
+            raise failures[0]
+        raise BaseExceptionGroup("Fallaron ambos cierres del análisis", failures)
 
 
 def process(args: argparse.Namespace) -> None:
@@ -263,8 +281,7 @@ def process(args: argparse.Namespace) -> None:
                 _publish_preview(annotated, preview_dir, processed - 1, args.preview_width)
                 last_preview = processed - 1
         finally:
-            frames.close()
-            writer.release()
+            _release_analysis_resources(frames, writer)
         capture = cv2.VideoCapture(str(partial_result))
         try:
             encoded_frames = int(round(capture.get(cv2.CAP_PROP_FRAME_COUNT)))

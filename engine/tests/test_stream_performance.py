@@ -2,7 +2,10 @@
 import importlib.util
 from pathlib import Path
 import sys
+import json
+import tempfile
 import unittest
+from unittest.mock import Mock, patch
 
 
 class PreviewScheduleTest(unittest.TestCase):
@@ -68,3 +71,64 @@ class PreviewScheduleTest(unittest.TestCase):
         self.assertEqual(next(iterator)[0], 0)
         iterator.close()
         self.assertLessEqual(len(consumed), 8)
+
+    def test_cleanup_releases_both_resources_normally(self):
+        frames, writer = Mock(), Mock()
+        self.assertIsNone(self.worker._release_analysis_resources(frames, writer))
+        frames.close.assert_called_once_with()
+        writer.release.assert_called_once_with()
+
+    def test_writer_is_released_when_frame_close_fails(self):
+        failure = RuntimeError("frame close failed")
+        frames, writer = Mock(), Mock()
+        frames.close.side_effect = failure
+        with self.assertRaises(RuntimeError) as caught:
+            self.worker._release_analysis_resources(frames, writer)
+        self.assertIs(caught.exception, failure)
+        writer.release.assert_called_once_with()
+
+    def test_both_cleanup_errors_are_preserved(self):
+        frames, writer = Mock(), Mock()
+        first, second = RuntimeError("frames"), RuntimeError("writer")
+        frames.close.side_effect, writer.release.side_effect = first, second
+        with self.assertRaises(ExceptionGroup) as caught:
+            self.worker._release_analysis_resources(frames, writer)
+        self.assertEqual(caught.exception.exceptions, (first, second))
+
+    def test_original_analysis_error_survives_successful_cleanup(self):
+        frames, writer = Mock(), Mock()
+        original = ValueError("analysis")
+        with self.assertRaises(ValueError) as caught:
+            try:
+                raise original
+            finally:
+                self.worker._release_analysis_resources(frames, writer)
+        self.assertIs(caught.exception, original)
+        writer.release.assert_called_once_with()
+
+    def test_analysis_and_both_cleanup_errors_are_preserved(self):
+        frames, writer = Mock(), Mock()
+        original, first, second = ValueError("analysis"), RuntimeError("frames"), RuntimeError("writer")
+        frames.close.side_effect, writer.release.side_effect = first, second
+        with self.assertRaises(ExceptionGroup) as caught:
+            try:
+                raise original
+            finally:
+                self.worker._release_analysis_resources(frames, writer)
+        self.assertEqual(caught.exception.exceptions, (original, first, second))
+
+    def test_worker_reports_failures_without_exposing_sensitive_detail(self):
+        for failure in (FileNotFoundError("private-path"), ValueError("corrupt video"),
+                        RuntimeError("CUDA failure"), MemoryError("VRAM exhausted"),
+                        PermissionError("private-path")):
+            with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                argv = ["stream_dual_perception.py", "--session-dir", str(root), "--video", "missing.mp4",
+                        "--config", "config.json", "--person-weights", "person.pt", "--person-sha256", "0",
+                        "--forklift-weights", "forklift.pt", "--forklift-sha256", "0"]
+                with patch.object(sys, "argv", argv), patch.object(self.worker, "process", side_effect=failure):
+                    self.assertEqual(self.worker.main(), 1)
+                status = json.loads((root / "status.json").read_text(encoding="utf8"))
+                self.assertEqual(status["state"], "error")
+                self.assertNotIn("private-path", status["detail"])
+                self.assertTrue((root / "error.log").is_file())
