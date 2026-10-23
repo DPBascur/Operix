@@ -3,7 +3,6 @@ import {
   BarChart3,
   CalendarClock,
   Clapperboard,
-  CircleDot,
   House,
   Map,
   ShieldCheck,
@@ -138,14 +137,11 @@ export function AppShell({
         <div className="mt-7">
           <Navigation activePath={activePath} />
         </div>
-        <div className="mt-auto border-t border-white/8 px-2 pt-3">
-          <div className="flex items-center gap-2 text-[0.68rem] text-[var(--sidebar-muted)]">
-            <CircleDot
-              aria-hidden="true"
-              size={12}
-              className="text-[#47B88A]"
-            />
-            <span>Entorno local</span>
+        <div className="sidebar-footer">
+          <DemoAccount />
+          <div className="sidebar-appearance">
+            <span>Apariencia</span>
+            <ThemeSelector />
           </div>
         </div>
       </aside>
@@ -160,10 +156,15 @@ export function AppShell({
           </h1>
           <div className="flex items-center gap-2">
             <ApiStatus />
-            <DemoAccount />
-            <ThemeSelector />
             <MobileNavigation>
               <Navigation activePath={activePath} />
+              <div className="sidebar-footer">
+                <DemoAccount />
+                <div className="sidebar-appearance">
+                  <span>Apariencia</span>
+                  <ThemeSelector />
+                </div>
+              </div>
             </MobileNavigation>
           </div>
         </header>

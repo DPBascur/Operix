@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { OperixMotionProvider } from "@/components/motion/motion-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,7 +18,9 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body>{children}</body>
+      <body>
+        <OperixMotionProvider>{children}</OperixMotionProvider>
+      </body>
     </html>
   );
 }

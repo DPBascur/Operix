@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import {
   ArrowDownRight,
@@ -7,11 +8,12 @@ import {
   ArrowRight,
   RefreshCw,
   Play,
-  Info,
+  Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { environment } from "@/config/environment";
 import { historyDemo } from "@/services/demo/history-demo";
+import { enterTransition, revealVariants } from "@/lib/motion/presets";
 import {
   parseHistory,
   formatHistoryTime,
@@ -23,6 +25,7 @@ import {
 const eventName = (name: string) =>
   name === "zone_dwell" ? "Permanencia en zona" : name;
 export function HistoricalDashboard() {
+  const reduceMotion = useReducedMotion();
   const [source, setSource] = useState<"demo" | "api">("demo");
   const [month, setMonth] = useState("2026-10");
   const [periodAnchor, setPeriodAnchor] = useState("2026-10");
@@ -89,13 +92,11 @@ export function HistoricalDashboard() {
     summary.hours[0],
   );
   return (
-    <div className="insights-page">
+    <div className="insights-page market-dashboard">
       <header className="insights-heading">
         <div>
-          <h2>Una mirada al histórico.</h2>
-          <p>
-            Reconozca recurrencias. Revise el contexto. Decida con evidencia.
-          </p>
+          <h2>Histórico de eventos</h2>
+          <p>Actividad operacional · {currentLabel}</p>
         </div>
         <Link href="/sources" className="button button-primary">
           <Play size={16} aria-hidden="true" />
@@ -159,14 +160,9 @@ export function HistoricalDashboard() {
           </Button>
         )}
       </div>
-      <div className="provenance-note">
-        <Info size={17} aria-hidden="true" />
-        <p>
-          {source === "demo"
-            ? "Datos ilustrativos · Escenario sintético para explorar el dashboard. No son incidentes de una organización."
-            : "Registros de la API · Incluyen pruebas y demostraciones. Un evento indica una regla satisfecha, no un incidente confirmado."}
-        </p>
-      </div>
+      <p className="history-source-caption">
+        {source === "demo" ? "Datos de ejemplo" : "Registros de la API"} · UTC
+      </p>
       {source === "api" && loading ? (
         <div className="dashboard-loading" role="status">
           <span className="spinner" />
@@ -182,13 +178,19 @@ export function HistoricalDashboard() {
         </div>
       ) : (
         <>
-          <section className="kpi-strip" aria-label="Resumen del período">
-            <div>
+          <motion.section
+            className="kpi-strip"
+            aria-label="Estadísticas del período"
+            initial={reduceMotion ? false : "hidden"}
+            animate="visible"
+            transition={{ staggerChildren: reduceMotion ? 0 : 0.045 }}
+          >
+            <motion.div variants={revealVariants} transition={enterTransition}>
               <span>Eventos del período</span>
               <strong>{summary.total}</strong>
               <small>{currentLabel}</small>
-            </div>
-            <div>
+            </motion.div>
+            <motion.div variants={revealVariants} transition={enterTransition}>
               <span>Frente al mes anterior</span>
               <strong className="comparison-value">
                 {summary.change === null
@@ -207,13 +209,13 @@ export function HistoricalDashboard() {
                   ? " · sin base de comparación"
                   : ""}
               </small>
-            </div>
-            <div>
+            </motion.div>
+            <motion.div variants={revealVariants} transition={enterTransition}>
               <span>Zonas con registros</span>
               <strong>{summary.zones.length}</strong>
               <small>Ubicaciones en el período</small>
-            </div>
-            <div>
+            </motion.div>
+            <motion.div variants={revealVariants} transition={enterTransition}>
               <span>Mayor recurrencia</span>
               <strong className="kpi-word">
                 {summary.zones[0]?.label ?? "Sin datos"}
@@ -221,8 +223,8 @@ export function HistoricalDashboard() {
               <small>
                 {summary.zones[0]?.count ?? 0} registros · revisar contexto
               </small>
-            </div>
-          </section>
+            </motion.div>
+          </motion.section>
           {summary.total === 0 ? (
             <div className="feedback-panel">
               <h3>Sin registros para este período</h3>
@@ -234,11 +236,27 @@ export function HistoricalDashboard() {
           ) : (
             <>
               <div className="analytics-grid">
-                <section className="insight-panel trend-panel">
+                <motion.section
+                  className="insight-panel trend-panel"
+                  initial={reduceMotion ? false : { opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={reduceMotion ? { duration: 0 } : enterTransition}
+                >
                   <div className="panel-heading">
                     <div>
-                      <h3>Frecuencia diaria</h3>
-                      <p>Eventos registrados · {currentLabel} · UTC</p>
+                      <h3>
+                        <Activity size={20} aria-hidden="true" /> Eventos
+                        registrados
+                      </h3>
+                      <div className="chart-headline">
+                        <strong>{summary.total}</strong>
+                        <span>{currentLabel}</span>
+                      </div>
+                      <p className="chart-comparison">
+                        {summary.change === null
+                          ? "Sin comparación anterior"
+                          : `${summary.change > 0 ? "+" : ""}${summary.change.toFixed(1)} % frente al mes anterior`}
+                      </p>
                     </div>
                     <span className="source-indicator">
                       {summary.total} eventos
@@ -255,6 +273,51 @@ export function HistoricalDashboard() {
                       role="img"
                       aria-label={`Frecuencia diaria, ${summary.total} eventos. Tabla diaria disponible debajo.`}
                     >
+                      <defs>
+                        <linearGradient
+                          id="history-area"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="0%"
+                            stopColor="var(--primary)"
+                            stopOpacity="0.23"
+                          />
+                          <stop
+                            offset="100%"
+                            stopColor="var(--primary)"
+                            stopOpacity="0.015"
+                          />
+                        </linearGradient>
+                        <pattern
+                          id="history-dots"
+                          width="36"
+                          height="35"
+                          patternUnits="userSpaceOnUse"
+                        >
+                          <circle
+                            cx="2"
+                            cy="2"
+                            r="0.6"
+                            fill="var(--border-strong)"
+                          />
+                        </pattern>
+                      </defs>
+                      <rect
+                        x="20"
+                        y="0"
+                        width="680"
+                        height="170"
+                        fill="url(#history-dots)"
+                        className="chart-dot-field"
+                      />
+                      <polygon
+                        points={`20,170 ${points} 700,170`}
+                        fill="url(#history-area)"
+                      />
                       <line x1="20" y1="30" x2="700" y2="30" />
                       <line x1="20" y1="100" x2="700" y2="100" />
                       <line x1="20" y1="170" x2="700" y2="170" />
@@ -288,7 +351,7 @@ export function HistoricalDashboard() {
                       ))}
                     </div>
                   </details>
-                </section>
+                </motion.section>
                 <section className="insight-panel">
                   <div className="panel-heading">
                     <div>
@@ -401,13 +464,9 @@ export function HistoricalDashboard() {
               </div>
               <section className="decision-note">
                 <div>
-                  <h3>
-                    La frecuencia orienta la revisión, no confirma el riesgo.
-                  </h3>
+                  <h3>Del registro a la evidencia.</h3>
                   <p>
-                    Compare períodos con cobertura similar y contraste cada
-                    evento con su evidencia visual. Los conteos no identifican
-                    personas ni permiten atribuir responsabilidades.
+                    Revise el contexto de cada evento en su video de origen.
                   </p>
                 </div>
                 <Link href="/events" className="button button-outline">

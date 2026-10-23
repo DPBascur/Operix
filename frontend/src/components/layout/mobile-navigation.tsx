@@ -1,13 +1,20 @@
 "use client";
 import { Menu, X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Button } from "@/components/ui/button";
+import {
+  enterTransition,
+  exitTransition,
+  popoverVariants,
+} from "@/lib/motion/presets";
 
 export function MobileNavigation({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const reduceMotion = useReducedMotion();
   useEffect(() => {
     if (!open) return;
     function dismiss(event: PointerEvent) {
@@ -50,18 +57,27 @@ export function MobileNavigation({ children }: { children: ReactNode }) {
           <Menu aria-hidden="true" size={21} />
         )}
       </Button>
-      {open && (
-        <div
-          id={id}
-          className="mobile-navigation-panel absolute right-0 top-13 w-64 max-w-[calc(100vw-2rem)] rounded-card border border-border bg-surface p-2 shadow-lg"
-          onClick={(event) => {
-            if (event.target instanceof Element && event.target.closest("a"))
-              setOpen(false);
-          }}
-        >
-          {children}
-        </div>
-      )}
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            key="mobile-navigation"
+            id={id}
+            inert={!open}
+            className="mobile-navigation-panel absolute right-0 top-13 w-64 max-w-[calc(100vw-2rem)] rounded-card border border-border bg-surface p-2 shadow-lg"
+            variants={popoverVariants}
+            initial={reduceMotion ? false : "hidden"}
+            animate="visible"
+            exit={{ ...popoverVariants.exit, transition: exitTransition }}
+            transition={reduceMotion ? { duration: 0 } : enterTransition}
+            onClick={(event) => {
+              if (event.target instanceof Element && event.target.closest("a"))
+                setOpen(false);
+            }}
+          >
+            {children}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

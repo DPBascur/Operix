@@ -1,5 +1,6 @@
 "use client";
 import { useRef, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import {
   Plus,
@@ -21,6 +22,7 @@ import {
   useDemoSession,
   saveUsers,
 } from "@/services/demo/users-store";
+import { enterTransition } from "@/lib/motion/presets";
 
 const empty = { name: "", email: "", role: "viewer" as Role, active: true };
 export function UserManagement() {
@@ -37,6 +39,7 @@ export function UserManagement() {
   const nameInput = useRef<HTMLInputElement>(null);
   const createButton = useRef<HTMLButtonElement>(null);
   const canEdit = session?.role === "administrator";
+  const reduceMotion = useReducedMotion();
   const visible = users.filter(
     (u) =>
       `${u.name} ${u.email}`.toLowerCase().includes(query.toLowerCase()) &&
@@ -157,9 +160,14 @@ export function UserManagement() {
               </thead>
               <tbody>
                 {visible.map((u) => (
-                  <tr
+                  <motion.tr
                     key={u.id}
                     className={selected === u.id ? "is-selected" : ""}
+                    initial={reduceMotion ? false : { opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={
+                      reduceMotion ? { duration: 0 } : enterTransition
+                    }
                   >
                     <td>
                       <div className="user-identity">
@@ -191,7 +199,7 @@ export function UserManagement() {
                         <Pencil size={16} />
                       </Button>
                     </td>
-                  </tr>
+                  </motion.tr>
                 ))}
               </tbody>
             </table>
@@ -213,7 +221,14 @@ export function UserManagement() {
           )}
         </section>
         {selected !== undefined && canEdit && (
-          <section className="user-editor" aria-labelledby="user-editor-title">
+          <motion.section
+            key="user-editor"
+            className="user-editor"
+            aria-labelledby="user-editor-title"
+            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={reduceMotion ? { duration: 0 } : enterTransition}
+          >
             <h3 id="user-editor-title">
               {selected ? "Editar usuario" : "Nueva cuenta demo"}
             </h3>
@@ -326,7 +341,7 @@ export function UserManagement() {
                 </Button>
               </div>
             </form>
-          </section>
+          </motion.section>
         )}
       </div>
       <section className="role-guide">

@@ -68,12 +68,14 @@ export function ApiStatus() {
       role="status"
       title="Comprobación real de API y base de datos cada 30 segundos. No verifica modelos ni GPU."
     >
-      {state === "offline" ? (
-        <WifiOff size={14} aria-hidden="true" />
-      ) : (
-        <Activity size={14} aria-hidden="true" />
-      )}
-      {names[state]}
+      <span className="inline-flex items-center gap-1.5">
+        {state === "offline" ? (
+          <WifiOff size={14} aria-hidden="true" />
+        ) : (
+          <Activity size={14} aria-hidden="true" />
+        )}
+        {names[state]}
+      </span>
     </span>
   );
 }

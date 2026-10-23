@@ -13,18 +13,18 @@ export function DemoAccount() {
           <Link
             href="/login"
             className="account-link"
-            title={`${user.name} · ${roles[user.role]} · sesión demostrativa`}
+            title={`${user.name} · ${roles[user.role]}`}
           >
             <UserRound size={17} />
             <span>
-              {roles[user.role]}
-              <small>Sesión demo</small>
+              <strong>{user.name}</strong>
+              <small>{roles[user.role]}</small>
             </span>
           </Link>
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Cerrar sesión demo"
+            aria-label="Cerrar sesión"
             onClick={signOutDemo}
           >
             <LogOut size={16} />
@@ -33,7 +33,7 @@ export function DemoAccount() {
       ) : (
         <Link className="button button-outline" href="/login">
           <UserRound size={16} />
-          Acceso demo
+          Iniciar sesión
         </Link>
       )}
     </div>

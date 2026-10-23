@@ -13,12 +13,12 @@ Modo: Operate. Identidad heredada y ampliada; estructuras fijadas por el encargo
 
 THESIS: de una consola de análisis a un espacio de revisión preventiva; datos, procedencia y acciones dominan sobre decoración.
 
-OWN-WORLD: azul Operix, neutros industriales, sidebar oscura, acento turquesa existente para observaciones; tipografía de trabajo Segoe UI, controles redondeados y paneles sin sombras ornamentales. Temas claro/oscuro preservados.
+OWN-WORLD: azul Operix como acento sobre carbón/grafito y superficies azul grisáceas en modo oscuro; controles rounded-full, navegación oscura flotante con glass, blur y bordes de 24px por solicitud explícita. Temas claro/oscuro preservados.
 
-STORY: seleccionar una fuente de datos, entender recurrencias, abrir evidencia. Login y usuarios muestran explícitamente su carácter local; no se crean credenciales ni se prometen permisos de servidor.
+STORY: entrar sin ruido informativo, seleccionar histórico, entender recurrencias y abrir evidencia. Los contratos de acceso permanecen documentados sin saturar el login.
 
-FIRST VIEWPORT: navegación lateral con marca ampliada y grupos operación/gestión; estado API real en cabecera. Dashboard con cuatro resúmenes, tendencia dominante y ranking lateral; login con formulario a izquierda y composición analítica animada a derecha. Usuarios: tabla más formulario contextual, no modal obligatorio.
+FIRST VIEWPORT: sidebar flotante redondeada, perfil y apariencia al pie; estado API en cabecera. Dashboard abierto con cifra y gráfica de área a izquierda, filtros y ranking a derecha; estadísticas planas debajo. Login izquierdo mínimo y preview derecho animado. Mobile: menú glass desplegable con perfil al pie.
 
-FORM: las tres composiciones son estructuras fijadas por el usuario: split login, dashboard ejecutivo, listado editable de usuarios. Código primero confirmado. Interacción distintiva: cambiar de histórico ilustrativo a registros API sin mezclar datos ni esconder fallos.
+FORM: referencias explícitas del usuario fijan menú lateral glass y dashboard de gráfica dominante; no hay sorteo de conceptos. Código primero confirmado. Interacción: hover refractado acotado al menú, selección pill y preview del login; reduced-motion conservado.
 
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance

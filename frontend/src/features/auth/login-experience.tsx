@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -14,12 +15,14 @@ import { Button } from "@/components/ui/button";
 import { ThemeSelector } from "@/components/ui/theme-selector";
 import { useDemoUsers, signInDemo } from "@/services/demo/users-store";
 import { roles, resolveActiveUser } from "@/services/demo/user-model";
+import { enterTransition, revealVariants } from "@/lib/motion/presets";
 
 export function LoginExperience() {
   const { users, error: storageError } = useDemoUsers();
   const [account, setAccount] = useState("demo-safety");
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const reduceMotion = useReducedMotion();
   const chosenAccount = resolveActiveUser(users, account);
   return (
     <main className="login-page">
@@ -37,16 +40,15 @@ export function LoginExperience() {
           </Link>
           <ThemeSelector />
         </header>
-        <div className="login-form-content">
-          <span className="source-indicator">Acceso demostrativo local</span>
-          <h1>
-            La prevención empieza
-            <br />
-            con una mejor mirada.
-          </h1>
-          <p>
-            Explore el espacio de trabajo de Operix con una cuenta de ejemplo.
-          </p>
+        <motion.div
+          className="login-form-content"
+          variants={revealVariants}
+          initial={reduceMotion ? false : "hidden"}
+          animate="visible"
+          transition={reduceMotion ? { duration: 0 } : enterTransition}
+        >
+          <h1>Bienvenido a Operix.</h1>
+          <p>Todo listo para una nueva mirada.</p>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -77,9 +79,6 @@ export function LoginExperience() {
                   </option>
                 ))}
             </select>
-            <p className="field-help">
-              No introduzca contraseñas ni credenciales reales.
-            </p>
             {(error || storageError) && (
               <p className="form-error" role="alert">
                 {error || storageError}
@@ -90,20 +89,13 @@ export function LoginExperience() {
               className="login-submit"
               disabled={!chosenAccount}
             >
-              Entrar a la demostración <ArrowRight size={18} />
+              Ingresar <ArrowRight size={18} />
             </Button>
           </form>
-          <div className="login-disclosure">
-            <ShieldCheck size={19} />
-            <p>
-              Esta sesión solo cambia la experiencia visual en este navegador.
-              No autentica contra el servidor ni protege las rutas o la API.
-            </p>
-          </div>
           <Link className="text-link" href="/sources">
-            Continuar al análisis sin sesión <ArrowRight size={15} />
+            Ir al análisis <ArrowRight size={15} />
           </Link>
-        </div>
+        </motion.div>
         <footer>
           Proyecto académico · Visión artificial aplicada a la prevención
           operacional
@@ -113,15 +105,28 @@ export function LoginExperience() {
         className="login-preview-side"
         aria-label="Vista animada ilustrativa de Operix"
       >
-        <div className="preview-intro">
+        <motion.div
+          className="preview-intro"
+          variants={revealVariants}
+          initial={reduceMotion ? false : "hidden"}
+          animate="visible"
+          transition={reduceMotion ? { duration: 0 } : enterTransition}
+        >
           <h2>
             Del video al contexto.
             <br />
             Del contexto a la revisión.
           </h2>
           <p>Una misma plataforma para observar, analizar y comprender.</p>
-        </div>
-        <div className="live-preview">
+        </motion.div>
+        <motion.div
+          className="live-preview"
+          initial={reduceMotion ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={
+            reduceMotion ? { duration: 0 } : { ...enterTransition, delay: 0.08 }
+          }
+        >
           <div className="mini-topbar">
             <strong>OPERIX</strong>
             <span>
@@ -175,7 +180,7 @@ export function LoginExperience() {
               </div>
             </div>
           </div>
-        </div>
+        </motion.div>
         <div className="preview-caption">
           <span>Detección</span>
           <ArrowRight size={14} />

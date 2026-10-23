@@ -33,7 +33,9 @@ El indicador global usa `GET /api/v1/health/`, que verifica API y base de datos.
 
 ## Interacción y accesibilidad
 
-Botones reutilizables primary/secondary/ghost/outline/destructive, tamaños default/icon/small; controles solo icono requieren nombre accesible. Foco visible, formularios etiquetados, avisos de éxito/error y cancelación. El login incluye un preview analítico animado ilustrativo, no un stream del Motor. Su animación es acotada y respeta `prefers-reduced-motion`.
+La revisión visual posterior sustituyó los botones rounded-lg por rounded-full, compactó el login, desplazó el perfil al pie del menú flotante y reorganizó el dashboard alrededor de una gráfica de área con estadísticas planas. El modo oscuro se recalibró con carbón/grafito y superficies azul grisáceas; el azul Operix se reserva para acciones y datos destacados. Se mantienen los datos y las acciones originales.
+
+Botones reutilizables primary/secondary/ghost/outline/destructive, tamaños default/icon/small; controles solo icono requieren nombre accesible. Foco visible, formularios etiquetados, avisos de éxito/error y cancelación. El login incluye un preview analítico ilustrativo, no un stream del Motor. Su animación ejecuta un ciclo breve y respeta `prefers-reduced-motion`. Motion se utiliza en transiciones contextuales pequeñas; hover, color y bordes sencillos permanecen en CSS. El cambio de período no oculta los KPI y el estado de API se actualiza sin intervalo vacío.
 
 ## Verificación
 
