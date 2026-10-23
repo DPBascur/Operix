@@ -1,0 +1,175 @@
+# Copyright (C) 2026 Daniel Felipe Peña Bascur
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""Contratos puros para adquirir un holdout PERSON aislado de entrenamiento."""
+
+from __future__ import annotations
+
+import hashlib
+import csv
+import json
+import re
+from pathlib import Path
+
+
+CANDIDATE = "LOCKED_EVALUATION_CANDIDATE"
+FROZEN = "LOCKED_EVALUATION_FROZEN"
+GROUP_PATTERN = re.compile(r"HOLDOUT_PERSON_[0-9]{3,}")
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest().upper()
+
+
+def validate_source_group(group: str) -> str:
+    if not GROUP_PATTERN.fullmatch(group):
+        raise ValueError("source_group debe seguir HOLDOUT_PERSON_###")
+    return group
+
+
+def sample_indices(frame_count: int, fps: float, *, sample_count: int | None = None,
+                   interval_seconds: float | None = None) -> tuple[int, ...]:
+    """Muestreo temporal fijo, sin consultar detecciones ni contenido del frame."""
+    if frame_count < 1 or fps <= 0 or (sample_count is None) == (interval_seconds is None):
+        raise ValueError("indica exactamente un tamaño o intervalo y video válido")
+    if sample_count is not None:
+        if not 1 <= sample_count <= frame_count:
+            raise ValueError("sample_count fuera de rango")
+        if sample_count == 1:
+            return (frame_count // 2,)
+        return tuple(round(i * (frame_count - 1) / (sample_count - 1))
+                     for i in range(sample_count))
+    if interval_seconds is None or interval_seconds <= 0:
+        raise ValueError("interval_seconds debe ser positivo")
+    step = max(1, round(interval_seconds * fps))
+    return tuple(range(0, frame_count, step))
+
+
+def require_outside_repository(output: Path, repository: Path) -> None:
+    if output.resolve().is_relative_to(repository.resolve()):
+        raise ValueError("videos y anotaciones del holdout deben permanecer fuera de Git")
+
+
+def guard_holdout_assignment(source_groups: set[str], assignments: dict[str, str]) -> None:
+    """Impide asignar grupos reservados a train/calibration u otros usos."""
+    conflicts = {group: assignments[group] for group in source_groups
+                 if group in assignments and assignments[group] != "LOCKED_EVALUATION"}
+    if conflicts:
+        raise ValueError(f"source_groups reservados fuera de LOCKED_EVALUATION: {conflicts}")
+
+
+def group_manifests(root: Path) -> list[dict]:
+    return [json.loads(path.read_text(encoding="utf-8"))
+            for path in sorted((root / "01-ingested").glob("*.json"))]
+
+
+def verify_frozen(root: Path) -> dict:
+    """Comprueba que el freeze y todos los artefactos que referencia siguen intactos."""
+    freeze = json.loads((root / "06-freeze" / "freeze.json").read_text(encoding="utf-8"))
+    frozen_json = root / "final" / "locked-evaluation-manifest.json"
+    frozen_csv = root / "final" / "locked-evaluation-manifest.csv"
+    if freeze.get("status") != FROZEN or not freeze.get("independence_attested") or (
+            sha256_file(frozen_json) != freeze.get("manifest_json_sha256") or
+            sha256_file(frozen_csv) != freeze.get("manifest_csv_sha256")):
+        raise ValueError("freeze o manifests alterados")
+    payload = json.loads(frozen_json.read_text(encoding="utf-8"))
+    with frozen_csv.open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    if rows != payload.get("records") or len(rows) != freeze.get("images") or (
+            set(freeze.get("source_groups", [])) != {r["source_group"] for r in rows}):
+        raise ValueError("registros del freeze inconsistentes")
+    if ({source["source_group"] for source in freeze.get("sources", [])} !=
+            set(freeze["source_groups"]) or
+            len(freeze.get("sources", [])) != len(freeze["source_groups"])):
+        raise ValueError("fuentes del freeze inconsistentes")
+    for source in freeze.get("sources", []):
+        group = validate_source_group(source["source_group"])
+        manifest_path = root / "01-ingested" / f"{group}.json"
+        if sha256_file(manifest_path) != source["source_manifest_sha256"]:
+            raise ValueError(f"metadata de origen alterada: {group}")
+        meta = json.loads(manifest_path.read_text(encoding="utf-8"))
+        video = (root / meta["stored_video"]).resolve()
+        export = root / "04-exports" / group / "annotations.zip"
+        if not video.is_relative_to(root.resolve()) or (
+                sha256_file(video) != source["source_video_sha256"] or
+                sha256_file(export) != source["export_sha256"]):
+            raise ValueError(f"video/export alterado: {group}")
+        if (sha256_file(root / "04-exports" / group / "review.csv") !=
+                source["review_sha256"] or
+                sha256_file(root / "04-exports" / group / "completion.json") !=
+                source["completion_sha256"] or
+                sha256_file(root / "final" / group / "verified-manifest.csv") !=
+                source["verified_manifest_sha256"] or
+                sha256_file(root / "05-qa" / f"{group}.json") != source["qa_sha256"]):
+            raise ValueError(f"revisión/QA alterados: {group}")
+    for row in rows:
+        group = row["source_group"]
+        name = row["filename"]
+        if Path(name).name != name or row["evaluation_status"] != FROZEN or (
+                sha256_file(root / "02-frame-samples" / group / name) != row["image_sha256"] or
+                sha256_file(root / "final" / group / "labels" /
+                            (Path(name).stem + ".txt")) != row["label_sha256"]):
+            raise ValueError(f"frame/label alterado: {group}/{name}")
+    return freeze
+
+
+def acquisition_readiness(root: Path, *, minimum_groups: int = 3) -> dict:
+    groups = group_manifests(root)
+    if not groups:
+        return {"decision": "PERSON_HOLDOUT_ACQUISITION_READY", "groups": 0,
+                "reason": "pipeline preparado; faltan videos independientes"}
+    if len({item.get("source_group") for item in groups}) != len(groups) or any(
+        item.get("evaluation_status") != CANDIDATE or item.get("role") != "HOLDOUT_ONLY"
+        for item in groups):
+        return {"decision": "PERSON_HOLDOUT_BLOCKED", "groups": len(groups),
+                "reason": "metadata duplicada o aislamiento inválido"}
+    frozen = root / "06-freeze" / "freeze.json"
+    if frozen.exists():
+        try:
+            verify_frozen(root)
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            return {"decision": "PERSON_HOLDOUT_BLOCKED", "groups": len(groups),
+                    "reason": f"freeze inválido: {exc}"}
+        return {"decision": "PERSON_EVALUATION_READY", "groups": len(groups),
+                "reason": "freeze íntegro y atestación registrada"}
+    completed = 0
+    positives = negatives = 0
+    for item in groups:
+        group = item["source_group"]
+        verified = root / "final" / group / "verified-manifest.csv"
+        qa_path = root / "05-qa" / f"{group}.json"
+        if not verified.is_file() or not qa_path.is_file():
+            continue
+        try:
+            qa = json.loads(qa_path.read_text(encoding="utf-8"))
+            with verified.open(newline="", encoding="utf-8") as stream:
+                records = list(csv.DictReader(stream))
+            if (not qa.get("completed") or qa.get("blocking_issues") != 0 or
+                    sha256_file(verified) != qa.get("verified_manifest_sha256") or
+                    sha256_file(root / "04-exports" / group / "annotations.zip") !=
+                    qa.get("export_sha256") or
+                    sha256_file(root / "04-exports" / group / "review.csv") !=
+                    qa.get("review_sha256") or
+                    sha256_file(root / "04-exports" / group / "completion.json") !=
+                    qa.get("completion_sha256") or
+                    any(row["annotation_status"] not in {"HUMAN_VERIFIED", "VERIFIED_NEGATIVE"}
+                        for row in records)):
+                raise ValueError("QA, recibo o manifest incompletos/alterados")
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            return {"decision": "PERSON_HOLDOUT_BLOCKED", "groups": len(groups),
+                    "reason": f"grupo {group}: {exc}"}
+        completed += 1
+        positives += sum(row["annotation_status"] == "HUMAN_VERIFIED" for row in records)
+        negatives += sum(row["annotation_status"] == "VERIFIED_NEGATIVE" for row in records)
+    if completed == len(groups) and len(groups) >= minimum_groups:
+        if not positives or not negatives:
+            return {"decision": "PERSON_HOLDOUT_BLOCKED", "groups": len(groups),
+                    "reason": "se requieren positivos y negativos humanos"}
+        return {"decision": "PERSON_HOLDOUT_READY_TO_FREEZE", "groups": len(groups),
+                "completed_groups": completed,
+                "reason": "candidato; freeze todavía exige QA, hashes e independencia"}
+    return {"decision": "PERSON_HOLDOUT_PARTIAL", "groups": len(groups),
+            "completed_groups": completed, "minimum_groups": minimum_groups}
