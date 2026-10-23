@@ -18,6 +18,9 @@ El aporte del Trabajo de Título consiste en diseñar, integrar y evaluar un sis
 - OP-30 (configuración), OP-36 (pertenencia a zonas), OP-37 (variables espacio-temporales) y OP-38 (primera regla configurable) están completadas.
 - OP-42: resguardos de evidencia y alcance del PoC completados académicamente en V0.11 para Etapa 2.
 - Backend/API con PostgreSQL y frontend `/events` disponibles como prototipos de desarrollo; una prueba local desde video registra eventos `zone_dwell` con evidencia recuperable. Faltan autenticación y operación integrada de producción.
+- El análisis web integra percepción experimental dual PERSON + FORKLIFT con YOLO11 y ByteTrack, zonas configurables, preview y resultado MP4. Requiere checkpoints locales verificados.
+- OP-41 está integrado técnicamente: el dashboard consulta frecuencias históricas de registros persistidos y las distingue del ejemplo ilustrativo. Véase [evidencia OP-41](backend/evidence/OP-41-event-frequencies.md).
+- FORKLIFT specialist v2 es el baseline experimental congelado. PERSON sigue bajo evaluación metodológica: el set YouTube es diagnóstico y el holdout final requiere nuevas fuentes verificables. Véase [evidencia experimental](engine/evidence/etapa3-experimentos.md).
 
 ## Arquitectura y alcance
 
@@ -26,9 +29,9 @@ Video → detección → tracking → variables espacio-temporales → reglas co
 La arquitectura define Aplicación Web, Backend/API, Motor de análisis de video y PostgreSQL. Existe una integración local inicial desde video hasta `/events`; el Motor entrega candidatos por HTTP al Backend y no accede directamente a PostgreSQL.
 
 - Procesamiento de video.
-- Detección y seguimiento experimental de `person`; cobertura de maquinaria pendiente de pesos/clases apropiados.
-- Evaluación inicial de una regla operacional configurable (`zone_dwell`).
-- Emisión de candidatos transitorios y publicación local opcional de eventos `zone_dwell` con captura real del frame. No hay clasificación automática de riesgo.
+- Detección y seguimiento experimental de PERSON y FORKLIFT mediante checkpoints especializados e identidades por clase; sin validación industrial de maquinaria.
+- Análisis espacial multiclase, pertenencia a zonas y variables espacio-temporales para reglas configurables.
+- Transporte HTTP generalizado de candidatos y publicación local con evidencia visual. El Motor permanece separado del Backend y no accede a PostgreSQL. Las reglas y su habilitación dependen de la configuración; no hay clasificación automática general de riesgo.
 
 Las reglas y umbrales operacionales son configurables y dependen del escenario y de la organización. Se utiliza el concepto de evento de interés preventivo o condición potencialmente riesgosa, sujeto a revisión humana.
 
@@ -57,7 +60,8 @@ cd Operix
 git switch dev
 ```
 
-`main` conserva el hito estable `v0.1.0`; `dev` es la rama habitual de desarrollo.
+`dev` es la rama activa de desarrollo. El tag `v0.1.0` conserva el hito histórico
+del pipeline base y no se mueve con la evolución de las ramas.
 Los seis diagramas y los cinco ADR de la arquitectura base v1.0 están
 disponibles en [docs/architecture/](docs/architecture/README.md), junto con
 la exportación completa de IcePanel. Documentan el diseño aprobado, no la
@@ -105,7 +109,11 @@ El PoC técnico ejecutado comprende video → OpenCV → YOLO11 → ByteTrack �
 
 Después de ese hito, el desarrollo incorporó configuración de zonas y reglas (OP-30), pertenencia geométrica (OP-36), variables espacio-temporales (OP-37) y evaluación inicial `zone_dwell` (OP-38). Una [prueba local posterior](engine/evidence/video-to-event-local.md) enlazó video, regla, evidencia de frame real y evento persistido. Un `EventCandidate` aislado sigue siendo transitorio y no constituye una clasificación automática de riesgo.
 
-La validación principal filtra `person`. Los pesos COCO no contienen `forklift` y no demuestran tracking fiable de maquinaria. Los resultados proceden de muestras sintéticas acotadas; no acreditan funcionamiento universal o sostenido en tiempo real ni validación completa de Operix.
+La validación histórica de OP-61 filtra `person`: COCO no contiene `forklift`.
+La percepción dual posterior usa un detector especializado de montacargas y no
+cambia retrospectivamente esos resultados. La evidencia sigue siendo acotada;
+no acredita tracking fiable de maquinaria industrial, funcionamiento universal
+o sostenido en tiempo real ni validación completa de Operix.
 
 ## Datos de demostración
 
