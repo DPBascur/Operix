@@ -148,6 +148,13 @@ sesión, o mediante el Python del Motor: `python -m operix_engine.event_outbox
 <directorio-local-del-run> --api-url <API-local>`. El reenvío usa el snapshot
 original; no recalcula reglas ni cambia identidades para evitar un conflicto.
 
+Un crash o cancelación invalida el último estado de guardado hasta su revisión.
+Un journal ausente/truncado o un candidato pendiente sin snapshot completo nunca
+se confirma como `saved`; las entradas completas todavía pueden reenviarse.
+Si falla la codificación PNG, se retiene únicamente el frame candidato derivado
+y su hash para regenerar la imagen sin inferencia. Esta recuperación sigue
+sujeta a disponibilidad de almacenamiento y revisión manual de datos incompletos.
+
 No se conoce la fecha civil de grabación de un archivo subido. La fecha UTC del
 evento usa el inicio del análisis como ancla más tiempo de video, explicitado en
 `source.timestamp_basis=ANALYSIS_START_PROXY_NOT_RECORDING_TIME`. **No es una

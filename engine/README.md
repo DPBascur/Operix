@@ -378,9 +378,12 @@ El comando exige `VIDEO`, `--config`, `--output-dir` (fuera del repositorio),
 `--expected-video-sha256` y los pesos/hashes de cada canal activo. Produce
 `observations.jsonl`, `annotated.mp4` y `summary.json`; `--capture-frames N...`
 guarda PNG locales solo cuando ambas clases tienen tracks. El resumen contiene
-FPS efectivo, tiempos de inferencia/tracking, conteos, huecos, candidatos
-`zone_dwell` de **person** y memoria CUDA. No publica eventos ni activa reglas
-para `forklift`. Esta integración es experimental en A/B/C; no acredita
+FPS efectivo, tiempos de inferencia/tracking, conteos, huecos, candidatos de las
+reglas ya habilitadas y memoria CUDA. Ese comando no publica eventos ni activa
+reglas nuevas. `stream_dual_perception.py`, usado por las sesiones web, admite
+un contexto preparado por Backend para publicar candidatos de objeto único o
+pares mediante outbox y HTTP; véase [Backend](../backend/README.md#publicación-operacional-desde-sesiones-web).
+Esta integración es experimental en A/B/C; no acredita
 validación industrial, rendimiento sostenido ni cobertura general.
 
 ## Preparación exploratoria de anotaciones NVIDIA

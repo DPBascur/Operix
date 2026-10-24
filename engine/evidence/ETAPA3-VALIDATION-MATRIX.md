@@ -2,6 +2,10 @@
 
 ## Base y límites
 
+Las secciones anteriores a **Campaign II** conservan la auditoría histórica de
+Campaign I. Sus estados PARTIAL/MISSING y scorecard describen aquella base;
+la actualización del 24-10-2026 al final registra el estado posterior comprobado.
+
 Auditoría del 23-10-2026 sobre `dev`, base `8cea9eb7dc134b506ab8c6eba14e88c865bb531c`.
 Fuente de aceptación: Backlog V0.11, hojas **Backlog General** y **Levantamiento**.
 La arquitectura v1.0 no cambia. Implementación, validación funcional y evaluación
@@ -328,3 +332,225 @@ Tres pruebas aprobadas: dos pares guardados con PNG; dos runs separados, cuatro
 eventos e imágenes independientes; análisis completado con HTTP fallido y replay
 posterior idempotente. El cierre de sesión conserva el outbox y los eventos.
 Estas pruebas no usan pesos ni evalúan exactitud o capacidad GPU.
+
+### Campaign II — recuperación y revisión independiente
+
+La revisión independiente encontró y corrigió: recibo IPC `saved` obsoleto tras
+crash; carrera stop/start que podía limpiar el proceso nuevo; fallo PNG sin
+material de recuperación; journal truncado que impedía entregar su prefijo válido;
+redirecciones HTTP fuera del destino local; y journal ausente interpretado como
+cero candidatos guardados. Hay regresiones en `test_hardening.py` y
+`test_event_outbox.py`. La revisión posterior no identificó otro bloqueante
+concreto en esos cambios; no demuestra ausencia universal de errores.
+
+Se registra intención durable antes de guardar la evidencia y se confirma el
+journal antes de HTTP. Un pendiente sin snapshot completo requiere revisión manual,
+mantiene `failed` y no se descarta. Un journal parcial permite reenviar entradas
+completas, pero conserva `invalid_records` y no informa éxito total. Un terminal
+anormal no confirma el último IPC; solo un replay comprobado puede actualizarlo.
+El fallback conserva un frame candidato derivado con hash, no el video; recrea
+PNG acotado sin inferencia. Si el disco no permite guardar intención/evidencia,
+no existe garantía de recuperación: el análisis termina con error controlado.
+
+Event y PNG se guardan en pasos HTTP distintos: un Event puede existir sin PNG
+si falla su upload; el publicador lo informa como fallido y reintenta la misma
+identidad. El guardado de metadata del PNG usa transacción/bloqueo de fila y elimina
+el archivo nuevo si falla la DB. No se presenta esto como transacción distribuida.
+
+### Campaign II — prueba GPU Web/API y recursos
+
+Serie local A/A/A del 24-10-2026; código ejecutado:
+`a30dd21d4a89f207ac3700516bb78570a241f6f2`. El monitor terminó con HEAD
+`e1d221af99e3278802dca8153cf02594b57e2190`, que solo añade la prueba de carga:
+no cambió código productivo durante la serie. Harness local `gpu_web_smoke.py`, SHA
+`42277f30180445867263fdc52fb754372cd4878b11d9a2295e0962e383411c49`;
+monitor SHA `b7bd686d6090fe312dee73feb2480b774b5eed9d595c5e629d376d1a69a42f54`.
+Entorno y hashes de video/configuración/pesos: mismos valores documentados arriba.
+
+| Repetición | Wall s | FPS por wall | Frames | Eventos guardados | Resultado |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 1 | 27.640535 | 10.022 | 277 | 3 | completed / saved |
+| 2 | 26.556536 | 10.431 | 277 | 3 | completed / saved |
+| 3 | 27.153134 | 10.201 | 277 | 3 | completed / saved |
+
+El wall usa `perf_counter_ns`: upload/inicio/status mediante APIClient en proceso,
+carga fresca de modelos, procesamiento GPU, salida MP4, transporte y publicación
+HTTP local, PostgreSQL y finalización. Excluye latencia de upload TCP/browser y
+las consultas posteriores de comprobación. Incluye los 20 frames iniciales;
+las etapas warm existentes excluyen esos frames (257 muestras amortizadas por run).
+No se midió una sesión end-to-end con modelos residentes: las tres cargan pesos.
+831 frames / 81.3502041 s = **10.215 FPS globales**. No 30 FPS sostenidos ni
+comparación directa con OP-43 o Campaign I; sus alcances son diferentes.
+
+Las tres corridas usaron el perfil A vigente, con `zone_dwell`, sin activar la regla
+de pares. Cada una verificó eventos, PNG, histórico, frecuencias, propiedad de
+run/source y cierre del worker. Nueve eventos solo en DB temporal, destruida al
+finalizar; no se añadieron eventos al histórico de desarrollo. Tres MP4 completos
+H.264/MSMF de 277 frames, 1920×1080/30 FPS, 70.794.289 bytes. Sus hashes diferentes
+se conservan en el resumen local; no se exige codificación binaria determinista.
+Esto no mide precisión PERSON ni valida umbrales operacionales.
+
+Monitor del árbol propio: pico RSS 1.819.512.832 bytes, 1.545 handles, cuatro procesos,
+ningún proceso propio remanente. Memoria global GPU entre 1.657 y 2.115 MiB;
+incluye escritorio y otros procesos, no mide allocator residente ni prueba ausencia
+de fugas. El muestreo no demuestra estabilidad indefinida. Resultados locales en
+`etapa3-autonomous-II-2026-10-24/gpu-web-summary.json` y
+`gpu-web-resource-review.json`, fuera de Git. No se versionan MP4, PNG ni logs.
+
+### Campaign II — cobertura funcional y límites actuales
+
+| ID | Comprobación | Resultado / límite |
+| --- | --- | --- |
+| E3II-PAIR | Snapshot completo de dos roles, reglas y métricas; API, constraint y retries | `test_pair_events.py`, `test_pair_publishing.py`; no objeto primario inventado |
+| E3II-E2E | OpenCV → analizador/regla → dos pares → HTTP → DB → PNG → filtros/agregados | `test_motor_integration.py`; percepción determinista, no exactitud de detector |
+| E3II-WEB | Upload/inicio → worker productivo con percepción fixture → dos pares persistidos | `test_persistence.py`; API de sesiones y HTTP reales; no navegador automatizado completo |
+| E3II-RUN | Dos inicios cercanos, separados por el guard GPU; cuatro eventos en runs separados | Sin overwrite ni contaminación de imágenes; no procesamiento GPU concurrente permitido |
+| E3II-FAIL | HTTP fallido, DB/PNG fallidos, crash, timeout, salida inválida, stop/start | Retries acotados; resultado y persistencia distintos; replay sin inferencia |
+| E3II-MIG | DB desde cero, dos tipos y evidencia; migración 0005 sobre 25 filas | Nuevos snapshots vacíos, campos previos preservados; no identidad histórica inventada |
+| E3II-GPU | Tres workers GPU A con publicación y evidencia | 831 frames, nueve eventos aislados, cero procesos propios remanentes |
+| E3II-UI | Lista, filtro de pares vacío y detalle con regla/PNG; escritorio y móvil | Browser contra histórico real de 25 filas; no se inyectaron pares en desarrollo para la captura |
+
+El frontend distingue ambos tipos y enlaza el detalle; contratos de pares probados
+automáticamente. La revisión visual comprobó detalle heredado, estado sin fuente
+y filtro de pares vacío sin fabricar ejemplos. No afirma una demostración visual
+de un nuevo par persistido en la DB de desarrollo. Impeccable detect sobre las
+tres superficies modificadas terminó sin hallazgos; diseño/incumbente preservado.
+Posteriormente también se abrió el nuevo `zone_dwell` de la ejecución web
+independiente descrita abajo: source/run, regla/parámetros y PNG visibles en el
+navegador. Esto amplía la comprobación visual de objeto único, no de pares.
+
+### Campaign II — trazabilidad vigente de requisitos
+
+| Requisito | Implementación / validación | Evidencia | Limitación restante |
+| --- | --- | --- | --- |
+| RF-01 | IMPLEMENTED / VALIDATED funcional | E3II-WEB/GPU; suites de video | Fuentes y codificador acotados |
+| RF-02 | IMPLEMENTED / PARTIAL accuracy | `etapa3-experimentos.md`; GPU independiente | PERSON final espera anotación; no usar holdout |
+| RF-03 | IMPLEMENTED / VALIDATED funcional | Tracking/identidad compuesta; regresiones Motor | Sin ground truth MOT ni garantías de identidad |
+| RF-04 | IMPLEMENTED / VALIDATED por tests | Geometría y edición de zona vigentes | Revisión contextual experta |
+| RF-05 | IMPLEMENTED / VALIDATED por fixtures | `test_rules.py`, `test_pair_rules.py` | Parámetros experimentales; pares no activados en perfiles A/B/C |
+| RF-06 | IMPLEMENTED / VALIDATED integración | E3II-PAIR/E2E/WEB/FAIL/GPU | Recuperación acotada; retención manual y acceso local |
+| RF-07 | IMPLEMENTED / VALIDATED dos tipos | E3II-PAIR; filtros y carga mixta | Histórico sin paginación; alcance de carga acotado |
+| RF-08 | IMPLEMENTED / VALIDATED dos tipos | Counter independiente en carga/pares | Frecuencias de condiciones, no tasas de incidentes |
+| RNF-01 | IMPLEMENTED / VALIDATED snapshots | Contrato, idempotencia, migración 0005 | Ancla UTC de análisis proxy; emisión, no cierre de episodio |
+| RNF-02 | IMPLEMENTED / PARTIAL alcance | Tres corridas GPU y carga local mixta | No benchmark industrial ni 30 FPS sostenidos |
+| R-01 | VALIDATED para fuentes documentadas | OP-16/18/42; provenance ya archivada | Cada recurso nuevo requiere derechos propios |
+| R-02 | PARTIAL | API loopback, retención manual, datos fuera de Git | Sin autenticación empresarial ni política de retención definitiva |
+| R-03 | IMPLEMENTED en alcance | IDs temporales, sin biometría/sanciones | No interpretar candidatos como culpa/riesgo confirmado |
+| PV-01 | PARTIAL | Límites y snapshots de reglas | Validación de geometría/umbrales por experto |
+| PV-02 | BLOCKED validación humana | Interfaz y reglas configurables existentes | Roles demo no sustituyen autorización Backend |
+
+Reconciliación documental, sin editar Excel: OP-39 y OP-40 pasan de PARTIAL a
+DONE **para aceptación técnica controlada** (evento/PNG persistidos y filtros
+por período y dos tipos existentes). OP-33–41/59/60: **11/11 del subconjunto de
+implementación**, frente a 9/11 en la base. No equivale a avance académico global,
+exactitud de percepción ni cierre experto. OP-28 sigue actividad continua; OP-42
+PARTIAL como resguardo, OP-44/45 PARTIAL en validación ampliada y OP-46 BLOCKED
+por revisión experta. Seguridad productiva y despliegue empresarial: DEFERRED.
+Las dos omisiones con modelos reales siguen siendo SKIP, no pruebas aprobadas.
+
+### Campaign II — feedback y antes/después
+
+| Clasificación | Fuente | Cambio / commit | Evidencia |
+| --- | --- | --- | --- |
+| FEEDBACK_DRIVEN | OP-28, profesor guía, 25/09/2026 | Registro `9a4e8aa`, actualización `880744f`, ADR `49a3198`; no se inventa feedback posterior | [OP-28](OP-28-feedback-log.md), [ADR](../../docs/architecture/README.md) |
+| INTERNAL_IMPROVEMENT | Fronteras MISSING de Campaign I | Pares persistentes `ce83a92`; web `6b44d9c` | E3II-PAIR/E2E/WEB |
+| INTERNAL_IMPROVEMENT | Revisión independiente y regresiones | Recuperación `a30dd21`; carga mixta `e1d221a` | E3II-FAIL/GPU; test de carga |
+
+La justificación solicitada en OP-28 está respaldada por decisiones/documentación;
+este trabajo no verifica el texto de un informe académico externo ni una aceptación
+posterior del profesor. Retroalimentación permanece PARTIAL. FORKLIFT/NMS se
+reutilizan desde `etapa3-experimentos.md`; no se reevalúan aquí. El cambio verificable
+de esta campaña es IPC de último frame/pares no persistentes → journal completo,
+contrato de dos tipos, publicación web, evidencia y consultas. No se atribuye una
+ganancia de precisión o velocidad que esta campaña no haya medido.
+
+### Presentación reproducible: LIVE PATH y FALLBACK PATH
+
+1. Seguir los README para PostgreSQL/API, Python del Motor/pesos aprobados y frontend;
+   `EVENT_POST_ENABLED=1` solo en entorno local controlado. Revisar health y `/events`.
+2. Anotar conteo/IDs anteriores, iniciar una demo autorizada desde `/analysis` y esperar
+   `completed` **y** `persistence=saved`; no confundir MP4 reproducible con guardado.
+3. Abrir histórico, detalle del nuevo evento, regla/versión/parámetros y PNG; comprobar
+   que frecuencias aumentan por el mismo run. Una nueva pulsación de inicio es otro run.
+4. Para demostrar pares sin cambiar perfiles congelados, ejecutar el E2E controlado:
+   `manage.py test apps.analysis.test_persistence apps.events.test_motor_integration --noinput`.
+   Explicar percepción fixture y DB temporal; no presentarlo como precisión real.
+5. Si GPU/Motor falla, mostrar el error y usar **FALLBACK PATH**: histórico real previo,
+   IDs, detalle/PNG y pruebas reproducibles. Aclarar fecha/run previo. No afirmar una
+   ejecución nueva ni sustituir el histórico por el dashboard ilustrativo.
+6. Si solo falla publicación, conservar outbox y reintentar guardado desde la sesión;
+   si está cerrada, usar la CLI documentada. Datos incompletos requieren revisión manual.
+
+La validación funcional está separada de **MODEL ACCURACY EVALUATION** y de
+**OPERATIONAL VALIDATION**. Permanecen humanas la anotación PERSON, aprobación
+experta de contexto/umbrales y decisión académica del alcance. No se modifica
+arquitectura v1.0, perfiles, thresholds, pesos, ByteTrack, Excel ni informe.
+
+### Campaign II — carga mixta y regresión final
+
+SHA probado `e1d221af99e3278802dca8153cf02594b57e2190`; suite final Backend
+103/103, incluyendo Web E2E con pares y evidencia. Motor **319 descubiertas,
+317 PASS y dos SKIP**; frontend **23/23**. Total de suites: **445 descubiertas,
+443 PASS, dos SKIP**. Lint, typecheck, build, Django check, migration check,
+pip check de ambos entornos, tensor CPU/CUDA y OpenCV: PASS. No dependencias nuevas.
+La comprobación global de formato Windows no se presenta como aprobada: permanece
+el antecedente de CRLF preexistente; los archivos frontend cambiados sí pasaron
+Prettier estricto. No se normaliza el repositorio masivamente.
+
+Stress V2: 1.200 filas, 600 por tipo, en PostgreSQL 17.11 temporal. Filtros y
+frecuencias reconciliados con Counter independiente; cero TEST_DATA_STRESS en
+desarrollo. 21 consultas por endpoint, primera separada y 20 warm; p95 nearest-rank
+19/20. APIClient en proceso con PostgreSQL real; sin TCP/browser. No umbral universal,
+arranque frío de aplicación ni carga industrial. Harness versionado SHA
+`d5d568775e86e39b399a2319cabffbd79bf5b278fb87a33a98c9112e36b3e57c`.
+
+| Endpoint | Primera ms | Media warm ms | Mediana ms | p95 ms | Máximo ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Lista mixta, 1.200 | 101.511 | 116.331 | 102.386 | 173.025 | 185.862 |
+| Lista por tipo, 600 | 57.909 | 65.247 | 56.061 | 123.118 | 153.861 |
+| Lista por fechas, 601 | 55.559 | 58.607 | 51.715 | 118.479 | 120.398 |
+| Tipo + fechas, 300 | 29.256 | 33.309 | 28.489 | 42.410 | 98.177 |
+| Frecuencias mixtas | 2.245 | 1.498 | 1.506 | 1.686 | 1.772 |
+| Frecuencias tipo + fechas | 2.043 | 1.621 | 1.526 | 1.825 | 3.038 |
+| Detalle / metadata de evidencia | 2.109 | 1.646 | 1.537 | 1.839 | 2.900 |
+
+Resumen local: `etapa3-autonomous-II-2026-10-24/final-validation/controlled-history-mixed-stress.json`.
+No se versionan datos de carga. La carga corrió dentro de la suite, no en una
+máquina aislada: variabilidad y servicios de escritorio limitan la comparación.
+
+Verificación posterior: las **25 filas originales** conservan el SHA indicado
+arriba. El total de desarrollo pasó a **28**, por tres eventos `zone_dwell` de
+una ejecución web independiente posterior, run
+`bcf62b20-7f61-51e7-89fd-5877c2702181`, identificada como demo en source.
+No pertenecen a los nueve IDs de la DB temporal GPU ni a los fixtures de pares.
+Se preservaron sin edición; lista y frecuencias reconcilian 28. No se atribuye
+este crecimiento a la migración ni se borra para forzar un total de 25.
+Los intentos de auditoría detectaron primero ese cambio de total y un uso de
+`testserver` fuera de ALLOWED_HOSTS; se corrigió la comprobación para usar localhost,
+sin cambiar settings ni ocultar la discrepancia. El hash del subconjunto histórico
+es idéntico: no hubo reescritura de sus observaciones.
+
+### Campaign II — cierre técnico y scorecard actualizado
+
+Graphify: una consulta manual dirigida, presupuesto 1.000 tokens, usada para
+orientación entre sesión/worker/candidato/persistencia; resultados contrastados
+con código y tests. Grafo previo a los cambios, no fuente de verdad actualizada;
+sin hooks, always-on, cambios AGENTS ni salida del grafo versionada.
+
+| Categoría | Estado actual | Sustento / pendiente |
+| --- | --- | --- |
+| Retroalimentación | PARTIAL | Fuente profesor OP-28; falta feedback experto posterior |
+| Mejoras/robustez | STRONG funcional | Seis fallos concretos revisados y regresiones; sin aceleración alegada |
+| Implementación | ADEQUATE | 11/11 del núcleo técnico delimitado, no porcentaje global |
+| Pruebas/resultados | STRONG funcional | 443 PASS + 2 SKIP; pares Web/HTTP/DB y GPU separados |
+| Validación preliminar | ADEQUATE funcional / PARTIAL operacional | Tres runs GPU, carga mixta; PERSON y experto pendientes |
+| Documentación/trazabilidad | STRONG en alcance | Matriz vigente, snapshots, migración compatible, demo/fallback |
+
+**ETAPA3_AUTONOMOUS_ADVANCEMENT_II_COMPLETE** para esta campaña técnica delimitada.
+**OPERATIONAL_PERSISTENCE_READY** en entorno local controlado: Web/API → worker →
+eventos, PNG, consultas e indicadores comprobados; pares con percepción fixture.
+No se declara automáticamente `ETAPA3_READY_EXCEPT_PERSON_AND_EXPERT_VALIDATION`:
+la aceptación académica del denominador, feedback y suficiencia del alcance debe
+confirmarse humanamente. API sin autenticación, retención manual, precisión PERSON
+pendiente, sin GT MOT, muestras acotadas y rendimiento dependiente del entorno.
+No son garantías de producción ni cierre académico global.
