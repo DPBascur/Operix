@@ -90,3 +90,80 @@ class ControlledHistoryValidationTests(APITestCase):
                 "reconciliation": "PASS", "isolation": "Django test database; rolled back/destroyed",
                 "threshold": "No universal latency acceptance threshold",
             }, indent=2), encoding="utf-8")
+
+
+class MixedHistoryValidationTests(APITestCase):
+    def test_mixed_history_reconciles_under_bounded_load(self):
+        from .serializers import EventSerializer
+        from .test_pair_events import pair_payload
+        from .tests import EventApiTests
+        anchor = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        run = uuid4()
+        legacy = EventApiTests()
+        legacy.setUp()
+        rows, independent = [], []
+        for index in range(1200):
+            values = pair_payload() if index % 2 else dict(legacy.payload)
+            occurred = anchor + timedelta(minutes=index * 7)
+            values.update(analysis_run_id=str(run), view_id="TEST_DATA_STRESS",
+                          frame_index=100 + index, occurred_at=occurred.isoformat())
+            checked = EventSerializer(data=values)
+            checked.is_valid(raise_exception=True)
+            rows.append(Event(**checked.validated_data))
+            independent.append((occurred, values["event_type"]))
+        Event.objects.bulk_create(rows)
+        after, before = independent[200][0], independent[800][0]
+        filters = [({}, independent)]
+        for kind in ("zone_dwell", "person_forklift_proximity"):
+            filters.append(({"event_type": kind}, [r for r in independent if r[1] == kind]))
+        filters += [({"occurred_after": after.isoformat(), "occurred_before": before.isoformat()},
+                     [r for r in independent if after <= r[0] <= before]),
+                    ({"event_type": "person_forklift_proximity", "occurred_after": after.isoformat(),
+                      "occurred_before": before.isoformat()},
+                     [r for r in independent if r[1] == "person_forklift_proximity" and after <= r[0] <= before])]
+        for params, expected in filters:
+            listed = self.client.get("/api/v1/events/", params)
+            counted = self.client.get("/api/v1/events/frequencies/", params).json()
+            self.assertEqual(len(listed.json()), len(expected))
+            self.assertEqual(counted["total"], len(expected))
+            self.assertEqual({r["event_type"]:r["count"] for r in counted["by_type"]}, Counter(kind for _,kind in expected))
+            self.assertEqual({r["date"]:r["count"] for r in counted["by_period"]}, Counter(date.date().isoformat() for date,_ in expected))
+        metrics = {}
+        endpoints = [("history_all", "/api/v1/events/", {}),
+                     ("history_type", "/api/v1/events/", filters[2][0]),
+                     ("history_date", "/api/v1/events/", filters[3][0]),
+                     ("history_type_date", "/api/v1/events/", filters[4][0]),
+                     ("frequencies_mixed", "/api/v1/events/frequencies/", {}),
+                     ("frequencies_type_date", "/api/v1/events/frequencies/", filters[4][0]),
+                     ("evidence_metadata", f"/api/v1/events/{rows[1].id}/", {})]
+        for name, endpoint, params in endpoints:
+            values = []
+            for _ in range(21):
+                start = time.perf_counter_ns()
+                response = self.client.get(endpoint, params)
+                values.append((time.perf_counter_ns() - start)/1e6)
+                self.assertEqual(response.status_code, 200)
+            ordered = sorted(values[1:])
+            metrics[name] = {"first_ms": values[0], "mean_ms": statistics.mean(ordered),
+                             "median_ms": statistics.median(ordered), "p95_ms": ordered[18], "max_ms": max(ordered)}
+        self.assertEqual(Event.objects.filter(view_id="TEST_DATA_STRESS").count(), 1200)
+        output = os.environ.get("OPERIX_VALIDATION_OUTPUT_DIR")
+        if output:
+            repository = Path(__file__).resolve().parents[3]
+            folder = Path(output).resolve()
+            if folder.is_relative_to(repository):
+                raise ValueError("Resultados fuera de Git")
+            folder.mkdir(parents=True, exist_ok=True)
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT version()")
+                postgres = cursor.fetchone()[0]
+            (folder / "controlled-history-mixed-stress.json").write_text(json.dumps({
+                "commit": subprocess.check_output(["git","rev-parse","HEAD"],cwd=repository,text=True).strip(),
+                "harness_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                "date_utc": datetime.now(timezone.utc).isoformat(), "postgresql": postgres,
+                "python": platform.python_version(), "os": platform.platform(), "rows": 1200,
+                "by_type": {"zone_dwell":600,"person_forklift_proximity":600},
+                "scope": "Django APIClient in-process + PostgreSQL real; excludes TCP/browser",
+                "method": "first separate; 20 warm; p95 nearest rank ceil(.95*20)=19; no cold process measured",
+                "isolation": "TEST_DATA_STRESS only in test database, destroyed after test",
+                "metrics": metrics, "reconciliation": "PASS"}, indent=2), encoding="utf-8")
