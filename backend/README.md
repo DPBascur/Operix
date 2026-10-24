@@ -106,7 +106,7 @@ no se procesa, `POST .../{id}/start/` para iniciar o reanalizar el mismo video,
 temporalmente la fuente, el resultado y el snapshot de configuración; el MP4
 conserva el FPS de la fuente, distinto del FPS de procesamiento. En Windows el
 Motor requiere un codificador H.264 disponible mediante OpenCV/MSMF. No crea
-tablas nuevas ni publica eventos.
+tablas de sesiones nuevas. La publicación opcional de eventos se describe abajo.
 Máximo dos sesiones temporales y 250 MiB por archivo por defecto; ajustar
 `OPERIX_ANALYSIS_MAX_SESSIONS`, `OPERIX_ANALYSIS_MAX_UPLOAD_BYTES` y
 `OPERIX_ANALYSIS_RETENTION_SECONDS` si corresponde. Las salidas temporales se
@@ -169,7 +169,7 @@ y `event_type` de la lista de eventos, con zona horaria explícita. Devuelve
 `total`, `by_period`, `by_type`, `timezone=UTC` y `period=day`; no inventa días
 sin registros. Los agregados salen de una consulta PostgreSQL agrupada por
 día/tipo. Es una consulta de solo lectura: no crea migraciones ni tipos de
-evento adicionales. Hoy solo se admite `zone_dwell`.
+evento adicionales. Se admiten `zone_dwell` y `person_forklift_proximity`.
 
 Los conteos pueden incluir registros de desarrollo: no son tasas verificadas de
 incidentes ni indicadores de riesgo. El protocolo y las pruebas figuran en

@@ -156,6 +156,36 @@ class SessionHardeningTests(SimpleTestCase):
         self.assertEqual(data["state"], "error")
         self.assertIsNone(data["result"])
 
+    def test_stop_cannot_erase_a_newer_run_or_process(self):
+        previous, new = Mock(), Mock()
+        previous.poll.return_value = None
+        self.session.state = "processing"
+        self.session.process = previous
+        def new_run(*args, **kwargs):
+            self.session.run += 1
+            self.session.process = new
+            self.session.state = "processing"
+            (self.session.directory / "status.json").write_text("new run", encoding="utf-8")
+        previous.wait.side_effect = new_run
+        self.session.stop()
+        self.assertIs(self.session.process, new)
+        self.assertEqual(self.session.state, "processing")
+        self.assertEqual((self.session.directory / "status.json").read_text(), "new run")
+        self.session.process = None
+
+    def test_crash_invalidates_a_stale_saved_ipc_receipt(self):
+        self.completed()
+        self.session.outbox_directory = self.root / "outbox"
+        self.session.outbox_directory.mkdir()
+        path = self.session.directory / "status.json"
+        data = json.loads(path.read_text())
+        data["persistence"] = {"state":"saved","candidates":1,"saved":1,"failed":0}
+        path.write_text(json.dumps(data), encoding="utf-8")
+        self.session.process = Mock()
+        self.session.process.poll.return_value = 1
+        self.assertEqual(self.session.status()["persistence"]["state"], "failed")
+        self.session.process = None
+
     def test_removed_session_cannot_reuse_old_outputs(self):
         identity, directory = self.session.id, self.session.directory
         (directory / "frame.jpg").write_bytes(b"jpeg")

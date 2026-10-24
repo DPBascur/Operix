@@ -134,7 +134,8 @@ class AnalysisSession:
                     self.state = "error"
                     payload["detail"] = "No se generó un resultado reproducible."
             payload["result"] = self.result_config if self.state == "completed" else None
-            if self.outbox_directory and self.state in TERMINAL and payload["persistence"]["state"] == "pending":
+            if self.outbox_directory and (self.state in {"error", "cancelled"} or
+                    (self.state in TERMINAL and payload["persistence"]["state"] == "pending")):
                 payload["persistence"] = {"state": "failed", "detail": "El análisis terminó sin confirmar la persistencia; revise el journal."}
             if self.outbox_directory and (self.outbox_directory / "replay-summary.json").is_file():
                 try:
@@ -190,6 +191,7 @@ class AnalysisSession:
                 raise ValueError("No hay un análisis en curso para detener")
             self.state = "cancelled"
             process = self.process
+            run = self.run
         if process is not None and process.poll() is None:
             process.terminate()
             try:
@@ -198,6 +200,8 @@ class AnalysisSession:
                 process.kill()
                 process.wait(timeout=5)
         with self._guard:
+            if self.process is not process or self.run != run:
+                return  # Otro inicio ya posee la sesión; nunca limpiar sus salidas.
             self.process = None
             self.result_config = None
             for filename in ("status.json", "frame.jpg", "annotated.partial.mp4", "annotated.mp4", "error.log"):

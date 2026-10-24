@@ -18,7 +18,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Literal, Mapping, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from operix_engine.rules import EventCandidate, PairEventCandidate
@@ -176,10 +176,15 @@ def _retry_operation(operation, max_attempts):
     raise AssertionError("Bucle de publicación sin resultado")  # pragma: no cover
 
 
+class _NoEventRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 class HttpEventSink:
     """Reintenta fallos; la API decide si un candidato ya fue persistido."""
 
-    def __init__(self, api_base_url: str, *, timeout_s: float = 5.0) -> None:
+    def __init__(self, api_base_url: str, *, timeout_s: float = 5.0, local_only: bool = False) -> None:
         parsed = urlparse(api_base_url)
         if (
             parsed.scheme not in ("http", "https")
@@ -190,11 +195,18 @@ class HttpEventSink:
             or parsed.fragment
         ):
             raise ValueError("OPERIX_API_BASE_URL debe ser una URL HTTP(S) sin credenciales")
+        if local_only and (parsed.scheme != "http" or parsed.hostname not in {"localhost", "127.0.0.1", "::1"}):
+            raise ValueError("La publicación web solo permite API local")
         if not isinstance(timeout_s, (int, float)) or not math.isfinite(timeout_s) or timeout_s <= 0:
             raise ValueError("OPERIX_API_TIMEOUT_S debe ser positivo y finito")
         self._events_url = api_base_url.rstrip("/") + "/events/"
         self._timeout_s = float(timeout_s)
         self._completed: dict[tuple, tuple[str, str]] = {}
+        self._opener = build_opener(_NoEventRedirect()) if local_only else None
+
+    def _request(self, request):
+        return (self._opener.open(request, timeout=self._timeout_s) if self._opener else
+                urlopen(request, timeout=self._timeout_s))
 
     def publish(
         self, candidate: EventCandidate, context: EventContext, evidence_png: bytes | None = None
@@ -224,7 +236,7 @@ class HttpEventSink:
                 headers={"Content-Type": "application/json", "Accept": "application/json"},
                 method="POST",
             )
-            with urlopen(request, timeout=self._timeout_s) as response:
+            with self._request(request) as response:
                 status = response.status
                 body = response.read()
         except HTTPError as error:
@@ -278,7 +290,7 @@ class HttpEventSink:
                 method="POST",
             )
             try:
-                with urlopen(upload, timeout=self._timeout_s) as response:
+                with self._request(upload) as response:
                     upload_status = response.status
             except HTTPError as error:
                 return PublishResult("failed", http_status=error.code, event_id=event_id, reason="evidence_http_error")

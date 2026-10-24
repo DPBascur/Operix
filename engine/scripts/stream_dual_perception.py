@@ -166,8 +166,8 @@ def process(args: argparse.Namespace) -> None:
         document = json.loads(args.event_context.read_text(encoding="utf-8"))
         context = EventContext(UUID(document["analysis_run_id"]), config.view_id,
                                datetime.fromisoformat(document["analysis_started_at"]), document["source"])
-        outbox = EventOutbox(args.event_context.parent, HttpEventSink(document["api_url"]))
-        persistence = outbox.summary()
+        outbox = EventOutbox(args.event_context.parent, HttpEventSink(document["api_url"], local_only=True))
+        persistence = {"state": "pending", "candidates": 0, "saved": 0, "failed": 0}
     visual = VisualizationConfig(max_trajectory_points=60, inactive_retention_frames=30)
     renderer = OpenCvRenderer(visual)
     histories = {name: TrajectoryAccumulator(visual) for name in ("person", "forklift")}
@@ -256,11 +256,14 @@ def process(args: argparse.Namespace) -> None:
                     if max(width, height) > 960:
                         scale = 960 / max(width, height)
                         image = cv2.resize(image, (round(width * scale), round(height * scale)))
-                    encoded, png = cv2.imencode(".png", image)
+                    try:
+                        encoded, png = cv2.imencode(".png", image)
+                    except cv2.error:
+                        encoded, png = False, None
                     evidence = png.tobytes() if encoded and png is not None else None
                     if evidence is not None and len(evidence) > 2 * 1024 * 1024:
                         evidence = None
-                    outbox.enqueue(result.candidates, context, evidence)
+                    outbox.enqueue(result.candidates, context, evidence, fallback_frame=image)
                     persistence = outbox.summary()
                 tick = time.perf_counter_ns()
                 writer.write(annotated)
@@ -326,6 +329,9 @@ def process(args: argparse.Namespace) -> None:
                 (encoded_width, encoded_height) != (metadata.width, metadata.height)):
             raise RuntimeError("El MP4 H.264 final no conservó frames, FPS o resolución")
         os.replace(partial_result, final_result)
+        if outbox is not None:
+            outbox.enqueue((), context, None)
+            persistence = outbox.summary()
         _status(
             args.session_dir, state="completed", frame=processed,
             total=processed, percent=100, fps=round(processed / max(time.perf_counter() - started, 1e-9), 2),
