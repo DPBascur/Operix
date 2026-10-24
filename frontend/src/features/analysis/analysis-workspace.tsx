@@ -14,6 +14,7 @@ import {
   Waypoints,
 } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   analysisService,
@@ -487,16 +488,21 @@ export function AnalysisWorkspace({
   const showReference = !!sourceName && !!referenceUrl && !showResult;
   const visibleError = error
     ? readableError(error)
-    : session?.detail
-      ? readableError(session.detail)
-      : null;
-  const contextState = visibleError
-    ? "No fue posible completar la operación"
-    : session
-      ? session.state === "completed" && previewPending
-        ? "Análisis completado · terminando vista previa a velocidad 1×…"
-        : labels[session.state]
-      : "Sin fuente preparada";
+    : session?.persistence?.state === "failed"
+      ? "El análisis puede estar completo, pero sus eventos no quedaron guardados íntegramente. Puede reintentar el guardado sin analizar de nuevo."
+      : session?.detail
+        ? readableError(session.detail)
+        : null;
+  const contextState =
+    session?.state === "completed" && session.persistence?.state === "failed"
+      ? "Análisis completado · eventos pendientes de guardado"
+      : visibleError
+        ? "No fue posible completar la operación"
+        : session
+          ? session.state === "completed" && previewPending
+            ? "Análisis completado · terminando vista previa a velocidad 1×…"
+            : labels[session.state]
+          : "Sin fuente preparada";
 
   function moveVertexWithKeyboard(
     event: KeyboardEvent<SVGEllipseElement>,
@@ -949,6 +955,52 @@ export function AnalysisWorkspace({
               <span className="analysis-error-message">{visibleError}</span>
             )}
           </p>
+          {session &&
+            ["completed", "error", "cancelled"].includes(session.state) &&
+            session.persistence && (
+              <div className="analysis-result-help" aria-live="polite">
+                {session.persistence.state === "saved" ? (
+                  <p>
+                    {session.persistence.saved ?? 0} eventos guardados.{" "}
+                    <Link
+                      href="/events"
+                      className="underline underline-offset-2"
+                    >
+                      Consultar histórico
+                    </Link>
+                  </p>
+                ) : null}
+                {session.persistence.state === "disabled" ? (
+                  <p>
+                    La publicación de eventos está deshabilitada en este
+                    entorno.
+                  </p>
+                ) : null}
+                {session.persistence.state === "failed" ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => {
+                      setBusy(true);
+                      void analysisService
+                        .retryEventPersistence(session.id)
+                        .then(setSession)
+                        .catch((cause: unknown) =>
+                          setError(
+                            cause instanceof Error
+                              ? readableError(cause.message)
+                              : "No se pudo reintentar el guardado.",
+                          ),
+                        )
+                        .finally(() => setBusy(false));
+                    }}
+                  >
+                    Reintentar guardado de eventos
+                  </Button>
+                ) : null}
+              </div>
+            )}
           {session?.pending_changes && (
             <p className="rounded-control border border-warning/50 bg-warning/10 px-3 py-2 text-sm text-foreground">
               Hay cambios de zona pendientes. Vuelva a analizar para aplicarlos

@@ -194,7 +194,7 @@ class HttpEventSink:
             raise ValueError("OPERIX_API_TIMEOUT_S debe ser positivo y finito")
         self._events_url = api_base_url.rstrip("/") + "/events/"
         self._timeout_s = float(timeout_s)
-        self._completed: set[tuple[UUID, str, str, int, int, int, str]] = set()
+        self._completed: dict[tuple, tuple[str, str]] = {}
 
     def publish(
         self, candidate: EventCandidate, context: EventContext, evidence_png: bytes | None = None
@@ -211,10 +211,12 @@ class HttpEventSink:
             key = tuple(str(payload.get(field)) for field in (
                 "analysis_run_id", "view_id", "rule_id", "rule_version", "frame_index", "zone_id",
                 "track_id", "class_name")) + (json.dumps(payload.get("interaction"), sort_keys=True),)
+            snapshot = json.dumps({k:v for k,v in payload.items() if k != "occurred_at"},
+                                  sort_keys=True, allow_nan=False)
         except (TypeError, ValueError):
             return PublishResult("failed", reason="invalid_payload")
-        if key in self._completed:
-            return PublishResult("duplicate", reason="already_attempted_in_this_session")
+        if key in self._completed and self._completed[key][0] == snapshot:
+            return PublishResult("duplicate", event_id=self._completed[key][1], reason="already_attempted_in_this_session")
         try:
             request = Request(
                 self._events_url,
@@ -284,7 +286,7 @@ class HttpEventSink:
                 return PublishResult("failed", event_id=event_id, reason="evidence_network_error")
             if upload_status not in (200, 201):
                 return PublishResult("failed", http_status=upload_status, event_id=event_id, reason="evidence_unexpected_status")
-        self._completed.add(key)
+        self._completed[key] = (snapshot, event_id)
         return PublishResult(
             "duplicate" if already_exists else "published",
             http_status=status,

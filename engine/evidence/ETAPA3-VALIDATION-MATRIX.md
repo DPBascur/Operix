@@ -308,3 +308,23 @@ y E2E adicional en `test_motor_integration.py`. La aplicación desde una DB de t
 vacía pasa; fallo de guardado DB elimina el PNG nuevo para evitar evidencia huérfana.
 La integración automática de sesiones web se verifica en el siguiente hito; este
 contrato por sí solo no declara aún `OPERATIONAL_PERSISTENCE_READY`.
+
+### Campaign II — conexión de sesiones web
+
+El worker de streaming conserva todos los candidatos en un outbox durable y los
+publica por HTTP sin depender del último status IPC. La sesión prepara una copia
+de configuración efectiva y un run estable por inicio explícito. El reloj civil
+es una **ancla de inicio de análisis**, no una fecha de grabación conocida; esa
+distinción viaja en `source`. No se alteran reglas, percepción ni perfiles.
+
+El estado de análisis y el de persistencia son independientes. La interfaz permite
+consultar el histórico o reintentar guardado sin volver a analizar. Evidencia y
+journal tienen MANUAL_RETENTION fuera de los temporales de sesión. Hay límites
+de retry, no garantía infinita de entrega ni retención operacional definitiva.
+
+`WebPersistenceTests`: API de upload/inicio/status/resultado reales, worker
+productivo con detecciones fixture, ByteTrack/reglas/outbox/HTTP/PostgreSQL reales.
+Tres pruebas aprobadas: dos pares guardados con PNG; dos runs separados, cuatro
+eventos e imágenes independientes; análisis completado con HTTP fallido y replay
+posterior idempotente. El cierre de sesión conserva el outbox y los eventos.
+Estas pruebas no usan pesos ni evalúan exactitud o capacidad GPU.

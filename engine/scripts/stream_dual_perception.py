@@ -11,6 +11,8 @@ import os
 import sys
 import time
 import traceback
+from datetime import datetime
+from uuid import UUID
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
@@ -20,6 +22,8 @@ import torch
 
 from operix_engine.byte_tracker import ByteTrackConfig, ByteTracker
 from operix_engine.candidate_transport import candidate_payloads
+from operix_engine.event_outbox import EventOutbox
+from operix_engine.event_publishing import EventContext, HttpEventSink
 from operix_engine.dual_perception import ClassPerceptionChannel, DualPerception
 from operix_engine.operational_config import load_operational_config
 from operix_engine.rules import RuleEngine
@@ -155,6 +159,15 @@ def process(args: argparse.Namespace) -> None:
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA no está disponible para ambos detectores")
     config = _validated_zone(load_operational_config(args.config), args.polygon)
+    outbox = None
+    context = None
+    persistence = {"state": "disabled", "candidates": 0, "saved": 0, "failed": 0}
+    if getattr(args, "event_context", None):
+        document = json.loads(args.event_context.read_text(encoding="utf-8"))
+        context = EventContext(UUID(document["analysis_run_id"]), config.view_id,
+                               datetime.fromisoformat(document["analysis_started_at"]), document["source"])
+        outbox = EventOutbox(args.event_context.parent, HttpEventSink(document["api_url"]))
+        persistence = outbox.summary()
     visual = VisualizationConfig(max_trajectory_points=60, inactive_retention_frames=30)
     renderer = OpenCvRenderer(visual)
     histories = {name: TrajectoryAccumulator(visual) for name in ("person", "forklift")}
@@ -237,6 +250,18 @@ def process(args: argparse.Namespace) -> None:
                         annotated, tracks, histories[name].update(frame_index, tracks),
                     )
                 renderer_ms = (time.perf_counter_ns() - tick) / 1e6
+                if outbox is not None and result.candidates:
+                    image = annotated
+                    height, width = image.shape[:2]
+                    if max(width, height) > 960:
+                        scale = 960 / max(width, height)
+                        image = cv2.resize(image, (round(width * scale), round(height * scale)))
+                    encoded, png = cv2.imencode(".png", image)
+                    evidence = png.tobytes() if encoded and png is not None else None
+                    if evidence is not None and len(evidence) > 2 * 1024 * 1024:
+                        evidence = None
+                    outbox.enqueue(result.candidates, context, evidence)
+                    persistence = outbox.summary()
                 tick = time.perf_counter_ns()
                 writer.write(annotated)
                 video_write_ms = (time.perf_counter_ns() - tick) / 1e6
@@ -270,7 +295,7 @@ def process(args: argparse.Namespace) -> None:
                     forklift_detections=len(observed.forklift_detections),
                     person_tracks=len(observed.person_tracks),
                     forklift_tracks=len(observed.forklift_tracks),
-                    candidates=frame_candidates,
+                    candidates=frame_candidates, persistence=persistence,
                 )
                 if frame_index >= 20:
                     totals_ms["status_ipc"] += (time.perf_counter_ns() - tick) / 1e6
@@ -311,7 +336,7 @@ def process(args: argparse.Namespace) -> None:
             forklift_detections=len(observed.forklift_detections),
             person_tracks=len(observed.person_tracks),
             forklift_tracks=len(observed.forklift_tracks),
-            candidates=frame_candidates,
+            candidates=frame_candidates, persistence=persistence,
             result_video={"codec": "H.264/avc1", "encoder_backend": output_backend,
                           "fps": encoded_fps, "frames": encoded_frames,
                           "width": encoded_width, "height": encoded_height},
@@ -336,6 +361,7 @@ def main() -> int:
     parser.add_argument("--preview-width", type=int, default=1280)
     parser.add_argument("--preview-fps", type=float, default=10.0)
     parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--event-context", type=Path)
     args = parser.parse_args()
     try:
         process(args)

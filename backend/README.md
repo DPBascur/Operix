@@ -126,6 +126,41 @@ a una red local controlada.
 
 ## Validación
 
+### Publicación operacional desde sesiones web
+
+Con `EVENT_POST_ENABLED=1`, el Backend prepara un contexto por ejecución y el
+worker publica automáticamente los candidatos de reglas ya habilitadas. No se
+activan nuevas reglas por instalar el transporte. `OPERIX_EVENT_API_BASE_URL`
+debe apuntar a la API **local** (por defecto `http://127.0.0.1:8000/api/v1`).
+No se toma una URL arbitraria desde el navegador ni se amplía autenticación.
+
+Cada inicio explícito crea un run independiente (`uuid5(session_id, run)`).
+Los reintentos de publicación conservan ese run, frame, regla y par. Los snapshots
+y PNG quedan bajo `MEDIA_ROOT/analysis-events/<run>/`, con **MANUAL_RETENTION**:
+eliminar una sesión temporal no elimina eventos ni evidencia persistida. No se
+guarda una copia persistente del video de entrada o del resultado completo.
+
+`status.persistence` distingue `disabled`, `pending`, `saved` y `failed`; el estado
+de análisis puede ser `completed` aunque la persistencia sea `failed`. El journal
+se conserva antes del HTTP; hasta tres intentos por candidato. Se puede reenviar
+sin inferencia con `POST .../sessions/<id>/persistence/retry/` mientras exista la
+sesión, o mediante el Python del Motor: `python -m operix_engine.event_outbox
+<directorio-local-del-run> --api-url <API-local>`. El reenvío usa el snapshot
+original; no recalcula reglas ni cambia identidades para evitar un conflicto.
+
+No se conoce la fecha civil de grabación de un archivo subido. La fecha UTC del
+evento usa el inicio del análisis como ancla más tiempo de video, explicitado en
+`source.timestamp_basis=ANALYSIS_START_PROXY_NOT_RECORDING_TIME`. **No es una
+afirmación sobre cuándo se grabó la escena.** La source registra nombre sin ruta,
+SHA del video/configuración/pesos, sesión y número de run. El dashboard ilustrativo
+no genera registros; una ejecución de una muestra demo sí se identifica como tal.
+
+`person_forklift_proximity` guarda ambas identidades en `interaction`, métricas en
+`observations`, inicio/emisión en `episode`, regla/versión/parámetros y PNG. Las
+columnas heredadas de objeto único quedan nulas para pares; los registros
+históricos no reciben observaciones inventadas. Una condición satisfecha no
+confirma accidente, Near Miss, infracción ni responsabilidad personal.
+
 ### Frecuencias históricas (OP-41)
 
 `GET /api/v1/events/frequencies/` resume eventos persistidos por día **UTC** y

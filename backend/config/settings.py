@@ -20,6 +20,7 @@ def csv_setting(name: str) -> list[str]:
 SECRET_KEY = required("DJANGO_SECRET_KEY")
 DEBUG = os.environ.get("DJANGO_DEBUG", "0") == "1"
 EVENT_POST_ENABLED = os.environ.get("EVENT_POST_ENABLED", "0") == "1"
+OPERIX_EVENT_API_BASE_URL = os.environ.get("OPERIX_EVENT_API_BASE_URL", "http://127.0.0.1:8000/api/v1")
 ALLOWED_HOSTS = csv_setting("DJANGO_ALLOWED_HOSTS")
 CORS_ALLOWED_ORIGINS = csv_setting("CORS_ALLOWED_ORIGINS")
 

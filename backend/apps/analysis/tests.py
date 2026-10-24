@@ -87,6 +87,7 @@ class AnalysisSessionApiTests(SimpleTestCase):
             path.write_bytes(b"\x00\x00\x00\x10ftypisomvideo")
             self.demo_paths[profile] = path
         self.demo_settings = override_settings(
+            MEDIA_ROOT=str(demo_root / "media"),
             OPERIX_DEMO_VIDEO_A=str(self.demo_paths["A"]),
             OPERIX_DEMO_VIDEO_B=str(self.demo_paths["B"]),
             OPERIX_DEMO_VIDEO_C=str(self.demo_paths["C"]),

@@ -74,6 +74,15 @@ export interface AnalysisSessionStatus {
   person_tracks: number;
   forklift_tracks: number;
   detail?: string;
+  analysis_run_id?: string | null;
+  persistence?: {
+    state: "pending" | "saved" | "failed" | "disabled";
+    candidates?: number;
+    saved?: number;
+    failed?: number;
+    event_ids?: string[];
+    detail?: string;
+  };
 }
 
 function apiBaseUrl(): string {
@@ -151,6 +160,12 @@ export const analysisService = {
     return request<AnalysisSessionStatus>(`${sessionUrl(id)}stop/`, {
       method: "POST",
     });
+  },
+  retryEventPersistence(id: string) {
+    return request<AnalysisSessionStatus>(
+      `${sessionUrl(id)}persistence/retry/`,
+      { method: "POST" },
+    );
   },
   async closeAnalysisSession(id: string) {
     const response = await fetch(sessionUrl(id), {

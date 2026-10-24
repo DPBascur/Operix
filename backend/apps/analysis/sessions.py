@@ -14,7 +14,9 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -46,6 +48,15 @@ _lock = threading.RLock()
 logger = logging.getLogger(__name__)
 
 
+def local_event_api_url():
+    value = settings.OPERIX_EVENT_API_BASE_URL
+    parsed = urlparse(value)
+    if (parsed.scheme != "http" or parsed.hostname not in {"localhost", "127.0.0.1", "::1"}
+            or parsed.username or parsed.password or parsed.query or parsed.fragment):
+        raise RuntimeError("La publicación web requiere una URL de API local sin credenciales")
+    return value
+
+
 @dataclass
 class AnalysisSession:
     id: uuid.UUID
@@ -68,6 +79,8 @@ class AnalysisSession:
     _cleanup_timer: threading.Timer | None = field(default=None, repr=False)
     preview_clock: PreviewClock = field(default_factory=PreviewClock, repr=False)
     failure_detail: str | None = None
+    outbox_directory: Path | None = None
+    analysis_run_id: str | None = None
 
     def touch(self) -> None:
         self.last_access = time.monotonic()
@@ -84,6 +97,9 @@ class AnalysisSession:
                 "percent": None, "fps": None, "person_detections": 0,
                 "forklift_detections": 0, "person_tracks": 0, "forklift_tracks": 0,
                 "run": self.run, "result": None,
+                "analysis_run_id": self.analysis_run_id,
+                "persistence": {"state": "pending" if self.outbox_directory else "disabled",
+                                "candidates": 0, "saved": 0, "failed": 0},
                 # Solo candidatos del último frame comunicado por IPC; no es un histórico.
                 "candidates": [],
             }
@@ -100,6 +116,9 @@ class AnalysisSession:
                 self.state = "error"
                 self.failure_detail = "El Motor terminó antes de completar el análisis. Puede volver a intentarlo."
                 payload.update(state="error", detail=self.failure_detail)
+            if self.process is not None and self.process.poll() not in (None, 0) and self.state == "completed":
+                self.state = "error"
+                self.failure_detail = "El proceso del Motor terminó con error; no se confirma una ejecución completa."
             if self.state == "completed":
                 result = self.directory / "annotated.mp4"
                 if result.is_file() and self.active_config is not None:
@@ -115,6 +134,13 @@ class AnalysisSession:
                     self.state = "error"
                     payload["detail"] = "No se generó un resultado reproducible."
             payload["result"] = self.result_config if self.state == "completed" else None
+            if self.outbox_directory and self.state in TERMINAL and payload["persistence"]["state"] == "pending":
+                payload["persistence"] = {"state": "failed", "detail": "El análisis terminó sin confirmar la persistencia; revise el journal."}
+            if self.outbox_directory and (self.outbox_directory / "replay-summary.json").is_file():
+                try:
+                    payload["persistence"] = json.loads((self.outbox_directory / "replay-summary.json").read_text(encoding="utf-8"))
+                except (ValueError, OSError):
+                    payload["persistence"] = {"state": "failed", "detail": "No se pudo verificar la persistencia."}
             payload["pending_changes"] = bool(
                 self.result_config and
                 (self.profile != self.result_config["profile"] or self.zone != self.result_config["zone"])
@@ -453,6 +479,33 @@ def _start_session(session: AnalysisSession) -> None:
             "--person-weights", str(person), "--person-sha256", PERSON_SHA256,
             "--forklift-weights", str(forklift), "--forklift-sha256", FORKLIFT_SHA256,
         ]
+        session.outbox_directory = None
+        session.analysis_run_id = str(uuid.uuid5(session.id, str(session.run)))
+        if settings.EVENT_POST_ENABLED:
+            api_url = local_event_api_url()
+            actual = json.loads(PROFILES[session.profile].read_text(encoding="utf-8"))
+            actual["zones"] = [json.loads(json.dumps(session.zone))]
+            snapshot = json.dumps(actual, sort_keys=True).encode()
+            config_path = session.directory / "operational_config.json"
+            config_path.write_bytes(snapshot)
+            command[command.index("--config") + 1] = str(config_path)
+            session.outbox_directory = Path(settings.MEDIA_ROOT) / "analysis-events" / session.analysis_run_id
+            session.outbox_directory.mkdir(parents=True, exist_ok=False)
+            source = {"filename": session.filename, "kind": session.source_kind,
+                      "video_sha256": session.source_sha256,
+                      "config_sha256": hashlib.sha256(snapshot).hexdigest(),
+                      "person_weights_sha256": PERSON_SHA256, "forklift_weights_sha256": FORKLIFT_SHA256,
+                      "timestamp_basis": "ANALYSIS_START_PROXY_NOT_RECORDING_TIME",
+                      "session_id": str(session.id), "session_run": session.run}
+            context_path = session.outbox_directory / "context.json"
+            context_path.write_text(json.dumps({"analysis_run_id": session.analysis_run_id,
+                "analysis_started_at": datetime.now(timezone.utc).isoformat(), "source": source,
+                "api_url": api_url}), encoding="utf-8")
+            session.active_config.update(analysis_run_id=session.analysis_run_id, source=source,
+                                         event_retention="MANUAL_RETENTION")
+            command.extend(["--event-context", str(context_path)])
+        (session.directory / "run_config.json").write_text(
+            json.dumps(session.active_config, ensure_ascii=False), encoding="utf-8")
         env = os.environ.copy()
         env["YOLO_CONFIG_DIR"] = str(session.directory)
         session.state = "preparing"

@@ -28,7 +28,8 @@ class SessionHardeningTests(SimpleTestCase):
             self.addCleanup(session.close)
         existing = str(Path(__file__))
         settings = override_settings(OPERIX_ENGINE_PYTHON=existing, OPERIX_PERSON_WEIGHTS=existing,
-                                     OPERIX_FORKLIFT_WEIGHTS=existing, OPERIX_ANALYSIS_TIMEOUT_SECONDS=10)
+                                     OPERIX_FORKLIFT_WEIGHTS=existing, OPERIX_ANALYSIS_TIMEOUT_SECONDS=10,
+                                     MEDIA_ROOT=str(self.root / "media"))
         settings.enable()
         self.addCleanup(settings.disable)
 
@@ -146,6 +147,14 @@ class SessionHardeningTests(SimpleTestCase):
         self.assertEqual(self.session.status()["state"], "error")
         self.session.process = None  # El watcher ya recogió el proceso.
         self.assertIn("volver a intentarlo", self.session.status()["detail"])
+
+    def test_completed_status_with_nonzero_worker_exit_is_not_success(self):
+        self.completed()
+        self.session.process = Mock()
+        self.session.process.poll.return_value = 1
+        data = self.session.status()
+        self.assertEqual(data["state"], "error")
+        self.assertIsNone(data["result"])
 
     def test_removed_session_cannot_reuse_old_outputs(self):
         identity, directory = self.session.id, self.session.directory

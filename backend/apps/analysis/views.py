@@ -5,6 +5,10 @@ from __future__ import annotations
 import math
 import json
 import re
+import subprocess
+
+from django.conf import settings
+from rest_framework.exceptions import PermissionDenied
 
 from django.http import FileResponse, HttpResponse, StreamingHttpResponse
 from rest_framework import status
@@ -15,6 +19,7 @@ from rest_framework.views import APIView
 from .sessions import (
     PROFILES, create_demo_session, create_session, get_demo_video, get_session,
     profile_catalog, remove_session, start_session, stream_frames,
+    local_event_api_url,
 )
 
 
@@ -100,6 +105,40 @@ class SessionStartView(APIView):
         except OSError:
             return Response({"detail": "No se pudieron preparar los archivos temporales del análisis. Revise espacio y permisos."}, status=400)
         return Response(session.status(), status=202)
+
+
+class SessionPersistenceRetryView(APIView):
+    """Solo reenvía snapshots existentes de esta sesión; no ejecuta inferencia."""
+
+    def post(self, request, pk):
+        if not settings.EVENT_POST_ENABLED:
+            raise PermissionDenied("La publicación no está habilitada.")
+        session = get_session(pk)
+        if session is None:
+            return Response({"detail": "Sesión inexistente"}, status=404)
+        with session._guard:
+            if session.state not in {"completed", "error", "cancelled"} or session.outbox_directory is None:
+                return Response({"detail": "Espere al término de un análisis con outbox."}, status=409)
+            if session.process is not None and session.process.poll() is None:
+                return Response({"detail": "El Motor sigue en ejecución."}, status=409)
+            try:
+                result = subprocess.run([
+                    settings.OPERIX_ENGINE_PYTHON, "-B", "-m", "operix_engine.event_outbox",
+                    str(session.outbox_directory), "--api-url", local_event_api_url(),
+                ], capture_output=True, text=True, timeout=120)
+                summary = json.loads(result.stdout)
+                if (not isinstance(summary, dict) or summary.get("state") not in {"saved", "failed"}
+                        or (result.returncode == 0) != (summary["state"] == "saved")
+                        or any(type(summary.get(key)) is not int or summary[key] < 0 for key in ("candidates", "saved", "failed"))
+                        or summary["saved"] + summary["failed"] != summary["candidates"]):
+                    raise ValueError("Resumen inválido")
+            except (OSError, ValueError, TypeError, RuntimeError, subprocess.TimeoutExpired):
+                summary = {"state": "failed", "detail": "No se pudo reenviar el journal; se conserva para revisión."}
+            target = session.outbox_directory / "replay-summary.json"
+            temporary = target.with_suffix(".tmp")
+            temporary.write_text(json.dumps(summary), encoding="utf-8")
+            temporary.replace(target)
+        return Response(session.status())
 
 
 class SessionZoneView(APIView):

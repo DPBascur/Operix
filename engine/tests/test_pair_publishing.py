@@ -44,3 +44,16 @@ class PairPublishingTests(unittest.TestCase):
             self.assertEqual(sink.publish(other, self.context).status, "published")
             self.assertEqual(sink.publish(episode, self.context).status, "published")
         self.assertEqual(send.call_count, 3)
+
+    def test_local_cache_does_not_mask_incompatible_observations(self):
+        from urllib.error import HTTPError
+        response = MagicMock()
+        response.__enter__.return_value.status = 201
+        identity = str(uuid4())
+        response.__enter__.return_value.read.return_value = json.dumps({"id": identity}).encode()
+        sink = HttpEventSink("http://127.0.0.1:8000/api/v1")
+        with patch("operix_engine.event_publishing.urlopen", side_effect=[response, HTTPError("local",409,"conflict",{},None)]) as send:
+            self.assertEqual(sink.publish(self.pair,self.context).status,"published")
+            self.assertEqual(sink.publish(self.pair,self.context).event_id, identity)
+            self.assertEqual(sink.publish(replace(self.pair,observed_normalized_distance=.1),self.context).http_status,409)
+        self.assertEqual(send.call_count,2)
