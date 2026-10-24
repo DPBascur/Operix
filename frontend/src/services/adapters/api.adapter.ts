@@ -10,39 +10,11 @@ import type {
 
 import type { EventQuery, FrontendDataAdapter } from "./frontend-data.adapter";
 import { MockAdapter } from "./mock.adapter";
-
-type ApiEvent = {
-  id: string;
-  occurred_at: string;
-  event_type: string;
-  rule_id: string;
-  rule_version: number;
-  zone_id: string;
-  track_id: number;
-  class_name: string;
-  evidence_url?: string | null;
-};
-
-function isApiEvent(value: unknown): value is ApiEvent {
-  if (typeof value !== "object" || value === null) return false;
-  const event = value as Record<string, unknown>;
-  return (
-    [
-      "id",
-      "occurred_at",
-      "event_type",
-      "rule_id",
-      "zone_id",
-      "class_name",
-    ].every((field) => typeof event[field] === "string") &&
-    typeof event.rule_version === "number" &&
-    typeof event.track_id === "number" &&
-    (event.evidence_url === undefined ||
-      event.evidence_url === null ||
-      typeof event.evidence_url === "string") &&
-    !Number.isNaN(Date.parse(event.occurred_at as string))
-  );
-}
+import {
+  isOperationalEvent,
+  eventSubjects,
+  eventTypeName,
+} from "../event-contract";
 
 export class ApiAdapter implements FrontendDataAdapter {
   private readonly mock = new MockAdapter();
@@ -64,18 +36,20 @@ export class ApiAdapter implements FrontendDataAdapter {
       throw new Error(`La API respondió con estado ${response.status}.`);
     }
     const payload: unknown = await response.json();
-    if (!Array.isArray(payload) || !payload.every(isApiEvent)) {
+    if (!Array.isArray(payload) || !payload.every(isOperationalEvent)) {
       throw new Error("La API devolvió una lista de eventos inválida.");
     }
     return payload.map((event) => ({
       id: event.id,
-      title:
-        event.event_type === "zone_dwell"
-          ? "Permanencia en zona"
-          : event.event_type,
+      title: eventTypeName(event.event_type),
       zone: event.zone_id,
       rule: `${event.rule_id} · v${event.rule_version}`,
-      objects: `${event.class_name} · ID ${event.track_id}`,
+      objects: eventSubjects(event),
+      source:
+        typeof event.source?.filename === "string"
+          ? event.source.filename
+          : "No informada",
+      detailUrl: `/events/${encodeURIComponent(event.id)}`,
       confidence: null,
       time: new Date(event.occurred_at).toLocaleString("es-CL", {
         dateStyle: "short",

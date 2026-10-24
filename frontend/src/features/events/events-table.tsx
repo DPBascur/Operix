@@ -49,7 +49,9 @@ export function EventsTable() {
   const [zone, setZone] = useState("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [eventType, setEventType] = useState<"" | "zone_dwell">("");
+  const [eventType, setEventType] = useState<
+    "" | "zone_dwell" | "person_forklift_proximity"
+  >("");
   const [filters, setFilters] = useState<EventQuery>({});
   const [filterError, setFilterError] = useState<string | null>(null);
   useEffect(() => {
@@ -157,12 +159,18 @@ export function EventsTable() {
             <select
               className="select-control"
               onChange={(event) =>
-                setEventType(event.target.value as "" | "zone_dwell")
+                setEventType(
+                  event.target.value as
+                    "" | "zone_dwell" | "person_forklift_proximity",
+                )
               }
               value={eventType}
             >
               <option value="">Todos los tipos</option>
               <option value="zone_dwell">Permanencia en zona</option>
+              <option value="person_forklift_proximity">
+                Proximidad persona–montacargas
+              </option>
             </select>
           </label>
           <Button type="submit">Aplicar filtros</Button>
@@ -255,7 +263,16 @@ export function EventsTable() {
                   </span>
                   <div className="min-w-0 flex-1">
                     <h2 className="text-sm font-semibold text-foreground">
-                      {event.title}
+                      {event.detailUrl ? (
+                        <a
+                          className="underline underline-offset-2"
+                          href={event.detailUrl}
+                        >
+                          {event.title}
+                        </a>
+                      ) : (
+                        event.title
+                      )}
                     </h2>
                     <time className="mt-1 block text-xs tabular-nums text-text-secondary">
                       {event.time}
@@ -273,7 +290,7 @@ export function EventsTable() {
                   <div>
                     <dt className="text-text-secondary">Fuente</dt>
                     <dd className="mt-0.5 font-medium text-foreground">
-                      No informada
+                      {event.source ?? "No informada"}
                     </dd>
                   </div>
                   <div>
@@ -348,6 +365,8 @@ export function EventsTable() {
                     objects,
                     time,
                     evidenceUrl,
+                    source,
+                    detailUrl,
                   }) => (
                     <tr
                       className="transition-colors hover:bg-surface-muted"
@@ -362,12 +381,21 @@ export function EventsTable() {
                             <Activity aria-hidden="true" size={17} />
                           </span>
                           <span className="font-semibold text-foreground">
-                            {title}
+                            {detailUrl ? (
+                              <a
+                                className="underline underline-offset-2"
+                                href={detailUrl}
+                              >
+                                {title}
+                              </a>
+                            ) : (
+                              title
+                            )}
                           </span>
                         </div>
                       </td>
                       <td className="px-3 py-4 text-text-secondary">
-                        No informada
+                        {source ?? "No informada"}
                       </td>
                       <td className="px-3 py-4 text-text-secondary">
                         {eventZone}

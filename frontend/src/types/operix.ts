@@ -61,6 +61,8 @@ export interface EventListItem {
   status: string;
   tone: "accent" | "cyan" | "neutral";
   evidenceUrl?: string | null;
+  source?: string;
+  detailUrl?: string;
 }
 
 export interface AnalysisOverview {

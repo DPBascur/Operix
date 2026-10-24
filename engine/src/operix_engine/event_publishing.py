@@ -12,7 +12,7 @@ import math
 import re
 import socket
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Literal, Mapping, Protocol
@@ -21,7 +21,8 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
-from operix_engine.rules import EventCandidate
+from operix_engine.rules import EventCandidate, PairEventCandidate
+from operix_engine.candidate_transport import candidate_payload
 
 
 def deterministic_analysis_run_id(
@@ -55,6 +56,7 @@ class EventContext:
     analysis_run_id: UUID
     view_id: str
     recording_started_at: datetime
+    source: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.analysis_run_id, UUID):
@@ -80,17 +82,15 @@ def _api_seconds(value: float, *, decimal_places: int = 3) -> str:
     return format(rounded, f".{decimal_places}f")
 
 
-def event_candidate_payload(candidate: EventCandidate, context: EventContext) -> dict[str, object]:
+def event_candidate_payload(candidate: EventCandidate | PairEventCandidate, context: EventContext) -> dict[str, object]:
     """Mapea el candidato y contexto explícito al POST /api/v1/events/."""
-    if not isinstance(candidate, EventCandidate):
-        raise TypeError("candidate debe ser EventCandidate")
+    if not isinstance(candidate, (EventCandidate, PairEventCandidate)):
+        raise TypeError("candidate debe ser EventCandidate o PairEventCandidate")
     if not isinstance(context, EventContext):
         raise TypeError("context debe ser EventContext")
     timestamp = _api_seconds(candidate.timestamp_s)
-    # No reducir a milisegundos una duración que decide un límite temporal.
-    dwell = _api_seconds(candidate.observed_dwell_time_s, decimal_places=9)
     occurred_at = context.recording_started_at + timedelta(seconds=candidate.timestamp_s)
-    return {
+    common = {
         "analysis_run_id": str(context.analysis_run_id),
         "view_id": context.view_id,
         "occurred_at": occurred_at.isoformat(),
@@ -101,6 +101,21 @@ def event_candidate_payload(candidate: EventCandidate, context: EventContext) ->
         "rule_version": candidate.rule_version,
         "rule_parameters": dict(candidate.parameters),
         "zone_id": candidate.zone_id,
+    }
+    if context.source:
+        common["source"] = dict(context.source)
+    if isinstance(candidate, PairEventCandidate):
+        data = candidate_payload(candidate)
+        return common | {
+            "interaction": data["interaction"],
+            "observations": {"normalized_distance": data["observed_normalized_distance"],
+                             "duration_s": data["observed_duration_s"]},
+            "episode": {"started_frame_index": data["started_frame_index"],
+                        "started_timestamp_s": data["started_timestamp_s"], "timestamp_s": data["timestamp_s"]},
+        }
+    # No reducir a milisegundos una duración que decide un límite temporal.
+    dwell = _api_seconds(candidate.observed_dwell_time_s, decimal_places=9)
+    return common | {
         "track_id": candidate.track_id,
         "class_name": candidate.class_name,
         "observed_inside": candidate.observed_inside,
@@ -136,11 +151,19 @@ def publish_with_retries(
     evidence_png: bytes | None = None, *, max_attempts: int = 3,
 ) -> tuple[PublishResult, int]:
     """Reintentos acotados del mismo candidato; no cambia su identidad ni evidencia."""
+    return _retry_operation(lambda: sink.publish(candidate, context, evidence_png), max_attempts)
+
+
+def publish_document_with_retries(sink, payload, evidence_png, *, max_attempts=3):
+    return _retry_operation(lambda: sink.publish_document(payload, evidence_png), max_attempts)
+
+
+def _retry_operation(operation, max_attempts):
     if type(max_attempts) is not int or not 1 <= max_attempts <= 3:
         raise ValueError("max_attempts debe estar entre 1 y 3")
     known_event_id = None
     for attempt in range(1, max_attempts + 1):
-        result = sink.publish(candidate, context, evidence_png)
+        result = operation()
         known_event_id = result.event_id or known_event_id
         transient = result.reason in {"timeout", "network_error", "evidence_network_error"} or (
             result.http_status in {429, 500, 502, 503, 504}
@@ -176,19 +199,23 @@ class HttpEventSink:
     def publish(
         self, candidate: EventCandidate, context: EventContext, evidence_png: bytes | None = None
     ) -> PublishResult:
-        key = (
-            context.analysis_run_id,
-            context.view_id,
-            candidate.rule_id,
-            candidate.rule_version,
-            candidate.frame_index,
-            candidate.track_id,
-            candidate.zone_id,
-        )
+        try:
+            payload = event_candidate_payload(candidate, context)
+        except (TypeError, ValueError, KeyError, OverflowError):
+            return PublishResult("failed", reason="invalid_payload")
+        return self.publish_document(payload, evidence_png)
+
+    def publish_document(self, payload: Mapping[str, object], evidence_png: bytes | None = None) -> PublishResult:
+        """Reenvía un snapshot durable sin reconstruir ni reevaluar candidatos."""
+        try:
+            key = tuple(str(payload.get(field)) for field in (
+                "analysis_run_id", "view_id", "rule_id", "rule_version", "frame_index", "zone_id",
+                "track_id", "class_name")) + (json.dumps(payload.get("interaction"), sort_keys=True),)
+        except (TypeError, ValueError):
+            return PublishResult("failed", reason="invalid_payload")
         if key in self._completed:
             return PublishResult("duplicate", reason="already_attempted_in_this_session")
         try:
-            payload = event_candidate_payload(candidate, context)
             request = Request(
                 self._events_url,
                 data=json.dumps(payload, allow_nan=False).encode("utf-8"),
@@ -230,8 +257,8 @@ class HttpEventSink:
             boundary = uuid4().hex
             parts = []
             for name, value in (
-                ("frame_index", str(candidate.frame_index)),
-                ("video_timestamp_s", _api_seconds(candidate.timestamp_s)),
+                ("frame_index", str(payload["frame_index"])),
+                ("video_timestamp_s", str(payload["video_timestamp_s"])),
             ):
                 parts.append(
                     f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n"

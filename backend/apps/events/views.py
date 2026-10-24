@@ -49,8 +49,11 @@ class EventListCreateView(generics.ListCreateAPIView):
         values = serializer.validated_data
         identity_fields = (
             "analysis_run_id", "view_id", "frame_index", "rule_id",
-            "rule_version", "track_id", "zone_id",
+            "rule_version", "track_id", "class_name", "zone_id",
         )
+        if values["event_type"] == "person_forklift_proximity":
+            identity_fields = ("analysis_run_id", "view_id", "frame_index", "rule_id",
+                               "rule_version", "pair_key", "zone_id")
         identity = {field: values[field] for field in identity_fields}
         defaults = {field: value for field, value in values.items() if field not in identity}
         event, created = Event.objects.get_or_create(defaults=defaults, **identity)
@@ -228,12 +231,20 @@ class EventEvidenceView(APIView):
         content = image.read()
         validate_png(content)
         image.seek(0)
-        with transaction.atomic():
-            event = Event.objects.select_for_update().get(pk=pk)
-            if event.evidence_image and event.evidence_image.storage.exists(event.evidence_image.name):
-                return Response(
-                    EventSerializer(event, context={"request": request}).data,
-                    status=status.HTTP_200_OK,
-                )
-            event.evidence_image.save("frame.png", image, save=True)
+        written = None
+        try:
+            with transaction.atomic():
+                event = Event.objects.select_for_update().get(pk=pk)
+                if event.evidence_image and event.evidence_image.storage.exists(event.evidence_image.name):
+                    return Response(
+                        EventSerializer(event, context={"request": request}).data,
+                        status=status.HTTP_200_OK,
+                    )
+                event.evidence_image.save("frame.png", image, save=False)
+                written = event.evidence_image.name
+                event.save(update_fields=["evidence_image"])
+        except Exception:
+            if written:
+                event.evidence_image.storage.delete(written)
+            raise
         return Response(EventSerializer(event, context={"request": request}).data, status=status.HTTP_201_CREATED)

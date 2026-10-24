@@ -74,6 +74,66 @@ class MotorPersistenceIntegrationTests(LiveServerTestCase):
         self.media.enable()
         self.addCleanup(self.media.disable)
 
+    def test_pair_candidates_motor_outbox_http_database_evidence_and_mixed_query(self):
+        script = r'''
+import json, sys
+from pathlib import Path
+from datetime import datetime, timezone
+from uuid import UUID
+import cv2, numpy as np
+from operix_engine.detection import BoundingBox
+from operix_engine.tracking import Track
+from operix_engine.operational_config import OperationalConfig, RuleConfig, Zone
+from operix_engine.spatiotemporal import SpatiotemporalAnalyzer
+from operix_engine.rules import RuleEngine
+from operix_engine.event_publishing import EventContext, HttpEventSink
+from operix_engine.event_outbox import EventOutbox
+root, url, run = Path(sys.argv[1]), sys.argv[2], UUID(sys.argv[3])
+zone = Zone('TEST_DATA_ZONE', 'Fixture', ((0,0),(1,0),(1,1),(0,1)))
+rule = RuleConfig('TEST_DATA_PAIR',1,True,{'kind':'person_forklift_proximity',
+ 'zone_id':zone.zone_id,'person_class':'person','forklift_class':'forklift',
+ 'max_distance':.25,'minimum_duration_seconds':1.0})
+engine=RuleEngine(OperationalConfig(1,'TEST_DATA_VIEW',(zone,),(rule,)))
+analyzer=SpatiotemporalAnalyzer(width=200,height=100,fps=1,zones=(zone,))
+tracks=(Track(1,0,'person',.9,BoundingBox(40,30,60,70)),
+ Track(1,0,'forklift',.9,BoundingBox(50,30,70,70)),
+ Track(2,0,'forklift',.9,BoundingBox(60,30,80,70)))
+video=root/'pair.avi'; writer=cv2.VideoWriter(str(video),cv2.VideoWriter_fourcc(*'MJPG'),1,(200,100))
+assert writer.isOpened()
+try:
+ for _ in range(4): writer.write(np.full((100,200,3),80,np.uint8))
+finally: writer.release()
+capture=cv2.VideoCapture(str(video)); outbox=EventOutbox(root/'outbox',HttpEventSink(url))
+context=EventContext(run,'TEST_DATA_VIEW',datetime(2026,10,24,12,tzinfo=timezone.utc),{'kind':'controlled_fixture'})
+try:
+ for i in range(4):
+  ok,frame=capture.read(); assert ok
+  result=engine.evaluate(analyzer.update(i,tracks))
+  success,png=cv2.imencode('.png',frame); assert success
+  outbox.enqueue(result.candidates,context,png.tobytes())
+finally: capture.release()
+print(json.dumps(outbox.replay()))
+'''
+        run = uuid4()
+        command = [str(self.python), "-B", "-c", script, self.temporary.name,
+                   self.live_server_url + "/api/v1", str(run)]
+        process = subprocess.run(command, cwd=self.repository, capture_output=True, text=True, timeout=45)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertEqual(json.loads(process.stdout)["saved"], 2)
+        self.assertEqual(Event.objects.count(), 2)
+        ids = set(Event.objects.values_list("id", flat=True))
+        # Reenvío del mismo run desde otro proceso: la DB conserva exactamente las identidades.
+        again = subprocess.run(command, cwd=self.repository, capture_output=True, text=True, timeout=45)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(set(Event.objects.values_list("id", flat=True)), ids)
+        for event in Event.objects.all():
+            response = APIClient().get(f"/api/v1/events/{event.id}/evidence/")
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(b"".join(response.streaming_content).startswith(b"\x89PNG"))
+        filters = {"event_type": "person_forklift_proximity"}
+        self.assertEqual(len(APIClient().get("/api/v1/events/", filters).json()), 2)
+        self.assertEqual(APIClient().get("/api/v1/events/frequencies/", filters).json()["total"], 2)
+
     def execute_motor(self, run, *, fps=2, duration=1):
         process = subprocess.run([
             str(self.python), "-B", "-c", MOTOR_FIXTURE,

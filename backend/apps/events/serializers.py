@@ -4,6 +4,7 @@ from decimal import Decimal, InvalidOperation
 from rest_framework import serializers
 
 from .models import Event
+from .pair_contract import EVENT_TYPES, validate_pair, validate_pair_parameters
 
 
 def has_timezone(value: object) -> bool:
@@ -12,15 +13,15 @@ def has_timezone(value: object) -> bool:
 
 class EventSerializer(serializers.ModelSerializer):
     evidence_url = serializers.SerializerMethodField()
-    event_type = serializers.ChoiceField(choices=("zone_dwell",))
+    event_type = serializers.ChoiceField(choices=EVENT_TYPES)
     frame_index = serializers.IntegerField(min_value=0, max_value=2147483647)
-    track_id = serializers.IntegerField(min_value=0, max_value=2147483647)
+    track_id = serializers.IntegerField(min_value=0, max_value=2147483647, required=False, allow_null=True)
     rule_version = serializers.IntegerField(min_value=1, max_value=2147483647)
     video_timestamp_s = serializers.DecimalField(
         max_digits=12, decimal_places=3, min_value=Decimal("0")
     )
     observed_dwell_time_s = serializers.DecimalField(
-        max_digits=18, decimal_places=9, min_value=Decimal("0")
+        max_digits=18, decimal_places=9, min_value=Decimal("0"), required=False, allow_null=True
     )
 
     class Meta:
@@ -41,10 +42,12 @@ class EventSerializer(serializers.ModelSerializer):
             "class_name",
             "observed_inside",
             "observed_dwell_time_s",
+            "interaction", "observations", "episode", "source", "pair_key",
             "evidence_url",
             "created_at",
         )
-        read_only_fields = ("id", "created_at", "evidence_url")
+        read_only_fields = ("id", "created_at", "evidence_url", "pair_key")
+        extra_kwargs = {"class_name": {"required": False}, "observed_inside": {"required": False}}
         # El POST repetido se resuelve en la vista con la constraint de PostgreSQL;
         # el validador automático de unicidad de DRF lo convertiría en 400.
         validators = []
@@ -64,6 +67,9 @@ class EventSerializer(serializers.ModelSerializer):
     def validate_rule_parameters(self, value):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Debe ser un objeto JSON.")
+        if value.get("kind") == "person_forklift_proximity":
+            validate_pair_parameters(value)
+            return value
         expected = {"kind", "class_name", "zone_id", "min_duration_s"}
         if set(value) != expected:
             raise serializers.ValidationError("Claves requeridas: kind, class_name, zone_id, min_duration_s.")
@@ -90,6 +96,14 @@ class EventSerializer(serializers.ModelSerializer):
         parameters = attrs["rule_parameters"]
         if parameters["kind"] != attrs["event_type"]:
             raise serializers.ValidationError({"event_type": "No coincide con la regla."})
+        if parameters["zone_id"] != attrs["zone_id"]:
+            raise serializers.ValidationError({"zone_id": "No coincide con la regla."})
+        if attrs["event_type"] == "person_forklift_proximity":
+            return validate_pair(attrs)
+        if any(attrs.get(field) for field in ("interaction", "observations", "episode")):
+            raise serializers.ValidationError("zone_dwell no admite un snapshot por pares.")
+        if any(attrs.get(field) is None for field in ("track_id", "class_name", "observed_inside", "observed_dwell_time_s")):
+            raise serializers.ValidationError("zone_dwell requiere sus observaciones originales.")
         for field in ("class_name", "zone_id"):
             if parameters[field] != attrs[field]:
                 raise serializers.ValidationError({field: "No coincide con los parámetros de la regla."})
@@ -101,9 +115,26 @@ class EventSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"observed_dwell_time_s": "No alcanza el umbral configurado."})
         return attrs
 
+    def validate_source(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("source debe ser un objeto.")
+        allowed = {"filename", "kind", "video_sha256", "config_sha256", "person_weights_sha256",
+                   "forklift_weights_sha256", "timestamp_basis", "session_id", "session_run"}
+        if set(value) - allowed:
+            raise serializers.ValidationError("Metadata de fuente no admitida.")
+        for key, item in value.items():
+            if key == "session_run":
+                if type(item) is not int or item < 1:
+                    raise serializers.ValidationError("session_run inválido.")
+            elif not isinstance(item, str) or not item or len(item) > 160 or any(c in item for c in ("/", "\\", "\r", "\n")):
+                raise serializers.ValidationError("Solo metadata breve, sin rutas locales.")
+            if key.endswith("sha256") and not re.fullmatch(r"[0-9a-fA-F]{64}", str(item)):
+                raise serializers.ValidationError("SHA-256 inválido.")
+        return value
+
 
 class EventFilterSerializer(serializers.Serializer):
-    event_type = serializers.ChoiceField(choices=("zone_dwell",), required=False)
+    event_type = serializers.ChoiceField(choices=EVENT_TYPES, required=False)
     occurred_after = serializers.DateTimeField(required=False)
     occurred_before = serializers.DateTimeField(required=False)
 

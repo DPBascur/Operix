@@ -19,5 +19,5 @@ export interface FrontendDataAdapter {
 export interface EventQuery {
   occurredAfter?: string;
   occurredBefore?: string;
-  eventType?: "zone_dwell";
+  eventType?: "zone_dwell" | "person_forklift_proximity";
 }

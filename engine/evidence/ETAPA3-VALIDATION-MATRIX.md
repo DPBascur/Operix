@@ -275,3 +275,36 @@ tecnologías; se traza a los ADR y evidencia técnica. No se atribuyen al profes
 mejoras internas posteriores. Specialist, dual perception, regla por pares,
 reproducción web, OP-41 y hardening son **INTERNAL_IMPROVEMENT** salvo fuente
 específica documentada. Véanse OP-28 y `etapa3-experimentos.md`.
+
+## Campaign II — contrato operacional por pares (24-10-2026)
+
+Base `0117c26c8f29bb353e3347517b6458d88420d084`. Esta sección registra el avance
+posterior; no convierte las conclusiones de Campaign I en mediciones del código nuevo.
+Se incorpora `person_forklift_proximity` sin cambiar RuleEngine, perfiles ni umbrales.
+El snapshot guarda `interaction` con ambos roles/clases/IDs; `observations` con
+distancia normalizada y duración; `episode` con inicio y emisión; parámetros efectivos,
+regla/versión, fuente y PNG. No se inventa un objeto primario ni un tiempo final
+posterior a la emisión: el Motor todavía no emite el cierre del episodio.
+
+`pair_key` es SHA-256 del JSON canónico de ambas identidades con roles. La constraint
+incluye run/view/frame/regla/versión/zona/par. El retry devuelve el evento previo;
+otro par, episodio con otra emisión o run independiente no colisiona. Un snapshot
+incompatible devuelve 409 sin modificar el anterior. `zone_dwell` conserva su contrato.
+La migración 0005 deja snapshots nuevos vacíos en históricos; 25 filas preservadas,
+SHA de campos originales antes/después idéntico:
+`aaef225db602a13dd6daf675cec72609503ab6709519b698a9b5ee95432beed6`.
+
+El outbox conserva PNG y journal de candidatos antes del HTTP. Se reenvían los
+snapshots, no se recalculan reglas. Cada envío tiene hasta tres intentos; no es una
+cola distribuida ni una garantía de entrega infinita. La retención es manual.
+E2E con video MJPG de cuatro frames, percepción fixture, analizador/regla reales:
+dos pares independientes → HTTP → PostgreSQL → PNG recuperable → RF-07/RF-08;
+reenvío conserva IDs. Precisión de detector no evaluada por este test.
+La API y el adaptador frontend aceptan ambos tipos; filtros mixtos y el detalle
+recuperable exponen el snapshot sin convertirlo en accidente ni riesgo confirmado.
+
+Pruebas nuevas: `test_pair_events.py`, `test_pair_publishing.py`, `test_event_outbox.py`
+y E2E adicional en `test_motor_integration.py`. La aplicación desde una DB de tests
+vacía pasa; fallo de guardado DB elimina el PNG nuevo para evitar evidencia huérfana.
+La integración automática de sesiones web se verifica en el siguiente hito; este
+contrato por sí solo no declara aún `OPERATIONAL_PERSISTENCE_READY`.
