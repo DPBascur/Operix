@@ -12,7 +12,7 @@ La arquitectura v1.0 no cambia. Implementación, validación funcional y evaluac
 de exactitud son estados distintos. Un evento significa condición configurada
 satisfecha, no incidente, Near Miss ni responsabilidad personal.
 
-PERSON final: `WAITING_FOR_HUMAN_ANNOTATION`; cinco familias 101–105 y 92 imágenes
+PERSON final en aquel inventario: `WAITING_FOR_HUMAN_ANNOTATION`; cinco familias 101–105 y 92 imágenes
 reservadas. No inferencia, nueva selección, cambio de sampling ni freeze. TEST2
 permanece protegido; YouTube es `DIAGNOSTIC_ONLY`; TEST3 es desarrollo.
 Los hashes de los cinco paquetes CVAT se comprobaron contra el manifest de
@@ -554,3 +554,27 @@ la aceptación académica del denominador, feedback y suficiencia del alcance de
 confirmarse humanamente. API sin autenticación, retención manual, precisión PERSON
 pendiente, sin GT MOT, muestras acotadas y rendimiento dependiente del entorno.
 No son garantías de producción ni cierre académico global.
+
+## Actualización PERSON — evaluación congelada ejecutada — 24-10-2026
+
+**`PERSON_EVALUATION_PROTOCOL_V1_EXECUTED` + `PERSON_RESULTS_SEALED`**.
+El bloqueo histórico por anotación/freeze ya no describe el estado vigente.
+Se preservaron 92 registros originales y se evaluaron 91 imágenes únicas de cinco
+familias, con 168 cajas humanas, tras congelar dataset, protocolo y configuraciones.
+Evaluación sobre holdout independiente congelado **dentro del proceso controlado
+de Operix**; no acredita ausencia en pretraining externo.
+
+| Alcance | Estado comprobado | Límite / pendiente |
+| --- | --- | --- |
+| RF-02 / detección PERSON | Evaluación descriptiva ejecutada; CURRENT: TP 20, FP 39, FN 148, precision 0,338983, recall 0,119048, F1 0,176211 | Baja cobertura en este conjunto real; no demuestra detección fiable general |
+| Referencia genérica | COCO: TP 151, FP 120, FN 17, precision 0,557196, recall 0,898810, F1 0,687927 | Baseline contextual, sin sustitución automática del modelo |
+| Trazabilidad | Datos y protocolo sellados antes de la ejecución; raw, métricas y recibos sellados antes de revisar imágenes | Un primer intento técnico inválido preservado; una corrida completa válida por modelo |
+| Calidad del GT | GT humano congelado preservado | La inspección posterior detectó posible omisión en `102/frame_000369` y ambigüedad sobre fragmentos humanos en `104/frame_000472`; no se corrige ni recalcula retrospectivamente |
+| Validación operacional / PV-01 | Continúa PARTIAL | La evaluación de objetos no valida reglas, tracking, seguridad ni umbrales operacionales; validación experta pendiente |
+
+Resultados completos, hashes, invalidación técnica y revisión cualitativa:
+[evidencia PERSON V1](etapa3-experimentos.md#ejecución-person-evaluation-protocol-v1--24-10-2026).
+El siguiente desarrollo no puede reutilizar conocimiento de este conjunto y luego
+presentarlo como un test independiente no consultado. No hubo tuning, entrenamiento
+de PERSON v2, cambio de CURRENT_PERSON ni uso de TEST2/REAL_HOLDOUT_V2. No se cierran
+automáticamente tareas ni se modifica Excel mediante esta actualización.

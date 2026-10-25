@@ -617,3 +617,176 @@ del holdout; los únicos resultados calculados pertenecen a fixtures sintéticos
 **`PERSON_MODEL_EVALUATION_NOT_STARTED`**. TEST2 y REAL_HOLDOUT_V2 no se abrieron;
 muestreo, GT, manifests congelados, percepción, ByteTrack, reglas y aplicación
 permanecen intactos. Esta tarea congela el protocolo; no ejecuta la evaluación.
+
+## Ejecución PERSON EVALUATION PROTOCOL V1 — 24-10-2026
+
+**`PERSON_EVALUATION_PROTOCOL_V1_EXECUTED` + `PERSON_RESULTS_SEALED`**.
+Evaluación sobre holdout independiente congelado dentro del proceso controlado
+de Operix, base `92bab58c2c654ca9f662bbc91e7f6e25b6a594d4`. Se verificaron antes
+de cargar imágenes el dataset, el protocolo, el software y los pesos locales:
+
+- Dataset `PERSON_FINAL_HOLDOUT_V2`:
+  `A71F2558BB5C2A8DF580B6A2908860A9A89F729487BA1C904A14F37C5ADC5339`.
+- Protocolo V1:
+  `C2012598048352B9681031301AD4EC76667CA982D2C7D32F64ECECA7D835496F`.
+- PRIMARY `CURRENT_PERSON`, `best.pt`:
+  `21766a9dc664fac06da3b0b457e0449f25e1696acbf8e7e39993c4b42282083f`.
+- REFERENCE `YOLO11N_COCO_PERSON`, `yolo11n.pt`:
+  `0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1`.
+
+Se mantuvieron 91 imágenes, 168 GT, 67 positivos, 24 negativos, 42 frames
+multipersona y los 92 registros históricos. No se modificaron anotaciones,
+membership, sampling, modelos, thresholds, matching ni manifest del protocolo.
+Un operador visible sigue siendo PERSON, sin filtro de ocupancia.
+
+### Intento técnico invalidado y corrección previa a resultados
+
+El primer intento quedó **`INVALIDATED_TECHNICAL_RUN`** después de una llamada
+de inferencia CURRENT sobre el primer frame y antes de validar/procesar esa salida.
+No llegó a COCO, no generó métricas y no se inspeccionaron predicciones.
+El runner intentaba leer `predictor.args.half`, atributo ausente en Ultralytics
+8.4.146: la librería traduce el argumento `half=False` a `quantize=None` (FP32).
+El checkpoint y la inferencia no se cambiaron para resolverlo.
+
+Se conservaron runner, recibo inicial e invalidación. La corrección se limitó a
+validar `quantize=None`/alias anterior y `backend.fp16=False`, junto con los demás
+argumentos. **5/5 pruebas locales** con fixtures y el mapper instalado demostraron
+la equivalencia, sin imágenes ni modelos; el AST de la llamada `predict` es
+idéntico entre ambos runners. No se modificó ningún archivo del evaluador congelado.
+El reintento usa otra carpeta y conserva todos los parámetros. Se ejecutó una
+única corrida completa válida por modelo; no se compararon intentos para escoger
+rendimiento ni se reutilizaron métricas parciales.
+
+### Configuración, ejecución y sellado
+
+Mismo runner y proceso: CURRENT primero y COCO después, sin inspección visual
+intermedia. Orden de imágenes familia/nombre; `imgsz=640`, confidence `0.10`,
+NMS `0.70`, salida PERSON tras NMS por clase, CUDA:0, batch 1, seed 0, FP32,
+`rect=true`, sin TTA, `max_det=300`. Se comprobaron opciones y dispositivo efectivo.
+No hubo sweeps, matching alternativo ni AP/mAP post hoc.
+
+Entorno: Windows 10 19045 x64, Python 3.12.10, PyTorch 2.14.0+cu130,
+TorchVision 0.29.0+cu130, CUDA 13.0, Ultralytics 8.4.146, OpenCV 5.0.0.93,
+RTX 3070 de 8 GiB, driver 616.92. Fecha local 24-10-2026; los recibos usan UTC
+25-10-2026. HEAD de ejecución registrado antes del commit documental.
+
+Ambas inferencias finalizaron 91/91. Después se calcularon métricas con el
+evaluador congelado y se sellaron raw predictions, métricas, recibos finales y
+resumen machine-readable; solo entonces se generaron contact sheets y se revisaron
+errores. Las imágenes con cero predicciones conservan su registro. Todas las
+predicciones PERSON admitidas quedan guardadas: **59 CURRENT y 271 COCO**.
+
+### Resultado principal — matching 1:1, IoU ≥0,50
+
+| Modelo / rol | TP | FP | FN | Precision | Recall | F1 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| CURRENT / PRIMARY | 20 | 39 | 148 | 0,338983 | 0,119048 | 0,176211 |
+| COCO / REFERENCE | 151 | 120 | 17 | 0,557196 | 0,898810 | 0,687927 |
+
+Los resultados son microagregados, no promedios de familias. Diferencia descriptiva
+COCO menos CURRENT: +131 TP, +81 FP, −131 FN, +0,218213 precision,
++0,779762 recall y +0,511716 F1. COCO detecta más GT en esta muestra pero también
+emite más cajas adicionales. No se declara ganador, sustitución productiva ni
+validación industrial; CURRENT conserva su rol primario y no se cambia.
+
+| Modelo | Familia | TP | FP | FN | Precision | Recall | F1 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| CURRENT | 101 | 1 | 5 | 35 | 0,166667 | 0,027778 | 0,047619 |
+| CURRENT | 102 | 9 | 11 | 45 | 0,450000 | 0,166667 | 0,243243 |
+| CURRENT | 103 | 7 | 4 | 13 | 0,636364 | 0,350000 | 0,451613 |
+| CURRENT | 104 | 3 | 5 | 30 | 0,375000 | 0,090909 | 0,146341 |
+| CURRENT | 105 | 0 | 14 | 25 | 0,000000 | 0,000000 | 0,000000 |
+| COCO | 101 | 30 | 39 | 6 | 0,434783 | 0,833333 | 0,571429 |
+| COCO | 102 | 48 | 18 | 6 | 0,727273 | 0,888889 | 0,800000 |
+| COCO | 103 | 20 | 24 | 0 | 0,454545 | 1,000000 | 0,625000 |
+| COCO | 104 | 33 | 24 | 0 | 0,578947 | 1,000000 | 0,733333 |
+| COCO | 105 | 20 | 15 | 5 | 0,571429 | 0,800000 | 0,666667 |
+
+### Secundarias predeclaradas
+
+| Modelo | IoU ≥0,75 TP / FP / FN | Precision | Recall | F1 |
+| --- | --- | ---: | ---: | ---: |
+| CURRENT | 7 / 52 / 161 | 0,118644 | 0,041667 | 0,061674 |
+| COCO | 125 / 146 / 43 | 0,461255 | 0,744048 | 0,569476 |
+
+| Métrica | CURRENT | COCO |
+| --- | --- | --- |
+| Negative-frame false-alarm rate | 3/24 = 0,125000 | 4/24 = 0,166667 |
+| Positive-frame complete-miss rate | 52/67 = 0,776119 | 1/67 = 0,014925 |
+| Recall multipersona (42 frames; 143 GT) | 17/143 = 0,118881 | 127/143 = 0,888112 |
+
+### Metadata de tiempo — no benchmark del pipeline
+
+| Modelo | Tiempo predict sincronizado | Imágenes/s | Pico PyTorch asignado | Pico reservado |
+| --- | ---: | ---: | ---: | ---: |
+| CURRENT | 3,707660 s | 24,543784 | 58.961.408 bytes | 73.400.320 bytes |
+| COCO | 1,481938 s | 61,406098 | 59.105.280 bytes | 71.303.168 bytes |
+
+Se suman llamadas `predict` con sincronización CUDA antes/después. Incluye setup
+y warm-up interno de la primera llamada de cada instancia; excluye lectura de
+PNG, carga de pesos, matching y serialización. Los loops con lectura duraron
+5,086501 y 2,766850 s. El orden es fijo, sin repeticiones ni warm-up equiparado;
+el intento técnico inicial también pudo afectar cachés. No comparar estas tasas
+con los FPS de video de OP-43 ni inferir superioridad universal de rendimiento.
+Los picos PyTorch no representan todo el consumo de VRAM.
+
+### Artefactos fuera de Git y hashes
+
+Root válido: `Operix-experiments/person-evaluation-protocol-v1-2026-10-24-rerun-01/`.
+El intento inválido permanece separado en `person-evaluation-protocol-v1-2026-10-24/`.
+Los runners, corrección, tests locales y recibos iniciales están archivados allí.
+
+| Artefacto sellado | SHA-256 |
+| --- | --- |
+| CURRENT raw predictions | `608DC4DAF1935A3434E6366B1C8A791071FF0CF7E1DEB748823EC349866E08AC` |
+| CURRENT métricas | `43AC294B0F343C2EFBBEF0648E4BD7F73D0D36B84FAB90A2BA25542711B44E14` |
+| CURRENT recibo final | `82A310B11D6840878BD2ED13FAE59F30EFF7933D7771778C8C1E7BE980626F24` |
+| COCO raw predictions | `6D033AE5809366047872D26D918493259BF38276C8DA2F33CE3AB3EF88346D73` |
+| COCO métricas | `04059CCFB94EA879C0486CE1FCD6AA0ADC36B7867E6E6D812E44619A6EC4F8B8` |
+| COCO recibo final | `83926DBDFE7927063E3652B8B5C83B222AF4C2D71B765542FB242124425F939E` |
+| `evaluation-summary.json` | `436CCB5DCD8FA8334D220787E67AD0556EC37A24EF0218B6EE7DA14F61C62F3E` |
+| Revisión cualitativa posterior | `2F6E01426163381489BF8A8263A9E7D61138BA06AAA21CC885DB16CBD362EC0D` |
+
+`RESULTS_SEALED.json` referencia el resumen y sus hashes; `execution-completion.json`
+registra el estado final. Se verificaron los sellos antes de la revisión visual.
+No se versionan frames, predicciones, resultados JSON, recibos completos, pesos ni renders.
+
+### Revisión cualitativa posterior y límites de interpretación
+
+Se revisaron **17 ejemplos en seis contact sheets locales**, después del sellado:
+descripciones de casos, no nuevos subgrupos ni métricas post hoc.
+
+- `101/frame_000290` y `103/frame_000000`: CURRENT omite personas anotadas,
+  incluidos operadores visibles; COCO recupera parte o todos esos GT.
+- `102/frame_001845`: grupo de diez GT con operador y personas lejanas;
+  CURRENT tiene 1 TP y COCO 8, según el matching sellado.
+- `104/frame_000118`: operador parcialmente enmarcado por el forklift,
+  omitido por CURRENT y matched por COCO; COCO también produce cajas adicionales.
+- `105/frame_001595`: trabajadores inclinados/parcialmente ocultos,
+  sin detecciones CURRENT; COCO tiene 4 TP y cajas adicionales solapadas.
+- `103/frame_001151`: caja COCO sobre material apilado; `105/frame_000797`:
+  cajas CURRENT estrechas sobre geometrías del almacén.
+- `102/frame_000369`: **posible omisión residual del GT**. El frame congelado es
+  negativo, pero se aprecia una persona reconocible truncada a la derecha que
+  COCO detecta. Su caja sigue contando FP respecto del GT congelado; no se convierte
+  retrospectivamente en TP. Requiere adjudicación humana en una futura versión.
+- `104/frame_000472`: GT negativo con piernas/fragmentos humanos visibles;
+  la elegibilidad según la política de persona reconocible requiere revisión humana,
+  no relabel automático. No se calculan métricas alternativas.
+
+Estos hallazgos limitan especialmente la interpretación de FP y tasas sobre
+negativos: QA geométrico no garantiza exhaustividad semántica del GT humano.
+Se mantienen intactos el freeze y todas las cifras selladas. Las diferencias de
+extensión visible frente a cajas de cuerpo más amplias también pueden reducir IoU;
+no se cambió el criterio ni se recalculó matching. La brecha sintético–real es una
+interpretación plausible del bajo recall de CURRENT, no una causa demostrada por
+este experimento. El conjunto es pequeño, de cinco fuentes y posiblemente
+correlacionado dentro de cada video; no prueba representatividad industrial ni
+independencia frente a pretraining externo.
+
+Regresión: **27/27 tests sintéticos del evaluador** y **5/5 de la corrección local**.
+No se cambió tooling del repositorio, producto, percepción, ByteTrack ni reglas.
+No hubo tuning, sweeps, nuevos modelos o entrenamiento de PERSON v2. CURRENT_PERSON
+no se sustituye. TEST2 y REAL_HOLDOUT_V2 no se abrieron. El holdout ya fue consultado:
+un desarrollo posterior que use sus resultados no puede presentarlo como evaluación
+final independiente no observada. PV-01 y validación experta siguen pendientes.
