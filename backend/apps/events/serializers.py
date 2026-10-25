@@ -119,11 +119,28 @@ class EventSerializer(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("source debe ser un objeto.")
         allowed = {"filename", "kind", "video_sha256", "config_sha256", "person_weights_sha256",
-                   "forklift_weights_sha256", "timestamp_basis", "session_id", "session_run"}
+                   "forklift_weights_sha256", "timestamp_basis", "session_id", "session_run", "perception"}
         if set(value) - allowed:
             raise serializers.ValidationError("Metadata de fuente no admitida.")
         for key, item in value.items():
-            if key == "session_run":
+            if key == "perception":
+                if not isinstance(item, dict) or set(item) != {"person", "forklift"}:
+                    raise serializers.ValidationError("Metadata de percepción inválida.")
+                for name, config in item.items():
+                    expected = {"model_id", "weights_sha256", "class_filter", "imgsz", "confidence", "nms_iou"}
+                    if not isinstance(config, dict) or set(config) != expected:
+                        raise serializers.ValidationError("Configuración de percepción incompleta.")
+                    if (not isinstance(config["model_id"], str)
+                            or not re.fullmatch(r"[A-Z0-9_]{1,64}", config["model_id"])
+                            or not isinstance(config["weights_sha256"], str)
+                            or not re.fullmatch(r"[0-9a-fA-F]{64}", config["weights_sha256"])
+                            or config["weights_sha256"] != value.get(name + "_weights_sha256")
+                            or config["class_filter"] != name
+                            or type(config["imgsz"]) is not int or not 1 <= config["imgsz"] <= 4096
+                            or any(type(config[k]) not in (int, float) or not 0 <= config[k] <= 1
+                                   for k in ("confidence", "nms_iou"))):
+                        raise serializers.ValidationError("Configuración de percepción inválida.")
+            elif key == "session_run":
                 if type(item) is not int or item < 1:
                     raise serializers.ValidationError("session_run inválido.")
             elif not isinstance(item, str) or not item or len(item) > 160 or any(c in item for c in ("/", "\\", "\r", "\n")):

@@ -55,6 +55,44 @@ class FakeTracker:
         self.reset_count += 1
 
 
+class PersonOperationalIdentityTest(unittest.TestCase):
+    def test_checkpoint_identity_and_integrity_gate(self):
+        import hashlib
+        scripts = Path(__file__).resolve().parents[1] / "scripts"
+        spec = importlib.util.spec_from_file_location("identity_diagnostic", scripts / "run_dual_perception.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual(module.model_identity("0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1"), "YOLO11N_COCO_PERSON")
+        self.assertEqual(module.model_identity("21766a9dc664fac06da3b0b457e0449f25e1696acbf8e7e39993c4b42282083f"), "PRE_EVALUATION_PRIMARY_PERSON")
+        with tempfile.TemporaryDirectory() as directory:
+            weights = Path(directory) / "fixture.pt"
+            weights.write_bytes(b"fixture-only")
+            digest = hashlib.sha256(weights.read_bytes()).hexdigest()
+            self.assertEqual(module.checked_file(weights, digest, "fixture"), digest)
+            with self.assertRaisesRegex(ValueError, "distinto"):
+                module.checked_file(weights, "0" * 64, "fixture")
+
+    def test_coco_class_mapping_filters_other_classes_before_tracking(self):
+        tracker = FakeTracker()
+        bus = Detection(5, "bus", .8, BoundingBox(50, 10, 90, 50))
+        channel = ClassPerceptionChannel("person", FakeDetector({0: "person", 5: "bus"}, (PERSON, bus)), tracker)
+        detections = channel.detect(np.zeros((100, 100, 3), dtype=np.uint8))
+        tracks = channel.track(detections)
+        self.assertEqual(tracker.calls, [(PERSON,)])
+        self.assertEqual([(t.class_name, t.track_id) for t in tracks], [("person", 1)])
+
+    def test_docker_uses_explicit_read_only_weights_not_baked_models(self):
+        import yaml
+        root = Path(__file__).resolve().parents[2]
+        base = yaml.safe_load((root / "compose.yaml").read_text(encoding="utf-8"))
+        gpu = yaml.safe_load((root / "compose.gpu.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(base["services"]["backend"]["environment"]["OPERIX_PERSON_WEIGHTS"], "/data/weights/person.pt")
+        weights = [v for v in gpu["services"]["backend"]["volumes"] if v["target"] == "/data/weights/person.pt"]
+        self.assertEqual(len(weights), 1)
+        self.assertTrue(weights[0]["read_only"])
+        self.assertFalse(weights[0]["bind"]["create_host_path"])
+
+
 class DualPerceptionTest(unittest.TestCase):
     def setUp(self):
         self.frame = np.zeros((100, 120, 3), dtype=np.uint8)

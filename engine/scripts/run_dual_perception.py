@@ -46,6 +46,15 @@ def checked_file(path: Path | None, expected: str | None, label: str) -> str:
     return actual
 
 
+def model_identity(sha256: str) -> str:
+    """Nombra checkpoints conocidos; no concede permiso ni omite su verificación SHA."""
+    return {
+        "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1": "YOLO11N_COCO_PERSON",
+        "21766a9dc664fac06da3b0b457e0449f25e1696acbf8e7e39993c4b42282083f": "PRE_EVALUATION_PRIMARY_PERSON",
+        "1465105ea80737ddc65d72e97d6dc24fc253995a98d6d4eea9b377fe3a8edce6": "FORKLIFT_SPECIALIST_V2",
+    }.get(sha256.lower(), "EXPLICIT_DIAGNOSTIC_CHECKPOINT")
+
+
 def run(args: argparse.Namespace) -> dict[str, object]:
     repository = Path(__file__).resolve().parents[2]
     output = args.output_dir.resolve()
@@ -214,6 +223,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "width": metadata.width, "height": metadata.height, "source_fps": metadata.declared_fps,
         "elapsed_s": elapsed, "effective_fps": processed / elapsed,
         "model_devices": devices, "weight_sha256": weight_hashes,
+        "model_identities": {name: model_identity(sha) for name, sha in weight_hashes.items()},
         "config_name": args.config.name,
         "detector_config": {
             "person": {"imgsz": 640, "confidence": args.person_conf, "nms_iou": args.person_iou},

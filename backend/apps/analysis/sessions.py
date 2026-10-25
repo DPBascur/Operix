@@ -39,7 +39,9 @@ PROFILE_DEMO_SETTINGS = {
     "B": ("forklift_human_nearmiss", "OPERIX_DEMO_VIDEO_B"),
     "C": ("warehouse_box_pickup", "OPERIX_DEMO_VIDEO_C"),
 }
-PERSON_SHA256 = "21766a9dc664fac06da3b0b457e0449f25e1696acbf8e7e39993c4b42282083f"
+PERSON_MODEL_ID = "YOLO11N_COCO_PERSON"
+PERSON_SHA256 = "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1"
+FORKLIFT_MODEL_ID = "FORKLIFT_SPECIALIST_V2"
 FORKLIFT_SHA256 = "1465105ea80737ddc65d72e97d6dc24fc253995a98d6d4eea9b377fe3a8edce6"
 TERMINAL = {"completed", "cancelled", "error"}
 RESTARTABLE = TERMINAL | {"ready"}
@@ -466,8 +468,10 @@ def _start_session(session: AnalysisSession) -> None:
             "source_sha256": session.source_sha256,
             "person_model_sha256": PERSON_SHA256,
             "forklift_model_sha256": FORKLIFT_SHA256,
-            "person": {"imgsz": 640, "confidence": 0.10, "nms_iou": 0.70},
-            "forklift": {"imgsz": 640, "confidence": 0.45, "nms_iou": 0.55},
+            "person": {"model_id": PERSON_MODEL_ID, "weights_sha256": PERSON_SHA256,
+                       "class_filter": "person", "imgsz": 640, "confidence": 0.10, "nms_iou": 0.70},
+            "forklift": {"model_id": FORKLIFT_MODEL_ID, "weights_sha256": FORKLIFT_SHA256,
+                         "class_filter": "forklift", "imgsz": 640, "confidence": 0.45, "nms_iou": 0.55},
             "tracker": "ByteTrack independiente por clase",
             "run": session.run,
         }
@@ -499,6 +503,7 @@ def _start_session(session: AnalysisSession) -> None:
                       "video_sha256": session.source_sha256,
                       "config_sha256": hashlib.sha256(snapshot).hexdigest(),
                       "person_weights_sha256": PERSON_SHA256, "forklift_weights_sha256": FORKLIFT_SHA256,
+                      "perception": {name: dict(session.active_config[name]) for name in ("person", "forklift")},
                       "timestamp_basis": "ANALYSIS_START_PROXY_NOT_RECORDING_TIME",
                       "session_id": str(session.id), "session_run": session.run}
             context_path = session.outbox_directory / "context.json"

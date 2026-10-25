@@ -57,6 +57,34 @@ class EventApiTests(APITestCase):
         self.assertNotIn("private", json.dumps(response.data))
         self.assertEqual(Event.objects.count(), 0)
 
+    def perception_source(self):
+        return {
+            "person_weights_sha256": "0" * 64, "forklift_weights_sha256": "1" * 64,
+            "perception": {
+                name: {"model_id": model, "weights_sha256": sha, "class_filter": name,
+                       "imgsz": 640, "confidence": confidence, "nms_iou": iou}
+                for name, model, sha, confidence, iou in (
+                    ("person", "YOLO11N_COCO_PERSON", "0" * 64, .10, .70),
+                    ("forklift", "FORKLIFT_SPECIALIST_V2", "1" * 64, .45, .55),
+                )
+            },
+        }
+
+    def test_perception_source_is_persisted_without_rewriting_legacy(self):
+        self.payload["source"] = self.perception_source()
+        response = self.create_event()
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Event.objects.get(pk=response.data["id"]).source, self.payload["source"])
+
+    def test_perception_source_rejects_inconsistent_or_private_metadata(self):
+        from .serializers import EventSerializer
+        for field, value in (("weights_sha256", "f" * 64), ("model_id", "private/path"),
+                             ("class_filter", "truck"), ("confidence", float("nan")), ("imgsz", True)):
+            payload = deepcopy(self.payload)
+            payload["source"] = self.perception_source()
+            payload["source"]["perception"]["person"][field] = value
+            self.assertFalse(EventSerializer(data=payload).is_valid(), field)
+
     def test_create_persists_and_preserves_trace(self):
         response = self.create_event()
         self.assertEqual(response.status_code, 201)

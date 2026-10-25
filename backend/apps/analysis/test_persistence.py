@@ -92,6 +92,13 @@ class WebPersistenceTests(LiveServerTestCase):
         self.assertEqual(result.status_code, 200)
         result.close()
         for event in Event.objects.all():
+            self.assertEqual(event.source["perception"]["person"], {
+                "model_id": "YOLO11N_COCO_PERSON", "weights_sha256": sessions.PERSON_SHA256,
+                "class_filter": "person", "imgsz": 640, "confidence": 0.10, "nms_iou": 0.70,
+            })
+            self.assertEqual(event.source["person_weights_sha256"], sessions.PERSON_SHA256)
+            self.assertEqual(event.source["perception"]["forklift"]["model_id"], "FORKLIFT_SPECIALIST_V2")
+            self.assertEqual(data["result"]["person"], event.source["perception"]["person"])
             evidence = self.client.get(f"/api/v1/events/{event.id}/evidence/")
             self.assertEqual(evidence.status_code, 200)
             self.assertTrue(b"".join(evidence.streaming_content).startswith(b"\x89PNG"))

@@ -152,7 +152,7 @@ def _release_analysis_resources(frames, writer) -> None:
 
 
 def process(args: argparse.Namespace) -> None:
-    from run_dual_perception import checked_file
+    from run_dual_perception import checked_file, model_identity
 
     checked_file(args.person_weights, args.person_sha256, "person_weights")
     checked_file(args.forklift_weights, args.forklift_sha256, "forklift_weights")
@@ -348,6 +348,8 @@ def process(args: argparse.Namespace) -> None:
                           "width": encoded_width, "height": encoded_height},
             timing_ms={name: round(value / measured, 3) for name, value in totals_ms.items()}
             if measured else None,
+            model_identities={"person": model_identity(args.person_sha256),
+                              "forklift": model_identity(args.forklift_sha256)},
             profiling_frames=measured,
             performance={"detection_batch_size": batch_size, "preview_target_fps": preview_fps,
                          "detector_timing": "amortized batch milliseconds per frame"},

@@ -49,6 +49,22 @@ class SessionHardeningTests(SimpleTestCase):
             "preview_sample_fps": 10, "preview_latest_frame": 299,
         }), encoding="utf-8")
 
+    @override_settings(EVENT_POST_ENABLED=False)
+    def test_operational_person_snapshot_and_worker_sha_gate(self):
+        process = Mock()
+        process.poll.return_value = None
+        with patch.object(sessions.subprocess, "Popen", return_value=process) as spawn, \
+                patch.object(sessions.threading, "Thread"):
+            sessions.start_session(self.session)
+        command = spawn.call_args.args[0]
+        expected = "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1"
+        self.assertEqual(command[command.index("--person-sha256") + 1], expected)
+        self.assertEqual(command[command.index("--person-weights") + 1], str(Path(__file__)))
+        config = self.session.active_config["person"]
+        self.assertEqual(config, {"model_id": "YOLO11N_COCO_PERSON", "weights_sha256": expected,
+                                 "class_filter": "person", "imgsz": 640, "confidence": .10, "nms_iou": .70})
+        self.assertEqual(self.session.active_config["forklift"]["weights_sha256"], sessions.FORKLIFT_SHA256)
+
     def test_completed_without_preview_consumer_exposes_result(self):
         self.completed()
         status = self.session.status()
