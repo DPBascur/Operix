@@ -541,6 +541,9 @@ REAL_HOLDOUT_V2, Excel, arquitectura, main ni tags; no se entrenó ni calibró.
 
 ## 14. Decisión geométrica de proximidad — 25-10-2026
 
+**Histórico intermedio B, sustituido por D en la sección 15.** Se conserva esta
+comparación y su versión como registro; no describe la geometría productiva final.
+
 Base: `da40795599459bfcfbf51a1e6304760868b978cd`, `dev` limpio y sincronizado.
 Esta decisión sucede a la sección 13; no cambia retroactivamente sus mediciones
 bottom-center ni los eventos/CSV/videos históricos. Se compararon fixtures antes
@@ -650,3 +653,82 @@ Se conservaron modelos, pesos/hashes, confidence, NMS, ByteTrack, tolerancia tem
 numérica, reglas habilitadas, zonas, archivos de perfiles, holdouts, TEST2 y
 REAL_HOLDOUT_V2. No hubo entrenamiento, tuning, acceso a Excel, cambios de arquitectura,
 main o tags. Los recursos desechables de PostgreSQL de QA se retiran al finalizar.
+
+## 15. Corrección final de segmentos inferiores — 25-10-2026
+
+Base: `828b7fdff053d54bb5cdf83f1bc145454d38c12e`, `dev` limpio y sincronizado.
+La instrucción humana final sustituye B (centro PERSON → borde equipo) por **D:
+distancia mínima entre ambos segmentos inferiores**. No se usa distancia entre
+contornos completos. Una función canónica `nearest_ground_edges` sustituye la
+anterior; no se dejan A/B/C como alternativas productivas configurables.
+
+Para PERSON `[px1,px2]` a altura `py=ymax` y equipo `[ex1,ex2]` a `ey=ymax`:
+
+- Si `px2 < ex1`: puntos `(px2,py)` y `(ex1,ey)`.
+- Si `ex2 < px1`: puntos `(px1,py)` y `(ex2,ey)`.
+- En otro caso, `x=(max(px1,ex1)+min(px2,ex2))/2`: puntos `(x,py)` y `(x,ey)`.
+
+`d=hypot((person_point.x-equipment_point.x)/W,
+(person_point.y-equipment_point.y)/H)`, distancia normalizada en imagen, sin metros.
+El punto medio del overlap resuelve de forma determinista la multiplicidad de
+soluciones mínimas. La normalización por cada eje no cambia el mínimo horizontal.
+
+Comparación de los mismos trece fixtures de 1000×600. A/B/C conservan los valores
+históricos de la sección 14; C sigue siendo diagnóstico de **contornos completos**.
+Los puntos D de esta tabla están en píxeles de la fuente, antes de rasterización:
+
+| Caso | A | B | C | D | Punto PERSON D | Punto equipo D |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| left | .430000 | .180000 | .160000 | .160000 | (140,450) | (300,450) |
+| right | .330000 | .080000 | .060000 | .060000 | (860,450) | (800,450) |
+| front_center | .183333 | .183333 | .016667 | .183333 | (550,560) | (550,450) |
+| partial_front | .263523 | .083333 | .000000 | .083333 | (315,500) | (315,450) |
+| perspective_overlap | .265754 | .200000 | .000000 | .200000 | (375,330) | (375,450) |
+| contained | .087003 | .083333 | .050000 | .083333 | (525,400) | (525,450) |
+| vertical | .500000 | .500000 | .166667 | .500000 | (550,150) | (550,450) |
+| different_sizes | .371498 | .038873 | .010000 | .034801 | (270,430) | (280,450) |
+| image_edge | .200000 | .010000 | .000000 | .000000 | (20,420) | (20,420) |
+| same_bottom | .110000 | .000000 | .000000 | .000000 | (440,450) | (440,450) |
+| multiple_left | .360000 | .110000 | .090000 | .090000 | (210,450) | (300,450) |
+| multiple_center | .050000 | .000000 | .000000 | .000000 | (500,450) | (500,450) |
+| multiple_right | .340000 | .090000 | .070000 | .070000 | (870,450) | (800,450) |
+
+Versión final **`person_equipment_nearest_ground_edges_v1`**. El analizador,
+regla, renderer y snapshot usan los mismos puntos y distancia. No se modifican
+tracking, lifecycle de episodios, selección visual ni transporte. `person_anchor`
+mantiene su nombre para conservar infraestructura; bajo D significa punto del
+segmento PERSON seleccionado, no centro. La línea usa sus coordenadas con la
+conversión raster existente y la etiqueta usa la distancia observada.
+
+La API acepta D, B histórica o registros antiguos sin snapshot; no añade ni
+convierte metadata histórica. También puede serializarse un candidato histórico
+B sin cambiar puntos/versión; el replay de outbox conserva el JSON original.
+Un retry B→D con la misma identidad devuelve 409, no modifica el evento. D debe
+pertenecer a una ejecución nueva. No se migran filas/columnas.
+
+Pruebas Motor: **398 descubiertas, 396 PASS + 2 SKIP** opt-in. Cubren esquinas,
+overlap parcial/determinismo, contención, niveles inferiores iguales/distintos,
+touching, normalización/resize, simetría de segmentos, roles/IDs, endpoints del
+renderer, snapshot y preservación B. Las pruebas de límite mantienen 0,25; se
+colocan los segmentos de fixture exactamente a esa separación sin cambiar umbrales.
+Backend completo con PostgreSQL aislado: **124/124**, incluido E2E con detecciones
+fixture y worker real. Para el primer par solapado se verifican puntos normalizados
+(.2875,.7) en ambos segmentos y distancia cero; el otro par conserva gap .1.
+Distancia/puntos/versiones coinciden con el evento, y el PNG decodificado conserva
+el hash de píxeles del renderer. MP4 completo verificado por el worker. No se
+declara una nueva evaluación de modelos o una suite nativa contra DB no disponible.
+
+Se generó/revisó una comparación visual B/D con el mismo fixture, sin reescribir
+los artefactos B originales. Video D adicional: 1000×600, 30 FPS, 60/60 frames
+decodificables, una emisión, encoder MSMF; máximo 0,25 y duración 1 s del fixture
+existente. JSON, PNG y MP4 quedan locales fuera de Git, sin peso/dataset nuevo.
+
+**Umbrales intactos pero no equivalentes:** D≤B≤A para estos segmentos; el mismo
+máximo puede cambiar pertenencia a la condición e inicio/duración del episodio.
+No se retocan `max_distance`, duraciones, reglas habilitadas ni perfiles; no se
+afirma que estén calibrados para D. La recalibración requiere otra campaña con
+material de desarrollo. Cero solo significa coincidencia según esta geometría 2D:
+no demuestra contacto físico, operador, ocupación, colisión ni Near Miss.
+Se conservan las limitaciones de bbox, perspectiva, oclusión y falta de calibración.
+No hubo entrenamiento, acceso a holdouts, TEST2 o REAL_HOLDOUT_V2, cambios de
+modelos/pesos, confidence/NMS, ByteTrack, frontend, main, tags, Excel o arquitectura.
