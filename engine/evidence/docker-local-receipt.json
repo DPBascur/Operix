@@ -1,0 +1,158 @@
+{
+  "validated_at_utc": "2026-10-25T02:36:16Z",
+  "validation_date_local": "2026-10-24",
+  "source_git_sha": "accda3563fe52c9736cf4d9c4b8d31195065aeba",
+  "source_note": "Base más cambios Docker de esta campaña; imagen validada antes del commit, no es el árbol limpio de la base.",
+  "states": [
+    "OPERIX_DOCKER_LOCAL_READY",
+    "OPERIX_DOCKER_GPU_READY",
+    "NATIVE_PATH_PRESERVED"
+  ],
+  "host": {
+    "docker_desktop": "4.90.0",
+    "docker_engine": "29.7.2",
+    "compose": "5.5.1",
+    "backend": "WSL2",
+    "wsl": "3.0.3.0",
+    "kernel": "6.18.54.1-microsoft-standard-WSL2",
+    "gpu": "NVIDIA GeForce RTX 3070",
+    "driver": "616.92",
+    "host_reported_cuda": "13.4",
+    "vram_mib": 8192
+  },
+  "images": {
+    "backend": {
+      "tag": "operix-backend:local",
+      "identity": "sha256:1a7d3b63914ada175a9e959dce477f54a2520fda14a72540366c59691ddc6e0c",
+      "size_bytes": 3425886704
+    },
+    "frontend": {
+      "tag": "operix-frontend:local",
+      "identity": "sha256:b9552a3bce1fabc1afea2791575995ccff814f695361d27625075ce6053a6baa",
+      "size_bytes": 97413965
+    },
+    "postgres": {
+      "tag": "postgres:17.11-bookworm",
+      "identity": "sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27",
+      "version": "17.11"
+    },
+    "gpu_precheck": {
+      "tag": "nvidia/cuda:13.0.2-base-ubuntu24.04",
+      "digest": "sha256:2ab6381d970b211fb93853796dc6707eb8a72575a375c422b17cf4d8b2641701",
+      "exit_code": 0
+    }
+  },
+  "runtime": {
+    "python": "3.12.10",
+    "torch": "2.14.0+cu130",
+    "cuda_runtime": "13.0",
+    "cuda_available": true,
+    "gpu": "NVIDIA GeForce RTX 3070",
+    "vram_bytes": 8589410304,
+    "opencv": "5.0.0",
+    "ultralytics": "8.4.146",
+    "lap": "0.5.12",
+    "person_sha256": "21766a9dc664fac06da3b0b457e0449f25e1696acbf8e7e39993c4b42282083f",
+    "forklift_sha256": "1465105ea80737ddc65d72e97d6dc24fc253995a98d6d4eea9b377fe3a8edce6",
+    "node": "24.2.0",
+    "pnpm": "11.28.2",
+    "opencv_distribution": "5.0.0.93",
+    "timezone": "UTC"
+  },
+  "native": {
+    "engine": {
+      "discovered": 353,
+      "passed": 351,
+      "skipped": 2
+    },
+    "backend": {
+      "passed": 103
+    },
+    "frontend": {
+      "passed": 30
+    },
+    "lint": "PASS",
+    "typecheck": "PASS",
+    "build": "PASS",
+    "pip_check_engine": "PASS",
+    "pip_check_backend": "PASS",
+    "django_check": "PASS",
+    "migration_check": "NO_CHANGES",
+    "environment_require_cuda": "PASS"
+  },
+  "docker": {
+    "engine": {
+      "discovered": 353,
+      "passed": 351,
+      "skipped": 2
+    },
+    "backend": {
+      "passed": 103,
+      "skipped": 0
+    },
+    "frontend_build": "PASS",
+    "codec_encode_decode": "PASS",
+    "pip_check": "PASS",
+    "django_check": "PASS",
+    "migration_check": "NO_CHANGES",
+    "compose_config": "PASS",
+    "all_healthchecks": "PASS",
+    "cpu_infra_filters_frequencies_evidence": "PASS",
+    "frontend_browser_history_and_event_detail": "PASS",
+    "frontend_internal_backend_http": 200
+  },
+  "gpu_demo": {
+    "source": "warehouse_fire_ceiling04.mp4",
+    "source_sha256": "3ABE9043EE41F898D869890E8636B804186BFAF524DAEA2E6F6831E72711F4D6",
+    "frames": 277,
+    "resolution": [
+      1920,
+      1080
+    ],
+    "fps": 30,
+    "processed_frames": 277,
+    "candidates": 3,
+    "saved_events": 3,
+    "failed_events": 0,
+    "wall_seconds": 29.55732970000099,
+    "fresh_repeat_wall_seconds": 26.539928599999257,
+    "result_bytes": 2998261,
+    "result_sha256": "9BE38A02679DA3243F5C182383C2A5F7A077B083FB9AEDF8820A7271E93ECD48",
+    "evidence_sha256": "8A78836FC15973287BDB2ECB66DF62800A62752ACE645BE2F3DCD935DC60081A",
+    "result_codec": "H.264/avc1",
+    "result_decoded_frames": 277
+  },
+  "persistence": {
+    "postgres_history": "PASS_AFTER_DOWN_UP",
+    "png_bytes": "PASS_IDENTICAL_SHA256",
+    "result_mp4_bytes": "PASS_IDENTICAL_SHA256",
+    "session_registry": "RAM_NOT_RESTORED"
+  },
+  "fresh_start": {
+    "new_volumes": true,
+    "initial_event_rows": 0,
+    "healthchecks": "PASS",
+    "migrations": "PASS",
+    "gpu": "PASS",
+    "infra_e2e": "PASS",
+    "gpu_e2e": "PASS",
+    "up_wait_seconds": 28.38,
+    "build_cache_reused": true
+  },
+  "security": {
+    "backend_uid": 10001,
+    "frontend_uid": 1000,
+    "postgres_host_port": false,
+    "host_binding": "127.0.0.1",
+    "privileged": false,
+    "docker_socket_mount": false,
+    "weights_read_only": true,
+    "input_read_only": true,
+    "weights_videos_env_in_app_image": false,
+    "secrets": "EXTERNAL_ENV_NOT_VERSIONED",
+    "protected_datasets_used": false
+  },
+  "performance_scope": "Exploratorio; sin benchmark nativo/Docker comparable ni promesa de portabilidad universal.",
+  "cleanup": "Solo proyectos temporales operix-docker-qa y operix-docker-fresh-qa; pruebas y outputs conservados fuera de Git. Volúmenes de prueba eliminados al terminar.",
+  "implementation_git_sha": "cb1605b531c886fc6f7d48fef8c68221deb79553"
+}

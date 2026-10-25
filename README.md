@@ -46,7 +46,7 @@ Las reglas y umbrales operacionales son configurables y dependen del escenario y
 | Procesamiento de video | OpenCV |
 | Detección | YOLO11, selección inicial/experimental |
 | Tracking | ByteTrack, selección inicial/experimental |
-| Contenedores | Docker + Docker Compose, implementación pendiente |
+| Contenedores | Docker + Docker Compose, alternativa local con GPU opcional |
 
 Kubernetes, Redis, Celery y HAR quedan fuera del MVP inicial.
 
@@ -103,7 +103,7 @@ aprobadas y 2 omitidas. Esto no modifica los resultados históricos.
 
 ## Orientación técnica
 
-El Motor dispone de entorno reproducible Windows/CUDA, scripts de ejecución y pruebas. El sistema completo, los Dockerfiles y la configuración Compose siguen pendientes. La organización permite posteriormente un despliegue con Docker Compose conforme a DEP-01.
+El Motor dispone de entorno reproducible Windows/CUDA, scripts de ejecución y pruebas. El modo nativo sigue soportado. Como alternativa, la [guía Docker local](deployment/docker/README.md) permite levantar PostgreSQL, Backend con su worker existente y Frontend, con GPU NVIDIA opcional. Requiere configurar secretos locales; no incluye pesos ni datos privados. La [validación Docker](engine/evidence/DOCKER-LOCAL-VALIDATION.md) se limita al equipo de desarrollo documentado y no acredita despliegue industrial ni portabilidad universal de GPU.
 
 El PoC técnico ejecutado comprende video → OpenCV → YOLO11 → ByteTrack → visualización, con métricas del benchmark independiente de OP-43. La [evidencia consolidada de OP-61](engine/evidence/OP-61-poc.md) registra configuración, entorno, hashes, resultados y limitaciones como evidencia inicial de RF-01, RF-02, RF-03 y RNF-02.
 
