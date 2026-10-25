@@ -29,7 +29,7 @@ from operix_engine.operational_config import load_operational_config
 from operix_engine.rules import RuleEngine
 from operix_engine.spatiotemporal import SpatiotemporalAnalyzer
 from operix_engine.video_event_pipeline import _visible_tracks
-from operix_engine.video_processor import RecordedVideoSource
+from operix_engine.video_processor import RecordedVideoSource, VideoContractError, VideoSourceError, inspect_recorded_video
 from operix_engine.visualization import OpenCvRenderer, TrajectoryAccumulator, VisualizationConfig
 from operix_engine.yolo_detector import YoloDetector, YoloDetectorConfig
 
@@ -156,6 +156,9 @@ def process(args: argparse.Namespace) -> None:
 
     checked_file(args.person_weights, args.person_sha256, "person_weights")
     checked_file(args.forklift_weights, args.forklift_sha256, "forklift_weights")
+    _status(args.session_dir, state="preparing", frame=0, total=None, percent=None,
+            detail="Verificando integridad y cadencia del video")
+    inspection = inspect_recorded_video(args.video)
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA no está disponible para ambos detectores")
     config = _validated_zone(load_operational_config(args.config), args.polygon)
@@ -185,8 +188,8 @@ def process(args: argparse.Namespace) -> None:
     )
     with RecordedVideoSource(args.video) as source:
         metadata = source.metadata()
-        if metadata.declared_fps is None:
-            raise ValueError("El video no declara FPS")
+        if metadata != inspection.metadata:
+            raise VideoContractError("INVALID_METADATA", "La fuente cambió después de la verificación")
         partial_result = args.session_dir / "annotated.partial.mp4"
         final_result = args.session_dir / "annotated.mp4"
         writer = cv2.VideoWriter(
@@ -203,7 +206,7 @@ def process(args: argparse.Namespace) -> None:
         )
         rules = RuleEngine(config)
         started = time.perf_counter()
-        total = metadata.declared_frame_count
+        total = inspection.frame_count
         processed = 0
         observed = None
         totals_ms = {name: 0.0 for name in (
@@ -224,6 +227,8 @@ def process(args: argparse.Namespace) -> None:
                 except StopIteration:
                     break
                 frame_index, frame, observed, timing, decode_ms = entry
+                if frame_index != processed or frame_index >= total:
+                    raise VideoContractError("INVALID_METADATA", "La segunda lectura no coincide con la verificación")
                 if frame_index == 0:
                     devices = (
                         perception.person.detector.model_device,
@@ -236,7 +241,9 @@ def process(args: argparse.Namespace) -> None:
                     observed.person_tracks + observed.forklift_tracks,
                     metadata.width, metadata.height,
                 )
-                result = rules.evaluate(analyzer.update(frame_index, visible_tracks))
+                result = rules.evaluate(analyzer.update(
+                    frame_index, visible_tracks, timestamp_s=inspection.timestamps[frame_index],
+                ))
                 frame_candidates = candidate_payloads(result.candidates)
                 rules_ms = (time.perf_counter_ns() - tick) / 1e6
                 tick = time.perf_counter_ns()
@@ -290,7 +297,7 @@ def process(args: argparse.Namespace) -> None:
                 tick = time.perf_counter_ns()
                 _status(
                     args.session_dir, state="processing", frame=processed, total=total,
-                    percent=round(100 * processed / total, 1) if total else None,
+                    percent=min(99.9, round(100 * processed / total, 1)),
                     fps=round(processed / elapsed, 2), width=metadata.width,
                     height=metadata.height, source_fps=metadata.declared_fps,
                     preview_sample_fps=preview_fps, preview_latest_frame=last_preview,
@@ -299,11 +306,13 @@ def process(args: argparse.Namespace) -> None:
                     person_tracks=len(observed.person_tracks),
                     forklift_tracks=len(observed.forklift_tracks),
                     candidates=frame_candidates, persistence=persistence,
+                    declared_frame_count=metadata.declared_frame_count,
+                    timestamp_source=inspection.timestamp_source, warnings=inspection.warnings,
                 )
                 if frame_index >= 20:
                     totals_ms["status_ipc"] += (time.perf_counter_ns() - tick) / 1e6
-            if processed == 0:
-                raise ValueError("El video no contiene frames decodificables")
+            if processed != total:
+                raise VideoContractError("TRUNCATED_INPUT", "La lectura terminó antes del total previamente verificado")
             if last_preview != processed - 1:
                 # También termina correctamente cuando la fuente no declaró su cantidad de frames.
                 _publish_preview(annotated, preview_dir, processed - 1, args.preview_width)
@@ -335,6 +344,8 @@ def process(args: argparse.Namespace) -> None:
         _status(
             args.session_dir, state="completed", frame=processed,
             total=processed, percent=100, fps=round(processed / max(time.perf_counter() - started, 1e-9), 2),
+            termination_reason="NORMAL_EOF", declared_frame_count=metadata.declared_frame_count,
+            timestamp_source=inspection.timestamp_source, warnings=inspection.warnings,
             width=metadata.width, height=metadata.height,
             source_fps=metadata.declared_fps,
             preview_sample_fps=preview_fps, preview_latest_frame=last_preview,
@@ -373,9 +384,19 @@ def main() -> int:
     args = parser.parse_args()
     try:
         process(args)
-    except Exception:
+    except Exception as error:
         _write_atomic(args.session_dir / "error.log", traceback.format_exc().encode("utf-8"))
-        _status(args.session_dir, state="error", detail="El Motor no pudo procesar el video o la zona.")
+        try:
+            previous = json.loads((args.session_dir / "status.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            previous = {}
+        previous.pop("result_video", None)
+        previous.update(state="error", detail="El Motor no pudo procesar el video o la zona.",
+                        termination_reason=error.reason if isinstance(error, VideoContractError) else
+                        "DECODE_FAILURE" if isinstance(error, VideoSourceError) else "PROCESSING_FAILURE")
+        if previous.get("percent") is not None:
+            previous["percent"] = min(99.9, previous["percent"])
+        _status(args.session_dir, **previous)
         return 1
     return 0
 

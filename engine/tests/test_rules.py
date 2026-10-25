@@ -50,6 +50,15 @@ class RuleEngineTest(unittest.TestCase):
         self.assertEqual(len(result.candidates), 1)
         self.assertTrue(result.evaluations[0].satisfied)
 
+    def test_zone_dwell_consumes_decoder_time_through_analyzer(self):
+        for frame, timestamp in enumerate((0., .9, 1.999)):
+            result = self.engine.evaluate(self.analyzer.update(
+                frame, (make_track(),), timestamp_s=timestamp))
+            self.assertEqual(result.candidates, ())
+        candidate = self.engine.evaluate(self.analyzer.update(3, (make_track(),), timestamp_s=2.)).candidates[0]
+        self.assertEqual(candidate.observed_dwell_time_s, 2.)
+        self.assertEqual(candidate.timestamp_s, 2.)
+
     def test_outside_zone_is_negative(self) -> None:
         result = self.step(0, make_track(inside=False))
         self.assertEqual(result.evaluations[0].reason, "outside_zone")

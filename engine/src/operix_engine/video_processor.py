@@ -18,6 +18,14 @@ class VideoSourceError(RuntimeError):
     """Indica que una fuente de video no puede procesarse de forma controlada."""
 
 
+class VideoContractError(VideoSourceError):
+    """Causa pública estable, sin rutas ni detalles internos del codec."""
+
+    def __init__(self, reason: str, detail: str) -> None:
+        super().__init__(detail)
+        self.reason = reason
+
+
 @dataclass(frozen=True, slots=True)
 class VideoMetadata:
     """Propiedades informadas por OpenCV para una fuente de video."""
@@ -97,8 +105,12 @@ class RecordedVideoSource:
         """Obtiene las propiedades básicas declaradas por el backend de video."""
         capture = self._require_open()
 
-        width = max(0, int(round(capture.get(cv2.CAP_PROP_FRAME_WIDTH))))
-        height = max(0, int(round(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))))
+        dimensions = [capture.get(key) for key in (cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FRAME_HEIGHT)]
+        if any(not math.isfinite(value) or value <= 0 for value in dimensions):
+            raise VideoContractError("INVALID_METADATA", "El video no informa dimensiones válidas")
+        width, height = (int(round(value)) for value in dimensions)
+        if width <= 0 or height <= 0:
+            raise VideoContractError("INVALID_METADATA", "El video no informa dimensiones válidas")
 
         fps_value = capture.get(cv2.CAP_PROP_FPS)
         declared_fps = float(fps_value) if math.isfinite(fps_value) and fps_value > 0 else None
@@ -198,3 +210,72 @@ def _frame_count_warnings(
         "El total de frames procesados difiere del valor declarado por OpenCV "
         f"({processed_frames} procesados, {declared_frame_count} declarados).",
     )
+
+
+@dataclass(frozen=True, slots=True)
+class VideoInspection:
+    metadata: VideoMetadata
+    timestamps: tuple[float, ...]
+    timestamp_source: str
+    warnings: tuple[str, ...]
+
+    @property
+    def frame_count(self) -> int:
+        return len(self.timestamps)
+
+
+def inspect_recorded_video(path: str | Path) -> VideoInspection:
+    """Preflight sin inferencia. El worker web admite CFR; VFR observable se rechaza.
+
+    Decodifica una vez para fijar el total comprobable antes de publicar eventos.
+    POS_MSEC se consulta después de cada read; nunca se busca/se cambia el cursor.
+    Un backend sin reloj útil requiere el fallback nominal explícito.
+    """
+    path = Path(path)
+    if not path.is_file() or path.suffix.lower() not in {".mp4", ".mov", ".avi"}:
+        raise VideoContractError("INVALID_INPUT", "Se requiere un archivo local MP4, MOV o AVI existente")
+    with RecordedVideoSource(path) as source:
+        metadata = source.metadata()
+        fps = metadata.declared_fps
+        if fps is None:
+            raise VideoContractError("INVALID_METADATA", "El video no declara FPS positivos y finitos")
+        positions = []
+        try:
+            for _, frame in source.frames():
+                if frame.shape[:2] != (metadata.height, metadata.width):
+                    raise VideoContractError("INVALID_METADATA", "Las dimensiones cambian durante el video")
+                positions.append(float(source._require_open().get(cv2.CAP_PROP_POS_MSEC)) / 1000)
+        except cv2.error:
+            raise VideoContractError("DECODE_FAILURE", "El decodificador no pudo leer el video") from None
+        except VideoContractError:
+            raise
+        except VideoSourceError:
+            raise VideoContractError("DECODE_FAILURE", "El decodificador no pudo leer el video") from None
+    count = len(positions)
+    if not count:
+        raise VideoContractError("DECODE_FAILURE", "El video no contiene frames decodificables")
+    declared = metadata.declared_frame_count
+    warnings = _frame_count_warnings(declared, count)
+    # FRAME_COUNT puede ser aproximado: una diferencia no prueba corrupción,
+    # pero tampoco permite confirmar completitud. No corregirla silenciosamente.
+    if declared is not None and declared != count:
+        reason = "TRUNCATED_INPUT" if count < declared else "INVALID_METADATA"
+        raise VideoContractError(reason, "No se confirma integridad: el total decodificado difiere del declarado (posiblemente aproximado)")
+    nominal = tuple(index / fps for index in range(count))
+    if count > 1 and all(position == 0 for position in positions):
+        timestamps, origin = nominal, "NOMINAL_FPS_UNVERIFIED_CFR"
+        warnings += ("El backend no entrega timestamps; tiempo nominal bajo supuesto CFR, VFR no verificable.",)
+    else:
+        if any(not math.isfinite(position) or position < 0 for position in positions):
+            raise VideoContractError("INVALID_TIMESTAMPS", "El video entrega timestamps inválidos")
+        timestamps = tuple(position - positions[0] for position in positions)
+        # Solo precisión del reloj del contenedor, no tolerancia de las reglas.
+        tolerance = max(.002, .02 / fps)
+        if any(right <= left for left, right in zip(timestamps, timestamps[1:])) or any(
+            abs(actual - expected) > tolerance for actual, expected in zip(timestamps, nominal)
+        ):
+            raise VideoContractError("UNSUPPORTED_VFR", "Cadencia irregular o FPS inconsistentes; se requiere video CFR")
+        origin = "OPENCV_POS_MSEC_RELATIVE"
+    if declared is None:
+        warnings += ("Total declarado desconocido; total fijado mediante prelectura decodificada.",)
+    return VideoInspection(metadata, timestamps, origin, warnings)

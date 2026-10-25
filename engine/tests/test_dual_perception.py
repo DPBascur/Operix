@@ -246,7 +246,10 @@ class DualPerceptionTest(unittest.TestCase):
     def test_both_orchestrators_transport_mixed_candidates_without_single_object_assumptions(self):
         self._exercise_orchestrators(pair_enabled=True)
 
-    def _exercise_orchestrators(self, *, pair_enabled):
+    def test_stream_rejects_second_decode_truncated_after_preflight(self):
+        self._exercise_orchestrators(pair_enabled=False, truncated=True)
+
+    def _exercise_orchestrators(self, *, pair_enabled, truncated=False):
         scripts = Path(__file__).resolve().parents[1] / "scripts"
         zone = Zone("all", "Zona", ((0, 0), (1, 0), (1, 1), (0, 1)))
         rule = RuleConfig("demo_zone_dwell", 1, True, {
@@ -273,6 +276,8 @@ class DualPerceptionTest(unittest.TestCase):
             return model
 
         for module in (diagnostic, streaming):
+            if truncated and module is diagnostic:
+                continue
             with self.subTest(script=module.__name__), tempfile.TemporaryDirectory() as directory:
                 session_dir = Path(directory) / "session"
                 session_dir.mkdir()
@@ -298,7 +303,7 @@ class DualPerceptionTest(unittest.TestCase):
                 source.metadata.return_value = SimpleNamespace(
                     width=120, height=100, declared_fps=30.0, declared_frame_count=2,
                 )
-                source.frames.return_value = iter(((0, self.frame), (1, self.frame)))
+                source.frames.return_value = iter(((0, self.frame),) if truncated else ((0, self.frame), (1, self.frame)))
                 writer = MagicMock()
                 writer.isOpened.return_value = True
                 writer.getBackendName.return_value = "synthetic"
@@ -316,6 +321,10 @@ class DualPerceptionTest(unittest.TestCase):
                     patch.object(module, "YoloDetector", side_effect=detector),
                     patch.object(module, "ByteTracker", side_effect=lambda _: FakeTracker()),
                     patch.object(module, "RecordedVideoSource", return_value=source),
+                    patch.object(streaming, "inspect_recorded_video", return_value=SimpleNamespace(
+                        metadata=source.metadata.return_value, frame_count=2,
+                        timestamps=(0., 1 / 30), timestamp_source="TEST_CFR", warnings=(),
+                    )),
                     patch.object(module, "load_operational_config", return_value=config),
                     patch.object(module, "SpatiotemporalAnalyzer", return_value=analyzer),
                     patch.object(module, "RuleEngine", return_value=rules),
@@ -326,6 +335,15 @@ class DualPerceptionTest(unittest.TestCase):
                     patch.object(rules, "evaluate", wraps=rules.evaluate) as evaluate,
                     patch.object(streaming, "_status", wraps=streaming._status) as status,
                 ):
+                    if truncated:
+                        from operix_engine.video_processor import VideoContractError
+                        with self.assertRaises(VideoContractError) as error:
+                            module.process(args)
+                        self.assertEqual(error.exception.reason, "TRUNCATED_INPUT")
+                        writer.release.assert_called_once()
+                        self.assertFalse((session_dir / "annotated.mp4").exists())
+                        self.assertFalse(any(call.kwargs["state"] == "completed" for call in status.call_args_list))
+                        continue
                     if module is diagnostic:
                         summary = module.run(args)
                         self.assertEqual(summary["candidate_count"], 2 if pair_enabled else 1)

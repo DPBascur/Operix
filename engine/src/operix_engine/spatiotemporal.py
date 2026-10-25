@@ -129,16 +129,21 @@ class SpatiotemporalAnalyzer:
     def reset(self) -> None:
         """Inicia una nueva secuencia sin historial ni permanencia previa."""
         self._last_frame_index: int | None = None
+        self._last_timestamp_s: float | None = None
         self._last_seen: dict[ObjectIdentity, int] = {}
         self._trajectories: dict[ObjectIdentity, deque[TrajectorySample]] = {}
-        self._dwell_starts: dict[tuple[ObjectIdentity, str], int] = {}
+        self._dwell_starts: dict[tuple[ObjectIdentity, str], float] = {}
 
-    def update(self, frame_index: int, tracks: tuple[Track, ...]) -> FrameSpatialState:
+    def update(self, frame_index: int, tracks: tuple[Track, ...], *, timestamp_s: float | None = None) -> FrameSpatialState:
         """Calcula variables para un frame; un gap rompe toda continuidad."""
         if type(frame_index) is not int or frame_index < 0:
             raise ValueError("frame_index debe ser entero no negativo")
         if self._last_frame_index is not None and frame_index <= self._last_frame_index:
             raise ValueError("frame_index debe avanzar estrictamente")
+        timestamp_s = frame_index / self.fps if timestamp_s is None else timestamp_s
+        if (type(timestamp_s) not in (int, float) or not math.isfinite(timestamp_s) or timestamp_s < 0
+                or (self._last_timestamp_s is not None and timestamp_s <= self._last_timestamp_s)):
+            raise ValueError("timestamp_s debe ser finito, no negativo y avanzar estrictamente")
         if not isinstance(tracks, tuple) or not all(isinstance(track, Track) for track in tracks):
             raise TypeError("tracks debe ser una tupla de Track")
         ids = [ObjectIdentity(track.class_name, track.track_id) for track in tracks]
@@ -169,7 +174,6 @@ class SpatiotemporalAnalyzer:
             if key[0] not in present:
                 del self._dwell_starts[key]
 
-        timestamp_s = frame_index / self.fps
         objects = []
         for track, position, memberships in prepared:
             track_id = track.track_id
@@ -189,8 +193,8 @@ class SpatiotemporalAnalyzer:
             for zone_id, inside in memberships:
                 key = (identity, zone_id)
                 if inside:
-                    start = self._dwell_starts.setdefault(key, frame_index)
-                    dwell_time_s = (frame_index - start) / self.fps
+                    start = self._dwell_starts.setdefault(key, timestamp_s)
+                    dwell_time_s = timestamp_s - start
                 else:
                     self._dwell_starts.pop(key, None)
                     dwell_time_s = 0.0
@@ -217,4 +221,5 @@ class SpatiotemporalAnalyzer:
             for right in objects[index + 1:]
         )
         self._last_frame_index = frame_index
+        self._last_timestamp_s = timestamp_s
         return FrameSpatialState(frame_index, timestamp_s, tuple(objects), proximities)

@@ -42,6 +42,21 @@ class SpatiotemporalTest(unittest.TestCase):
         self.assertEqual(result.objects[0].frame_index, 3)
         self.assertAlmostEqual(result.objects[0].timestamp_s, 0.1)
 
+    def test_explicit_video_timestamps_drive_dwell_and_trajectory(self):
+        self.analyzer.update(0, (self.inside,), timestamp_s=0.)
+        result = self.analyzer.update(1, (self.inside,), timestamp_s=.071)
+        obj = result.objects[0]
+        self.assertEqual(result.timestamp_s, .071)
+        self.assertEqual(obj.zones[0].dwell_time_s, .071)
+        self.assertEqual(obj.trajectory[-1].timestamp_s, .071)
+
+    def test_bad_timestamp_does_not_mutate_analyzer(self):
+        self.analyzer.update(0, (self.inside,), timestamp_s=.1)
+        for timestamp in (0, .1, -1, float("nan"), float("inf"), True):
+            with self.subTest(timestamp=timestamp), self.assertRaises(ValueError):
+                self.analyzer.update(1, (self.inside,), timestamp_s=timestamp)
+        self.assertEqual(self.analyzer.update(1, (self.inside,), timestamp_s=.2).timestamp_s, .2)
+
     def test_position_and_zone_reuse_existing_geometry(self) -> None:
         obj = self.analyzer.update(0, (self.inside,)).objects[0]
         self.assertEqual(obj.position, NormalizedPoint(0.4, 0.5))

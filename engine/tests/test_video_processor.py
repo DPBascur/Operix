@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 from dataclasses import replace
 from pathlib import Path
 
@@ -17,6 +18,8 @@ from operix_engine.video_processor import (
     VideoMetadata,
     VideoSourceError,
     process_recorded_video,
+    inspect_recorded_video,
+    VideoContractError,
 )
 
 
@@ -128,6 +131,97 @@ class VideoProcessorTest(unittest.TestCase):
 
         with self.assertRaisesRegex(VideoSourceError, "no pudo abrir"):
             process_recorded_video(invalid_path)
+
+    def inspect_fixture(self, *, count=5, declared=5, fps=30.0, positions=None, failure=None, width=64):
+        capture = Mock()
+        capture.isOpened.return_value = True
+        position = -1
+        properties = {cv2.CAP_PROP_FRAME_WIDTH: width, cv2.CAP_PROP_FRAME_HEIGHT: 48,
+                      cv2.CAP_PROP_FPS: fps, cv2.CAP_PROP_FRAME_COUNT: declared}
+        def read():
+            nonlocal position
+            position += 1
+            if failure is not None and position == failure:
+                raise cv2.error("controlled decode failure")
+            return (True, np.zeros((48, 64, 3), dtype=np.uint8)) if position < count else (False, None)
+        def get(key):
+            if key == cv2.CAP_PROP_POS_MSEC:
+                return positions[position] if positions is not None else position * 1000 / fps
+            return properties[key]
+        capture.read.side_effect, capture.get.side_effect = read, get
+        with patch("operix_engine.video_processor.cv2.VideoCapture", return_value=capture):
+            try:
+                return inspect_recorded_video(self.video_path)
+            finally:
+                capture.release.assert_called_once()
+
+    def test_preflight_valid_cfr_uses_relative_decoder_timestamps(self):
+        result = self.inspect_fixture(positions=[2000 + i * 1000 / 30 for i in range(5)])
+        self.assertEqual(result.frame_count, 5)
+        self.assertEqual(result.timestamp_source, "OPENCV_POS_MSEC_RELATIVE")
+        self.assertEqual(result.timestamps[0], 0)
+        self.assertAlmostEqual(result.timestamps[-1], 4 / 30)
+
+    def test_preflight_premature_eof_is_truncated(self):
+        with self.assertRaises(VideoContractError) as error:
+            self.inspect_fixture(count=2, declared=100)
+        self.assertEqual(error.exception.reason, "TRUNCATED_INPUT")
+
+    def test_preflight_unknown_total_counts_decoded_frames(self):
+        result = self.inspect_fixture(declared=0)
+        self.assertEqual(result.frame_count, 5)
+        self.assertIsNone(result.metadata.declared_frame_count)
+        self.assertTrue(result.warnings)
+
+    def test_preflight_all_zero_timestamps_explicit_nominal_fallback(self):
+        result = self.inspect_fixture(positions=[0] * 5)
+        self.assertEqual(result.timestamp_source, "NOMINAL_FPS_UNVERIFIED_CFR")
+        self.assertEqual(result.timestamps, tuple(i / 30 for i in range(5)))
+        self.assertTrue(result.warnings)
+
+    def test_preflight_rejects_irregular_nonmonotonic_or_invalid_timestamps(self):
+        for positions in ([0, 33, 100, 133, 200], [0, 33, 33, 100, 133],
+                          [0, 33, 20, 100, 133], [0, float("nan"), 66, 100, 133]):
+            with self.subTest(positions=positions), self.assertRaises(VideoContractError):
+                self.inspect_fixture(positions=positions)
+
+    def test_preflight_invalid_fps_or_dimensions(self):
+        for fps in (0, -1, float("nan"), float("inf")):
+            with self.subTest(fps=fps), self.assertRaises(VideoContractError):
+                self.inspect_fixture(fps=fps)
+        with self.assertRaises(VideoContractError):
+            self.inspect_fixture(width=float("nan"))
+
+    def test_preflight_decode_exception_and_empty_source_are_failures(self):
+        for options in ({"failure": 2}, {"count": 0}):
+            with self.subTest(options=options), self.assertRaises(VideoContractError) as error:
+                self.inspect_fixture(**options)
+            self.assertEqual(error.exception.reason, "DECODE_FAILURE")
+
+    def test_preflight_approximate_count_cannot_confirm_completion(self):
+        for count, declared in ((5, 6), (1, 2), (2, 3)):
+            with self.subTest(count=count, declared=declared), self.assertRaises(VideoContractError) as error:
+                self.inspect_fixture(count=count, declared=declared)
+            self.assertEqual(error.exception.reason, "TRUNCATED_INPUT")
+        with self.assertRaises(VideoContractError) as error:
+            self.inspect_fixture(count=10, declared=5)
+        self.assertEqual(error.exception.reason, "INVALID_METADATA")
+
+    def test_preflight_one_frame_is_valid(self):
+        self.assertEqual(self.inspect_fixture(count=1, declared=1).timestamps, (0,))
+
+    def test_real_synthetic_preflight_and_short_video(self):
+        result = inspect_recorded_video(self.video_path)
+        self.assertEqual(result.frame_count, self.frame_count)
+        self.assertEqual(result.timestamp_source, "OPENCV_POS_MSEC_RELATIVE")
+
+    def test_preflight_rejects_missing_directory_or_disallowed_type(self):
+        invalid = self.directory / "not-video.txt"
+        invalid.write_text("fixture", encoding="utf-8")
+        for path in (self.directory / "missing.mp4", self.directory, invalid):
+            with self.subTest(path=path.name), self.assertRaises(VideoContractError) as error:
+                inspect_recorded_video(path)
+            self.assertEqual(error.exception.reason, "INVALID_INPUT")
 
 
 if __name__ == "__main__":

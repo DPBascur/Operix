@@ -66,6 +66,15 @@ class PairProximityRuleTest(unittest.TestCase):
         self.assertEqual(candidate.observed_normalized_distance, 0.25)
         self.assertEqual(candidate.observed_duration_s, 1.0)
 
+    def test_pair_duration_consumes_decoder_time_through_analyzer(self):
+        tracks = (self.person, self.forklift)
+        for frame, timestamp in enumerate((0., .4, .999)):
+            self.assertEqual(self.engine.evaluate(self.analyzer.update(
+                frame, tracks, timestamp_s=timestamp)).candidates, ())
+        candidate = self.engine.evaluate(self.analyzer.update(3, tracks, timestamp_s=1.)).candidates[0]
+        self.assertEqual(candidate.observed_duration_s, 1.)
+        self.assertEqual(candidate.timestamp_s, 1.)
+
     def test_only_one_candidate_through_long_continuous_episode(self):
         emitted = [candidate for frame in range(100)
                    for candidate in self.step(frame, self.person, self.forklift).candidates]

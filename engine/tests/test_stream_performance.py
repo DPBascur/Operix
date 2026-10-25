@@ -5,6 +5,7 @@ import sys
 import json
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 
@@ -132,3 +133,35 @@ class PreviewScheduleTest(unittest.TestCase):
                 self.assertEqual(status["state"], "error")
                 self.assertNotIn("private-path", status["detail"])
                 self.assertTrue((root / "error.log").is_file())
+
+    def test_truncated_worker_preserves_observed_progress_without_success(self):
+        from operix_engine.video_processor import VideoContractError
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.worker._status(root, state="processing", frame=2, total=100, percent=2,
+                                persistence={"state": "saved", "candidates": 1, "saved": 1, "failed": 0})
+            argv = ["worker", "--session-dir", str(root), "--video", "missing.mp4",
+                    "--config", "config.json", "--person-weights", "person.pt", "--person-sha256", "0",
+                    "--forklift-weights", "forklift.pt", "--forklift-sha256", "0"]
+            with patch.object(sys, "argv", argv), patch.object(self.worker, "process", side_effect=
+                    VideoContractError("TRUNCATED_INPUT", "private-path")):
+                self.assertEqual(self.worker.main(), 1)
+            status = json.loads((root / "status.json").read_text(encoding="utf-8"))
+            self.assertEqual((status["state"], status["termination_reason"]), ("error", "TRUNCATED_INPUT"))
+            self.assertEqual((status["frame"], status["total"], status["percent"]), (2, 100, 2))
+            self.assertEqual(status["persistence"]["saved"], 1)
+            self.assertNotIn("private-path", json.dumps(status))
+
+    def test_invalid_video_is_rejected_before_loading_models(self):
+        from operix_engine.video_processor import VideoContractError
+        with tempfile.TemporaryDirectory() as directory:
+            args = SimpleNamespace(session_dir=Path(directory), video=Path("synthetic.mp4"),
+                person_weights=Path("person.pt"), person_sha256="0" * 64,
+                forklift_weights=Path("forklift.pt"), forklift_sha256="0" * 64)
+            with patch.dict(sys.modules, {"run_dual_perception": SimpleNamespace(checked_file=Mock(), model_identity=Mock())}), \
+                    patch.object(self.worker, "inspect_recorded_video", side_effect=
+                        VideoContractError("UNSUPPORTED_VFR", "Cadencia irregular")), \
+                    patch.object(self.worker, "YoloDetector") as detector:
+                with self.assertRaises(VideoContractError):
+                    self.worker.process(args)
+            detector.assert_not_called()
