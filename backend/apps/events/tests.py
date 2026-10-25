@@ -247,6 +247,7 @@ class EventApiTests(APITestCase):
         self.assertEqual(self.client.patch(path, {"rule_id": "OTHER"}, format="json").status_code, 405)
         self.assertEqual(self.client.delete(path).status_code, 405)
 
+    @override_settings(CORS_ALLOWED_ORIGINS=["http://localhost:3000"])
     def test_cors_is_allowlisted(self):
         allowed = self.client.get("/api/v1/health/", HTTP_ORIGIN="http://localhost:3000")
         blocked = self.client.get("/api/v1/health/", HTTP_ORIGIN="https://unlisted.example")

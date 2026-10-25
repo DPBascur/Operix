@@ -1,0 +1,29 @@
+# Opt-in: mismo Backend y worker; ningún servicio Motor adicional.
+services:
+  backend:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - type: bind
+        source: ${OPERIX_PERSON_WEIGHTS_HOST:?Ruta del checkpoint PERSON vigente}
+        target: /data/weights/person.pt
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${OPERIX_FORKLIFT_WEIGHTS_HOST:?Ruta del checkpoint FORKLIFT vigente}
+        target: /data/weights/forklift.pt
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${OPERIX_INPUT_HOST:-./assets/demo}
+        target: /data/input
+        read_only: true
+        bind:
+          create_host_path: false

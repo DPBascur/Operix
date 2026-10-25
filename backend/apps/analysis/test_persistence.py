@@ -1,6 +1,7 @@
 """Web/API → worker real (detecciones fixture) → HTTP → DB/evidencia/consultas."""
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -23,7 +24,8 @@ class WebPersistenceTests(LiveServerTestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.repo = Path(__file__).resolve().parents[3]
-        self.python = self.repo / "engine/.venv/Scripts/python.exe"
+        self.python = Path(os.environ.get(
+            "OPERIX_ENGINE_PYTHON", str(self.repo / "engine/.venv/Scripts/python.exe")))
         self.video = self.root / "TEST_DATA.avi"
         make = "import cv2,numpy as np,sys; w=cv2.VideoWriter(sys.argv[1],cv2.VideoWriter_fourcc(*'MJPG'),1,(200,100)); assert w.isOpened(); [w.write(np.full((100,200,3),80,np.uint8)) for _ in range(4)]; w.release()"
         subprocess.run([str(self.python), "-B", "-c", make, str(self.video)], check=True, timeout=30)

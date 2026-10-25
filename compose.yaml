@@ -1,0 +1,79 @@
+name: operix
+services:
+  postgres:
+    image: postgres:17.11-bookworm
+    environment:
+      POSTGRES_DB: operix_docker
+      POSTGRES_USER: operix_app
+      POSTGRES_PASSWORD: ${OPERIX_DOCKER_DB_PASSWORD:?Configure una contraseña local en .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U operix_app -d operix_docker"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  backend:
+    image: operix-backend:local
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DJANGO_SECRET_KEY: ${OPERIX_DOCKER_SECRET_KEY:?Configure una clave local en .env}
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      CORS_ALLOWED_ORIGINS: http://localhost:${OPERIX_FRONTEND_PORT:-13000}
+      EVENT_POST_ENABLED: "1"
+      POSTGRES_DB: operix_docker
+      POSTGRES_USER: operix_app
+      POSTGRES_PASSWORD: ${OPERIX_DOCKER_DB_PASSWORD:?Configure una contraseña local en .env}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      OPERIX_ENGINE_PYTHON: /usr/local/bin/python
+      OPERIX_EVENT_API_BASE_URL: http://127.0.0.1:8000/api/v1
+      OPERIX_MEDIA_ROOT: /var/lib/operix/media
+      OPERIX_PERSON_WEIGHTS: /data/weights/person.pt
+      OPERIX_FORKLIFT_WEIGHTS: /data/weights/forklift.pt
+      OPERIX_DEMO_VIDEO_A: /data/input/warehouse_fire_ceiling04.mp4
+      OPERIX_DEMO_VIDEO_B: /data/input/forklift_human_nearmiss_ceiling00.mp4
+      OPERIX_DEMO_VIDEO_C: ${OPERIX_DOCKER_DEMO_C:-}
+    ports:
+      - "127.0.0.1:${OPERIX_BACKEND_PORT:-18000}:8000"
+    volumes:
+      - media:/var/lib/operix/media
+      - sessions:/var/lib/operix/sessions
+      - cache:/var/lib/operix/cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+  frontend:
+    image: operix-frontend:local
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:${OPERIX_BACKEND_PORT:-18000}/api/v1
+    ports:
+      - "127.0.0.1:${OPERIX_FRONTEND_PORT:-13000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+volumes:
+  postgres_data:
+  media:
+  sessions:
+  cache:
