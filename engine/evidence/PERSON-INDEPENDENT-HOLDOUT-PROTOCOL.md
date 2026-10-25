@@ -40,9 +40,11 @@ separado para evitar autorreferencia. Cualquier cambio posterior de cajas,
 membership, sampling, política o deduplicación requiere `PERSON_FINAL_HOLDOUT_V3`
 u otro identificador. No se sobrescribe un freeze existente.
 
-**`PERSON_MODEL_EVALUATION_NOT_STARTED`**. El próximo paso es congelar
-`PERSON EVALUATION PROTOCOL V1`; este freeze no fija matching ni thresholds y no
-autoriza todavía inferencia. [Resultado y artefactos](etapa3-experimentos.md#freeze-person-final-v2--deduplicación-pre-evaluación--24-10-2026).
+**`PERSON_MODEL_EVALUATION_NOT_STARTED`**. Posteriormente se congeló por separado
+[PERSON EVALUATION PROTOCOL V1](../config/evaluation/person-evaluation-protocol-v1.json),
+sin inferencia. El freeze del dataset permanece intacto; los criterios de matching
+y medición pertenecen al protocolo independiente. Prepararlo no ejecuta ni autoriza
+por sí mismo la evaluación real. [Resultado y artefactos del dataset](etapa3-experimentos.md#freeze-person-final-v2--deduplicación-pre-evaluación--24-10-2026).
 
 ## Antecedente: QA posterior a la anotación humana — 24-10-2026
 

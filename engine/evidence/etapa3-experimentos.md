@@ -520,3 +520,100 @@ calibró ningún parámetro. Antes de evaluar debe congelarse `PERSON EVALUATION
 Cualquier cambio posterior de cajas, membership, sampling, política o deduplicación
 exige `PERSON_FINAL_HOLDOUT_V3` u otro identificador. TEST2 y REAL_HOLDOUT_V2 intactos;
 YouTube continúa `DIAGNOSTIC_ONLY` y TEST3 `DEVELOPMENT_DIAGNOSTIC`.
+
+## PERSON EVALUATION PROTOCOL V1 congelado antes de inferencia — 24-10-2026
+
+**`PERSON_EVALUATION_PROTOCOL_V1_FROZEN`**. Manifest versionado:
+[`person-evaluation-protocol-v1.json`](../config/evaluation/person-evaluation-protocol-v1.json),
+con [sello SHA-256](../config/evaluation/person-evaluation-protocol-v1.sha256):
+`C2012598048352B9681031301AD4EC76667CA982D2C7D32F64ECECA7D835496F`.
+El protocolo referencia el freeze del dataset `A71F2558…`, con 91 imágenes,
+67 positivas, 24 negativas y 168 cajas; no modifica sus manifests ni anotaciones.
+HEAD base del protocolo: `e7e0edb13dda856bfa5a9ef02e68a4f5d9eaebd5`.
+
+La pregunta primaria es el comportamiento descriptivo de detección PERSON de la
+configuración actual de Operix en este conjunto acotado. No evalúa seguridad,
+accidentes, near miss, tracking, reglas, riesgo o identidad de operadores.
+Un operador visible dentro de maquinaria continúa siendo PERSON: no se aplica
+ocupancia ni selección de peatones operacionalmente relevantes sobre el GT.
+
+| Rol | Modelo | SHA-256 de pesos locales |
+| --- | --- | --- |
+| `PRIMARY_CONFIGURATION` | `CURRENT_PERSON`, YOLO11n adaptado, `best.pt` | `21766a9dc664fac06da3b0b457e0449f25e1696acbf8e7e39993c4b42282083f` |
+| `REFERENCE_BASELINE` | YOLO11n COCO pretrained, `yolo11n.pt` | `0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1` |
+
+Ambos archivos fueron identificados y verificados por hash, sin cargar modelos.
+Se contrastaron configuración y hash actuales con `sessions.py`,
+`stream_dual_perception.py` y el adaptador YOLO. No hubo discrepancia en el contrato:
+`imgsz=640`, confidence `0.10`, NMS IoU `0.70`, salida `person`.
+Se conserva la semántica productiva: NMS por clase sobre la salida del modelo y
+filtro `person` posterior; no se cambia a NMS agnóstico ni se filtran ocupantes.
+Para la ejecución futura: imágenes originales BGR uint8, orden familia/nombre,
+CUDA dispositivo 0, batch 1, seed 0, FP32, `rect=true`, sin TTA y `max_det=300`.
+El protocolo fija el resto de opciones y versiones: Ultralytics 8.4.146,
+PyTorch 2.14.0+cu130 y el entorno registrado. No promete determinismo CUDA bit a bit.
+
+Matching primario **por imagen, 1:1, IoU ≥0,50**, sin tolerancia numérica:
+solo PERSON con confidence ≥0,10; ordenar confidence descendente y, en empate,
+`stable_index` ascendente de la salida original. Cada predicción busca el GT libre
+con mayor IoU; en empate se elige el menor `annotation_id` COCO original.
+Match válido = TP; predicción sin match = FP; GT sin match = FN.
+Las cajas COCO se expresan como xyxy sin redondear ni cambiar el original.
+
+Primarias: **TP, FP, FN, precision, recall y F1 globales microagregadas**.
+Las cinco familias se reportan aparte; su promedio no sustituye el global.
+Denominadores cero: precision o recall indefinidas se serializan como `null`;
+F1 se calcula como `2TP/(2TP+FP+FN)`, `null` si ese denominador es cero y 0 si
+existen GT sin ningún match. No se inventan umbrales industriales de aprobación;
+PV-01 sigue requiriendo validación contextual/experta.
+
+Secundarias predeclaradas: conteos y precision/recall/F1 con IoU ≥0,75;
+false-alarm rate sobre los 24 negativos; complete-miss rate sobre los 67 positivos;
+recall micro sobre los 42 frames multipersona. No se agregan subgrupos post hoc.
+Sin AP/mAP en V1. Prohibidos confidence/NMS/IoU/imgsz sweeps, búsqueda de best F1,
+selección por curvas PR, tuning y selección automática de ganador. COCO solo
+contextualiza los pesos al mismo operating point; no reemplaza el modelo primario.
+**PERSON v2 no es candidato**: no puede incorporarse tras observar resultados.
+Si usa conocimiento del holdout, este deja de ser evaluación final independiente
+para v2. No se afirma independencia respecto de pretraining externo.
+
+Tooling puro: `engine/src/operix_engine/person_protocol.py`; no importa ni ejecuta
+detectores. Incluye lectura de anotaciones COCO, matching, agregación, schemas,
+serialización, sellado y registro de invalidación técnica. El verificador
+`engine/scripts/verify_person_evaluation_protocol.py` solo lee metadata/hashes.
+Los schemas de raw predictions, resultados y recibo están embebidos en el manifest,
+con un validador local explícitamente limitado al subconjunto allí utilizado.
+
+Futuros artefactos fuera de Git:
+
+- `raw-predictions.json`: un sobre por cada imagen, incluso sin detecciones;
+  contexto dataset/freeze/modelo/hash/config/software, image ID/SHA y cada
+  predicción con índice estable, clase, confidence y bbox xyxy sin redondear.
+  Ese contexto se hereda por cada predicción del sobre.
+- `metrics.json`: global, familias, secundarias, conteos, matching por imagen
+  y metadata de ejecución, en orden y formato deterministas.
+- `run-receipt.json`: protocol SHA, dataset freeze SHA, modelo/hash, fecha/hora,
+  HEAD, Python, PyTorch, Ultralytics, CUDA, GPU, SO, dispositivo, seed, batch,
+  configuración, número de imágenes y SHA de raw predictions/resultados.
+
+Orden futuro obligatorio: inferencia autorizada → raw predictions → métricas →
+sellado/hash → revisión visual de errores. Ninguna inspección de errores precede
+los resultados sellados. Un crash o bug de lectura/matching/serialización invalida
+la corrida como `INVALIDATED_TECHNICAL_RUN`: conservar outputs, documentar bug,
+corrección y tests independientes del rendimiento; repetir solo con idénticos
+dataset/modelos/configuración, sin escoger el mejor intento. No se sobreescriben
+artefactos ni se recalibran parámetros tras consultar errores.
+
+Validación: **27/27 tests sintéticos del protocolo**, más **6/6 de holdout y 7/7
+de freeze COCO**. Límites IoU, empates, ceros, duplicados, casos multipersona,
+omisiones, microagregación, schemas, hashes/config/software incorrectos,
+determinismo y sellado probados sin detector. La verificación local confirmó
+freeze y pesos por SHA. El sello se calcula sobre JSON canónico UTF-8, claves
+ordenadas, separadores compactos y LF terminal; los hashes del código normalizan
+CRLF/LF para reproducibilidad del checkout Windows, sin cambiar la política Git.
+
+**NO MODEL INFERENCE PERFORMED.** No se generaron predicciones ni métricas reales
+del holdout; los únicos resultados calculados pertenecen a fixtures sintéticos.
+**`PERSON_MODEL_EVALUATION_NOT_STARTED`**. TEST2 y REAL_HOLDOUT_V2 no se abrieron;
+muestreo, GT, manifests congelados, percepción, ByteTrack, reglas y aplicación
+permanecen intactos. Esta tarea congela el protocolo; no ejecuta la evaluación.
