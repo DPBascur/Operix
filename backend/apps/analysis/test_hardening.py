@@ -9,6 +9,7 @@ import uuid
 from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase, override_settings
+from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APIClient
 
 from . import sessions
@@ -172,6 +173,18 @@ class SessionHardeningTests(SimpleTestCase):
         self.assertEqual(data["state"], "error")
         self.assertIsNone(data["result"])
 
+    def test_completed_receipt_waits_for_successful_worker_exit(self):
+        self.completed()
+        self.session.process = Mock()
+        self.session.process.poll.return_value = None
+        data = self.session.status()
+        self.assertEqual(data["state"], "processing")
+        self.assertIsNone(data["result"])
+        self.session.process.poll.return_value = 0
+        data = self.session.status()
+        self.assertEqual(data["state"], "completed")
+        self.assertIsNotNone(data["result"])
+
     def test_stop_cannot_erase_a_newer_run_or_process(self):
         previous, new = Mock(), Mock()
         previous.poll.return_value = None
@@ -241,3 +254,188 @@ class SessionHardeningTests(SimpleTestCase):
         self.assertFalse(self.session.directory.exists())
         self.assertFalse(self.other.directory.exists())
         self.assertEqual(unrelated.read_text(encoding="utf-8"), "preserve")
+
+    @override_settings(EVENT_POST_ENABLED=False)
+    def test_delete_before_start_rejects_retained_reference(self):
+        sessions.remove_session(self.session.id)
+        with patch.object(sessions.subprocess, "Popen") as spawn:
+            with self.assertRaisesRegex(ValueError, "eliminada"):
+                sessions.start_session(self.session)
+        spawn.assert_not_called()
+
+    @override_settings(EVENT_POST_ENABLED=False)
+    def test_delete_keeps_gpu_reserved_until_worker_exits(self):
+        entered, release = threading.Event(), threading.Event()
+        process = Mock()
+        process.poll.return_value = None
+        process.wait.side_effect = lambda **kw: (entered.set(), release.wait(3))
+        self.session.state, self.session.process = "processing", process
+        errors = []
+
+        def delete():
+            try:
+                sessions.remove_session(self.session.id)
+            except Exception as error:
+                errors.append(error)
+
+        thread = threading.Thread(target=delete)
+        thread.start()
+        try:
+            self.assertTrue(entered.wait(3))
+            acquired = sessions._lock.acquire(blocking=False)
+            if acquired:
+                sessions._lock.release()
+            self.assertFalse(acquired)
+            self.assertIs(sessions._sessions[self.session.id], self.session)
+            self.assertTrue(self.session._closed)
+            self.assertIs(self.session.process, process)
+        finally:
+            release.set()
+            thread.join(3)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        with self.assertRaises(ValueError):
+            sessions.start_session(self.session)
+        self.assertIsNone(sessions.get_session(self.session.id))
+
+    @override_settings(EVENT_POST_ENABLED=False)
+    def test_delete_during_startup_waits_then_terminates_launched_worker(self):
+        entered, release = threading.Event(), threading.Event()
+        process = Mock()
+        process.poll.return_value = None
+        errors = []
+
+        def spawn(*args, **kwargs):
+            entered.set()
+            if not release.wait(3):
+                raise RuntimeError("test synchronization timed out")
+            return process
+
+        def start():
+            try:
+                sessions.start_session(self.session)
+            except Exception as error:
+                errors.append(error)
+
+        real_thread = threading.Thread
+        with patch.object(sessions.subprocess, "Popen", side_effect=spawn), patch.object(sessions.threading, "Thread") as factory:
+            factory.side_effect = lambda *a, **kw: Mock() if kw.get("name", "").startswith("analysis-") else real_thread(*a, **kw)
+            starter = real_thread(target=start)
+            starter.start()
+            self.assertTrue(entered.wait(3))
+            deleter = real_thread(target=sessions.remove_session, args=(self.session.id,))
+            deleter.start()
+            release.set()
+            starter.join(3)
+            deleter.join(3)
+        self.assertFalse(starter.is_alive() or deleter.is_alive())
+        self.assertEqual(errors, [])
+        process.terminate.assert_called_once()
+        self.assertIsNone(sessions.get_session(self.session.id))
+
+    @override_settings(EVENT_POST_ENABLED=False)
+    def test_old_expiration_cannot_delete_restarted_session(self):
+        self.session._schedule_after(3600)
+        generation = self.session._cleanup_generation
+        process = Mock()
+        process.poll.return_value = None
+        with patch.object(sessions.subprocess, "Popen", return_value=process), patch.object(sessions.threading, "Thread"):
+            sessions.start_session(self.session)
+        for state in ("preparing", "processing", "completed"):
+            self.session.state = state
+            with patch.object(sessions.time, "monotonic", return_value=self.session.last_access + 10000):
+                sessions.expire_session(self.session.id, generation)
+            self.assertIs(sessions.get_session(self.session.id), self.session)
+        self.assertFalse(self.session._closed)
+
+    def test_expiration_keeps_startup_and_running(self):
+        for state in ("preparing", "processing"):
+            self.session.state = state
+            with patch.object(self.session, "_schedule_after") as schedule, \
+                    patch.object(sessions.time, "monotonic", return_value=self.session.last_access + 10000):
+                sessions.expire_session(self.session.id)
+            self.assertIs(sessions.get_session(self.session.id), self.session)
+            schedule.assert_called_once()
+
+    def test_expiration_before_start_rejects_retained_reference(self):
+        with patch.object(sessions.time, "monotonic", return_value=self.session.last_access + 10000):
+            sessions.expire_session(self.session.id)
+        with self.assertRaisesRegex(ValueError, "eliminada"):
+            sessions.start_session(self.session)
+
+    def test_late_cancel_does_not_overwrite_failure(self):
+        self.session.state = "error"
+        self.session.failure_detail = "Fallo previo"
+        with self.assertRaises(ValueError):
+            self.session.stop()
+        self.assertEqual(self.session.state, "error")
+        self.assertEqual(self.session.status()["detail"], "Fallo previo")
+
+    def test_cancel_after_completion_preserves_result(self):
+        self.completed()
+        with self.assertRaisesRegex(ValueError, "No hay"):
+            self.session.stop()
+        self.assertEqual(self.session.state, "completed")
+        self.assertTrue((self.session.directory / "annotated.mp4").is_file())
+
+    def test_failure_or_cancel_never_exposes_100_percent(self):
+        for state in ("cancelled", "error"):
+            self.completed()
+            self.session.state = state
+            path = self.session.directory / "status.json"
+            data = json.loads(path.read_text())
+            data["percent"] = 100
+            path.write_text(json.dumps(data), encoding="utf-8")
+            status = self.session.status()
+            self.assertEqual(status["state"], state)
+            self.assertLess(status["percent"], 100)
+            self.assertIsNone(status["result"])
+
+    @override_settings(EVENT_POST_ENABLED=False)
+    def test_old_watcher_cannot_overwrite_new_generation(self):
+        callbacks = []
+        process = Mock()
+        process.poll.return_value = None
+        with patch.object(sessions.subprocess, "Popen", return_value=process), patch.object(sessions.threading, "Thread") as factory:
+            factory.side_effect = lambda **kw: callbacks.append(kw["target"]) or Mock()
+            sessions.start_session(self.session)
+        self.session.run += 1
+        self.session.state = "preparing"
+        (self.session.directory / "annotated.mp4").write_bytes(b"new generation")
+        callbacks[0]()
+        self.assertEqual(self.session.state, "preparing")
+        self.assertTrue((self.session.directory / "annotated.mp4").is_file())
+
+    def test_invalid_api_shapes_and_huge_coordinates_are_400(self):
+        client = APIClient()
+        for payload in ([], None, {"profile": []}, {"profile": {}}):
+            response = client.post("/api/v1/analysis/sessions/", payload, format="json")
+            self.assertEqual(response.status_code, 400)
+        url = f"/api/v1/analysis/sessions/{self.session.id}/zone/"
+        for payload in ([], {"polygon": [[0, 0], [1, 0], [10 ** 400, 1]]}):
+            self.assertEqual(client.put(url, payload, format="json").status_code, 400)
+
+    def test_huge_range_is_416_not_internal_error(self):
+        (self.session.directory / "input.mp4").write_bytes(b"video")
+        response = APIClient().get(f"/api/v1/analysis/sessions/{self.session.id}/source/",
+                                   HTTP_RANGE="bytes=" + "9" * 5000 + "-")
+        self.assertEqual(response.status_code, 416)
+
+    @override_settings(OPERIX_ANALYSIS_MAX_SESSIONS=3)
+    def test_upload_name_cannot_choose_storage_path(self):
+        outside = self.root / "preserve.txt"
+        outside.write_text("preserve", encoding="utf-8")
+        upload = SimpleUploadedFile("..\\..\\clip.mp4", b"\x00\x00\x00\x18ftypisom" + b"\x00" * 32)
+        created = sessions.create_session(upload, "A")
+        try:
+            self.assertEqual(created.filename, "clip.mp4")
+            self.assertEqual(created.video_path.parent, created.directory)
+            self.assertEqual(created.video_path.name, "input.mp4")
+            self.assertEqual(outside.read_text(encoding="utf-8"), "preserve")
+        finally:
+            sessions.remove_session(created.id)
+
+    def test_client_cannot_supply_a_local_video_path(self):
+        response = APIClient().post("/api/v1/analysis/sessions/",
+                                    {"profile": "A", "video_path": "../preserve.mp4"}, format="json")
+        self.assertEqual(response.status_code, 400)

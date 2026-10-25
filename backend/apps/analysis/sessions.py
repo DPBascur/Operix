@@ -83,6 +83,8 @@ class AnalysisSession:
     failure_detail: str | None = None
     outbox_directory: Path | None = None
     analysis_run_id: str | None = None
+    _closed: bool = field(default=False, repr=False)
+    _cleanup_generation: int = field(default=0, repr=False)
 
     def touch(self) -> None:
         self.last_access = time.monotonic()
@@ -106,12 +108,15 @@ class AnalysisSession:
                 "candidates": [],
             }
             path = self.directory / "status.json"
-            if path.exists() and self.state in {"preparing", "processing", "completed", "error"}:
+            if path.exists() and self.state in {"preparing", "processing", "completed", "error", "cancelled"}:
                 try:
                     data = json.loads(path.read_text(encoding="utf-8"))
                     payload.update(data)
                     if self.state in {"preparing", "processing"}:
-                        self.state = data["state"]
+                        # El receipt final no basta si el proceso todavía puede fallar.
+                        pending_exit = (data["state"] == "completed" and self.process is not None
+                                        and self.process.poll() is None)
+                        self.state = "processing" if pending_exit else data["state"]
                 except (OSError, json.JSONDecodeError, KeyError):
                     pass
             if self.process is not None and self.process.poll() is not None and self.state not in TERMINAL:
@@ -131,6 +136,8 @@ class AnalysisSession:
                         "width": payload.get("width"),
                         "height": payload.get("height"),
                         "video": payload.get("result_video"),
+                        "timestamp_source": payload.get("timestamp_source"),
+                        "warnings": payload.get("warnings", []),
                     }
                 else:
                     self.state = "error"
@@ -149,6 +156,10 @@ class AnalysisSession:
                 (self.profile != self.result_config["profile"] or self.zone != self.result_config["zone"])
             )
             payload["state"] = self.state
+            if self.state == "cancelled":
+                payload["termination_reason"] = "CANCELLED"
+            if self.state != "completed" and payload.get("percent") is not None:
+                payload["percent"] = min(payload["percent"], 99.9)
             if self.failure_detail is not None:
                 payload["detail"] = self.failure_detail
             clock = self.preview_clock
@@ -177,18 +188,27 @@ class AnalysisSession:
 
     def schedule_cleanup(self) -> None:
         with self._guard:
-            if self._cleanup_timer is not None:
+            if self._closed or self._cleanup_timer is not None:
                 return
             self._schedule_after(settings.OPERIX_ANALYSIS_RETENTION_SECONDS)
 
     def _schedule_after(self, seconds: float) -> None:
-        timer = threading.Timer(seconds, lambda: expire_session(self.id))
+        self._cleanup_generation += 1
+        generation = self._cleanup_generation
+        timer = threading.Timer(seconds, lambda: expire_session(self.id, generation))
         timer.daemon = True
         self._cleanup_timer = timer
         timer.start()
 
     def stop(self) -> None:
+        # Mismo orden que START/DELETE: registro antes que guard de sesión.
+        # No liberar la reserva GPU mientras terminate/wait aún están pendientes.
+        with _lock:
+            self._stop()
+
+    def _stop(self) -> None:
         with self._guard:
+            self.status()  # Un completed/error ya publicado no se transforma en cancel.
             if self.state not in {"preparing", "processing"}:
                 raise ValueError("No hay un análisis en curso para detener")
             self.state = "cancelled"
@@ -214,8 +234,9 @@ class AnalysisSession:
 
     def close(self) -> None:
         with self._guard:
+            self._closed = True
+            self._cleanup_generation += 1
             process = self.process
-            self.process = None
             if self.state in {"preparing", "processing"}:
                 self.state = "cancelled"
             if self._cleanup_timer is not None:
@@ -228,10 +249,13 @@ class AnalysisSession:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=5)
+        with self._guard:
+            if self.process is process:
+                self.process = None
 
 
 def _demo_path(profile: str) -> tuple[str, Path] | None:
-    if profile not in PROFILE_DEMO_SETTINGS:
+    if not isinstance(profile, str) or profile not in PROFILE_DEMO_SETTINGS:
         raise ValueError("Perfil de zona no válido")
     source_id, setting_name = PROFILE_DEMO_SETTINGS[profile]
     raw_path = str(getattr(settings, setting_name, "")).strip()
@@ -303,10 +327,12 @@ def _register_session(
 
 
 def create_session(upload, profile: str) -> AnalysisSession:
-    if profile not in PROFILES:
+    if not isinstance(profile, str) or profile not in PROFILES:
         raise ValueError("Perfil de zona no válido")
     filename = _clean_filename(upload.name)
     extension = Path(filename).suffix.lower()
+    if extension not in {".mp4", ".mov", ".avi"}:
+        raise ValueError("Se admite video MP4, MOV o AVI")
     if upload.size > settings.OPERIX_ANALYSIS_MAX_UPLOAD_BYTES:
         raise ValueError("El video supera el tamaño máximo configurado")
     first = upload.read(16)
@@ -368,10 +394,11 @@ def get_session(session_id: uuid.UUID) -> AnalysisSession | None:
 
 def remove_session(session_id: uuid.UUID) -> None:
     with _lock:
-        session = _sessions.pop(session_id, None)
-    if session is None:
-        return
-    session.close()
+        session = _sessions.get(session_id)
+        if session is None:
+            return
+        session.close()
+        _sessions.pop(session_id, None)
     try:
         shutil.rmtree(session.directory)
     except FileNotFoundError:
@@ -410,20 +437,23 @@ def close_all_sessions() -> None:
             logger.exception("No se pudo liberar una sesión al cerrar la API")
 
 
-def expire_session(session_id: uuid.UUID) -> None:
-    session = get_session(session_id)
-    if session is None:
-        return
-    with session._guard:
-        session._cleanup_timer = None
-        idle = time.monotonic() - session.last_access
-        if session.state in {"preparing", "processing"}:
-            session._schedule_after(settings.OPERIX_ANALYSIS_RETENTION_SECONDS)
+def expire_session(session_id: uuid.UUID, generation: int | None = None) -> None:
+    with _lock:
+        session = _sessions.get(session_id)
+        if session is None:
             return
-        if idle < settings.OPERIX_ANALYSIS_RETENTION_SECONDS:
-            session._schedule_after(settings.OPERIX_ANALYSIS_RETENTION_SECONDS - idle)
-            return
-    remove_session(session_id)
+        with session._guard:
+            if session._closed or (generation is not None and generation != session._cleanup_generation):
+                return
+            session._cleanup_timer = None
+            idle = time.monotonic() - session.last_access
+            if session.state in {"preparing", "processing"}:
+                session._schedule_after(settings.OPERIX_ANALYSIS_RETENTION_SECONDS)
+                return
+            if idle < settings.OPERIX_ANALYSIS_RETENTION_SECONDS:
+                session._schedule_after(settings.OPERIX_ANALYSIS_RETENTION_SECONDS - idle)
+                return
+            remove_session(session_id)
 
 
 def _clear_run_outputs(session: AnalysisSession) -> None:
@@ -440,15 +470,21 @@ def start_session(session: AnalysisSession) -> None:
     # Política local explícita: una inferencia GPU a la vez, sin cola distribuida.
     # El lock cubre comprobación + Popen para dos solicitudes simultáneas.
     with _lock:
+        if _sessions.get(session.id) is not session or session._closed:
+            raise ValueError("La sesión fue eliminada; seleccione nuevamente la fuente")
         for other in _sessions.values():
             if other is not session and other.process is not None and other.process.poll() is None:
                 raise ValueError("Ya hay otro análisis en curso. Espere a que termine o deténgalo.")
-        _start_session(session)
+        try:
+            _start_session(session)
+        except Exception:
+            session.schedule_cleanup()
+            raise
 
 
 def _start_session(session: AnalysisSession) -> None:
     with session._guard:
-        if session.state not in RESTARTABLE or (
+        if session._closed or session.state not in RESTARTABLE or (
             session.process is not None and session.process.poll() is None
         ):
             raise ValueError("Espere a que termine el análisis actual")
@@ -458,6 +494,10 @@ def _start_session(session: AnalysisSession) -> None:
         if not python.is_file() or person is None or not person.is_file() or forklift is None or not forklift.is_file():
             raise RuntimeError("Configure OPERIX_ENGINE_PYTHON y los pesos person/forklift fuera de Git")
         _clear_run_outputs(session)
+        session._cleanup_generation += 1
+        if session._cleanup_timer is not None:
+            session._cleanup_timer.cancel()
+            session._cleanup_timer = None
         session.run += 1
         session.result_config = None
         session.failure_detail = None
@@ -531,13 +571,14 @@ def _start_session(session: AnalysisSession) -> None:
             raise RuntimeError(session.failure_detail) from None
 
     process = session.process
+    run = session.run
 
     def watch() -> None:
         try:
             process.wait(timeout=settings.OPERIX_ANALYSIS_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
             with session._guard:
-                if session.process is not process:
+                if session.process is not process or session.run != run or session._closed:
                     return
                 session.state = "error"
                 session.failure_detail = "El análisis superó el tiempo máximo. Puede volver a intentarlo."
@@ -548,7 +589,7 @@ def _start_session(session: AnalysisSession) -> None:
                 process.kill()
                 process.wait(timeout=5)
         with session._guard:
-            if session.process is not process:
+            if session.process is not process or session.run != run or session._closed:
                 return
             session.status()
             if session.state not in TERMINAL:

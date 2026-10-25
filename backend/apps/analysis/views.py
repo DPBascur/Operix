@@ -6,6 +6,7 @@ import math
 import json
 import re
 import subprocess
+from collections.abc import Mapping
 
 from django.conf import settings
 from rest_framework.exceptions import PermissionDenied
@@ -30,7 +31,10 @@ class ProfileListView(APIView):
 
 class DemoSourceView(APIView):
     def get(self, request, profile, source_id):
-        path = get_demo_video(profile, source_id)
+        try:
+            path = get_demo_video(profile, source_id)
+        except ValueError:
+            return Response({"detail": "Perfil de zona no válido"}, status=400)
         if path is None:
             return Response({"detail": "Fuente demo inexistente"}, status=404)
         return _video_response(request, path, path.name)
@@ -40,8 +44,12 @@ class SessionListView(APIView):
     parser_classes = [MultiPartParser, JSONParser]
 
     def post(self, request):
+        if not isinstance(request.data, Mapping):
+            return Response({"detail": "Se requiere un objeto con los parámetros del video"}, status=400)
         upload = request.FILES.get("video")
         profile = request.data.get("profile", "")
+        if not isinstance(profile, str) or profile not in PROFILES:
+            return Response({"detail": "Perfil de zona no válido"}, status=400)
         demo_source_id = request.data.get("demo_source_id")
         try:
             if upload is not None and demo_source_id is None:
@@ -62,6 +70,8 @@ class SessionListView(APIView):
                 raise ValueError("Seleccione un video o una fuente demo válida")
         except (ValueError, RuntimeError) as error:
             return Response({"detail": str(error)}, status=400)
+        except OSError:
+            return Response({"detail": "No se pudo acceder al video o al almacenamiento temporal"}, status=400)
         return Response(session.status(), status=status.HTTP_201_CREATED)
 
 
@@ -143,6 +153,8 @@ class SessionPersistenceRetryView(APIView):
 
 class SessionZoneView(APIView):
     def put(self, request, pk):
+        if not isinstance(request.data, Mapping):
+            return Response({"detail": "Se requiere un objeto con perfil o polígono"}, status=400)
         session = get_session(pk)
         if session is None:
             return Response({"detail": "Sesión inexistente"}, status=404)
@@ -162,12 +174,12 @@ class SessionZoneView(APIView):
             return Response({"detail": "Se requieren entre 3 y 32 vértices"}, status=400)
         for point in polygon:
             if not isinstance(point, list) or len(point) != 2 or any(
-                type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1
+                type(value) not in (int, float) or not 0 <= value <= 1 or not math.isfinite(value)
                 for value in point
             ):
                 return Response({"detail": "Vértices normalizados inválidos"}, status=400)
         with session._guard:
-            if session.state not in {"ready", "completed", "cancelled", "error"}:
+            if session._closed or session.state not in {"ready", "completed", "cancelled", "error"}:
                 return Response({"detail": "La zona no puede editarse mientras se procesa"}, status=409)
             session.profile = profile
             session.zone = {**zone, "polygon": polygon}
@@ -216,7 +228,8 @@ def _video_response(request, path, filename):
     header = request.headers.get("Range")
     if header:
         match = re.fullmatch(r"bytes=(\d*)-(\d*)", header)
-        if not match or not any(match.groups()):
+        if (not match or not any(match.groups())
+                or any(len(value) > 20 for value in match.groups())):
             response = HttpResponse(status=416)
             response["Content-Range"] = f"bytes */{size}"
             return response
