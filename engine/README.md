@@ -390,6 +390,14 @@ reglas ya habilitadas y memoria CUDA. Ese comando no publica eventos ni activa
 reglas nuevas. `stream_dual_perception.py`, usado por las sesiones web, admite
 un contexto preparado por Backend para publicar candidatos de objeto único o
 pares mediante outbox y HTTP; véase [Backend](../backend/README.md#publicación-operacional-desde-sesiones-web).
+
+La ruta web realiza una prelectura sin modelos para verificar integridad y CFR
+antes de inferir. Usa el tiempo relativo del decodificador si es fiable; registra
+el fallback nominal cuando no está disponible y rechaza VFR observable. No admite
+conversión VFR automática. Los scripts diagnósticos anteriores conservan su
+contrato nominal CFR; no reciben por extensión esta validación web. El analizador
+acepta `timestamp_s` explícito sin cambiar parámetros ni tolerancias de reglas.
+Véase el [contrato de sesiones/video](../backend/README.md#integridad-de-sesiones-y-tiempo-de-video).
 Esta integración es experimental en A/B/C; no acredita
 validación industrial, rendimiento sostenido ni cobertura general.
 

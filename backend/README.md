@@ -215,3 +215,40 @@ sigue siendo válida y no se reconstruye. No hay migraciones nuevas.
 La adopción de COCO es ingeniería post-evaluación, no validación independiente
 sobre el holdout ya observado. CURRENT_PERSON anterior conserva su identidad y
 resultados; PERSON v2 sigue diferido. Véase la [decisión y regresión](../engine/evidence/etapa3-experimentos.md#decisión-operacional-person-post-evaluación--25-10-2026).
+
+## Integridad de sesiones y tiempo de video
+
+START explícito permite reutilizar `ready`, `completed`, `error` o `cancelled`,
+solo si el worker anterior ya terminó. DELETE y expiración cierran irrevocablemente
+esa sesión. Conservan su reserva hasta terminar el proceso, antes de retirarla
+del registro. Un temporizador anterior no puede expirar un nuevo run. La exclusión
+sigue siendo local a una instancia de API, sin cola ni coordinación multiproceso.
+
+Antes de cargar los modelos, el worker web decodifica la fuente para verificar
+conteo, dimensiones y cadencia. Un total declarado distinto del decodificado
+impide confirmar integridad: no se sustituye silenciosamente por el leído ni se
+confunde metadata aproximada con corrupción demostrada. Si no existe total
+declarado, la prelectura fija el total y deja una advertencia. La lectura de análisis
+debe repetir ese conteo; la salida H.264 también debe decodificarse completa.
+
+La ruta web admite CFR. Consume timestamps relativos `CAP_PROP_POS_MSEC` cuando
+son válidos y concordantes con FPS; rechaza cadencia irregular observable. Si el
+backend entrega únicamente ceros, usa tiempo nominal `frame_index / fps` bajo
+supuesto CFR, registrado como `NOMINAL_FPS_UNVERIFIED_CFR`: **en ese caso no puede
+descartar VFR**. `timestamp_source` y `warnings` quedan en status y snapshot del
+resultado temporal. No se añade una nueva propiedad a eventos históricos.
+
+`completed`/100 % requiere lectura y salida verificadas y salida exitosa del worker.
+Un receipt final mientras el proceso sigue vivo conserva `processing`.
+`preparing` comienza con
+porcentaje indeterminado; `processing` se limita a 99,9 % hasta finalizar. Error
+y cancelación nunca muestran 100 %. El estado público conserva `error`, con causa
+`termination_reason` (por ejemplo `TRUNCATED_INPUT`, `DECODE_FAILURE` o
+`UNSUPPORTED_VFR`); no se añade otro enum público. La API devuelve 400 para cuerpos
+o parámetros inválidos y 416 para Range inválido. Un archivo con cabecera aceptada
+pero ilegible falla asincrónicamente en el worker, sin stack trace al cliente.
+
+Los eventos completos ya publicados antes de un fallo conservan su journal y PNG;
+un análisis fallido no los borra ni convierte en prueba de que se procesó todo el
+video. No existe rollback de eventos por sesión incompleta. Véase la
+[regresión y límites](../engine/evidence/ETAPA4-TECHNICAL-AUDIT.md#12-hardening-de-sesiones-y-video--25-10-2026).

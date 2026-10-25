@@ -307,3 +307,99 @@ experimental puede declarar límites; no debe prometer validación final inexist
 No se crea tag ni Release, no se toca `main`, no se actualizan Issues/Project/Excel.
 Solo este informe puede publicarse en `dev`. Resultado de la auditoría:
 **ETAPA4_TECHNICAL_AUDIT_COMPLETE + P0_EXECUTION_PLAN_READY + NO_PRODUCT_CHANGES**.
+
+## 12. Hardening de sesiones y video — 25-10-2026
+
+Seguimiento posterior sobre `a00aa827a17ddbca49781bea6cc90d4ced49dc90`.
+Los hallazgos anteriores describen el corte auditado, no se borran ni se cambian
+retrospectivamente. Esta intervención aborda F03–F06 y las entradas de análisis
+de F13. No declara cerrada la validación operacional ni toda la auditoría.
+
+**Sesiones.** Antes, DELETE retiraba la sesión del registro antes de terminar su
+worker; START podía usar una referencia retenida o reservar otra GPU mientras el
+proceso anterior seguía vivo. Expiración decidía borrar fuera de la exclusión de
+START. Ahora el mismo bloqueo local serializa START/STOP/DELETE/expiración; DELETE
+mantiene la reserva hasta `terminate/wait` y marca el cierre irreversible. START
+exige pertenencia al registro. No se añaden locks ni polling nuevos.
+
+El flujo público sigue `ready → preparing → processing → completed/error`, con
+STOP hacia `cancelled`. START **explícito** permite otro run desde ready o terminal,
+cuando el proceso anterior ya murió. DELETE/expiración no son reinicios y hacen
+irrecuperable esa sesión. Los timers llevan generación propia; START invalida el
+anterior. Los watchers comprueban proceso, run y cierre antes de tocar salidas.
+Un cancel tardío consulta el estado final y no sustituye completed/error. Cleanup
+solo borra el directorio de la sesión cerrada; el journal persistente queda fuera.
+
+**Video.** El worker web hace prelectura decodificada antes de cargar modelos o
+emitir candidatos. Un total declarado diferente del decodificado impide confirmar
+integridad, incluso por un frame. `TRUNCATED_INPUT` indica lectura insuficiente,
+no prueba por sí solo corrupción: metadata aproximada también puede causar rechazo.
+Sin total declarado, la prelectura fija el conteo con advertencia. La segunda
+lectura debe repetirlo; después se verifica el MP4 H.264 completo, FPS y resolución.
+Solo entonces el worker emite `completed`, `NORMAL_EOF` y 100 %; la API espera
+además su salida exitosa antes de exponer éxito, aunque ya exista el receipt.
+Lectura vacía, excepción
+del decoder, metadatos inválidos o discrepancia no se convierten en éxito.
+
+Durante prelectura el porcentaje es indeterminado; processing se limita a 99,9 %.
+Error conserva los últimos frame/total conocidos y su causa `termination_reason`,
+sin stack trace público; cancel reporta `CANCELLED`. No se amplía el enum de estados.
+Un fallo posterior no revoca candidatos completos ya publicados: journal/PNG y
+eventos conservan su semántica anterior y requieren revisión si la sesión falló.
+No existe transacción de todo el video ni rollback automático.
+
+**Tiempo.** La ruta web admite CFR. Usa `CAP_PROP_POS_MSEC` leído después de cada
+frame, relativo al primer timestamp, si es finito, creciente y concordante con
+FPS nominal. La comprobación de cadencia acepta precisión del reloj de contenedor
+hasta `max(2 ms, 2 % del intervalo nominal)`, no una tolerancia operacional.
+Cadencia irregular observable o FPS discordante se rechaza (`UNSUPPORTED_VFR`);
+no se remuestrea ni se cambia tracking. OpenCV documenta propiedades dependientes
+del backend: [referencia Video I/O](https://docs.opencv.org/5.0/main_modules/videoio_flags_base.html).
+
+Si un backend solo entrega ceros, usa `frame_index / fps` con provenance explícita
+`NOMINAL_FPS_UNVERIFIED_CFR` y advertencia: **no puede descartar VFR en ese caso**.
+Un único frame usa tiempo relativo cero. FPS cero/no finito se rechaza. El analizador
+acepta timestamps explícitos y calcula permanencia por diferencia; las reglas de
+zona y pares consumen el mismo tiempo. Parámetros, distancias, umbrales y tolerancia
+numérica de reglas de 1e-9 s no cambian. La ancla UTC sigue siendo inicio de análisis,
+no fecha real de grabación. Los CLI diagnósticos históricos conservan el supuesto
+nominal CFR; no se les atribuye automáticamente el preflight web.
+
+`timestamp_source` y `warnings` se conservan en status y resultado temporal. No se
+añaden propiedades al contrato persistido de eventos ni se reescriben registros.
+No se crea una migración. Frontend ya distingue error/cancelled y porcentaje null;
+no necesita cambios ni otro diseño para este contrato compatible.
+
+**Entradas y rutas.** JSON no objeto, perfiles no escalares/inválidos, parámetros
+ausentes, vértices fuera de rango incluso con enteros enormes: 400. Range numérico
+desmesurado: 416. Upload se guarda con nombre interno `input.<ext>` en su directorio
+temporal; el nombre del cliente no elige ruta. Un path JSON no abre archivos locales.
+Las demos usan exclusivamente paths de configuración del servidor; Docker conserva
+mounts de pesos/entradas de solo lectura. Un contenedor/cabecera aceptado pero
+ilegible se rechaza asincrónicamente en el worker. Esto no es almacenamiento enterprise.
+
+**Regresión ejecutada.** Motor: 374 descubiertas, 372 aprobadas y 2 integraciones
+opt-in omitidas. Backend nativo y Docker Linux: 121/121 en cada entorno, incluidas
+las pruebas E2E con percepción fixture, worker real, ByteTrack, reglas, HTTP,
+PostgreSQL, PNG y H.264. No se confunden esas fixtures con inferencia real nueva.
+Se repitieron 60 intercalados controlados START/DELETE/timer sin fallos, sin sleeps
+arbitrarios. Decoder Linux: 18/18 fixtures; CFR, un frame, EOF prematuro, conteo
+desconocido, error decode, FPS inválido y reloj irregular/no disponible.
+Frontend intacto: 30/30, lint, typecheck y build correctos con Node 24.2.0/pnpm
+11.28.2. Django check, migrations check, ambos pip check, Compose config y
+`git diff --check` correctos.
+
+**Revisión adversarial y límites.** Se descartó tolerar pequeñas diferencias de
+conteo: ocultaba truncados cortos. No hay cola, state machine paralela ni nuevas
+dependencias. La exclusión sigue limitada a una instancia API y puede bloquear
+otras solicitudes de ciclo de vida mientras termina el proceso (espera acotada).
+La prelectura agrega una pasada de decode y memoria O(frames) para timestamps;
+no es optimización ni nuevo benchmark. Sin total confiable y sin timestamps útiles,
+OpenCV no permite demostrar ausencia de toda corrupción: una prelectura y segunda
+lectura concordantes tampoco prueban que un archivo ya truncado antes de ingestarlo
+contenía originalmente más frames. No se promete detección perfecta ni soporte VFR.
+
+PERSON operacional COCO, FORKLIFT specialist v2, pesos, thresholds, reglas/config,
+ByteTrack, frontend, arquitectura, DB y contratos persistidos permanecen intactos.
+No se usaron holdouts, TEST2 ni REAL_HOLDOUT_V2; no hubo entrenamiento, tuning,
+inferencias nuevas ni campaña de rendimiento. Main y tags quedan fuera del cambio.
