@@ -403,3 +403,138 @@ PERSON operacional COCO, FORKLIFT specialist v2, pesos, thresholds, reglas/confi
 ByteTrack, frontend, arquitectura, DB y contratos persistidos permanecen intactos.
 No se usaron holdouts, TEST2 ni REAL_HOLDOUT_V2; no hubo entrenamiento, tuning,
 inferencias nuevas ni campaña de rendimiento. Main y tags quedan fuera del cambio.
+
+## 13. Proximidad y visualización operacional — 25-10-2026
+
+Base: `d30dbf19e5e96963180c3372dc1bfd4454ac0cca`, `dev` limpio y sincronizado.
+La reconstrucción inicial confirmó que OP-37 calcula `math.dist` entre posiciones
+bottom-center: `((xmin+xmax)/(2*width), ymax/height)`. La regla consume esa distancia,
+no vuelve a calcular geometría. Se conserva exactamente esta definición: distancia
+euclídea **normalizada por cada eje**, rango geométrico 0–sqrt(2), sin unidades
+físicas, homografía ni corrección de perspectiva. No equivale a distancia sobre
+el piso; cajas ocluidas/imprecisas pueden mover el punto observado.
+
+La configuración exige zona, distancia máxima y duración mínima; clases de cada
+rol son configurables. Ambos objetos deben estar dentro de la zona. Los perfiles
+web A/B/C actuales solo habilitan zone_dwell: el overlay no los modifica ni inventa
+eventos para exhibirse. Los números 0,25/1 s de las pruebas siguientes pertenecen
+al fixture E2E ya existente, no son parámetros industriales ni tuning de demos.
+
+### Revisión histórica y contrato
+
+| Elemento revisado | Clasificación | Decisión |
+| --- | --- | --- |
+| `323d175`, identidad multiclase/OP-37 | ALREADY_IMPLEMENTED | Conservar `(class_name, track_id)`; no renumerar trackers. |
+| `5a4c615`, regla por pares y `_PairEpisode` | ALREADY_IMPLEMENTED | Conservar emisión única y rearme por interrupción. |
+| `e286f71`, comparación temporal | ALREADY_IMPLEMENTED | Conservar tolerancia numérica 1e-9 s. |
+| `4165fac` / `1bb83bc`, renderer/zonas y buffers | ALREADY_IMPLEMENTED | Extender el renderer actual, sin duplicarlo. |
+| Rama `autonomous/etapa3-demo-hardening`, fixes de sesiones antiguos | OBSOLETE | No portar sobre el hardening ya publicado. |
+| Misma rama, `ResidentDetectors` experimental | UNSAFE_TO_PORT | Cambiaría residencia/ciclo de modelos; ajeno a esta campaña. |
+
+Se revisaron referencias, historial y worktrees registrados: solo existe el checkout
+actual; no se encontró un overlay de distancia pendiente para reutilizar. No hubo
+merge/cherry-pick ni modificación de ramas históricas.
+
+El par tiene roles explícitos `InteractionIdentity(person, forklift)` con identidades
+de clase. PERSON #1 y FORKLIFT #1 no colisionan. Se expone `episode_key` en evaluación
+y candidato: regla, versión, par, zona y frame inicial, **local al run**. La identidad
+completa entre ejecuciones necesita además `analysis_run_id`, como el transporte
+existente. No se inventa un UUID persistido ni se cambia el contrato HTTP: `episode`
+ya conserva frame/tiempo inicial, y el evento/idempotencia conserva el run/par/regla.
+
+El inicio queda ahora disponible también durante acumulación, junto con distancia,
+duración y estado. La condición sostenida emite una vez; una ausencia de cualquiera
+de los tracks, gap de frames, cambio de ID, salida de zona/distancia o reset cierra
+el episodio; una reentrada inicia otro desde cero. Tiempo explícito creciente gobierna
+la duración; no se reemplaza por frames/FPS. No hay gracia, reassociation, cooldown
+ni histéresis. Una oscilación real puede rearmar: sin caracterización operacional
+que justifique ENTER/EXIT distintos, no se oculta esa discontinuidad.
+
+### Overlay y evidencia
+
+`OpenCvRenderer.render_proximity(frame, spatial, result)` consume posiciones de
+OP-37 y valores de `PairRuleEvaluation`. No calcula una distancia alternativa.
+Valida correspondencia de frame/tiempo. La línea une esos mismos puntos, con clipping
+solo al borde raster; etiqueta cercana muestra IDs y distancia a tres decimales
+`norm`. Un carril compacto muestra regla/versión, máximo, duración/mínimo y estado
+`DURATION_ACCUMULATING` o `CONDITION_SATISFIED`. Ámbar significa condición satisfecha,
+no accidente, infracción, Near Miss ni responsabilidad. El texto se ajusta al ancho.
+
+El conjunto visual incluye únicamente episodios activos, no todo PERSON×FORKLIFT.
+Orden estable: emisiones actuales, satisfechas, distancia e identidades. Límite
+habitual cuatro, con aviso de omitidos; las emisiones actuales siempre se muestran,
+aun si exceden cuatro. No reduce evaluaciones/candidatos. Muchas emisiones simultáneas
+o líneas cruzadas todavía pueden saturar la imagen; no se promete layout sin colisiones.
+
+Ambos orquestadores usan el mismo renderer. En el worker, el PNG se deriva de la
+misma imagen anotada entregada al writer; solo puede reducirse por el límite de
+evidencia. Un PNG/MP4 comprimidos no tienen por qué ser binariamente iguales.
+La prueba E2E compara el hash de los píxeles del PNG decodificado con el frame
+real retornado por el renderer (fixture sin reducción), y verifica distancia,
+duración, roles y estado frente a los eventos persistidos. No reconstruye evidencia
+desde un payload separado. Histórico, idempotencia y reenvío siguen aprobando.
+
+### Operador y futura maquinaria móvil: diseño, no implementación
+
+No se suprime una persona porque su bbox esté contenida en otra: perspectiva y
+oclusiones permiten que un peatón real cumpla esa condición. Una futura asociación
+`LIKELY_OCCUPANT_ASSOCIATION` debe combinar contención relativa, posición respecto
+de una región de cabina revisada por cámara y persistencia/co-movimiento sobre
+timestamps y trayectorias válidos. Las velocidades/correlaciones no están calculadas
+ni calibradas aquí; no se inventan umbrales o probabilidades. Requiere datos anotados
+de ocupantes y peatones difíciles, revisión humana y política conservadora de
+abstención ante oclusión, gaps o ID inestable.
+
+Su alcance deberá ser **PERSON concreta ↔ SAME FORKLIFT**, nunca eliminar esa
+PERSON ni sus relaciones con otros equipos. Conservar observación original y
+motivo/trazabilidad de cualquier futura exclusión. No se implementa supresión.
+
+OP-37 ya admite identidades de cualquier clase; la regla admite clases configurables,
+pero `DualPerception`, sus canales/estadísticas, `InteractionIdentity`, transporte,
+serializers y nombres de perfil mantienen roles person/forklift. Camino incremental:
+un adaptador de canales/metadata que describa rol PERSON/MOBILE_EQUIPMENT y subtipo/
+source_model; después un contrato/regla nuevo versionado para equipos genéricos,
+manteniendo intacto el adaptador legacy `person_forklift_proximity`. No hacer pasar
+truck por forklift. No se crea ahora un framework genérico ni se integra truck.
+
+### Validación y alcance del cierre
+
+Motor completo: **384 descubiertas, 382 PASS y 2 SKIP** opt-in de modelos reales.
+Diez tests nuevos caracterizan distancia conocida, IDs numéricos iguales en roles
+distintos, varios objetos por rol, cruce, solapamiento/contención, cero/bordes,
+entrada/salida, pérdida/reemplazo, gaps, duración exacta, tiempo explícito, identidad
+de episodio y renderer. Se conserva la regresión previa de reglas; no se cambian
+assertions para introducir gracia o suprimir casos incómodos.
+
+Backend completo: **121/121 en Docker**, usando código actual montado en lectura,
+PostgreSQL aislado y percepción fixture. E2E: 4 frames, dos pares/emisiones,
+PNG verificable, MP4 H.264 decodificado por el worker, eventos consultables e
+idempotencia/reenvío correctos. El primer intento nativo no pudo crear la DB de
+tests: PostgreSQL estaba apagado/no accesible; **no aprobó esa ejecución**. No se
+instaló otra base ni se cambió `.env`; la regresión completa se ejecutó en Docker.
+`Django check`, migrations check contra PostgreSQL de QA, ambos pip check y Compose
+config aprobaron. Frontend no se modificó; 30/30 tests, lint, typecheck y build aprobaron.
+
+Además se generó y revisó visualmente un fixture local de 1280×720 / 30 FPS:
+90/90 frames decodificables, un candidato sostenido, línea bottom-center y etiquetas
+coherentes. Queda fuera de Git. Sanity CPU, 20 iteraciones iniciales y 100 medidas
+por modo, una relación: renderer base **2,459 ms/frame** de media; base+overlay
+**3,111 ms/frame**, incremento aproximado **0,652 ms/frame**. No es un benchmark
+académico, ni inferencia, ni evaluación de densidad alta, ni garantía de tiempo real.
+El encoder Windows emitió un aviso de OpenH264 en el primer backend probado;
+OpenCV pudo usar el disponible y el resultado se abrió/decodificó completo. No se
+descargaron codecs ni se alteró su configuración.
+
+La revisión adversarial mantuvo un solo renderer, posiciones/distancias sin
+recálculo y estado/episodios compartidos; no se añade framework de relaciones,
+política de operadores ni capa persistente. La política de continuidad ya estaba
+implementada: se vuelve explícita y se cubre, no se atribuye un algoritmo temporal
+nuevo a esta campaña. Las pérdidas de tracking siguen rompiendo episodios y las
+etiquetas pueden solaparse, especialmente en fuentes pequeñas/densas. Las demos
+reales actuales siguen sin regla de pares habilitada; este cierre valida el flujo
+positivo con fixture autorizado, no acredita una condición operacional real.
+
+Modelos, pesos/hashes, confidence, NMS, ByteTrack, semántica/umbrales de reglas y
+archivos de configuración, geometría B,
+DB/contrato público y frontend permanecen intactos. No se tocaron holdouts, TEST2,
+REAL_HOLDOUT_V2, Excel, arquitectura, main ni tags; no se entrenó ni calibró.

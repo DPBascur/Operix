@@ -401,6 +401,14 @@ Véase el [contrato de sesiones/video](../backend/README.md#integridad-de-sesion
 Esta integración es experimental en A/B/C; no acredita
 validación industrial, rendimiento sostenido ni cobertura general.
 
+Cuando una regla `person_forklift_proximity` está habilitada, ambos orquestadores
+dibujan los episodios activos usando sus evaluaciones reales: puntos inferiores
+centrales, distancia `norm`, IDs, duración/mínimo y estado. No son metros ni una
+confirmación de incidente. El MP4 y el PNG del worker comparten la imagen anotada.
+Se muestran hasta cuatro relaciones habituales, con prioridad a las satisfechas;
+las emisiones del frame no se ocultan por ese límite. No se activan reglas en los
+perfiles demo por incorporar el overlay. Véanse [semántica, revisión histórica y límites](evidence/ETAPA4-TECHNICAL-AUDIT.md#13-proximidad-y-visualización-operacional--25-10-2026).
+
 ## Preparación exploratoria de anotaciones NVIDIA
 
 `scripts/prepare_nvidia_dataset.py` audita anotaciones de la revisión NVIDIA
