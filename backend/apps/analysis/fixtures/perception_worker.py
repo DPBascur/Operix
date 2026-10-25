@@ -6,6 +6,7 @@ import runpy
 import sys
 import hashlib
 import json
+import os
 from unittest.mock import patch
 
 from operix_engine.detection import BoundingBox, Detection
@@ -20,7 +21,10 @@ class FixtureDetector:
         self.model_device = "cuda:fixture-only"
 
     def detect(self, frame):
-        boxes = ((40,30,60,70),) if self.name == "person" else ((55,30,75,70),(80,30,100,70))
+        if os.environ.get("OPERIX_TEST_OCCUPANCY_SCENARIO") == "contained":
+            boxes = ((50,35,60,70),) if self.name == "person" else ((40,20,80,80),(65,20,95,80))
+        else:
+            boxes = ((40,30,60,70),) if self.name == "person" else ((55,30,75,70),(80,30,100,70))
         return tuple(Detection(0, self.name, .9, BoundingBox(*box)) for box in boxes)
 
     def detect_batch(self, frames):

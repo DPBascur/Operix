@@ -138,6 +138,32 @@ class WebPersistenceTests(LiveServerTestCase):
         self.assertEqual(Event.objects.count(), 4)
         self.assertEqual(len(set(Event.objects.values_list("evidence_image", flat=True))), 4)
 
+    def test_operator_like_projection_preserves_person_and_both_equipment_relations(self):
+        # Fixture de contención, no una afirmación de ocupancia física confirmada.
+        identity = self.create()
+        with patch.dict(os.environ,{"OPERIX_TEST_OCCUPANCY_SCENARIO":"contained"}):
+            data = self.run_analysis(identity)
+        self.assertEqual(data["state"],"completed",data)
+        self.assertEqual(data["persistence"]["saved"],2)
+        events = list(Event.objects.all())
+        self.assertEqual(len(events),2)
+        self.assertEqual({event.interaction["person"]["track_id"] for event in events},{1})
+        self.assertEqual({event.interaction["forklift"]["track_id"] for event in events},{1,2})
+        session = sessions.get_session(identity)
+        receipts = json.loads((session.directory/"TEST_ONLY_overlay_receipts.json").read_text(encoding="utf-8"))
+        for event in events:
+            relation = next(item for item in receipts[event.frame_index]["relations"]
+                            if item["forklift"]==event.interaction["forklift"]["track_id"])
+            self.assertEqual(relation["geometry_version"],"person_equipment_nearest_ground_edges_v1")
+            self.assertEqual(event.observations["proximity_geometry"]["person_anchor"],relation["person_anchor"])
+            evidence = self.client.get(f"/api/v1/events/{event.id}/evidence/")
+            self.assertEqual(evidence.status_code,200)
+            self.assertTrue(b"".join(evidence.streaming_content).startswith(b"\x89PNG"))
+        self.assertEqual(self.client.get("/api/v1/events/frequencies/").json()["total"],2)
+        result = self.client.get(f"/api/v1/analysis/sessions/{identity}/result/")
+        self.assertEqual(result.status_code,200)
+        result.close()
+
     def test_http_failure_completes_analysis_but_is_not_saved_then_replay_recovers(self):
         with override_settings(OPERIX_EVENT_API_BASE_URL="http://127.0.0.1:1/api/v1"):
             identity = self.create()
