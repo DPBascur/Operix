@@ -1,6 +1,11 @@
 # Backend/API de Operix
 
-Primera vertical slice de Operix: Django + Django REST Framework recibe un candidato técnico, valida su contrato y conserva un `Event` en PostgreSQL. Además del replay controlado, existe una prueba local integrada desde video con evidencia del frame real; no constituye una orquestación de producción.
+Django + Django REST Framework gestiona sesiones web con el worker existente,
+recibe candidatos de objeto único o pares y conserva eventos en PostgreSQL con
+evidencia PNG. Histórico, filtros y frecuencias consultan esos registros. La
+integración E2E está comprobada en entorno controlado; no es operación industrial.
+Véanse el [snapshot vigente](../engine/evidence/ETAPA3-PROJECT-STATE.md) y la
+[alternativa Docker local](../deployment/docker/README.md); el modo nativo se conserva.
 
 ## Requisitos y configuración
 
@@ -36,7 +41,9 @@ set -a; source .env; set +a
 
 La lista admite `event_type`, `occurred_after` y `occurred_before`. Los tiempos requieren zona horaria explícita; ambos límites del período son inclusivos. Los filtros inválidos devuelven 400. No existen PUT, PATCH ni DELETE.
 
-El contrato de POST corresponde al candidato `zone_dwell` implementado actualmente por el Motor, más el contexto civil y de ejecución suministrado por el integrador. Ejemplo exclusivamente sintético:
+El POST admite `zone_dwell` y `person_forklift_proximity`, más el contexto civil y
+de ejecución suministrado por el integrador. El siguiente ejemplo sintético es
+de objeto único; el contrato por pares se describe en la sección de publicación:
 
 ```json
 {
@@ -64,7 +71,7 @@ El contrato de POST corresponde al candidato `zone_dwell` implementado actualmen
 
 El primer POST devuelve 201 con esos campos, `id` UUID, `created_at` y `created=true`. El `EventCandidate` del Motor no contiene reloj civil, ID persistente ni ejecución: su adaptador HTTP recibe explícitamente el inicio del medio usado en el análisis y un UUID de ejecución, mientras el Backend valida regla/zona/clase/umbral y genera el ID del evento. `rule_id`, `rule_version` y `rule_parameters` quedan congelados como snapshot de trazabilidad. `analysis_run_id` identifica el contexto de la ejecución, pero **todavía no es una clave foránea** porque el modelo de ejecuciones no forma parte de esta slice. No se clasifica automáticamente Near Miss o riesgo.
 
-PostgreSQL impone unicidad sobre `(analysis_run_id, view_id, frame_index, rule_id, rule_version, track_id, zone_id)`. Un POST equivalente devuelve el mismo ID con 200 y `created=false`; no crea otra fila. Si esa identidad se reutiliza con datos incompatibles de regla/observación, devuelve 409. El reloj civil suministrado puede variar en un retry: se conserva el `occurred_at` original. El Motor deriva por defecto un `analysis_run_id` estable de los SHA-256 del video, pesos y archivo de configuración, más los parámetros de detector/tracker; no incorpora rutas ni hora actual. Un UUID explícito distinto permite un análisis deliberadamente nuevo. Los registros anteriores no se borran ni reciben una identidad inventada.
+Para `zone_dwell`, PostgreSQL impone unicidad sobre `(analysis_run_id, view_id, frame_index, rule_id, rule_version, track_id, class_name, zone_id)`. La identidad de pares usa `pair_key` en su propia restricción condicional. Un POST equivalente devuelve el mismo ID con 200 y `created=false`; no crea otra fila. Si esa identidad se reutiliza con datos incompatibles de regla/observación, devuelve 409. El reloj civil suministrado puede variar en un retry: se conserva el `occurred_at` original. El Motor deriva por defecto un `analysis_run_id` estable de los SHA-256 del video, pesos y archivo de configuración, más los parámetros de detector/tracker; no incorpora rutas ni hora actual. Un UUID explícito distinto permite un análisis deliberadamente nuevo. Los registros anteriores no se borran ni reciben una identidad inventada.
 
 La imagen es opcional: primero se crea o recupera el evento y se obtiene su UUID; después se envía `image` (PNG, máximo 2 MiB), `frame_index` y `video_timestamp_s` por multipart al endpoint de evidencia. Los dos valores temporales deben coincidir con el evento. Solo se admite una imagen válida por evento: un POST repetido devuelve 200 sin guardar otro PNG; si la referencia existe pero el archivo falta, un retry puede completarlo. La referencia se guarda en PostgreSQL mediante `FileField`; los bytes quedan en `OPERIX_MEDIA_ROOT`, nunca como blob de base de datos. Lista y detalle exponen `evidence_url` relativo o `null` si no hay archivo disponible; no exponen rutas del filesystem. El GET de imagen devuelve `image/png` y `Cache-Control: no-store`. Un fallo entre ambos POST aún puede dejar temporalmente un evento sin imagen; un retry del Motor puede completarla.
 
@@ -187,7 +194,7 @@ set -a; source .env; set +a
 .venv/bin/python manage.py check
 .venv/bin/python manage.py makemigrations --check --dry-run
 .venv/bin/python manage.py migrate
-.venv/bin/python manage.py test apps.events
+.venv/bin/python manage.py test --noinput
 ```
 
 Las pruebas usan PostgreSQL y crean/destruyen `test_<POSTGRES_DB>`. El Admin registra `Event` solo para inspección: no permite crear, modificar ni borrar eventos desde la interfaz. No hay autenticación ni control de acceso empresarial; no exponer el POST fuera de un entorno de desarrollo controlado.

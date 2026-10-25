@@ -4,6 +4,16 @@
 
 La interfaz conserva el Motor y el contrato de análisis. No añade ni modifica modelos, thresholds, geometría, tracking, reglas ni transporte. La navegación agrupa operación (resumen, fuentes, análisis y eventos) y gestión (reglas, zonas, indicadores y usuarios).
 
+**Actualización de estado — 24-10-2026:** las secciones siguientes conservan el
+alcance y la revisión del refresh original. Su referencia a un único tipo y a
+agregación solo cliente ya no describe la integración vigente: la API admite
+`zone_dwell` y `person_forklift_proximity`; el dashboard utiliza
+`/events/frequencies/` para día/tipo y `/events/` para zona/hora/actividad, con
+conciliación de totales. El detalle operacional también evolucionó después.
+Véanse el [README actual](README.md) y el
+[snapshot técnico](../engine/evidence/ETAPA3-PROJECT-STATE.md). Los resultados de
+revisión visual de este documento no se atribuyen a esos cambios posteriores.
+
 ## Histórico
 
 `/`, `/dashboard` (redirección) e `/indicators` ofrecen el dashboard. El selector identifica explícitamente dos fuentes:

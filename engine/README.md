@@ -6,8 +6,11 @@ Componente de Operix Architecture v1.0 que transforma video en resultados de an�
 
 Estado de implementación, integración, pruebas y límites actuales:
 [matriz de validación preliminar de Etapa 3](evidence/ETAPA3-VALIDATION-MATRIX.md).
-Separa la persistencia CLI comprobada de las sesiones web temporales y de la
-evaluación PERSON pendiente de anotación humana.
+Separa integración funcional, persistencia web/CLI y evaluación de percepción.
+El [índice de evidencia](evidence/README.md) y el
+[snapshot de Etapa 3](evidence/ETAPA3-PROJECT-STATE.md) resumen el estado vigente:
+evaluación PERSON V1 ejecutada y sellada, con limitación importante de
+generalización de CURRENT_PERSON; PERSON v2 no iniciado/diferido.
 
 Flujo conceptual: video → detección → tracking → variables espacio-temporales → reglas configurables → `EventCandidate`. `scripts/evaluate_rules.py` conserva el replay de tracks; `scripts/process_video_events.py` demuestra la cadena desde video en una sola pasada local controlada.
 
@@ -15,7 +18,8 @@ Flujo conceptual: video → detección → tracking → variables espacio-tempor
 
 - Python 3.12 x64 y OpenCV para procesamiento de video.
 - YOLO11 para detección y ByteTrack para seguimiento, como selecciones iniciales y experimentales.
-- La salida HTTP de candidatos es optativa; la recepción de configuración desde el Backend/API sigue pendiente.
+- El Backend prepara la configuración efectiva de sesión y lanza el worker existente;
+  el Motor también admite configuración explícita por CLI y publicación HTTP optativa.
 - Sin acceso directo a PostgreSQL.
 - Reglas y umbrales configurables según escenario y organización, sin valores operacionales universales fijados en código.
 
@@ -98,8 +102,10 @@ Un entorno futuro, como macOS con MPS, podrá incorporar su propio archivo lock 
 
 El protocolo para adquirir un **holdout PERSON independiente y reservado** está
 en [PERSON-INDEPENDENT-HOLDOUT-PROTOCOL.md](evidence/PERSON-INDEPENDENT-HOLDOUT-PROTOCOL.md).
-No contiene videos ni evaluación congelada; los artefactos pesados quedan fuera
-del repositorio.
+El dataset final y el protocolo V1 están congelados; su evaluación posterior quedó
+sellada. Ese documento conserva el procedimiento histórico de adquisición y enlaza
+los resultados actuales. No se debe ejecutar nuevamente el material reservado para
+desarrollo o tuning. Videos, anotaciones y artefactos crudos quedan fuera de Git.
 
 Codex procesa cada export; quien anota solo necesita revisar todos los frames en CVAT,
 exportar COCO 1.0 y confirmar que terminó. Desde `engine/`, con el entorno
@@ -436,9 +442,15 @@ OP-61 consolidó la ejecución integrada y sus evidencias y quedó cerrada; ese 
 no incorporó reglas, zonas, proximidad ni eventos. Posteriormente
 OP-30, OP-36 y OP-37 añadieron configuración, pertenencia y variables descriptivas;
 OP-38 incorpora evaluación inicial de reglas y candidatos en memoria.
-La integración HTTP del replay y la prueba desde video con Backend,
-PostgreSQL, evidencia visual real y `/events` constituyen avances técnicos
-de OP-39, todavía sin cierre académico formal. La consulta y filtros son un
-avance parcial de OP-40.
+La integración posterior conecta sesiones web/CLI, journal durable de candidatos,
+HTTP, PostgreSQL y evidencia PNG. Admite `zone_dwell` y
+`person_forklift_proximity`, reenvío idempotente y consultas por período/tipo.
+El Backend gestiona persistencia, histórico e indicadores; el Motor no accede a DB.
+El estado técnico no actualiza automáticamente tareas ni aceptación académica.
+
+Docker es una alternativa local validada con GPU; el modo nativo y su lock se
+conservan. Véanse la [guía Docker](../deployment/docker/README.md) y la
+[validación](evidence/DOCKER-LOCAL-VALIDATION.md). Los resultados del holdout PERSON
+no promueven COCO automáticamente ni autorizan entrenamiento de PERSON v2.
 
 Consulte el [índice de arquitectura](../docs/architecture/README.md) para los artefactos vigentes.

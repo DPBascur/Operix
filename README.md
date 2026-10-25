@@ -1,58 +1,93 @@
 # Operix
 
-Sistema inteligente para el análisis preventivo de riesgos operacionales mediante visión artificial.
+Sistema inteligente para el análisis preventivo de riesgos operacionales mediante Visión Artificial.
 
-Operix busca transformar secuencias de video en información para revisión preventiva: detectar y seguir objetos de interés, calcular variables descriptivas y evaluar reglas operacionales. Existe una prueba local que registra los candidatos de una regla en la API con evidencia visual real; no representa todavía un sistema preventivo completo.
+## Propósito
 
 > La IA percibe el entorno; las reglas interpretan el contexto.
 
-El aporte del Trabajo de Título consiste en diseñar, integrar y evaluar un sistema que transforma información obtenida desde video en información útil para la gestión preventiva. No se desarrolla un modelo de IA nuevo. Operix no predice ni previene accidentes, ni clasifica automáticamente todos los eventos como Near Miss.
+Operix integra y evalúa percepción visual con reglas configurables para transformar
+video en registros revisables de condiciones operacionales. No desarrolla un modelo
+fundacional. Una detección o una condición satisfecha no confirma un accidente,
+un Near Miss ni responsabilidad personal: requiere revisión humana.
 
-## Estado actual
+## Estado del proyecto
 
-- Etapa 1 aprobada.
-- Operix Architecture v1.0 cerrada.
-- OP-58: preparación y estructuración del repositorio existente, conservando su historial.
-- Pipeline base del Motor implementado y validado: OP-33, OP-34, OP-35, OP-60 y OP-43.
-- OP-61: ejecución integrada y consolidación documental completadas.
-- OP-30 (configuración), OP-36 (pertenencia a zonas), OP-37 (variables espacio-temporales) y OP-38 (primera regla configurable) están completadas.
-- OP-42: resguardos de evidencia y alcance del PoC completados académicamente en V0.11 para Etapa 2.
-- Backend/API con PostgreSQL y frontend `/events` disponibles como prototipos de desarrollo; una prueba local desde video registra eventos `zone_dwell` con evidencia recuperable. Faltan autenticación y operación integrada de producción.
-- El análisis web integra percepción experimental dual PERSON + FORKLIFT con YOLO11 y ByteTrack, zonas configurables, preview y resultado MP4. Requiere checkpoints locales verificados.
-- OP-41 está integrado técnicamente: el dashboard consulta frecuencias históricas de registros persistidos y las distingue del ejemplo ilustrativo. Véase [evidencia OP-41](backend/evidence/OP-41-event-frequencies.md).
-- FORKLIFT specialist v2 es el baseline experimental congelado. PERSON sigue bajo evaluación metodológica: el set YouTube es diagnóstico y el holdout final requiere nuevas fuentes verificables. Véase [evidencia experimental](engine/evidence/etapa3-experimentos.md).
+MVP funcional de investigación en **Etapa 3**, con arquitectura conceptual **v1.0**
+cerrada. El flujo Web/API → Motor → PostgreSQL → evidencia → histórico/indicadores
+cuenta con pruebas de integración y ejecuciones locales controladas. Incluye
+percepción experimental PERSON + FORKLIFT, zonas, reglas, recuperación de envíos,
+interfaz de revisión y una alternativa Docker local con GPU NVIDIA.
 
-## Arquitectura y alcance
+Esto no representa un producto terminado ni validación industrial. CURRENT_PERSON
+presentó una limitación importante de generalización en su evaluación independiente.
+El [snapshot técnico](engine/evidence/ETAPA3-PROJECT-STATE.md) distingue implementación,
+validación funcional, evaluación de modelos y pendientes académicos.
 
-Video → detección → tracking → variables espacio-temporales → reglas configurables → `EventCandidate` en memoria → publicación HTTP opcional → registro técnico en PostgreSQL.
+## Arquitectura
 
-La arquitectura define Aplicación Web, Backend/API, Motor de análisis de video y PostgreSQL. Existe una integración local inicial desde video hasta `/events`; el Motor entrega candidatos por HTTP al Backend y no accede directamente a PostgreSQL.
+**Flujo conceptual:** video → detección → tracking → variables espacio-temporales
+→ reglas configurables → evento → registro/histórico.
 
-- Procesamiento de video.
-- Detección y seguimiento experimental de PERSON y FORKLIFT mediante checkpoints especializados e identidades por clase; sin validación industrial de maquinaria.
-- Análisis espacial multiclase, pertenencia a zonas y variables espacio-temporales para reglas configurables.
-- Transporte HTTP generalizado de candidatos y publicación local con evidencia visual. El Motor permanece separado del Backend y no accede a PostgreSQL. Las reglas y su habilitación dependen de la configuración; no hay clasificación automática general de riesgo.
+**Flujo técnico:** Frontend → Backend → worker/Motor → candidato → publicación HTTP
+→ PostgreSQL y evidencia PNG → histórico/indicadores. Django lanza el worker
+existente; el Motor no accede directamente a PostgreSQL. El journal conserva los
+candidatos antes del envío; no existe un nuevo servicio de inferencia ni broker.
 
-Las reglas y umbrales operacionales son configurables y dependen del escenario y de la organización. Se utiliza el concepto de evento de interés preventivo o condición potencialmente riesgosa, sujeto a revisión humana.
+Los [seis diagramas y cinco ADR](docs/architecture/README.md) describen el diseño
+aprobado, no una certificación de que todos sus componentes estén terminados.
+Kubernetes, Redis, Celery y HAR quedan fuera del MVP inicial.
 
-## Stack aprobado
+## Capacidades implementadas
+
+- Ingreso de video local o demos, sesiones de análisis, preview y resultado MP4
+  H.264 con reproducción, pausa y búsqueda.
+- Detección dual experimental y ByteTrack por clase; identidades temporales
+  `(clase, track_id)`, sin reconocimiento de personas.
+- Zonas normalizadas configurables, pertenencia, permanencia, trayectorias y
+  proximidad descriptiva entre clases.
+- Reglas `zone_dwell` y `person_forklift_proximity`, con versión/parámetros,
+  emisión por episodio y habilitación dependiente de configuración.
+- Journal durable, retries acotados, replay sin inferencia e idempotencia;
+  estados de análisis y persistencia diferenciados.
+- Eventos en PostgreSQL, evidencia PNG recuperable, fuente y snapshots trazables.
+  El MP4 completo corresponde a una salida temporal de sesión, no al registro
+  persistente de cada evento.
+- Histórico con filtros inclusivos por período y por ambos tipos; frecuencias
+  diarias UTC y por tipo, separadas del dashboard ilustrativo.
+- Detalle operacional con evidencia prioritaria, mediciones, tiempo de video,
+  base temporal explícita y trazabilidad técnica desplegable.
+
+La fecha UTC de una sesión subida usa el inicio del análisis como ancla; no se
+presenta como fecha real de grabación. Los umbrales no son estándares universales.
+
+## Stack
 
 | Componente | Tecnología |
 | --- | --- |
-| Aplicación Web | Next.js + TypeScript |
-| Backend/API | Django + Django REST Framework |
-| Base de datos | PostgreSQL |
-| Motor de análisis | Python |
-| Procesamiento de video | OpenCV |
-| Detección | YOLO11, selección inicial/experimental |
-| Tracking | ByteTrack, selección inicial/experimental |
-| Contenedores | Docker + Docker Compose, alternativa local con GPU opcional |
+| Web | Next.js 16.4.0, TypeScript, Node 24.2.0, pnpm 11.28.2 |
+| Backend/API | Python 3.12, Django, Django REST Framework |
+| Persistencia | PostgreSQL |
+| Motor | OpenCV, YOLO11, ByteTrack, tipos propios desacoplados |
+| Entorno NVIDIA fijado | PyTorch 2.14.0+cu130, CUDA runtime 13.0, Ultralytics 8.4.146, lap 0.5.12 |
+| Alternativa local | Docker Compose: PostgreSQL, Backend/worker y Frontend; GPU opcional |
 
-Kubernetes, Redis, Celery y HAR quedan fuera del MVP inicial.
+## Modelos y evaluación
 
-## Clonación
+| Configuración | Rol vigente | Resultado y alcance |
+| --- | --- | --- |
+| CURRENT_PERSON, checkpoint adaptado | Configuración primaria evaluada; 640 / confidence 0,10 / NMS 0,70 | Holdout PERSON: precision 0,339, recall 0,119, F1 0,176; limitación importante de generalización |
+| YOLO11n COCO PERSON | REFERENCE_BASELINE, mismo operating point | Precision 0,557, recall 0,899, F1 0,688; desempeño sustancialmente superior en ese conjunto; **no promovido automáticamente** |
+| FORKLIFT specialist v2 | Baseline experimental congelado; 640 / confidence 0,45 / NMS 0,55 | Validation propia: TP 273, FP 18, FN 15; no equivale a validación industrial ni al holdout PERSON |
 
-Para clonar el repositorio se requiere acceso conforme a su visibilidad vigente en GitHub. Esta guía no presupone una visibilidad permanente.
+PERSON se evaluó con matching 1:1 IoU ≥0,50 en **91 imágenes únicas**, 67 positivas,
+24 negativas y 168 cajas, conservando los 92 registros originales. Dataset y
+protocolo fueron congelados y los resultados sellados antes de revisar errores.
+Posibles omisiones/ambigüedades del GT limitan la interpretación de FP y negativos;
+no se corrigió el GT ni se recalcularon métricas. **PERSON v2: no iniciado/diferido**.
+Hashes, resultados completos y límites: [evidencia experimental](engine/evidence/etapa3-experimentos.md#ejecución-person-evaluation-protocol-v1--24-10-2026).
+
+## Repositorio y ejecución nativa
 
 ```powershell
 git clone https://github.com/DPBascur/Operix.git
@@ -60,60 +95,104 @@ cd Operix
 git switch dev
 ```
 
-`dev` es la rama activa de desarrollo. El tag `v0.1.0` conserva el hito histórico
-del pipeline base y no se mueve con la evolución de las ramas.
-Los seis diagramas y los cinco ADR de la arquitectura base v1.0 están
-disponibles en [docs/architecture/](docs/architecture/README.md), junto con
-la exportación completa de IcePanel. Documentan el diseño aprobado, no la
-implementación completa del sistema.
+`dev` es la rama de desarrollo; `main` se promueve solo tras validación. El tag
+`v0.1.0` conserva el hito histórico del pipeline base y no representa todo el
+estado actual de Etapa 3.
 
-## Estructura del repositorio
-
-| Ruta | Responsabilidad |
+| Guía | Contenido |
 | --- | --- |
-| [frontend/](frontend/README.md) | Aplicación Web |
-| [backend/](backend/README.md) | API, configuración, consultas y persistencia |
-| [engine/](engine/README.md) | Pipeline base, configuración, zonas, variables espacio-temporales, reglas y prueba local de publicación HTTP; la persistencia reside en el Backend |
-| [docs/architecture/](docs/architecture/README.md) | Seis diagramas, cinco ADR y exportación completa de IcePanel de la arquitectura v1.0 |
-| [assets/demo/](assets/demo/README.md) | Dos entradas sintéticas y un video anotado para revisión |
-| [third_party/](third_party/nvidia-warehouse-dataset/NOTICE.md) | Procedencia, atribución y licencia de los clips NVIDIA |
-| [engine/evidence/](engine/evidence/) | Evidencias técnicas y resultados versionables |
+| [Motor](engine/README.md#entorno-local) | Python 3.12 x64, instalación Windows/CUDA o CPU, lock, pesos y scripts |
+| [Backend](backend/README.md#requisitos-y-configuración) | PostgreSQL propio, entorno/secretos locales, migraciones y servidor API |
+| [Frontend](frontend/README.md#instalación-y-ejecución) | Node/pnpm fijados, instalación, URL API y ejecución Web |
+| [Demo](assets/demo/README.md) | Entradas sintéticas autorizadas y reproducción del pipeline histórico |
+| [Evidencias](engine/evidence/README.md) | Índice técnico por capacidad, evaluación y límites |
 
-## Instalación, pruebas y demostración
+Crear los entornos indicados en cada guía. El Backend requiere configurar su
+`.env` local y cargar esas variables antes de migrar/iniciar; Frontend usa
+`NEXT_PUBLIC_DATA_SOURCE=api` y la URL pública del Backend para la integración.
+El análisis dual necesita los dos checkpoints locales verificados; no se descargan
+al arrancar. Login/usuarios son una demo local: no autentican ni protegen la API.
 
-Se requiere Python 3.12 x64. La [guía del Motor](engine/README.md#entorno-local)
-separa la instalación Windows/NVIDIA-CUDA de la opción CPU y explica el lock
-reproducible. Tras instalar el entorno, desde la raíz del clon:
+El lock Windows/CUDA fija Ultralytics 8.4.146 para las evidencias correspondientes.
+Una instalación genérica no fijada puede resolver otra versión compatible; la
+prueba CPU histórica con 8.4.166 no modifica los resultados del entorno fijado.
+La instalación CPU del Motor no implica soporte CPU del worker web CUDA.
+
+## Tests y validación
+
+Regresión de esta consolidación: Motor **351 aprobadas + 2 integraciones opt-in
+omitidas**; Backend **103/103** con PostgreSQL; Frontend **30/30**, lint, typecheck
+y build. Son pruebas funcionales, no una garantía de precisión de percepción.
+
+Desde la raíz, con el entorno del Motor instalado:
 
 ```powershell
 .\engine\.venv\Scripts\python.exe -m pip check
-.\engine\.venv\Scripts\python.exe .\engine\scripts\check_environment.py
-.\engine\.venv\Scripts\python.exe -m unittest discover -s .\engine\tests -v
+.\engine\.venv\Scripts\python.exe -B -m unittest discover -s engine/tests
+.\engine\.venv\Scripts\python.exe engine/scripts/check_environment.py --require-cuda
 ```
 
-En un equipo NVIDIA compatible, añadir `--require-cuda` al verificador. Las
-pruebas de inferencia real son optativas y requieren pesos y muestras locales
-indicados mediante variables de entorno; sin ellos se omiten. Para reproducir
-la salida visual con una entrada incluida, seguir la [guía de demo](assets/demo/README.md).
-Los pesos `yolo11n.pt` no se distribuyen en este repositorio.
-El lock Windows/CUDA fija Ultralytics 8.4.146 para las evidencias experimentales;
-una instalación genérica no fijada puede resolver otra versión compatible. En una
-instalación CPU limpia se obtuvo 8.4.166 y la suite terminó con 126 pruebas
-aprobadas y 2 omitidas. Esto no modifica los resultados históricos.
+Omitir `--require-cuda` para comprobar un entorno CPU. Desde Backend, con su entorno
+cargado: `manage.py check`, `makemigrations --check --dry-run`, `test --noinput`.
+Desde Frontend: `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build`.
 
-## Orientación técnica
+La [matriz de validación](engine/evidence/ETAPA3-VALIDATION-MATRIX.md) separa fixtures
+E2E, carga controlada, rendimiento exploratorio y pruebas GPU previas. OP-43 es un
+benchmark histórico independiente: sus FPS no se atribuyen al pipeline dual actual.
+Esta consolidación no reejecuta el holdout ni campañas de stress/rendimiento.
 
-El Motor dispone de entorno reproducible Windows/CUDA, scripts de ejecución y pruebas. El modo nativo sigue soportado. Como alternativa, la [guía Docker local](deployment/docker/README.md) permite levantar PostgreSQL, Backend con su worker existente y Frontend, con GPU NVIDIA opcional. Requiere configurar secretos locales; no incluye pesos ni datos privados. La [validación Docker](engine/evidence/DOCKER-LOCAL-VALIDATION.md) se limita al equipo de desarrollo documentado y no acredita despliegue industrial ni portabilidad universal de GPU.
+## Docker local y GPU
 
-El PoC técnico ejecutado comprende video → OpenCV → YOLO11 → ByteTrack → visualización, con métricas del benchmark independiente de OP-43. La [evidencia consolidada de OP-61](engine/evidence/OP-61-poc.md) registra configuración, entorno, hashes, resultados y limitaciones como evidencia inicial de RF-01, RF-02, RF-03 y RNF-02.
+Alternativa al camino nativo, validada funcionalmente en el equipo de desarrollo
+utilizado durante el proyecto, incluyendo ejecución del Motor mediante GPU NVIDIA.
+En Windows, GPU requiere Docker Desktop con WSL2 y driver NVIDIA compatible.
 
-Después de ese hito, el desarrollo incorporó configuración de zonas y reglas (OP-30), pertenencia geométrica (OP-36), variables espacio-temporales (OP-37) y evaluación inicial `zone_dwell` (OP-38). Una [prueba local posterior](engine/evidence/video-to-event-local.md) enlazó video, regla, evidencia de frame real y evento persistido. Un `EventCandidate` aislado sigue siendo transitorio y no constituye una clasificación automática de riesgo.
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.docker.example .env }
+# Configurar secretos propios en .env antes de continuar.
+docker compose up -d --build
+docker compose ps
+# GPU: configurar también las rutas individuales de pesos y demos en .env.
+docker compose -f compose.yaml -f compose.gpu.yaml up -d --build
+# Detención sin borrar datos:
+docker compose down
+```
 
-La validación histórica de OP-61 filtra `person`: COCO no contiene `forklift`.
-La percepción dual posterior usa un detector especializado de montacargas y no
-cambia retrospectivamente esos resultados. La evidencia sigue siendo acotada;
-no acredita tracking fiable de maquinaria industrial, funcionamiento universal
-o sostenido en tiempo real ni validación completa de Operix.
+En modo GPU, detener con `docker compose -f compose.yaml -f compose.gpu.yaml down`.
+Frontend `http://localhost:13000`; API `http://localhost:18000/api/v1/health/`.
+**`docker compose down -v` elimina los volúmenes y sus datos**.
+DB/media/salidas tienen volúmenes propios; no se importa la DB nativa. Los archivos
+persisten al recrear Backend, pero su registro de sesiones en memoria no se restaura.
+La [guía Docker](deployment/docker/README.md) explica mounts read-only, codec,
+healthchecks y límites; la [validación local](engine/evidence/DOCKER-LOCAL-VALIDATION.md)
+y su recibo documentan el E2E GPU de 277 frames y la prueba de persistencia.
+
+## Datos, evidencia y resguardos
+
+Pesos, datasets, holdouts, videos de ejecución y artefactos experimentales crudos
+permanecen fuera de Git. Excepción revisada: los tres MP4 sintéticos/de salida de
+[assets/demo](assets/demo/README.md), con atribución y licencia de terceros.
+La evidencia técnica versionada se encuentra en [engine/evidence](engine/evidence/README.md)
+y [backend/evidence](backend/evidence/). Los artefactos locales externos no están
+implícitamente disponibles al clonar. Cada nueva fuente requiere derechos propios.
+
+## Limitaciones conocidas y alcance ético
+
+- CURRENT_PERSON tiene baja cobertura en el holdout independiente; no es un
+  detector validado industrialmente. COCO sigue siendo referencia y PERSON v2 diferido.
+- Validación experta de zonas/umbrales pendiente; distancias de imagen normalizadas
+  no son metros ni medidas calibradas de seguridad.
+- ByteTrack depende de detecciones; sin GT MOT no se afirman MOTA/IDF1/HOTA ni
+  continuidad fiable universal. Las muestras y la validación son acotadas.
+- Una persona dentro de su propio forklift sigue siendo PERSON válida. La asociación
+  contextual operador/vehículo para evitar relaciones irrelevantes queda pendiente.
+- API sin autenticación empresarial, retención operacional/acceso sin política final;
+  login y roles demo no sustituyen esos controles. Mantener despliegue local controlado.
+- Docker se validó en este equipo; no garantiza compatibilidad de cualquier GPU,
+  despliegue industrial ni reconstrucción bit a bit. No se afirma tiempo real universal.
+- No hay reconocimiento facial; `track_id` no es identidad real. No se asigna
+  culpabilidad ni se aplican sanciones automáticas. Evento no equivale a accidente
+  ni a Near Miss; toda interpretación operacional requiere revisión humana.
 
 ## Datos de demostración
 
@@ -154,9 +233,6 @@ personal ni una precisión industrial medida.
 [Guía de demo](assets/demo/README.md) ·
 [Evidencia del PoC](engine/evidence/OP-61-poc.md)
 
-Antes de cambiar arquitectura o stack por una limitación de implementación, se documentarán el problema, la evidencia y la propuesta para evaluar una nueva decisión arquitectónica. Véase el [índice de arquitectura v1.0](docs/architecture/README.md).
-
-El Excel conserva el backlog y la trazabilidad académica; GitHub Projects complementa la gestión técnica mediante Issues con títulos `[OP-XX] Descripción`, vinculados a commits y evidencias.
 
 ## Licencia
 
