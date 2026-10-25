@@ -1,6 +1,7 @@
 "use client";
 
 import { Activity, Search } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 
@@ -11,6 +12,7 @@ import { environment } from "@/config/environment";
 import { eventsService } from "@/services/events.service";
 import type { EventQuery } from "@/services/adapters/frontend-data.adapter";
 import type { EventListItem } from "@/types/operix";
+import { historyError } from "@/features/dashboard/history-model";
 
 function formatLocalMinute(date: Date): string {
   const parts = [
@@ -65,11 +67,7 @@ export function EventsTable() {
       },
       (failure: unknown) => {
         if (!active) return;
-        setError(
-          failure instanceof Error
-            ? failure.message
-            : "No se pudieron cargar los eventos.",
-        );
+        setError(historyError(failure));
         setLoading(false);
       },
     );
@@ -264,12 +262,12 @@ export function EventsTable() {
                   <div className="min-w-0 flex-1">
                     <h2 className="text-sm font-semibold text-foreground">
                       {event.detailUrl ? (
-                        <a
+                        <Link
                           className="underline underline-offset-2"
                           href={event.detailUrl}
                         >
                           {event.title}
-                        </a>
+                        </Link>
                       ) : (
                         event.title
                       )}
@@ -382,12 +380,12 @@ export function EventsTable() {
                           </span>
                           <span className="font-semibold text-foreground">
                             {detailUrl ? (
-                              <a
+                              <Link
                                 className="underline underline-offset-2"
                                 href={detailUrl}
                               >
                                 {title}
-                              </a>
+                              </Link>
                             ) : (
                               title
                             )}
@@ -433,6 +431,14 @@ export function EventsTable() {
                     ? "Todavía no hay eventos registrados."
                     : "No hay eventos mock."
                   : "No se encontraron eventos para los filtros seleccionados."}
+              {hasAppliedFilters
+                ? " Amplíe el período o limpie los filtros."
+                : " "}
+              {!hasAppliedFilters && events.length === 0 && (
+                <Link href="/analysis" className="underline underline-offset-2">
+                  Analizar un video
+                </Link>
+              )}
             </p>
           ) : null}
         </>

@@ -1,7 +1,6 @@
 import { ArrowRight, Crosshair } from "lucide-react";
 import Link from "next/link";
 import { AppShell } from "@/components/layout/app-shell";
-import { MockDataNotice } from "@/components/ui/mock-data-notice";
 
 export default function ZonesPage() {
   return (
@@ -14,9 +13,10 @@ export default function ZonesPage() {
               La geometría se define sobre la fuente que será analizada.
             </p>
           </div>
-          <span className="source-indicator">Sin video conectado</span>
+          <Link className="button button-primary" href="/analysis">
+            Editar zona en Análisis <ArrowRight size={15} aria-hidden="true" />
+          </Link>
         </header>
-        <MockDataNotice />
 
         <section
           className="zone-workbench"
@@ -27,9 +27,11 @@ export default function ZonesPage() {
               <Crosshair size={24} strokeWidth={1.4} />
             </div>
             <div className="zone-preview-copy">
-              <h2 id="zone-workbench-title">Vista espacial no disponible</h2>
+              <h2 id="zone-workbench-title">Edite la zona sobre su video</h2>
               <p>
-                Abra una fuente para editar el polígono en su contexto visual.
+                Abra Análisis para preparar una fuente o retomar su sesión.
+                Puede crear vértices por coordenadas y ajustarlos con el
+                teclado.
               </p>
             </div>
           </div>
@@ -60,9 +62,6 @@ export default function ZonesPage() {
                 </li>
               </ol>
             </div>
-            <Link className="button button-primary" href="/analysis">
-              Abrir análisis <ArrowRight size={15} aria-hidden="true" />
-            </Link>
           </aside>
         </section>
       </div>

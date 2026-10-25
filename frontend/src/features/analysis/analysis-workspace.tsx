@@ -26,6 +26,17 @@ import {
   type NormalizedVertex,
 } from "@/services/analysis.service";
 import { pointInFrame } from "./zone-editor-geometry";
+import { environment } from "@/config/environment";
+import {
+  analysisPercent,
+  tabStorage,
+  sessionVideoInfo,
+  readSessionReference,
+  sessionReferenceKey,
+  writeSessionReference,
+} from "./analysis-session";
+
+const referenceKey = sessionReferenceKey(environment.apiBaseUrl);
 
 const labels = {
   ready: "Video listo para analizar.",
@@ -89,7 +100,9 @@ export function AnalysisWorkspace({
   const [profiles, setProfiles] = useState<AnalysisProfileDefinition[]>([]);
   const [demoSource, setDemoSource] = useState<DemoVideoSource | null>(null);
   const [session, setSession] = useState<AnalysisSessionStatus | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
+  const [loadRevision, setLoadRevision] = useState(0);
+  const [newPoint, setNewPoint] = useState({ x: "50", y: "50" });
   const [error, setError] = useState<string | null>(null);
   const [videoInfo, setVideoInfo] = useState({
     width: 1920,
@@ -104,40 +117,64 @@ export function AnalysisWorkspace({
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const dragging = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const resultVideoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const localUrlRef = useRef<string | null>(null);
   const generation = useRef(0);
-  const ownedSessionId = useRef<string | null>(null);
   const pollFailed = useRef(false);
   const initialProfileRef = useRef(initialProfile);
   const initialManualRef = useRef(initialManual);
+  const sessionId = session?.id;
 
   useEffect(() => {
     return () => {
       generation.current += 1;
       if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current);
-      if (ownedSessionId.current) {
-        void analysisService
-          .closeAnalysisSession(ownedSessionId.current)
-          .catch(() => {
-            // La retención del Backend libera la sesión si la red ya no está disponible.
-          });
-      }
+      // Navegar no equivale a limpiar: la sesión sigue bajo retención del Backend.
     };
   }, []);
 
   useEffect(() => {
-    ownedSessionId.current = session?.id ?? null;
-  }, [session?.id]);
+    if (sessionId) writeSessionReference(tabStorage(), referenceKey, sessionId);
+  }, [sessionId]);
 
   useEffect(() => {
     let active = true;
-    const current = generation.current;
-    analysisService
-      .getProfiles()
-      .then(async (catalog) => {
-        if (!active) return;
+    const current = ++generation.current;
+    const isCurrent = () => active && generation.current === current;
+    const saved = readSessionReference(tabStorage(), referenceKey);
+    Promise.allSettled([
+      analysisService.getProfiles(),
+      saved ? analysisService.getAnalysisStatus(saved) : Promise.resolve(null),
+    ])
+      .then(async ([catalogResult, restored]) => {
+        if (!isCurrent()) return;
+        const catalog =
+          catalogResult.status === "fulfilled" ? catalogResult.value : [];
         setProfiles(catalog);
+        if (saved) {
+          if (restored.status === "rejected") {
+            if (
+              restored.reason instanceof AnalysisRequestError &&
+              restored.reason.status === 404
+            ) {
+              writeSessionReference(tabStorage(), referenceKey, null);
+              throw new Error(
+                "La sesión anterior expiró. Seleccione una demo o un video para continuar.",
+              );
+            }
+            throw restored.reason;
+          }
+          if (restored.value) {
+            setSession(restored.value);
+            setProfile(restored.value.profile);
+            setDraft(restored.value.zone.polygon);
+            setVideoInfo(sessionVideoInfo(restored.value));
+            setClosed(true);
+            return;
+          }
+        }
+        if (catalogResult.status === "rejected") throw catalogResult.reason;
         if (initialManualRef.current) return;
         const initial = catalog.find(
           (item) => item.id === initialProfileRef.current,
@@ -148,7 +185,7 @@ export function AnalysisWorkspace({
           initialProfileRef.current,
           initial.default_demo_video.id,
         );
-        if (!active || generation.current !== current) {
+        if (!isCurrent()) {
           await analysisService.closeAnalysisSession(created.id);
           return;
         }
@@ -158,7 +195,7 @@ export function AnalysisWorkspace({
         setClosed(true);
       })
       .catch((cause: unknown) => {
-        if (active) {
+        if (isCurrent()) {
           setError(
             cause instanceof Error
               ? cause.message
@@ -167,12 +204,12 @@ export function AnalysisWorkspace({
         }
       })
       .finally(() => {
-        if (active) setBusy(false);
+        if (isCurrent()) setBusy(false);
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [loadRevision]);
 
   useEffect(() => {
     const id = session?.id;
@@ -202,6 +239,7 @@ export function AnalysisWorkspace({
             pollFailed.current = true;
             if (cause instanceof AnalysisRequestError && cause.status === 404) {
               setSession(null);
+              writeSessionReference(tabStorage(), referenceKey, null);
               setEditing(false);
               setError(
                 "La sesión ya no está disponible. Seleccione de nuevo el perfil o cargue un video.",
@@ -244,6 +282,8 @@ export function AnalysisWorkspace({
         );
       }
       if (session) await analysisService.closeAnalysisSession(session.id);
+      if (generation.current !== current) return;
+      writeSessionReference(tabStorage(), referenceKey, null);
       if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current);
       const url = URL.createObjectURL(selected);
       localUrlRef.current = url;
@@ -298,6 +338,8 @@ export function AnalysisWorkspace({
       );
     }
     if (session) await analysisService.closeAnalysisSession(session.id);
+    if (generation.current !== current) return;
+    writeSessionReference(tabStorage(), referenceKey, null);
     if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current);
     localUrlRef.current = null;
     setLocalUrl(null);
@@ -319,7 +361,7 @@ export function AnalysisWorkspace({
     if (!session) return;
     videoRef.current?.pause();
     if (videoRef.current) videoRef.current.currentTime = 0;
-    generation.current += 1;
+    const current = ++generation.current;
     setBusy(true);
     setError(null);
     try {
@@ -329,36 +371,48 @@ export function AnalysisWorkspace({
           requestAnimationFrame(() => resolve()),
         );
       }
-      setSession(await analysisService.startAnalysisSession(session.id));
+      const updated = await analysisService.startAnalysisSession(session.id);
+      if (generation.current !== current) return;
+      setSession(updated);
       setEditing(false);
     } catch (cause) {
+      if (generation.current !== current) return;
       try {
-        setSession(await analysisService.getAnalysisStatus(session.id));
+        const updated = await analysisService.getAnalysisStatus(session.id);
+        if (generation.current !== current) return;
+        setSession(updated);
       } catch {
         // El error original es más útil; la sesión puede haberse cerrado.
       }
       setError(cause instanceof Error ? cause.message : "No se pudo iniciar.");
     } finally {
-      setSuspendResult(false);
-      setBusy(false);
+      if (generation.current === current) {
+        setSuspendResult(false);
+        setBusy(false);
+      }
     }
   }
 
   async function stop() {
     if (!session) return;
-    generation.current += 1;
+    const current = ++generation.current;
     setBusy(true);
     try {
-      setSession(await analysisService.stopAnalysisSession(session.id));
+      const updated = await analysisService.stopAnalysisSession(session.id);
+      if (generation.current !== current) return;
+      setSession(updated);
     } catch (cause) {
+      if (generation.current !== current) return;
       try {
-        setSession(await analysisService.getAnalysisStatus(session.id));
+        const updated = await analysisService.getAnalysisStatus(session.id);
+        if (generation.current !== current) return;
+        setSession(updated);
       } catch {
         // El error original es más útil; la sesión puede haberse cerrado.
       }
       setError(cause instanceof Error ? cause.message : "No se pudo detener.");
     } finally {
-      setBusy(false);
+      if (generation.current === current) setBusy(false);
     }
   }
 
@@ -407,6 +461,7 @@ export function AnalysisWorkspace({
         } else {
           generation.current += 1;
           if (session) await analysisService.closeAnalysisSession(session.id);
+          writeSessionReference(tabStorage(), referenceKey, null);
           setSession(null);
           setDemoSource(null);
           setDraft([]);
@@ -436,8 +491,8 @@ export function AnalysisWorkspace({
           requestAnimationFrame(() => resolve()),
         );
       }
-      const restoreDemo = session.source_kind === "demo";
       await analysisService.closeAnalysisSession(session.id);
+      writeSessionReference(tabStorage(), referenceKey, null);
       if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current);
       localUrlRef.current = null;
       setLocalUrl(null);
@@ -446,7 +501,6 @@ export function AnalysisWorkspace({
       setSession(null);
       setEditing(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
-      if (restoreDemo) await selectProfileDemo(profile);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -460,14 +514,15 @@ export function AnalysisWorkspace({
   }
 
   const state = session?.state;
-  const sourceName = file?.name ?? demoSource?.filename ?? null;
-  const sourceBytes = file?.size ?? demoSource?.bytes ?? null;
-  const sourceKind = file ? "manual" : demoSource ? "demo" : null;
+  const sourceName =
+    session?.filename ?? file?.name ?? demoSource?.filename ?? null;
+  const sourceBytes =
+    session?.source_bytes ?? file?.size ?? demoSource?.bytes ?? null;
+  const sourceKind =
+    session?.source_kind ?? (file ? "manual" : demoSource ? "demo" : null);
   const referenceUrl =
     localUrl ??
-    (session?.source_kind === "demo"
-      ? analysisService.getAnalysisSourceUrl(session.id)
-      : null);
+    (session ? analysisService.getAnalysisSourceUrl(session.id) : null);
   const selectedProfile = profiles.find((item) => item.id === profile);
   const previewPending = session?.preview?.pending === true;
   const canEdit =
@@ -490,7 +545,7 @@ export function AnalysisWorkspace({
     ? readableError(error)
     : session?.persistence?.state === "failed"
       ? "El análisis puede estar completo, pero sus eventos no quedaron guardados íntegramente. Puede reintentar el guardado sin analizar de nuevo."
-      : session?.detail
+      : session?.state === "error" && session.detail
         ? readableError(session.detail)
         : null;
   const contextState =
@@ -503,6 +558,9 @@ export function AnalysisWorkspace({
             ? "Análisis completado · terminando vista previa a velocidad 1×…"
             : labels[session.state]
           : "Sin fuente preparada";
+  const percent = session
+    ? analysisPercent(session.state, session.percent)
+    : null;
 
   function moveVertexWithKeyboard(
     event: KeyboardEvent<SVGEllipseElement>,
@@ -540,7 +598,11 @@ export function AnalysisWorkspace({
         aria-label="Contexto del análisis"
       >
         <div className="min-w-0">
-          <p className={`analysis-state ${visibleError ? "is-error" : ""}`}>
+          <p
+            role="status"
+            aria-atomic="true"
+            className={`analysis-state ${visibleError ? "is-error" : ""}`}
+          >
             {contextState}
           </p>
           <p className="mt-1 truncate text-xs text-text-secondary">
@@ -580,6 +642,7 @@ export function AnalysisWorkspace({
             <Upload size={16} aria-hidden="true" /> Cambiar fuente
             <input
               type="file"
+              disabled={busy || (!!session && !canEdit)}
               accept=".mp4,.mov,.avi,video/mp4"
               className="sr-only"
               onChange={(event) => {
@@ -627,6 +690,7 @@ export function AnalysisWorkspace({
                 )}
                 {showReference && referenceUrl && (
                   <video
+                    key={referenceUrl}
                     ref={videoRef}
                     src={referenceUrl}
                     controls={!editing && !showStream}
@@ -634,6 +698,7 @@ export function AnalysisWorkspace({
                     className="absolute inset-0 h-full w-full object-contain"
                     onLoadedMetadata={(event) => {
                       const video = event.currentTarget;
+                      if (video !== videoRef.current) return;
                       setVideoInfo({
                         width: video.videoWidth,
                         height: video.videoHeight,
@@ -653,11 +718,23 @@ export function AnalysisWorkspace({
                 {showResult && (
                   <video
                     key={`${session.id}-${session.run}-result`}
+                    ref={resultVideoRef}
                     src={analysisService.getAnalysisResultUrl(
                       session.id,
                       session.run,
                     )}
                     controls
+                    onLoadedMetadata={(event) => {
+                      const video = event.currentTarget;
+                      if (video !== resultVideoRef.current) return;
+                      setVideoInfo({
+                        width: video.videoWidth,
+                        height: video.videoHeight,
+                        duration: Number.isFinite(video.duration)
+                          ? video.duration
+                          : 0,
+                      });
+                    }}
                     preload="metadata"
                     aria-label="Resultado anotado de Operix"
                     className="absolute inset-0 h-full w-full object-contain"
@@ -759,20 +836,23 @@ export function AnalysisWorkspace({
               {session &&
                 (["preparing", "processing"].includes(session.state) ||
                   previewPending) && (
-                  <div className="analysis-toolbar-status" role="status">
+                  <div className="analysis-toolbar-status">
                     <strong>
                       {session.state === "completed"
                         ? "Analizado"
-                        : "Procesando"}{" "}
+                        : session.state === "preparing"
+                          ? "Preparando"
+                          : "Procesando"}{" "}
                       ·{" "}
-                      {session.percent == null
-                        ? "—"
-                        : `${session.percent.toFixed(1)} %`}
+                      {percent == null
+                        ? "En preparación"
+                        : `${percent.toFixed(1)} %`}
                     </strong>
                     <span>
-                      {session.person_detections} personas ·{" "}
-                      {session.forklift_detections} montacargas ·{" "}
-                      {session.fps == null ? "—" : session.fps.toFixed(2)} FPS
+                      {session.state === "preparing"
+                        ? (session.detail ??
+                          "Verificando video y preparando modelos…")
+                        : `${session.frame} / ${session.total ?? "—"} frames`}
                     </span>
                   </div>
                 )}
@@ -784,7 +864,7 @@ export function AnalysisWorkspace({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  disabled={busy}
+                  disabled={busy || (!!session && !canEdit)}
                   accept=".mp4,.mov,.avi,video/mp4"
                   className="sr-only"
                   onChange={(event) => {
@@ -909,7 +989,9 @@ export function AnalysisWorkspace({
                     );
                     setSelectedVertex(null);
                   }}
-                  disabled={selectedVertex === null || draft.length <= 3}
+                  disabled={
+                    selectedVertex === null || (closed && draft.length <= 3)
+                  }
                 >
                   Eliminar vértice
                 </Button>
@@ -932,16 +1014,88 @@ export function AnalysisWorkspace({
                   Aplicar zona
                 </Button>
                 <span className="text-text-secondary">
-                  {draft.length} vértices ·{" "}
+                  {draft.length} {draft.length === 1 ? "vértice" : "vértices"} ·{" "}
                   {closed
                     ? "arrastre o use flechas con foco"
                     : "marque puntos y pulse el primero para cerrar"}
                 </span>
               </div>
             )}
+            {editing && (
+              <form
+                className="analysis-vertex-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const x = Number(newPoint.x),
+                    y = Number(newPoint.y);
+                  if (
+                    !newPoint.x.trim() ||
+                    !newPoint.y.trim() ||
+                    !Number.isFinite(x) ||
+                    !Number.isFinite(y) ||
+                    x < 0 ||
+                    x > 100 ||
+                    y < 0 ||
+                    y > 100
+                  )
+                    return;
+                  setDraft((points) => [...points, [x / 100, y / 100]]);
+                  setSelectedVertex(draft.length);
+                }}
+              >
+                <p id="vertex-help">
+                  Desde «Nueva zona», añada vértices por coordenadas o marque
+                  puntos sobre el video. Origen: esquina superior izquierda.
+                </p>
+                <label>
+                  X (%)
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    required
+                    value={newPoint.x}
+                    onChange={(event) =>
+                      setNewPoint({ ...newPoint, x: event.target.value })
+                    }
+                    disabled={closed}
+                    aria-describedby="vertex-help"
+                  />
+                </label>
+                <label>
+                  Y (%)
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    required
+                    value={newPoint.y}
+                    onChange={(event) =>
+                      setNewPoint({ ...newPoint, y: event.target.value })
+                    }
+                    disabled={closed}
+                  />
+                </label>
+                <Button type="submit" variant="outline" disabled={closed}>
+                  Añadir vértice
+                </Button>
+                <span role="status">
+                  {draft.length} {draft.length === 1 ? "vértice" : "vértices"}
+                  {closed ? " · polígono cerrado" : " · polígono abierto"}
+                </span>
+              </form>
+            )}
+            {editing && closed && !validPolygon(draft) && (
+              <p role="status" className="analysis-result-help">
+                El polígono necesita al menos tres vértices distintos, área y
+                ningún cruce. Ajuste los vértices o cree una zona nueva.
+              </p>
+            )}
           </div>
           <p
-            role={visibleError ? "alert" : "status"}
+            role={visibleError ? "alert" : undefined}
             className={`analysis-feedback ${visibleError ? "has-error" : ""}`}
           >
             {busy && !showStream
@@ -955,13 +1109,36 @@ export function AnalysisWorkspace({
               <span className="analysis-error-message">{visibleError}</span>
             )}
           </p>
+          {!session && visibleError && (
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => {
+                setBusy(true);
+                setError(null);
+                setLoadRevision((value) => value + 1);
+              }}
+            >
+              Reconectar y recuperar sesión
+            </Button>
+          )}
+          {session && (
+            <p className="analysis-result-help">
+              Puede navegar y volver a Análisis sin detener esta sesión. El
+              servidor la conserva temporalmente; «Limpiar sesión» la elimina.
+            </p>
+          )}
           {session &&
             ["completed", "error", "cancelled"].includes(session.state) &&
             session.persistence && (
               <div className="analysis-result-help" aria-live="polite">
                 {session.persistence.state === "saved" ? (
                   <p>
-                    {session.persistence.saved ?? 0} eventos guardados.{" "}
+                    {session.persistence.saved ?? 0}{" "}
+                    {session.persistence.saved === 1
+                      ? "evento guardado"
+                      : "eventos guardados"}
+                    .{" "}
                     <Link
                       href="/events"
                       className="underline underline-offset-2"
@@ -1009,8 +1186,9 @@ export function AnalysisWorkspace({
           )}
           {showResult && (
             <p className="analysis-result-help">
-              Resultado reproducible: use los controles del video para pausar,
-              buscar posición o volver al inicio.
+              Resultado anotado: use los controles para pausar o buscar un
+              momento del video. Condición configurada satisfecha; requiere
+              revisión humana, no confirma un incidente.
             </p>
           )}
           {session && (
@@ -1019,13 +1197,13 @@ export function AnalysisWorkspace({
               aria-label="Resumen de percepción"
             >
               <div>
-                <span>Personas</span>
+                <span>Detecciones de personas</span>
                 <strong>
                   {session.run > 0 ? session.person_detections : "—"}
                 </strong>
               </div>
               <div>
-                <span>Montacargas</span>
+                <span>Detecciones de montacargas</span>
                 <strong>
                   {session.run > 0 ? session.forklift_detections : "—"}
                 </strong>
@@ -1039,9 +1217,7 @@ export function AnalysisWorkspace({
               <div>
                 <span>Progreso</span>
                 <strong>
-                  {session.percent == null
-                    ? "—"
-                    : `${session.percent.toFixed(1)} %`}
+                  {percent == null ? "—" : `${percent.toFixed(1)} %`}
                 </strong>
               </div>
             </section>
@@ -1054,7 +1230,6 @@ export function AnalysisWorkspace({
         >
           <div className="analysis-inspector-head">
             <div>
-              <span className="eyebrow">Inspector</span>
               <h2>Detalles del análisis</h2>
             </div>
             <button
@@ -1100,13 +1275,11 @@ export function AnalysisWorkspace({
               <div className="flex items-center justify-between gap-3">
                 <p className="section-heading">Progreso</p>
                 <span className="text-xs font-semibold tabular-nums">
-                  {session?.percent == null
-                    ? "—"
-                    : `${session.percent.toFixed(1)} %`}
+                  {percent == null ? "—" : `${percent.toFixed(1)} %`}
                 </span>
               </div>
               <div className="analysis-progress mt-3" aria-hidden="true">
-                <span style={{ width: `${session?.percent ?? 0}%` }} />
+                <span style={{ width: `${percent ?? 0}%` }} />
               </div>
               <dl className="analysis-data mt-3">
                 <dt>Frame</dt>
@@ -1162,7 +1335,10 @@ export function AnalysisWorkspace({
                     : (session?.zone.name ?? "—")}
                 </dd>
                 <dt>Regla</dt>
-                <dd>{session ? "zone_dwell · solo person" : "—"}</dd>
+                <dd className="analysis-data-note">
+                  Definida por el perfil del servidor. El evento conserva la
+                  regla y versión aplicadas.
+                </dd>
                 <dt>Resolución</dt>
                 <dd>
                   {sourceName

@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { environment } from "@/config/environment";
 import { historyDemo } from "@/services/demo/history-demo";
+import { eventTypeName } from "@/services/event-contract";
 import { enterTransition, revealVariants } from "@/lib/motion/presets";
 import {
   parseHistory,
@@ -26,8 +27,7 @@ import {
   type HistoryEvent,
 } from "./history-model";
 
-const eventName = (name: string) =>
-  name === "zone_dwell" ? "Permanencia en zona" : name;
+const eventName = eventTypeName;
 export function HistoricalDashboard() {
   const reduceMotion = useReducedMotion();
   const [source, setSource] = useState<"demo" | "api">("demo");
@@ -203,7 +203,8 @@ export function HistoricalDashboard() {
         )}
       </div>
       <p className="history-source-caption">
-        {source === "demo" ? "Datos de ejemplo" : "Registros de la API"} · UTC
+        {source === "demo" ? "Datos de ejemplo" : "Registros de la API"} · UTC.
+        Conteos de condiciones configuradas, no de incidentes confirmados.
       </p>
       {source === "api" &&
       (loading ||

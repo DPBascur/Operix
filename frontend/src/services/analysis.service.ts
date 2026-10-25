@@ -113,7 +113,12 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     signal: AbortSignal.timeout(120_000),
     ...init,
   });
-  const data: unknown = await response.json();
+  const data: unknown = await response.json().catch(() => {
+    throw new AnalysisRequestError(
+      "El servicio de análisis devolvió una respuesta inválida. Vuelva a intentar.",
+      response.status,
+    );
+  });
   if (!response.ok) {
     const detail =
       typeof data === "object" && data !== null && "detail" in data

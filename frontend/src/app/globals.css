@@ -1495,8 +1495,7 @@ a {
   background: var(--surface-elevated);
   color: var(--foreground);
 }
-:root[data-theme="dark"] .analysis-toolbar .button[class*="bg-primary"],
-:root[data-theme="dark"] .analysis-toolbar .button:first-child,
+:root[data-theme="dark"] .analysis-toolbar .button-primary:not(:disabled),
 :root[data-theme="dark"] .analysis-zone-toolbar .button-primary:not(:disabled) {
   background: var(--primary);
   border-color: var(--primary);
@@ -2154,11 +2153,14 @@ a {
 .analysis-toolbar > label:hover {
   background: rgb(255 255 255 / 0.13);
 }
-.analysis-toolbar .button[class*="bg-primary"],
-.analysis-toolbar .button:first-child {
+.analysis-toolbar .button-primary:not(:disabled) {
   border-color: var(--primary);
   background: var(--primary);
   color: var(--primary-foreground);
+}
+.analysis-toolbar .button-primary:not(:disabled):hover {
+  background: var(--primary);
+  filter: brightness(1.08);
 }
 .analysis-toolbar .button:disabled {
   opacity: 1;
@@ -2442,7 +2444,7 @@ a {
   font-size: 0.8125rem;
 }
 .zone-workbench {
-  min-height: 36rem;
+  min-height: 24rem;
   grid-template-columns: minmax(0, 7fr) minmax(18rem, 3fr);
   overflow: hidden;
   border: 1px solid var(--border);
@@ -2722,5 +2724,72 @@ a {
   }
   .analysis-summary strong {
     font-size: 1.3rem;
+  }
+}
+
+/* Alternativa al puntero para crear polígonos sobre la fuente. */
+.analysis-vertex-form {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: var(--surface);
+  color: var(--foreground);
+  border-top: 1px solid var(--border);
+}
+.analysis-vertex-form p {
+  flex-basis: 100%;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+.analysis-vertex-form label {
+  display: grid;
+  gap: 0.375rem;
+  font-size: 0.875rem;
+}
+.analysis-vertex-form input {
+  width: 6rem;
+  min-height: 2.75rem;
+  padding: 0.5rem;
+  background: var(--background);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  font-size: 1rem;
+}
+.analysis-vertex-form [role="status"] {
+  align-self: center;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+.analysis-context-button:has(input:focus-visible) {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+.analysis-context-button:has(input:disabled) {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.analysis-summary span {
+  overflow-wrap: anywhere;
+}
+.analysis-data dd.analysis-data-note {
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 47.999rem) {
+  .analysis-profiles {
+    grid-auto-columns: minmax(0, 1fr);
+  }
+  .analysis-profile-name {
+    white-space: normal;
+  }
+  .analysis-toolbar {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+  .analysis-toolbar-status {
+    flex-basis: 100%;
   }
 }
