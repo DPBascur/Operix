@@ -175,6 +175,12 @@ columnas heredadas de objeto único quedan nulas para pares; los registros
 históricos no reciben observaciones inventadas. Una condición satisfecha no
 confirma accidente, Near Miss, infracción ni responsabilidad personal.
 
+Los pares nuevos incorporan `observations.proximity_geometry`: versión
+`person_bottom_center_to_equipment_ground_edge_v1` y extremos normalizados
+`person_anchor` / `equipment_target`. Los históricos sin ese snapshot se conservan
+sin reinterpretación. La geometría cambió; los valores de umbral conservados no
+acreditan equivalencia ni recalibración. Véase la [decisión A/B/C](../engine/evidence/ETAPA4-TECHNICAL-AUDIT.md#14-decisión-geométrica-de-proximidad--25-10-2026).
+
 ### Frecuencias históricas (OP-41)
 
 `GET /api/v1/events/frequencies/` resume eventos persistidos por día **UTC** y

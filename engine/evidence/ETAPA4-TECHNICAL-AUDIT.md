@@ -538,3 +538,115 @@ Modelos, pesos/hashes, confidence, NMS, ByteTrack, semántica/umbrales de reglas
 archivos de configuración, geometría B,
 DB/contrato público y frontend permanecen intactos. No se tocaron holdouts, TEST2,
 REAL_HOLDOUT_V2, Excel, arquitectura, main ni tags; no se entrenó ni calibró.
+
+## 14. Decisión geométrica de proximidad — 25-10-2026
+
+Base: `da40795599459bfcfbf51a1e6304760868b978cd`, `dev` limpio y sincronizado.
+Esta decisión sucede a la sección 13; no cambia retroactivamente sus mediciones
+bottom-center ni los eventos/CSV/videos históricos. Se compararon fixtures antes
+de modificar el cálculo productivo, sin inferencia, holdouts ni selección por eventos.
+
+**Decisión: ADOPT_NEAREST_EQUIPMENT_GROUND_EDGE_GEOMETRY.** A mide entre centros
+inferiores; B entre el centro inferior PERSON y el punto más cercano del segmento
+inferior del equipo. C, solo diagnóstico, es la mínima separación entre contornos
+rectangulares normalizados: contornos que se cruzan/tocan dan cero; en contención
+estricta se mide la separación entre sus bordes, no se confunde con distancia
+entre áreas (que sería cero). C no se incorpora al producto.
+
+Fixtures de 1000×600; resultados en `norm`, seis decimales:
+
+| Caso | A | B | C |
+| --- | ---: | ---: | ---: |
+| Persona a izquierda | 0.430000 | 0.180000 | 0.160000 |
+| Persona a derecha | 0.330000 | 0.080000 | 0.060000 |
+| Frente al centro | 0.183333 | 0.183333 | 0.016667 |
+| Parcialmente frente | 0.263523 | 0.083333 | 0.000000 |
+| Solapamiento por perspectiva | 0.265754 | 0.200000 | 0.000000 |
+| Persona contenida en bbox | 0.087003 | 0.083333 | 0.050000 |
+| Separación vertical | 0.500000 | 0.500000 | 0.166667 |
+| Tamaños muy distintos | 0.371498 | 0.038873 | 0.010000 |
+| Borde de imagen | 0.200000 | 0.010000 | 0.000000 |
+| Mismo nivel inferior, dentro del segmento | 0.110000 | 0.000000 | 0.000000 |
+| Varias personas, izquierda | 0.360000 | 0.110000 | 0.090000 |
+| Varias personas, centro | 0.050000 | 0.000000 | 0.000000 |
+| Varias personas, derecha | 0.340000 | 0.090000 | 0.070000 |
+
+Se revisó una lámina A/B y se comprobó que los trece resultados B coinciden con la
+función canónica. Los casos y coordenadas B están en `test_proximity_geometry.py`.
+A añade separación horizontal hasta el centro aun cuando la persona está junto
+al extremo del vehículo. B conserva la separación vertical, evita ese efecto y
+es continua al cruzar los extremos del segmento (clamp, sin saltos discretos).
+Si el segmento sigue cubriendo el anchor, ampliar su ancho no inventa distancia
+horizontal. C depende de bordes superiores/laterales de la persona y colapsa a
+cero en solapamientos por perspectiva, sin respetar necesariamente los apoyos.
+La elección responde a la interpretación geométrica y visual, no a generar más eventos.
+
+Definición canónica, para frame W×H y cajas xyxy:
+
+```text
+px = (person.x1 + person.x2) / 2; py = person.y2
+fx = clamp(px, equipment.x1, equipment.x2); fy = equipment.y2
+d = hypot((px - fx) / W, (py - fy) / H)
+```
+
+Versión: `person_bottom_center_to_equipment_ground_edge_v1`.
+`person_to_equipment_ground_edge` acepta cajas, sin clase/modelo de equipo.
+El analizador selecciona los roles configurados y conserva distancia, versión y
+puntos; la regla los consume, el renderer los convierte a píxeles y el candidato
+los transporta. No se recalcula la distancia en reglas, renderer ni Backend.
+Las distancias descriptivas OP-37 entre objetos ajenos a esos roles siguen siendo
+su observación genérica previa: no son una alternativa A seleccionable para esta
+regla. La regla rechaza una medición de roles sin el contrato B esperado.
+Se propagan los roles desde la configuración a los orquestadores, sin cambiar JSON
+de perfiles ni hacer una generalización de MOBILE_EQUIPMENT.
+
+`observations.proximity_geometry` añade versión, `person_anchor` y `equipment_target`
+normalizados a eventos nuevos; el candidato transitorio contiene el mismo snapshot.
+El Backend admite el snapshot completo o el payload histórico sin él, sin rellenar
+campos retrospectivamente. Un retry que intenta añadir geometría a un evento ya
+guardado entra en conflicto, no lo modifica. No se migran columnas/filas: los JSON
+existentes soportan el dato opcional. CSV nuevos del analizador incluyen versión y
+extremos; archivos históricos permanecen intactos.
+
+**Umbrales sin retuning.** B≤A por construcción para estas cajas: conservar el
+número de `max_distance` puede admitir más pares, iniciar antes o prolongar una
+condición. Tampoco se asume equivalencia de episodios/duración entre A y B.
+No se cambiaron max_distance, duraciones, versiones de reglas configuradas ni
+perfiles. Esto **no acredita que los umbrales anteriores estén calibrados para B**;
+cualquier recalibración será posterior, con datos de desarrollo y versión explícita.
+Las demos siguen sin habilitar la regla de pares.
+
+Limitaciones: el borde inferior de una bbox no es la huella física del vehículo;
+oclusiones, perspectiva, altura o imprecisión de cajas pueden desplazarlo. B puede
+dar cero si ambos puntos coinciden: no demuestra contacto ni ocupancia. No permite
+distinguir operador/peatón, no suprime personas y no mide metros ni riesgo. No hay
+evidencia de superioridad física/operacional sobre escenas reales ni calibración
+de cámara. No se incorporó truck ni un selector A/B productivo.
+
+Regresión final: **394 tests Motor: 392 PASS + 2 SKIP**, **123/123 Backend en
+Docker/PostgreSQL**, **30/30 Frontend** sin cambios de interfaz. La suite Backend
+incluye su Django check; migrations check confirmó que no hay cambios de esquema.
+Ambos pip check y Compose config aprobaron. La base nativa no estaba disponible
+en el entorno conocido: esta campaña usa PostgreSQL de QA aislado, no presenta
+una suite nativa como aprobada ni modifica `.env`.
+
+Las pruebas cubren anchor, clamp interior/ambos extremos, normalización y resize,
+overlap/contención, cero, bordes, ancho/tamaños distintos, roles/IDs y orientación
+invertida, rechazo de geometría sin versión y endpoints del renderer. Los fixtures
+de límite de regla desplazan el bbox para que **el borde**, no el centro, quede
+exactamente a 0,25; se preservan los umbrales y las assertions de igualdad/límite.
+No se debilitan tests para admitir una distancia fuera del rango configurado.
+
+E2E con percepción fixture y worker real: la distancia y los dos puntos/versiones
+coinciden entre regla, recibo del renderer, candidato, JSON persistido e histórico.
+El PNG decodificado coincide por hash de píxeles con el frame anotado; el MP4 se
+verifica decodificando el resultado. Dos pares emiten una vez bajo el fixture
+existente 0,25/1 s, sin reajuste. Una reproducción B adicional, 1000×600 / 30 FPS,
+se abrió y decodificó 60/60 frames con una emisión sostenida; su encoder fue MSMF
+tras el aviso OpenH264 ya conocido. Lámina comparativa, JSON y MP4 permanecen fuera
+de Git. No es evaluación de percepción ni confirmación de incidentes reales.
+
+Se conservaron modelos, pesos/hashes, confidence, NMS, ByteTrack, tolerancia temporal
+numérica, reglas habilitadas, zonas, archivos de perfiles, holdouts, TEST2 y
+REAL_HOLDOUT_V2. No hubo entrenamiento, tuning, acceso a Excel, cambios de arquitectura,
+main o tags. Los recursos desechables de PostgreSQL de QA se retiran al finalizar.

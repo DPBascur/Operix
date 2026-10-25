@@ -402,12 +402,20 @@ Esta integración es experimental en A/B/C; no acredita
 validación industrial, rendimiento sostenido ni cobertura general.
 
 Cuando una regla `person_forklift_proximity` está habilitada, ambos orquestadores
-dibujan los episodios activos usando sus evaluaciones reales: puntos inferiores
-centrales, distancia `norm`, IDs, duración/mínimo y estado. No son metros ni una
+dibujan los episodios activos usando sus evaluaciones reales: centro inferior
+de PERSON y punto más cercano del borde inferior del equipo, distancia `norm`,
+IDs, duración/mínimo y estado. No son metros ni una
 confirmación de incidente. El MP4 y el PNG del worker comparten la imagen anotada.
 Se muestran hasta cuatro relaciones habituales, con prioridad a las satisfechas;
 las emisiones del frame no se ocultan por ese límite. No se activan reglas en los
 perfiles demo por incorporar el overlay. Véanse [semántica, revisión histórica y límites](evidence/ETAPA4-TECHNICAL-AUDIT.md#13-proximidad-y-visualización-operacional--25-10-2026).
+
+La geometría vigente es `person_bottom_center_to_equipment_ground_edge_v1`:
+se conserva junto a los puntos en `observations.proximity_geometry` de eventos
+nuevos. Los históricos sin versión no se reinterpretan. **Los umbrales anteriores
+no son automáticamente equivalentes con esta geometría**: sus valores no se han
+recalibrado. La [comparación A/B/C y decisión](evidence/ETAPA4-TECHNICAL-AUDIT.md#14-decisión-geométrica-de-proximidad--25-10-2026)
+documenta alcance y limitaciones.
 
 ## Preparación exploratoria de anotaciones NVIDIA
 
