@@ -434,3 +434,89 @@ en esta fase documental. TEST2 y REAL_HOLDOUT_V2 no se abrieron; YouTube conserv
 **`PERSON_MODEL_EVALUATION_NOT_STARTED`**: no hubo inferencia, selección de modelos,
 calibración ni entrenamiento. El freeze del conjunto y el del protocolo siguen
 siendo pasos previos obligatorios a cualquier evaluación.
+
+## Freeze PERSON final v2 — deduplicación pre-evaluación — 24-10-2026
+
+Tras el QA anterior, la decisión humana autorizó **exact binary duplicate removal
+before locked evaluation**, sin sustituir frames ni modificar cajas. La regla
+`FIRST_STABLE_OCCURRENCE_BY_FAMILY_AND_FRAME` ordena familia y nombre de frame
+ascendentemente, conservando la primera aparición por SHA-256. Se retiene
+`HOLDOUT_PERSON_101_frame_000145.png` y se excluye solo de evaluación
+`HOLDOUT_PERSON_104_frame_000000.png`, por `EXACT_SHA256_DUPLICATE`.
+La coincidencia binaria y las cero cajas de ambos se revalidaron. No se elimina
+un «frame malo» ni se usa ninguna predicción, dificultad o resultado de modelo.
+
+| Familia | Originales | Evaluables | Positivos | Negativos | Cajas PERSON |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `101` | 20 | 20 | 12 | 8 | 36 |
+| `102` | 20 | 20 | 17 | 3 | 54 |
+| `103` | 12 | 12 | 11 | 1 | 20 |
+| `104` | 20 | 19 | 14 | 5 | 33 |
+| `105` | 20 | 20 | 13 | 7 | 25 |
+| **Total** | **92** | **91** | **67** | **24** | **168** |
+
+Los 91 registros evaluables tienen **91 SHA-256 únicos**. Se mantienen 42 frames
+multipersona y máximo de 10 personas/frame. El manifest final conserva también
+el registro excluido, con su motivo y referencia al retenido. Todos los archivos
+originales continúan presentes; los 147 inputs del QA anterior conservan sus
+hashes, incluidos los cinco ZIP y JSON COCO. Categorías, cobertura de los 92
+originales, IDs, dimensiones, geometría y conteos se revalidaron sin decodificar
+imágenes ni modificar coordenadas.
+
+Daniel Peña atestó anotación manual, sin preanotaciones, YOLO, SAM, detector
+auxiliar, generación de cajas mediante modelos ni corrección automática de GT.
+La política humana de extensión visible conserva operadores distinguibles,
+oclusiones reconocibles, cajas separadas para personas superpuestas y negativos
+de frame completo. No se afirma doble anotador, acuerdo entre anotadores ni
+revisión profesional externa. Esta afirmación se limita a la producción de GT;
+no pretende negar cualquier asistencia general en el proceso.
+
+La atestación de independencia se limita al **desarrollo controlado de Operix**:
+el conjunto no se usó para training, fine-tuning, calibration, confidence/NMS/rule
+threshold selection, model selection, development diagnostics ni performance tuning;
+ningún modelo del proyecto accedió a los frames finales antes del freeze.
+No se puede demostrar que las escenas nunca aparecieron en preentrenamiento
+externo. Se revalidaron por hash los **39 manifiestos / 16.180 filas** del contraste
+anterior y se repitieron las comprobaciones disponibles de hashes, nombres e
+identidades registradas: **cero coincidencias**. Se preservan las limitaciones
+documentales de cobertura y procedencia débil del material previo.
+
+Provenance y derechos: fuentes DVIDS y evidencia individual archivada sin cambios,
+incluidos videos, manifests, sampling, créditos y advertencias de derechos.
+No se afirman permisos de imagen/personality adicionales. La política histórica
+con gates antes pendientes no se reescribe: la atestación posterior queda sellada
+como parte de este nuevo freeze explícitamente autorizado.
+
+Los siguientes artefactos permanecen **fuera de Git**, bajo el root local del holdout:
+
+- `final/holdout-freeze-manifest.json`: estado `FROZEN`, 92 registros originales,
+  partición evaluable/excluida, decisiones, coordenadas humanas originales, hashes,
+  QA, provenance, atestaciones, fecha y herramientas.
+- `final/person-evaluation-manifest.json`: únicamente los 91 registros evaluables,
+  vinculados al hash del manifest final; acceso a modelos aún deshabilitado.
+- `06-freeze/frozen-exclusion-register.json`: protege las cinco familias y todos
+  los registros originales de los usos de desarrollo excluidos, incluido el duplicado.
+- `06-freeze/pre-freeze-attestations.json`: declaraciones humanas posteriores.
+- `06-freeze/person-final-holdout-v2-freeze.json`: recibo y hashes de los artefactos sellados.
+
+**`PERSON_FINAL_HOLDOUT_V2_FREEZE_SHA256`**:
+`A71F2558BB5C2A8DF580B6A2908860A9A89F729487BA1C904A14F37C5ADC5339`.
+Es un hash nuevo; `670E5314…` sigue identificando exclusivamente el candidato previo.
+La serialización canónica es JSON UTF-8, claves ordenadas, separadores compactos,
+sin NaN y LF terminal. Se comprobó su igualdad byte a byte al reserializar y al
+invertir el orden de inserción de las claves; no depende del orden del diccionario.
+
+Tooling: `engine/scripts/freeze_person_coco_holdout.py`, separado del flujo histórico
+con labels normalizados. La verificación comprueba los artefactos sellados,
+**151 inputs vinculados** y hashes de los 39 manifests de exclusión. Rechaza
+sobrescrituras, atestaciones incompletas, inputs alterados, leakage y anotaciones
+incompatibles entre imágenes idénticas. **7/7 tests sintéticos nuevos y 6/6 tests
+existentes del holdout**, sin modelos reales; validación del freeze y determinismo PASS.
+
+Resultado: **`PERSON_FINAL_HOLDOUT_V2_FROZEN` + `91_UNIQUE_EVALUATION_IMAGES`**.
+**NO MODEL INFERENCE BEFORE FREEZE.** Tampoco se ejecutaron modelos después:
+**`PERSON_MODEL_EVALUATION_NOT_STARTED`**. No se calcularon precision/recall ni se
+calibró ningún parámetro. Antes de evaluar debe congelarse `PERSON EVALUATION PROTOCOL V1`.
+Cualquier cambio posterior de cajas, membership, sampling, política o deduplicación
+exige `PERSON_FINAL_HOLDOUT_V3` u otro identificador. TEST2 y REAL_HOLDOUT_V2 intactos;
+YouTube continúa `DIAGNOSTIC_ONLY` y TEST3 `DEVELOPMENT_DIAGNOSTIC`.

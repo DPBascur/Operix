@@ -1,6 +1,50 @@
 # Holdout independiente PERSON — protocolo de adquisición
 
-## Estado de QA posterior a la anotación humana — 24-10-2026
+## Estado vigente: freeze posterior a deduplicación pre-evaluación — 24-10-2026
+
+**`PERSON_FINAL_HOLDOUT_V2_FROZEN`**, con **91 imágenes evaluables únicas**:
+67 positivas, 24 negativas, 168 cajas `person` y cinco familias de fuente.
+Los **92 registros muestreados originalmente** se preservan. La decisión humana
+posterior al QA autoriza `FIRST_STABLE_OCCURRENCE_BY_FAMILY_AND_FRAME`: ordenar
+familia y nombre de frame de forma ascendente y conservar la primera aparición
+de cada SHA-256. Se retiene `HOLDOUT_PERSON_101_frame_000145.png`; se excluye solo
+de evaluación `HOLDOUT_PERSON_104_frame_000000.png`, por `EXACT_SHA256_DUPLICATE`.
+Ambos son negativos humanos. No se reemplaza ni elimina físicamente ningún frame,
+ni se modifica sampling, ZIP, export o caja humana. No se usó rendimiento de
+modelos, predicciones o dificultad para tomar esta decisión.
+
+La atestación posterior de Daniel Peña cubre anotación manual sin generación ni
+corrección automática de cajas y ausencia de uso del conjunto en entrenamiento,
+fine-tuning, calibración, selección de confidence/NMS/reglas/modelos, diagnóstico
+de desarrollo o ajuste de rendimiento **dentro del proceso controlado de Operix**.
+No afirma ausencia en preentrenamiento externo, segundo anotador, acuerdo entre
+anotadores o revisión profesional independiente. La política histórica y el QA
+`STOP_FREEZE` previo se conservan por hash; la nueva declaración y la decisión
+de deduplicación quedan vinculadas al freeze, sin reescribir esos antecedentes.
+
+Herramienta específica para COCO original: `engine/scripts/freeze_person_coco_holdout.py`.
+Conserva todas las coordenadas humanas y publica manifiestos, no labels derivados.
+No sustituye silenciosamente el formato ni los gates del tooling histórico.
+Su validación es independiente de `freeze_person_independent_holdout.py` y de su
+flujo anterior sin deduplicación. Para este conjunto usar:
+
+```powershell
+python -B engine/scripts/freeze_person_coco_holdout.py --root <HOLDOUT_ROOT_FUERA_DE_GIT> --verify
+```
+
+Identidad canónica `PERSON_FINAL_HOLDOUT_V2_FREEZE_SHA256`:
+`A71F2558BB5C2A8DF580B6A2908860A9A89F729487BA1C904A14F37C5ADC5339`.
+Se calcula sobre `final/holdout-freeze-manifest.json`: UTF-8, claves ordenadas,
+separadores compactos, sin NaN y un LF terminal. El hash se guarda en un recibo
+separado para evitar autorreferencia. Cualquier cambio posterior de cajas,
+membership, sampling, política o deduplicación requiere `PERSON_FINAL_HOLDOUT_V3`
+u otro identificador. No se sobrescribe un freeze existente.
+
+**`PERSON_MODEL_EVALUATION_NOT_STARTED`**. El próximo paso es congelar
+`PERSON EVALUATION PROTOCOL V1`; este freeze no fija matching ni thresholds y no
+autoriza todavía inferencia. [Resultado y artefactos](etapa3-experimentos.md#freeze-person-final-v2--deduplicación-pre-evaluación--24-10-2026).
+
+## Antecedente: QA posterior a la anotación humana — 24-10-2026
 
 Las cinco tareas `HOLDOUT_PERSON_101`–`105` ya fueron completadas por Daniel Peña.
 Se conciliaron **92/92 registros**, con **168 cajas `person`**, 67 frames positivos,
@@ -9,7 +53,7 @@ visibles, oclusiones reconocibles y cajas separadas para personas superpuestas.
 La finalización y ausencia de asistencia de modelos se registran como declaración
 humana; no hubo segundo anotador ni medición de acuerdo entre anotadores.
 
-**Decisión vigente: `STOP_FREEZE`.** Se encontró un frame idéntico entre familias:
+**Decisión de aquel QA previo: `STOP_FREEZE`.** Se encontró un frame idéntico entre familias:
 `HOLDOUT_PERSON_101_frame_000145.png` y `HOLDOUT_PERSON_104_frame_000000.png`,
 ambos negativos humanos. Hay 92 registros y **91 SHA de imagen únicos**.
 Esto no demuestra error de anotación ni una misma escena, pero el freeze existente
@@ -24,7 +68,7 @@ training/development y atestación de no acceso previo de modelos. No se invent�
 una atestación de independencia a partir de la ausencia de coincidencias.
 
 Se archivaron QA, extracción COCO sin alteraciones, atestación humana, registro de
-exclusión y un **manifest candidato**, todos fuera de Git. No existe manifest
+exclusión y un **manifest candidato**, todos fuera de Git. En ese momento no existía manifest
 congelado ni identificador de freeze. Los ZIP, imágenes, muestreo, política y
 fuentes originales conservan sus hashes. La siguiente fase sigue requiriendo
 congelar primero el conjunto y después el protocolo de evaluación, sin inferencia
