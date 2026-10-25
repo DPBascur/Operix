@@ -1,5 +1,37 @@
 # Etapa 3 — matriz de implementación y validación preliminar
 
+## Reconciliación vigente de cierre — 24-10-2026
+
+Base auditada `85c064136233638a2a560357b9a2403086578f73`. Esta sección prevalece
+para lectura del estado actual; el resto conserva los cortes históricos de cada
+campaña. No se consultó ni modificó el Product Backlog `.xlsm`, ni se recalculó un
+porcentaje académico. [Snapshot](ETAPA3-PROJECT-STATE.md), [índice](README.md) y
+[handoff factual](ETAPA3-BACKLOG-HANDOFF.md).
+
+| Requisito | DESIGN | IMPLEMENTATION | VALIDATION / pendiente |
+| --- | --- | --- | --- |
+| RF-01 | Ingreso de video | Lectura, upload/demo, sesión y worker | Tests secuenciales y E2E controlados; formatos/entornos acotados |
+| RF-02 | Percepción de personas/equipos móviles | Canales PERSON + FORKLIFT | Evaluación PERSON V1 ejecutada y sellada; CURRENT con baja generalización; FORKLIFT validation propia. No fiabilidad industrial general |
+| RF-03 | IDs temporales | ByteTrack por clase, identidad compuesta | Tests de continuidad y revisión de clips; falta GT MOT formal |
+| RF-04 | Zonas configurables | Config/edición normalizada, geometría y pertenencia | Unitarios/fixtures; geometría operacional por validar con experto |
+| RF-05 | Reglas sobre objetos/zona/tiempo | zone_dwell y person_forklift_proximity | Episodios, límites y pares probados; validez de thresholds/contexto sigue pendiente |
+| RF-06 | Evento con metadata/evidencia | Journal, HTTP, PostgreSQL, PNG y resultado temporal MP4 | E2E fixture y demo GPU previos; recuperación acotada, sin transacción distribuida |
+| RF-07 | Consulta por tiempo/tipo | Filtros API y Web para dos tipos | Carga mixta conciliada; sin garantía industrial de escala |
+| RF-08 | Indicadores históricos básicos | Frecuencias UTC/día/tipo y dashboard API | Conteos conciliados; no tasas verificadas de incidentes |
+| RNF-01 | Regla/versión/parámetros trazables | Snapshots, source/run/par/frame, idempotencia | Tests y E2E; ancla UTC proxy explícita; sin inventar cierre de episodio |
+| RNF-02 | Medición con entorno | Instrumentación, benchmark histórico y evidencia posterior | Alcance parcial: métodos distintos, sin tiempo real universal ni nueva campaña |
+| R-01 | Datos autorizados/controlados | Provenance y exclusiones, artefactos fuera de Git | Verificación previa por fuente documentada; no autorización genérica ni nueva auditoría jurídica |
+| R-02 | Confidencialidad/uso académico | Loopback, separación de datos, retención manual | PARTIAL: acceso/auth/retención operacional definitivos pendientes |
+| R-03 | Sin biometría ni sanciones automáticas | IDs temporales y advertencia de revisión humana | Compatible con alcance implementado; ningún candidato confirma culpa/incidente |
+| PV-01 | Parámetros sujetos a contexto | Configuración y snapshots efectivos | PARTIAL: pruebas de límites no sustituyen validación experta |
+| PV-02 | Roles/canales/alertas sujetos a validación | Login/usuarios demo; sin RBAC Backend | Decisión experta pendiente; no se impone una implementación nueva |
+
+Regresión del corte: Motor 351 PASS + 2 SKIP (353 descubiertas), Backend 103/103,
+Frontend 30/30, lint/typecheck/build; Django/migrations/pip y Compose config/smoke
+sintético PASS. Se reutilizan resultados PERSON/Docker/performance sellados y
+documentados; no se ejecutan nuevamente detectores ni conjuntos protegidos.
+Docker local/GPU está validado en el equipo documentado y el modo nativo se conserva.
+
 ## Base y límites
 
 Las secciones anteriores a **Campaign II** conservan la auditoría histórica de

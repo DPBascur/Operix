@@ -1,9 +1,14 @@
 # Etapa 3 — evaluación experimental del pipeline de percepción y eventos
 
-Para el estado transversal al 23-10-2026, pruebas, hardening y pendientes, véase
-la [matriz de validación de Etapa 3](ETAPA3-VALIDATION-MATRIX.md).
-Las campañas siguientes conservan sus configuraciones y resultados históricos;
-no equivalen a una evaluación del holdout PERSON final, aún sin anotación humana.
+Estado transversal vigente: [snapshot técnico](ETAPA3-PROJECT-STATE.md) y
+[matriz de validación](ETAPA3-VALIDATION-MATRIX.md). Las secciones cronológicas
+conservan sus configuraciones, decisiones y resultados históricos; los estados
+de espera de anotación o evaluación pertenecen a sus respectivos cortes.
+La evaluación PERSON V1 posterior está ejecutada y sellada, con una limitación
+importante de generalización de CURRENT_PERSON. Véase la
+[evaluación congelada](#ejecución-person-evaluation-protocol-v1--24-10-2026).
+COCO sigue REFERENCE_BASELINE; PERSON v2 no iniciado/diferido. No se reescriben
+resultados previos ni se vuelven a consultar los conjuntos reservados.
 
 ## Alcance y recursos reproducibles
 
