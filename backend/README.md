@@ -198,3 +198,20 @@ set -a; source .env; set +a
 ```
 
 Las pruebas usan PostgreSQL y crean/destruyen `test_<POSTGRES_DB>`. El Admin registra `Event` solo para inspección: no permite crear, modificar ni borrar eventos desde la interfaz. No hay autenticación ni control de acceso empresarial; no exponer el POST fuera de un entorno de desarrollo controlado.
+
+## PERSON operacional posterior a evaluación
+
+`OPERIX_PERSON_WEIGHTS` debe apuntar al `yolo11n.pt` local cuyo SHA es
+`0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1`.
+El Backend transmite ese hash exacto al worker; otro checkpoint se rechaza.
+`OPERIX_FORKLIFT_WEIGHTS` conserva el specialist v2. Cambiar `.env` requiere
+reiniciar Django; no hay descarga automática ni copia de pesos a Git.
+El operating point PERSON sigue 640 / 0,10 / NMS 0,70, filtro `person`.
+
+Los snapshots de resultado y `source.perception` de eventos nuevos registran
+model_id, weights_sha256, class_filter, imgsz, confidence y nms_iou de ambos canales.
+Los campos de hash anteriores se conservan; metadata histórica sin `perception`
+sigue siendo válida y no se reconstruye. No hay migraciones nuevas.
+La adopción de COCO es ingeniería post-evaluación, no validación independiente
+sobre el holdout ya observado. CURRENT_PERSON anterior conserva su identidad y
+resultados; PERSON v2 sigue diferido. Véase la [decisión y regresión](../engine/evidence/etapa3-experimentos.md#decisión-operacional-person-post-evaluación--25-10-2026).

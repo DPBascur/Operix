@@ -76,15 +76,20 @@ presenta como fecha real de grabación. Los umbrales no son estándares universa
 
 | Configuración | Rol vigente | Resultado y alcance |
 | --- | --- | --- |
-| CURRENT_PERSON, checkpoint adaptado | Configuración primaria evaluada; 640 / confidence 0,10 / NMS 0,70 | Holdout PERSON: precision 0,339, recall 0,119, F1 0,176; limitación importante de generalización |
-| YOLO11n COCO PERSON | REFERENCE_BASELINE, mismo operating point | Precision 0,557, recall 0,899, F1 0,688; desempeño sustancialmente superior en ese conjunto; **no promovido automáticamente** |
+| PRE_EVALUATION_PRIMARY_PERSON (CURRENT_PERSON en el protocolo) | Primaria histórica evaluada; 640 / confidence 0,10 / NMS 0,70 | Holdout PERSON: precision 0,339, recall 0,119, F1 0,176; limitación importante de generalización |
+| YOLO11N_COCO_PERSON | Operacional de desarrollo/finalización, adoptado post-evaluación; mismo operating point | Precision 0,557, recall 0,899, F1 0,688; desempeño sustancialmente superior en ese conjunto; adopción posterior explícita, sin validación independiente nueva |
 | FORKLIFT specialist v2 | Baseline experimental congelado; 640 / confidence 0,45 / NMS 0,55 | Validation propia: TP 273, FP 18, FN 15; no equivale a validación industrial ni al holdout PERSON |
 
 PERSON se evaluó con matching 1:1 IoU ≥0,50 en **91 imágenes únicas**, 67 positivas,
 24 negativas y 168 cajas, conservando los 92 registros originales. Dataset y
 protocolo fueron congelados y los resultados sellados antes de revisar errores.
 Posibles omisiones/ambigüedades del GT limitan la interpretación de FP y negativos;
-no se corrigió el GT ni se recalcularon métricas. **PERSON v2: no iniciado/diferido**.
+no se corrigió el GT ni se recalcularon métricas. La elección posterior de COCO
+es una decisión de ingeniería informada por esos resultados; el mismo holdout
+no constituye validación independiente de la configuración elegida post-hoc.
+**PERSON v2: no iniciado/diferido**.
+La [decisión operacional y regresión](engine/evidence/etapa3-experimentos.md#decisión-operacional-person-post-evaluación--25-10-2026)
+registra la adopción sin reabrir la evaluación.
 Hashes, resultados completos y límites: [evidencia experimental](engine/evidence/etapa3-experimentos.md#ejecución-person-evaluation-protocol-v1--24-10-2026).
 
 ## Repositorio y ejecución nativa
@@ -179,7 +184,8 @@ implícitamente disponibles al clonar. Cada nueva fuente requiere derechos propi
 ## Limitaciones conocidas y alcance ético
 
 - CURRENT_PERSON tiene baja cobertura en el holdout independiente; no es un
-  detector validado industrialmente. COCO sigue siendo referencia y PERSON v2 diferido.
+  detector validado industrialmente. COCO fue adoptado después como configuración
+  operacional de desarrollo, sin nueva validación independiente; PERSON v2 sigue diferido.
 - Validación experta de zonas/umbrales pendiente; distancias de imagen normalizadas
   no son metros ni medidas calibradas de seguridad.
 - ByteTrack depende de detecciones; sin GT MOT no se afirman MOTA/IDF1/HOTA ni

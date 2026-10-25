@@ -10,7 +10,9 @@ Separa integración funcional, persistencia web/CLI y evaluación de percepción
 El [índice de evidencia](evidence/README.md) y el
 [snapshot de Etapa 3](evidence/ETAPA3-PROJECT-STATE.md) resumen el estado vigente:
 evaluación PERSON V1 ejecutada y sellada, con limitación importante de
-generalización de CURRENT_PERSON; PERSON v2 no iniciado/diferido.
+generalización de CURRENT_PERSON, conservado como PRE_EVALUATION_PRIMARY_PERSON.
+Desde la decisión explícita posterior, PERSON operacional es YOLO11N_COCO_PERSON;
+no es una nueva evaluación independiente ni PERSON v2, que sigue diferido.
 
 Flujo conceptual: video → detección → tracking → variables espacio-temporales → reglas configurables → `EventCandidate`. `scripts/evaluate_rules.py` conserva el replay de tracks; `scripts/process_video_events.py` demuestra la cadena desde video en una sola pasada local controlada.
 
@@ -373,9 +375,8 @@ Los comandos, mediciones, IDs y limitaciones de la corrida están en la
 La integración experimental de dos canales puede revisarse localmente con
 `scripts/run_dual_perception.py`. Acepta `--person-weights` y
 `--forklift-weights` como rutas explícitas fuera de Git, junto con sus SHA-256
-esperados. El canal `person` usa únicamente la clase `person` del modelo
-adaptado (`imgsz=640`, confidence `0.10`, NMS IoU `0.70`); descarta su salida
-`forklift`. El canal especializado usa únicamente `forklift` (`imgsz=640`,
+esperados. El canal operacional `person` usa únicamente la clase `person` de YOLO11n COCO (`imgsz=640`, confidence `0.10`, NMS IoU `0.70`); descarta las
+otras clases COCO. COCO no contiene una clase forklift. El canal especializado usa únicamente `forklift` (`imgsz=640`,
 confidence `0.45`, NMS IoU `0.55`). Cada canal mantiene su propio ByteTrack;
 la identidad lógica es `(clase, track_id)`. Los pesos se cargan una vez por
 video. `--disable-person` o `--disable-forklift` permite medir un canal aislado.
@@ -451,6 +452,10 @@ El estado técnico no actualiza automáticamente tareas ni aceptación académic
 Docker es una alternativa local validada con GPU; el modo nativo y su lock se
 conservan. Véanse la [guía Docker](../deployment/docker/README.md) y la
 [validación](evidence/DOCKER-LOCAL-VALIDATION.md). Los resultados del holdout PERSON
-no promueven COCO automáticamente ni autorizan entrenamiento de PERSON v2.
+no promovieron COCO automáticamente: su adopción posterior fue una decisión
+explícita documentada en la [síntesis experimental](evidence/etapa3-experimentos.md#decisión-operacional-person-post-evaluación--25-10-2026).
+PERSON v2 sigue diferido. El CLI diagnóstico conserva argumentos explícitos
+de pesos/hash para trazabilidad de otras corridas; eso no cambia el gate
+operacional de la Web ni reetiqueta checkpoints históricos.
 
 Consulte el [índice de arquitectura](../docs/architecture/README.md) para los artefactos vigentes.

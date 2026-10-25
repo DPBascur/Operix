@@ -7,8 +7,10 @@ de espera de anotación o evaluación pertenecen a sus respectivos cortes.
 La evaluación PERSON V1 posterior está ejecutada y sellada, con una limitación
 importante de generalización de CURRENT_PERSON. Véase la
 [evaluación congelada](#ejecución-person-evaluation-protocol-v1--24-10-2026).
-COCO sigue REFERENCE_BASELINE; PERSON v2 no iniciado/diferido. No se reescriben
-resultados previos ni se vuelven a consultar los conjuntos reservados.
+En el protocolo sellado COCO conserva su rol histórico REFERENCE_BASELINE. Su
+[adopción operacional posterior](#decisión-operacional-person-post-evaluación--25-10-2026)
+es una decisión separada; PERSON v2 sigue diferido. No se reescriben resultados
+previos ni se vuelven a consultar los conjuntos reservados.
 
 ## Alcance y recursos reproducibles
 
@@ -795,3 +797,88 @@ No hubo tuning, sweeps, nuevos modelos o entrenamiento de PERSON v2. CURRENT_PER
 no se sustituye. TEST2 y REAL_HOLDOUT_V2 no se abrieron. El holdout ya fue consultado:
 un desarrollo posterior que use sus resultados no puede presentarlo como evaluación
 final independiente no observada. PV-01 y validación experta siguen pendientes.
+
+## Decisión operacional PERSON post-evaluación — 25-10-2026
+
+Base: `f921c2f24215a4c738d63e7bd95720bccce81995`.
+Integración: `a2041c25bf5bc854f5b5aab069df01c6ccdfbf7a`.
+**PERSON_POST_EVALUATION_OPERATIONAL_DECISION_CLOSED + YOLO11N_COCO_PERSON_OPERATIONAL
++ INTEGRATION_REGRESSION_PASS + INDEPENDENT_VALIDATION_NOT_CLAIMED**.
+
+Tras la evaluación preliminar congelada, el baseline genérico YOLO11n COCO mostró
+un comportamiento considerablemente más adecuado para la continuidad operacional
+del prototipo. En consecuencia, se adoptó posteriormente como configuración
+PERSON de desarrollo/finalización. Esta elección es una decisión de ingeniería
+posterior a la evaluación y no una nueva validación independiente sobre el mismo
+holdout. No acredita seguridad industrial ni elimina la necesidad de validación final.
+
+| Identidad | Estado / configuración |
+| --- | --- |
+| YOLO11N_COCO_PERSON | Operacional post-evaluación: `yolo11n.pt`, SHA `0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1`; imgsz 640, confidence 0,10, NMS 0,70, filtro person |
+| PRE_EVALUATION_PRIMARY_PERSON | Checkpoint anterior, llamado CURRENT_PERSON en el protocolo: SHA `21766a9dc664fac06da3b0b457e0449f25e1696acbf8e7e39993c4b42282083f`; archivo y resultados conservados |
+| FORKLIFT_SPECIALIST_V2 | Sin cambio: SHA `1465105ea80737ddc65d72e97d6dc24fc253995a98d6d4eea9b377fe3a8edce6`; 640 / 0,45 / NMS 0,55, filtro forklift |
+| PERSON v2 | DEFERRED; no es el nombre del modelo COCO ni se entrenó |
+
+Se encontró una copia local COCO válida y se verificó SHA antes de cambiar
+configuración. No se descargó ni copió al repositorio. La Web mantiene gate de
+hash exacto: cambiar solo la ruta a otro `.pt` no lo admite. El CLI diagnóstico
+conserva su verificación explícita por hash para reproducir checkpoints históricos;
+nombrar un checkpoint no sustituye ni relaja esa comprobación.
+Ultralytics sigue 8.4.146 en los entornos fijados, sin nuevas dependencias.
+
+Los resultados sellados siguen siendo CURRENT TP20/FP39/FN148 y COCO
+TP151/FP120/FN17 bajo el protocolo original. El dataset freeze
+`A71F2558BB5C2A8DF580B6A2908860A9A89F729487BA1C904A14F37C5ADC5339`
+y el protocolo
+`C2012598048352B9681031301AD4EC76667CA982D2C7D32F64ECECA7D835496F`
+no se alteraron ni se verificaron accediendo de nuevo a imágenes/GT. No se recalcula
+F1, no se usa el holdout para confirmar independientemente la elección observada.
+
+### Regresión de integración, no evaluación de detector
+
+Muestra elegida de antemano: demo A `warehouse_fire_ceiling04.mp4`, SHA
+`3ABE9043EE41F898D869890E8636B804186BFAF524DAEA2E6F6831E72711F4D6`.
+Mismo JSON operativo de demo A, reglas y thresholds sin cambios; ByteTrack sin tuning.
+
+- **Nativo/CUDA:** 277/277 frames; PERSON 1.088 detecciones en 277 frames,
+  644 observaciones de tracking y 8 IDs. FORKLIFT 277 detecciones/observaciones,
+  1 ID. Cuatro candidatos. Son conteos, no TP/FP ni métricas de exactitud.
+- Se observan 4 huecos de continuidad PERSON, 15 frames de gaps según el resumen;
+  no se reinterpretan como ID switches confirmados ni se ajusta ByteTrack.
+- **Docker GPU/Web API:** 277/277 frames, 4 candidatos, 4 eventos guardados,
+  0 fallos de publicación y 0 registros inválidos. Histórico y PNG recuperados;
+  MP4 H.264 1920×1080, 30 FPS, 277 frames decodificables y 3.041.685 bytes.
+- PNG SHA: `68FE8E0FA3764B987527A36CFC5EC83D522D9CC0FD9D642B27A96D43EC494188`.
+  MP4 SHA: `F16598A0810D99F01F2087D91F36A0E65D390CF94492B2F5D8AF13FDF781EB28`.
+- El ejemplo A habilita zone_dwell. `person_forklift_proximity` se comprobó con
+  integración fixture del worker/reglas/journal/HTTP/PostgreSQL: roles, distancia,
+  duración y PNG correctos, dos eventos de pares y metadata COCO preservada.
+  No se afirma que los cuatro eventos de la demo sean pares ni se activó una
+  regla para forzarlos. Operador ↔ forklift sigue pendiente de campaña propia.
+
+`source.perception` y el snapshot de resultado registran model_id, weights_sha256,
+class_filter, imgsz, confidence y nms_iou de ambos canales. Los hashes anteriores
+se conservan y la metadata histórica sin ese objeto continúa válida. No hay
+migraciones ni reconstrucción de identidades antiguas.
+
+Regresión: Motor **356 descubiertas: 354 PASS + 2 SKIP**; Backend nativo y Docker
+**106/106** cada uno, incluidas las integraciones fixture; Frontend **30/30**,
+lint/typecheck/build PASS. Django check, migration check sin cambios, pip check
+nativos y Compose config CPU/GPU PASS. La API nativa se reinició sin workers
+activos para cargar la nueva ruta; health 200. El checkpoint anterior conserva
+su hash. No se modificó Frontend ni contratos de reglas/tracking.
+
+Imagen Backend validada:
+`sha256:288a56f35dcbe634856ff8f1935f94e90d08b6ee92076d69690d11fbd5cf5d5a`.
+Se construyó antes del commit con estos cambios productivos; no representa el
+árbol limpio del SHA base. Pesos individuales read-only, fuera de imagen/Git.
+Logs, recibo y outputs quedan fuera de Git en la campaña local
+`person-post-evaluation-2026-10-25/`. No se versionan rutas personales, medios ni
+predicciones. El proyecto Docker QA usa DB/volúmenes propios y se retira después
+de verificar las salidas; no se toca CVAT ni se importa la DB nativa.
+
+Los snapshots y auditorías anteriores mantienen su corte histórico; esta sección
+registra el cambio posterior. No se abrió PERSON_FINAL_HOLDOUT_V2, TEST2 o
+REAL_HOLDOUT_V2, no hubo sweeps, entrenamiento, nuevos thresholds o selección de
+videos según resultados. Esta regresión prueba integración, no nueva validación
+independiente ni cierre de los demás hallazgos de Etapa 4.

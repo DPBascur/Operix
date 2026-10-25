@@ -48,10 +48,16 @@ docker compose -f compose.yaml -f compose.gpu.yaml exec backend python -c "impor
 `OPERIX_PERSON_WEIGHTS_HOST` y `OPERIX_FORKLIFT_WEIGHTS_HOST` son archivos
 individuales existentes, montados read-only como `/data/weights/person.pt` y
 `/data/weights/forklift.pt`. No se crean rutas ausentes automáticamente.
-CURRENT PERSON conserva SHA `21766a9dc664fac06da3b0b457e0449f25e1696acbf8e7e39993c4b42282083f`,
-640 / 0,10 / NMS 0,70 y su limitación de generalización ya medida. FORKLIFT v2
+PERSON operacional es YOLO11N_COCO_PERSON (`yolo11n.pt`), SHA
+`0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1`,
+640 / 0,10 / NMS 0,70, filtro `person`. Es adopción explícita posterior a la evaluación,
+no validación independiente nueva. El checkpoint adaptado anterior se conserva
+como PRE_EVALUATION_PRIMARY_PERSON con sus resultados históricos. FORKLIFT v2
 conserva SHA `1465105ea80737ddc65d72e97d6dc24fc253995a98d6d4eea9b377fe3a8edce6`,
-640 / 0,45 / NMS 0,55. COCO no se promueve a producción.
+640 / 0,45 / NMS 0,55. No se cambia ByteTrack ni reglas.
+Para actualizar una instalación existente, apuntar OPERIX_PERSON_WEIGHTS_HOST al
+archivo COCO verificado, reconstruir Backend y recrearlo. Los recibos Docker
+anteriores describen el modelo de aquella fecha y no se modifican.
 
 `OPERIX_INPUT_HOST` apunta solo a demos autorizadas; por defecto `assets/demo`.
 No montar `Operix-experiments`, PERSON_FINAL_HOLDOUT_V2, TEST2, REAL_HOLDOUT_V2
