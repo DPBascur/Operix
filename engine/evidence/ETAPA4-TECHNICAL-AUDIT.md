@@ -732,3 +732,116 @@ no demuestra contacto físico, operador, ocupación, colisión ni Near Miss.
 Se conservan las limitaciones de bbox, perspectiva, oclusión y falta de calibración.
 No hubo entrenamiento, acceso a holdouts, TEST2 o REAL_HOLDOUT_V2, cambios de
 modelos/pesos, confidence/NMS, ByteTrack, frontend, main, tags, Excel o arquitectura.
+
+## 16. Continuidad observada y ocupancia — 25-10-2026
+
+Base: `feecd73e26f3f9e8764a44983e7984ded25fefbd`, `dev` limpio y sincronizado.
+Resultado: **TRACKING_CONTINUITY_CHARACTERIZED** y
+**OCCUPANT_ASSOCIATION_DESIGN_ONLY**. Se añaden pruebas y esta evidencia; no se
+cambia código productivo, geometría D, umbrales, perfiles ni reglas habilitadas.
+
+### Interrupciones de observación
+
+Fixtures deterministas con analizador y reglas reales: 10/30/60 FPS, pérdidas de
+1/3 frames, PERSON o FORKLIFT ausente, fluctuación de detección, desaparición,
+recuperación con el mismo ID, cambio de ID sin intervalo vacío y salida observada
+del umbral. La condición sostenida usa el máximo 0,25 y mínimo 1 s del fixture
+de integración existente; no son una calibración operacional nueva. El reporte
+local conserva 42 combinaciones, sus observaciones por frame y emisiones.
+
+| Entrada conocida del fixture | Comportamiento actual |
+| --- | --- |
+| Pareja continua | Una emisión al alcanzar 1 s; las observaciones siguientes no duplican el candidato. |
+| TRACK LOSS / DETECTION GAP / OBJECT DISAPPEARANCE | La pareja queda sin observación, se cierra el episodio y no se acredita duración durante el hueco. |
+| Recuperación del mismo ID | Nuevo episodio desde duración cero; si vuelve a cumplir 1 s, emite con otra `episode_key`. |
+| TRACK ID CHANGE | No se une por proximidad de cajas; la nueva identidad inicia otro episodio. |
+| RULE EXIT observado | `outside_distance`; la reentrada inicia legítimamente un episodio nuevo. |
+| Dos PERSON cercanas, pérdida de una | La otra conserva su episodio y no vuelve a emitir; no se mezclan identidades. |
+
+Para FPS `f`, el fixture emite inicialmente en `f`, interrumpe en `f+3`, recupera
+en `r=f+3+g` y vuelve a emitir en `r+f`. La duración reinicia en cero en `r`:
+se pierde la acumulación previa, no solo los `g` frames. Un hueco de 1/3 frames
+equivale a 100/300 ms a 10 FPS, 33,33/100 ms a 30 FPS y 16,67/50 ms a 60 FPS.
+ByteTrack real, sin YOLO, recupera el mismo ID tras 1/3 actualizaciones vacías;
+no emite un track observado durante ellas. Tras 35 actualizaciones vacías el ID
+anterior expira y la nueva detección requiere reconfirmación, sin resucitarlo.
+El buffer vigente de 30 frames no representa una duración universal entre FPS.
+
+Se revisó únicamente el JSONL ya existente de la demo de desarrollo A, sin nueva
+inferencia: 277 frames, 644 observaciones PERSON / 8 IDs y 277 FORKLIFT / 1 ID.
+SHA-256 del JSONL: `fbc4302a6cc48183e855b495e589fba2a2fc40db7e55c278b118998602898b4d`.
+Huecos internos entre primera y última observación del mismo ID:
+
+| PERSON ID | Frames ausentes (inclusivos) | Frames | Duración a 30 FPS |
+| --- | --- | ---: | ---: |
+| 4 | 60 | 1 | 0,0333 s |
+| 4 | 62–73 | 12 | 0,4000 s |
+| 5 | 73 | 1 | 0,0333 s |
+| 5 | 212 | 1 | 0,0333 s |
+
+Son 15 observaciones-ID ausentes en 14 frames distintos, con recuperación del
+mismo ID; FORKLIFT no tiene huecos internos. No se atribuyen a oclusión, salida
+real o ID switch sin anotación física. El cache corresponde a `zone_dwell` y
+respalda únicamente esta caracterización de tracking, no eventos nuevos de
+proximidad ni una evaluación de D. Sus puntos históricos no se reinterpretan.
+
+**Sin gracia ni reconciliación automática.** La fragmentación es reproducible,
+pero observaciones idénticas pueden ocultar permanencia o una salida real durante
+el hueco. Unir por posición también puede mezclar personas cercanas. Dos emisiones
+tras recuperar observación son episodios observados diferentes, no duplicados de
+transporte; la idempotencia existente se conserva. El mínimo paso futuro sería
+registrar una relación diagnóstica de hueco con el mismo ID, sin sumar tiempo ni
+fusionar eventos, y contrastarla con anotaciones de desarrollo antes de autorizar
+cualquier tolerancia. No se añade ahora un token, umbral o framework innecesario.
+
+### Ocupancia y supresión adversarial
+
+Los fixtures cubren cabina aparente, peatón delante, costado con overlap, detrás
+por perspectiva, ocupante parcial, dos personas, ocupante más peatón y PERSON
+contenida en F1 próxima a F2. Los roles físicos son hipótesis del fixture, no
+ground truth de personas reales. Se miden contención, posición relativa, overlap,
+distancia D y contención en una cabina anotada **solo para ese fixture**. No hay
+ROI universal, ni umbral productivo nuevo.
+
+Ocupante aparente y peatón proyectado delante/detrás tienen exactamente las mismas
+observaciones: contención 1, cabina 1, posición relativa (0,68125; 0,58333) y
+distancia D 0,20833. El peatón lateral tiene contención 0,4 y distancia cero; el
+ocupante parcial tiene contención 1 pero distancia 0,28333. Ninguna de esas
+mediciones confirma un rol. Se comparan seis observaciones estáticas y seis con
+desplazamiento compartido (2,1) por muestra: misma dirección, velocidad relativa
+cero, relación estable y persistencia idéntica también admiten un peatón que
+acompaña al equipo. Esa ventana sintética no establece una duración suficiente
+para inferir ocupancia. Un cambio de ID tras un hueco tampoco prueba continuidad
+física ni permite heredar un rol.
+
+**¿Puede esta heurística ocultar una interacción realmente relevante? Sí.** La
+proyección de un peatón puede ser indistinguible del operador, incluso combinando
+las señales disponibles. Por eso no se introduce `LIKELY_OCCUPANT`, supresión,
+reclasificación ni etiqueta visual. La PERSON y todos sus pares permanecen.
+Una solución futura necesitaría validación independiente de ocupancia, geometría
+de cabina por vista/orientación y criterio humano de falsos descartes; debería
+ser temporal, reversible, trazable y específica P↔F, nunca global sobre PERSON.
+No demostraría identidad, cargo, autorización, culpabilidad ni ausencia de riesgo.
+
+### Integración y regresión
+
+E2E adicional: percepción fixture → ByteTrack → D → regla → candidato → HTTP /
+PostgreSQL → PNG → consulta histórica y MP4. La asociación se omite deliberadamente
+por la decisión DESIGN_ONLY, no se simula una implementación. Con PERSON contenida
+en F1 y próxima a F2 se conservan ambos pares: dos candidatos/eventos, un ID PERSON,
+dos IDs FORKLIFT, puntos/versiones de renderer iguales al evento y ambas evidencias
+accesibles. La suite también conserva la comprobación existente de hash de píxeles
+renderer/PNG, video decodificable, reintentos e idempotencia. No se añade UI.
+
+- Motor: **414 descubiertas, 412 PASS y 2 SKIP** de modelos reales opt-in.
+- Backend completo: **125/125**, incluidos workers reales con percepción fixture,
+  usando PostgreSQL aislado en Docker; no se afirma una ejecución nativa con DB
+  local no disponible. Django check sin incidencias, sin migraciones pendientes.
+- Frontend intacto: **30/30**, lint, typecheck y build aprobados.
+- `pip check`: ambos entornos nativos sin incompatibilidades.
+- Compose CPU/GPU: configuración válida; `git diff --check` aprobado.
+
+Reportes generados permanecen fuera de Git. No hubo inferencia nueva, entrenamiento,
+tuning, lectura de holdouts, TEST2 o REAL_HOLDOUT_V2. Modelos/checkpoints, confidence,
+NMS, ByteTrack, geometría `person_equipment_nearest_ground_edges_v1`, umbrales,
+perfiles, transporte/persistencia productivos, frontend, Excel, main y tags intactos.
