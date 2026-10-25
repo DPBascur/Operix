@@ -1,5 +1,39 @@
 # Holdout independiente PERSON — protocolo de adquisición
 
+## Estado de QA posterior a la anotación humana — 24-10-2026
+
+Las cinco tareas `HOLDOUT_PERSON_101`–`105` ya fueron completadas por Daniel Peña.
+Se conciliaron **92/92 registros**, con **168 cajas `person`**, 67 frames positivos,
+25 negativos y 42 frames con múltiples personas. La política incluye operadores
+visibles, oclusiones reconocibles y cajas separadas para personas superpuestas.
+La finalización y ausencia de asistencia de modelos se registran como declaración
+humana; no hubo segundo anotador ni medición de acuerdo entre anotadores.
+
+**Decisión vigente: `STOP_FREEZE`.** Se encontró un frame idéntico entre familias:
+`HOLDOUT_PERSON_101_frame_000145.png` y `HOLDOUT_PERSON_104_frame_000000.png`,
+ambos negativos humanos. Hay 92 registros y **91 SHA de imagen únicos**.
+Esto no demuestra error de anotación ni una misma escena, pero el freeze existente
+rechaza duplicados exactos entre grupos. No se elude ese gate, no se retira ningún
+frame y no se cambia el muestreo. Requiere una decisión explícita posterior.
+
+El contraste documental de 39 manifiestos locales (16.180 filas, no necesariamente
+únicas) no encontró coincidencias de hashes o identidades registradas. No prueba
+independencia de escenas transformadas ni cobertura de preentrenamiento externo.
+`holdout-policy.json` conserva sus gates sin confirmar: cobertura completa de
+training/development y atestación de no acceso previo de modelos. No se inventó
+una atestación de independencia a partir de la ausencia de coincidencias.
+
+Se archivaron QA, extracción COCO sin alteraciones, atestación humana, registro de
+exclusión y un **manifest candidato**, todos fuera de Git. No existe manifest
+congelado ni identificador de freeze. Los ZIP, imágenes, muestreo, política y
+fuentes originales conservan sus hashes. La siguiente fase sigue requiriendo
+congelar primero el conjunto y después el protocolo de evaluación, sin inferencia
+en esta tarea: **`PERSON_MODEL_EVALUATION_NOT_STARTED`**.
+
+Resultados y hashes: [QA del holdout final](etapa3-experimentos.md#qa-del-holdout-person-final-tras-anotación-humana--24-10-2026).
+
+## Antecedente de adquisición y procedimiento
+
 Este protocolo prepara material **nuevo y reservado** para evaluar detección `person`.
 No incorpora videos de la campaña Keremberke, TEST3, TEST2 ni REAL_HOLDOUT_V2; no
 entrena, calibra, selecciona modelos ni ejecuta inferencia. El ground truth humano

@@ -336,3 +336,101 @@ Daniel confirmó revisión completa de las cinco tareas en CVAT. Cada export COC
 La auditoría de leakage confirma ausencia de duplicados exactos y que TEST3 permanece en un único grupo; **no** puede descartar imágenes de una misma escena Keremberke bajo IDs distintos. Un plan anterior proponía grupos Keremberke para `LOCKED_EVALUATION` basándose solo en IDs por imagen; se invalida expresamente. El tooling ahora exige elegibilidad explícita y procedencia de escena/grupo fuerte para proponer el split y para congelar evaluation. Los 225 registros Keremberke siguen marcados `PENDING_REVIEW` para elegibilidad de split, pese a tener cajas humanas: la revisión de cajas no les otorga independencia de escena. `06-split-planning/split-plan.json` queda `BLOCKED` (seed 42, sin asignaciones) y no existe `final/frozen-evaluation.json`. Por tanto no hay TRAIN/CALIBRATION/LOCKED_EVALUATION aprobados ni un holdout independiente congelado. TEST3 ya influyó en el desarrollo: solo sirve como diagnóstico, nunca como evaluación ciega. Las imágenes Keremberke podrían considerarse para entrenamiento con su limitación documentada, pero no se les asigna automáticamente un split protegido.
 
 **Decisiones:** `PERSON_V2_BLOCKED_BY_PROVENANCE` y `PERSON_EVALUATION_BLOCKED_BY_INDEPENDENT_HOLDOUT`. La anotación humana está completa, pero no aporta independencia de escena ni habilita comparación formal CURRENT_PERSON_MODEL frente a YOLO11N_COCO_PERSON, calibración de thresholds ni entrenamiento v2. No se ejecutó comparación diagnóstica nueva ni inferencia. El siguiente hito requiere material positivo y negativo de fuentes/escenas independientes con procedencia verificable, licencia clara y separación previa de train, calibration y locked evaluation; solo entonces se fijaría una grilla de thresholds y se evaluaría el holdout una vez. Las 48 imágenes TEST3 no sustituyen ese holdout. Detector productivo, FORKLIFT, ByteTrack, reglas, TEST2 y REAL_HOLDOUT_V2 permanecen intactos.
+
+## QA del holdout PERSON final tras anotación humana — 24-10-2026
+
+Daniel Peña declaró completadas manualmente las cinco tareas nuevas, sin
+preanotaciones, detector auxiliar ni asistencia de modelos. Se registra esa
+declaración; no se afirma doble anotación independiente ni acuerdo entre
+anotadores. La política `PERSON_VISIBLE_EXTENT_HUMAN_V1` cuenta toda persona
+distinguible, incluyendo operadores visibles y oclusiones reconocibles, usando
+extensión visible y cajas separadas para personas superpuestas. Un frame revisado
+sin personas es negativo válido. No se alteró ninguna caja humana.
+
+| Familia | Frames | Positivos | Negativos | Cajas `person` | Multipersona | Máximo/frame |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `HOLDOUT_PERSON_101` | 20 | 12 | 8 | 36 | 6 | 7 |
+| `HOLDOUT_PERSON_102` | 20 | 17 | 3 | 54 | 12 | 10 |
+| `HOLDOUT_PERSON_103` | 12 | 11 | 1 | 20 | 9 | 2 |
+| `HOLDOUT_PERSON_104` | 20 | 14 | 6 | 33 | 7 | 7 |
+| `HOLDOUT_PERSON_105` | 20 | 13 | 7 | 25 | 8 | 4 |
+| **Total** | **92** | **67** | **25** | **168** | **42** | **10** |
+
+| Export original | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `101/annotations.zip` | 9.588 | `236E6B436719ACB9C6745C1799659F93DDD42AF92766ADDD9CE0A5FD9FB4085A` |
+| `102/annotations.zip` | 12.806 | `002E6800DC82BC64CF5838435B2140245034D737162259C57A6595B0846AB0E9` |
+| `103/annotations.zip` | 5.670 | `36272918C3FD47DB6809496C83397EA723B3172833410FFB476F964A1D3FB599` |
+| `104/annotations.zip` | 9.092 | `4EF768035982E726EDD70057DD3C978DD51D2C611B88B78AF9AB64BAB64F1EF9` |
+| `105/annotations.zip` | 7.721 | `4773C504ECD64F09534D10E5377747AF88AF6B103EC3B92594A26C89F4C4D67B` |
+
+Los cinco ZIP pasan CRC y contienen solo `annotations/instances_default.json`.
+Extracción separada, sin sobrescribir los originales. Categoría única `person`,
+sin categorías sin uso; IDs, referencias, nombres, cobertura y dimensiones
+conciliados contra manifests y cabeceras PNG, sin decodificar ni visualizar
+imágenes. Geometría: **168/168 válidas**, finitas, áreas positivas y límites
+estrictos; no fue necesaria tolerancia de serialización. Cero cajas duplicadas
+exactas o casi exactas según el criterio local documentado: IoU ≥0,995 y diferencia
+máxima de coordenadas xywh ≤0,5 px. No hubo NMS, fusión ni eliminación de cajas.
+
+Flags informativos: **38 `EDGE_CLIPPED`** (distancia al borde ≤1 px),
+**3 `VERY_LARGE_BOX`** (área superior al 50 % de la imagen),
+0 `VERY_SMALL_BOX` (lado mínimo <8 px o área relativa <0,0005),
+0 `HIGH_OVERLAP` (IoU entre cajas ≥0,7). Son marcas geométricas para revisión,
+no errores automáticos ni atributos semánticos verificados visualmente.
+
+**Bloqueo encontrado:** `HOLDOUT_PERSON_101_frame_000145.png` y
+`HOLDOUT_PERSON_104_frame_000000.png` comparten SHA-256
+`2721C914AD7642092296F03B8C58BF60C9A175B02E7271C765C715CACE9F1937`.
+Ambos son negativos humanos, de 1024×576, sin cajas: no hay contradicción entre
+anotaciones. Son **92 registros y 91 imágenes distintas por hash**. El gate
+vigente de `freeze_person_independent_holdout.py` rechaza frames idénticos entre
+grupos. Se conserva `STOP_FREEZE`; no se interpreta esa coincidencia como prueba
+de una misma captura ni se modifica el gate, sampling o contenido para forzar PASS.
+
+Provenance: las cinco familias corresponden a los assets DVIDS 386340, 580995,
+946394, 750886 y 792809. Videos, paquetes, manifests, índices y hashes de frames
+coinciden con la adquisición archivada. Se verificaron hashes de las páginas
+individuales y de la página de copyright, y sus declaraciones archivadas
+`PUBLIC_DOMAIN_VERIFIED`. Se mantienen las restricciones y atribuciones originales:
+no se afirma permiso individual, model releases ni renuncia a derechos de imagen,
+marcas o publicidad. No se descargó de nuevo ninguna fuente.
+
+Independencia documental: **39 manifiestos, 16.180 filas** —incluyen repeticiones
+entre inventarios— de datos candidatos/entrenamiento/desarrollo, campaña humana,
+YouTube diagnóstico y TEST3 vía metadata archivada. **Cero coincidencias** en
+hashes disponibles, IDs de fuente/grupo/familia o referencias DVIDS registradas.
+9.897 filas disponen de hashes y forman el registro local consolidado; los
+manifests sintéticos sin hashes se contrastaron por identidad de fuente/run.
+Esta comprobación no acredita independencia de escenas transformadas, completitud
+universal del inventario ni ausencia en preentrenamiento de terceros. La política
+original sigue intacta y sin atestación completa de cobertura training/development
+y no acceso previo de modelos; no se elevó automáticamente a PASS.
+
+Artefactos locales bajo
+`Operix-experiments/person-independent-holdout-v2-2026-10-23/`:
+
+- `05-qa/final-coco-audit/`: extracción original, auditoría, comparaciones,
+  registro consolidado y atestación humana. QA SHA-256:
+  `6A780AC413831EFA2E4B76D3DA465D0E12ABB68C6BE3E0E9C0B18C75886E1855`.
+- `06-freeze/exclusion-register.json`: reserva las cinco familias y 92 frames
+  contra training, development, calibration, threshold selection y model selection.
+  Registro documental, no barrera del sistema operativo.
+- `final/candidate-qa-manifest.json`: snapshot candidato con los 92 registros,
+  hashes, política, conteos, provenance, herramientas y bloqueos; SHA-256
+  `670E5314037043E78C0F2ADC46AC0D0F1B1ADE2316AFAE971EB11EF8BB4A998E`.
+- `06-freeze/freeze-decision.json`: **`STOP_FREEZE`**, sin ID canónico de freeze.
+
+El manifest candidato **no es un manifest congelado**. No se generó
+`freeze.json` ni se congeló protocolo de matching/thresholds. Cualquier resolución
+del duplicado o atestación pendiente requiere revisión explícita antes de volver
+a decidir. No se elimina, sustituye ni añade ningún frame en esta tarea.
+
+Validación: **12/12 pruebas sintéticas** del auditor local y **6/6 pruebas
+existentes del tooling de holdout**, sin modelos reales. Los inputs auditados
+conservan sus hashes después del QA. Motor, Backend, reglas y frontend no cambian
+en esta fase documental. TEST2 y REAL_HOLDOUT_V2 no se abrieron; YouTube conserva
+`DIAGNOSTIC_ONLY`, TEST3 `DEVELOPMENT_DIAGNOSTIC`.
+**`PERSON_MODEL_EVALUATION_NOT_STARTED`**: no hubo inferencia, selección de modelos,
+calibración ni entrenamiento. El freeze del conjunto y el del protocolo siguen
+siendo pasos previos obligatorios a cualquier evaluación.
