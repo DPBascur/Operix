@@ -4,9 +4,13 @@ import argparse
 from pathlib import Path
 import runpy
 import sys
+import hashlib
+import json
 from unittest.mock import patch
 
 from operix_engine.detection import BoundingBox, Detection
+from operix_engine.visualization import OpenCvRenderer
+from operix_engine.rules import PairRuleEvaluation
 
 
 class FixtureDetector:
@@ -36,6 +40,23 @@ def main():
     parser.add_argument("--preview-width", type=int, default=1280)
     parser.add_argument("--preview-fps", type=float, default=10)
     args = parser.parse_args(sys.argv[2:])
+    receipts = []
+
+    class RecordingRenderer(OpenCvRenderer):
+        def render_proximity(self, frame, spatial, result, **kwargs):
+            annotated = super().render_proximity(frame, spatial, result, **kwargs)
+            receipts.append({"frame": spatial.frame_index,
+                "image_sha256": hashlib.sha256(annotated.tobytes()).hexdigest(),
+                "relations": [{"person": item.interaction.person.track_id,
+                    "forklift": item.interaction.forklift.track_id,
+                    "distance": item.observed_normalized_distance,
+                    "duration": item.observed_duration_s, "state": item.rule_state,
+                    "started_frame": item.started_frame_index}
+                    for item in result.evaluations if isinstance(item, PairRuleEvaluation)]})
+            (args.session_dir / "TEST_ONLY_overlay_receipts.json").write_text(json.dumps(receipts), encoding="utf-8")
+            return annotated
+
+    worker["process"].__globals__["OpenCvRenderer"] = RecordingRenderer
     worker["process"].__globals__["YoloDetector"] = FixtureDetector
     with patch("run_dual_perception.checked_file"), patch("torch.cuda.is_available", return_value=True), patch("torch.cuda.synchronize"):
         worker["process"](args)

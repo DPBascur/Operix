@@ -85,6 +85,21 @@ class PairRuleEvaluation:
     observed_duration_s: float
     satisfied: bool
     reason: str | None
+    started_frame_index: int | None = None
+    started_timestamp_s: float | None = None
+
+    @property
+    def episode_key(self) -> tuple | None:
+        """Identidad local al run; no sustituye la identidad persistida del evento."""
+        if self.started_frame_index is None:
+            return None
+        return (self.rule_id, self.rule_version, self.interaction, self.zone_id, self.started_frame_index)
+
+    @property
+    def rule_state(self) -> str:
+        if self.satisfied:
+            return "CONDITION_SATISFIED"
+        return "DURATION_ACCUMULATING" if self.reason == "insufficient_duration" else "OBSERVED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +117,10 @@ class PairEventCandidate:
     started_timestamp_s: float
     observed_normalized_distance: float
     observed_duration_s: float
+
+    @property
+    def episode_key(self) -> tuple:
+        return (self.rule_id, self.rule_version, self.interaction, self.zone_id, self.started_frame_index)
 
     @property
     def candidate_type(self) -> str:
@@ -279,6 +298,7 @@ class RuleEngine:
             else:
                 reason = None
             duration, satisfied = 0.0, False
+            episode = None
             if reason is None:
                 key = (rule.config.rule_id, rule.config.version, interaction, rule.zone_id)
                 episode = previous.get(key, _PairEpisode(frame.frame_index, frame.timestamp_s, False))
@@ -299,6 +319,8 @@ class RuleEngine:
             evaluations.append(PairRuleEvaluation(
                 rule.config.rule_id, rule.config.version, frame.frame_index, frame.timestamp_s,
                 interaction, rule.zone_id, rule.parameters, distance, duration, satisfied, reason,
+                episode.started_frame_index if episode else None,
+                episode.started_timestamp_s if episode else None,
             ))
         return evaluations, candidates
 

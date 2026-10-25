@@ -17,6 +17,8 @@ from numpy.typing import NDArray
 from operix_engine.detection import BoundingBox, Detection
 from operix_engine.operational_config import Zone
 from operix_engine.tracking import Track
+from operix_engine.rules import PairEventCandidate, PairRuleEvaluation, RuleFrameResult
+from operix_engine.spatiotemporal import FrameSpatialState
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,6 +198,60 @@ class OpenCvRenderer:
                 label,
                 self._track_color(track.track_id, track.class_name),
             )
+        return annotated
+
+    def render_proximity(
+        self, frame: NDArray[np.uint8], spatial: FrameSpatialState,
+        result: RuleFrameResult, *, max_pairs: int = 4,
+    ) -> NDArray[np.uint8]:
+        """Muestra episodios evaluados, sin geometría/distancia/estado alternativos.
+
+        Hasta cuatro relaciones activas por defecto; emisiones del frame siempre
+        visibles. El conjunto visual no limita evaluaciones ni candidatos.
+        """
+        self._validate_frame(frame)
+        if type(max_pairs) is not int or max_pairs <= 0:
+            raise ValueError("max_pairs debe ser entero positivo")
+        if (spatial.frame_index, spatial.timestamp_s) != (result.frame_index, result.timestamp_s):
+            raise ValueError("El overlay y las reglas deben pertenecer al mismo frame/tiempo")
+        objects = {obj.identity: obj for obj in spatial.objects}
+        emitted = {candidate.episode_key for candidate in result.candidates if isinstance(candidate, PairEventCandidate)}
+        relevant = [evaluation for evaluation in result.evaluations
+                    if isinstance(evaluation, PairRuleEvaluation) and evaluation.episode_key is not None]
+        if any((item.frame_index, item.timestamp_s) != (result.frame_index, result.timestamp_s) for item in relevant):
+            raise ValueError("La evaluación de proximidad pertenece a otro frame/tiempo")
+        relevant.sort(key=lambda item: (
+            item.episode_key not in emitted, not item.satisfied, item.observed_normalized_distance,
+            item.rule_id, item.rule_version, item.interaction.person, item.interaction.forklift,
+        ))
+        selected = [item for index, item in enumerate(relevant)
+                    if index < max_pairs or item.episode_key in emitted]
+        annotated = frame.copy()
+        height, width = frame.shape[:2]
+        for index, item in enumerate(selected):
+            left, right = (objects.get(identity) for identity in (item.interaction.person, item.interaction.forklift))
+            if left is None or right is None:
+                raise ValueError("La relación no corresponde a objetos presentes")
+            # El analizador normaliza con width/height, no con width-1/height-1.
+            endpoints = tuple((min(width - 1, max(0, round(obj.position.x * width))),
+                               min(height - 1, max(0, round(obj.position.y * height)))) for obj in (left, right))
+            color = self._ZONE_EVENT_COLOR if item.satisfied else self._ZONE_NORMAL_COLOR
+            cv2.line(annotated, *endpoints, color, self.config.box_thickness, self._LINE_TYPE)
+            for point in endpoints:
+                cv2.circle(annotated, point, 4, color, -1, self._LINE_TYPE)
+            midpoint = tuple(round((a + b) / 2) for a, b in zip(*endpoints))
+            self._draw_label(annotated,
+                f"P#{left.track_id} F#{right.track_id}: {item.observed_normalized_distance:.3f} norm",
+                midpoint, color, fit_width=True)
+            # Carril de trazabilidad separado de la medida junto a la línea.
+            labels = (f"{item.rule_id} v{item.rule_version} | P#{left.track_id} F#{right.track_id}",
+                      f"max {item.parameters['max_distance']:g} norm | {item.observed_duration_s:.2f}s"
+                      f" / {item.parameters['minimum_duration_seconds']:g}s | {item.rule_state}")
+            for row, label in enumerate(labels):
+                self._draw_label(annotated, label, (8, 28 + index * 52 + row * 24), color, fit_width=True)
+        if len(selected) < len(relevant):
+            self._draw_label(annotated, f"Relaciones visibles: {len(selected)}/{len(relevant)}",
+                             (8, 28 + len(selected) * 52), self._ZONE_NORMAL_COLOR, fit_width=True)
         return annotated
 
     def render_zone(
@@ -382,6 +438,7 @@ class OpenCvRenderer:
         label: str,
         anchor: tuple[int, int],
         color: tuple[int, int, int],
+        *, fit_width: bool = False,
     ) -> None:
         height, width = frame.shape[:2]
         (text_width, text_height), baseline = cv2.getTextSize(
@@ -390,6 +447,12 @@ class OpenCvRenderer:
             self.config.font_scale,
             self.config.text_thickness,
         )
+        font_scale = self.config.font_scale
+        if fit_width and text_width > max(1, width - 14):
+            font_scale *= max(1, width - 14) / text_width
+            (text_width, text_height), baseline = cv2.getTextSize(
+                label, self._FONT, font_scale, self.config.text_thickness,
+            )
         padding = 3
         left = min(max(0, anchor[0]), max(0, width - text_width - 2 * padding))
         if anchor[1] >= text_height + baseline + 2 * padding:
@@ -415,7 +478,7 @@ class OpenCvRenderer:
             label,
             (left + padding, text_baseline),
             self._FONT,
-            self.config.font_scale,
+            font_scale,
             color,
             self.config.text_thickness,
             self._LINE_TYPE,

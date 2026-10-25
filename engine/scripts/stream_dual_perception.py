@@ -241,9 +241,10 @@ def process(args: argparse.Namespace) -> None:
                     observed.person_tracks + observed.forklift_tracks,
                     metadata.width, metadata.height,
                 )
-                result = rules.evaluate(analyzer.update(
+                spatial = analyzer.update(
                     frame_index, visible_tracks, timestamp_s=inspection.timestamps[frame_index],
-                ))
+                )
+                result = rules.evaluate(spatial)
                 frame_candidates = candidate_payloads(result.candidates)
                 rules_ms = (time.perf_counter_ns() - tick) / 1e6
                 tick = time.perf_counter_ns()
@@ -256,6 +257,7 @@ def process(args: argparse.Namespace) -> None:
                     annotated = renderer.render_tracks(
                         annotated, tracks, histories[name].update(frame_index, tracks),
                     )
+                annotated = renderer.render_proximity(annotated, spatial, result)
                 renderer_ms = (time.perf_counter_ns() - tick) / 1e6
                 if outbox is not None and result.candidates:
                     image = annotated

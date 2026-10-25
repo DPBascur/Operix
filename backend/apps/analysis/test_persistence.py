@@ -87,11 +87,23 @@ class WebPersistenceTests(LiveServerTestCase):
         self.assertEqual(data["persistence"]["saved"], 2)
         self.assertEqual(data["frame"], 4)
         self.assertEqual(Event.objects.count(), 2)
+        session = sessions.get_session(identity)
+        receipts = json.loads((session.directory / "TEST_ONLY_overlay_receipts.json").read_text(encoding="utf-8"))
+        self.assertEqual([row["frame"] for row in receipts], [0, 1, 2, 3])
         self.assertEqual(set(Event.objects.values_list("analysis_run_id", flat=True)), {UUID(data["analysis_run_id"])})
         result = self.client.get(f"/api/v1/analysis/sessions/{identity}/result/")
         self.assertEqual(result.status_code, 200)
         result.close()
         for event in Event.objects.all():
+            receipt = receipts[event.frame_index]
+            relation = next(item for item in receipt["relations"]
+                            if item["forklift"] == event.interaction["forklift"]["track_id"])
+            self.assertEqual(relation["state"], "CONDITION_SATISFIED")
+            self.assertAlmostEqual(relation["distance"], float(event.observations["normalized_distance"]))
+            self.assertAlmostEqual(relation["duration"], float(event.observations["duration_s"]))
+            verify = "import cv2,hashlib,sys; a=cv2.imread(sys.argv[1]); print(hashlib.sha256(a.tobytes()).hexdigest())"
+            raw_hash = subprocess.check_output([str(self.python), "-B", "-c", verify, event.evidence_image.path], text=True).strip()
+            self.assertEqual(raw_hash, receipt["image_sha256"])
             self.assertEqual(event.source["perception"]["person"], {
                 "model_id": "YOLO11N_COCO_PERSON", "weights_sha256": sessions.PERSON_SHA256,
                 "class_filter": "person", "imgsz": 640, "confidence": 0.10, "nms_iou": 0.70,
