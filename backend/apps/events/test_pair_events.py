@@ -98,6 +98,23 @@ class PairEventApiTests(APITestCase):
         self.assertEqual(self.post(changed).status_code, 409)
         self.assertNotIn("proximity_geometry", Event.objects.get().observations)
 
+    def test_D_snapshot_and_retry_preserve_historical_B_version(self):
+        old = deepcopy(self.payload)
+        old["observations"]["proximity_geometry"] = {
+            "version":"person_bottom_center_to_equipment_ground_edge_v1",
+            "person_anchor":[.2,.5],"equipment_target":[.4,.5]}
+        first = self.post(old)
+        self.assertEqual(first.status_code, 201)
+        changed = deepcopy(old)
+        changed["observations"]["proximity_geometry"]["version"] = "person_equipment_nearest_ground_edges_v1"
+        self.assertEqual(self.post(changed).status_code, 409)
+        recovered = self.client.get(f"/api/v1/events/{first.data['id']}/").data
+        self.assertEqual(recovered["observations"], old["observations"])
+        changed["analysis_run_id"] = str(uuid4())
+        new = self.post(changed)
+        self.assertEqual(new.status_code, 201, new.data)
+        self.assertEqual(new.data["observations"], changed["observations"])
+
     def test_invalid_roles_observations_time_and_source_are_rejected(self):
         changes = [
             ("interaction", {}), ("interaction", {"person": {"class_name": "forklift", "track_id": 1}}),

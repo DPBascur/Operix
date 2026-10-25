@@ -49,7 +49,10 @@ def validate_pair(attrs):
     if "proximity_geometry" in observations:
         geometry = observations["proximity_geometry"]
         if (not isinstance(geometry, dict) or set(geometry) != {"version", "person_anchor", "equipment_target"}
-                or geometry["version"] != "person_bottom_center_to_equipment_ground_edge_v1"):
+                or geometry["version"] not in {
+                    "person_bottom_center_to_equipment_ground_edge_v1",  # Snapshot histórico B.
+                    "person_equipment_nearest_ground_edges_v1",
+                }):
             raise ValidationError({"observations": "Contrato geométrico no soportado o incompleto."})
         for key in ("person_anchor", "equipment_target"):
             point = geometry[key]

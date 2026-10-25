@@ -101,6 +101,11 @@ class WebPersistenceTests(LiveServerTestCase):
             self.assertEqual(relation["state"], "CONDITION_SATISFIED")
             self.assertAlmostEqual(relation["distance"], float(event.observations["normalized_distance"]))
             self.assertAlmostEqual(relation["duration"], float(event.observations["duration_s"]))
+            self.assertEqual(relation["geometry_version"], "person_equipment_nearest_ground_edges_v1")
+            self.assertAlmostEqual(relation["distance"], {1: 0., 2: .1}[relation["forklift"]])
+            if relation["forklift"] == 1:
+                self.assertEqual(relation["person_anchor"], [.2875, .7])
+                self.assertEqual(relation["equipment_target"], [.2875, .7])
             self.assertEqual(event.observations["proximity_geometry"], {
                 "version": relation["geometry_version"], "person_anchor": relation["person_anchor"],
                 "equipment_target": relation["equipment_target"]})

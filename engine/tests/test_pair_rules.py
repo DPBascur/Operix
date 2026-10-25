@@ -27,8 +27,8 @@ class PairProximityRuleTest(unittest.TestCase):
         self.zone = Zone("lane", "Zona sintética", ((0.1, 0.1), (0.9, 0.1),
                                                    (0.9, 0.9), (0.1, 0.9)))
         self.person = track()
-        # El borde izquierdo queda en x=.50: distancia exacta .25 desde PERSON.
-        self.forklift = track("forklift", x=0.52)
+        # Bordes PERSON=.27 y equipo=.52: gap exacto .25, sin cambiar el umbral.
+        self.forklift = track("forklift", x=0.54)
         self.parameters = {
             "kind": "person_forklift_proximity", "zone_id": "lane",
             "max_distance": 0.25, "minimum_duration_seconds": 1.0,

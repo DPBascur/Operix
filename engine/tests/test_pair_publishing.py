@@ -11,6 +11,7 @@ from operix_engine.event_publishing import EventContext, HttpEventSink, event_ca
 from operix_engine.rules import PairEventCandidate, InteractionIdentity
 from operix_engine.spatiotemporal import ObjectIdentity
 from operix_engine.proximity_geometry import PROXIMITY_GEOMETRY_VERSION
+from operix_engine.proximity_geometry import LEGACY_PROXIMITY_GEOMETRY_VERSION
 from operix_engine.zone_geometry import NormalizedPoint
 
 
@@ -40,6 +41,13 @@ class PairPublishingTests(unittest.TestCase):
         self.assertEqual(observed["normalized_distance"], .2)
         self.assertEqual(observed["proximity_geometry"], candidate.proximity_geometry)
         self.assertNotIn("proximity_geometry", event_candidate_payload(self.pair, self.context)["observations"])
+
+    def test_historical_B_snapshot_is_serialized_without_reinterpretation(self):
+        candidate = replace(self.pair, proximity_geometry_version=LEGACY_PROXIMITY_GEOMETRY_VERSION,
+                            person_anchor=NormalizedPoint(.2,.5), equipment_target=NormalizedPoint(.4,.5))
+        snapshot = event_candidate_payload(candidate,self.context)["observations"]["proximity_geometry"]
+        self.assertEqual(snapshot["version"], LEGACY_PROXIMITY_GEOMETRY_VERSION)
+        self.assertEqual(snapshot["person_anchor"], [.2,.5])
 
     def test_sink_deduplicates_pair_but_not_other_pair_or_episode(self):
         response = MagicMock()

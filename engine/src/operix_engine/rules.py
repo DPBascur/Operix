@@ -15,7 +15,7 @@ from types import MappingProxyType
 from operix_engine.operational_config import OperationalConfig, RuleConfig
 from operix_engine.spatiotemporal import FrameSpatialState, ObjectIdentity
 from operix_engine.zone_geometry import NormalizedPoint
-from operix_engine.proximity_geometry import PROXIMITY_GEOMETRY_VERSION
+from operix_engine.proximity_geometry import PROXIMITY_GEOMETRY_VERSION, LEGACY_PROXIMITY_GEOMETRY_VERSION
 
 
 # Tolerancia exclusivamente numérica en segundos; no es una gracia operacional.
@@ -133,7 +133,7 @@ class PairEventCandidate:
             if self.person_anchor is not None or self.equipment_target is not None:
                 raise ValueError("Los puntos requieren versión geométrica")
             return None  # Candidatos históricos/manuales sin geometría versionada.
-        if (self.proximity_geometry_version != PROXIMITY_GEOMETRY_VERSION
+        if (self.proximity_geometry_version not in {PROXIMITY_GEOMETRY_VERSION, LEGACY_PROXIMITY_GEOMETRY_VERSION}
                 or not isinstance(self.person_anchor, NormalizedPoint)
                 or not isinstance(self.equipment_target, NormalizedPoint)):
             raise ValueError("Snapshot geométrico incompleto o no soportado")

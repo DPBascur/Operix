@@ -12,7 +12,7 @@ from operix_engine.detection import BoundingBox
 from operix_engine.operational_config import Zone
 from operix_engine.tracking import Track
 from operix_engine.zone_geometry import NormalizedPoint, normalized_bottom_center, point_in_zone
-from operix_engine.proximity_geometry import PROXIMITY_GEOMETRY_VERSION, person_to_equipment_ground_edge
+from operix_engine.proximity_geometry import PROXIMITY_GEOMETRY_VERSION, nearest_ground_edges
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -144,7 +144,7 @@ class SpatiotemporalAnalyzer:
         forward = roles in self._proximity_roles
         if forward or roles[::-1] in self._proximity_roles:
             person, equipment = (left, right) if forward else (right, left)
-            measured = person_to_equipment_ground_edge(person.bounding_box, equipment.bounding_box, self.width, self.height)
+            measured = nearest_ground_edges(person.bounding_box, equipment.bounding_box, self.width, self.height)
             points = (measured.person_anchor, measured.equipment_target)
             if not forward:
                 points = points[::-1]
