@@ -69,6 +69,35 @@ class PairEventApiTests(APITestCase):
         self.assertEqual(self.post(changed).status_code, 409)
         self.assertEqual(Event.objects.get().observations["normalized_distance"], .2)
 
+    def test_geometry_snapshot_is_optional_for_history_and_explicit_for_new_events(self):
+        historical = self.post()
+        self.assertEqual(historical.status_code, 201)
+        self.assertNotIn("proximity_geometry", historical.data["observations"])
+        updated = deepcopy(self.payload)
+        updated["analysis_run_id"] = str(uuid4())
+        updated["observations"]["proximity_geometry"] = {
+            "version": "person_bottom_center_to_equipment_ground_edge_v1",
+            "person_anchor": [.2,.5], "equipment_target": [.4,.5]}
+        new = self.post(updated)
+        self.assertEqual(new.status_code, 201, new.data)
+        self.assertEqual(self.client.get(f"/api/v1/events/{new.data['id']}/").data["observations"], updated["observations"])
+        old = self.client.get(f"/api/v1/events/{historical.data['id']}/").data
+        self.assertNotIn("proximity_geometry", old["observations"])
+
+    def test_invalid_geometry_or_retroactive_reinterpretation_is_rejected(self):
+        for geometry in ({}, {"version":"unknown","person_anchor":[.2,.5],"equipment_target":[.4,.5]},
+                {"version":"person_bottom_center_to_equipment_ground_edge_v1", "person_anchor":[2,.5],"equipment_target":[.4,.5]}):
+            data = deepcopy(self.payload)
+            data["observations"]["proximity_geometry"] = geometry
+            self.assertEqual(self.post(data).status_code, 400)
+        self.assertEqual(self.post().status_code, 201)
+        changed = deepcopy(self.payload)
+        changed["observations"]["proximity_geometry"] = {
+            "version":"person_bottom_center_to_equipment_ground_edge_v1",
+            "person_anchor":[.2,.5],"equipment_target":[.4,.5]}
+        self.assertEqual(self.post(changed).status_code, 409)
+        self.assertNotIn("proximity_geometry", Event.objects.get().observations)
+
     def test_invalid_roles_observations_time_and_source_are_rejected(self):
         changes = [
             ("interaction", {}), ("interaction", {"person": {"class_name": "forklift", "track_id": 1}}),

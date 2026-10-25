@@ -42,8 +42,20 @@ def validate_pair(attrs):
                 or type(subject["track_id"]) is not int or not 0 <= subject["track_id"] <= 2147483647):
             raise ValidationError({"interaction": "Identidad incompatible con el rol."})
     observations, episode = attrs.get("observations", {}), attrs.get("episode", {})
-    if not isinstance(observations, dict) or set(observations) != {"normalized_distance", "duration_s"}:
+    if (not isinstance(observations, dict) or set(observations) not in (
+            {"normalized_distance", "duration_s"},
+            {"normalized_distance", "duration_s", "proximity_geometry"})):
         raise ValidationError({"observations": "Se requieren distancia y duración observadas."})
+    if "proximity_geometry" in observations:
+        geometry = observations["proximity_geometry"]
+        if (not isinstance(geometry, dict) or set(geometry) != {"version", "person_anchor", "equipment_target"}
+                or geometry["version"] != "person_bottom_center_to_equipment_ground_edge_v1"):
+            raise ValidationError({"observations": "Contrato geométrico no soportado o incompleto."})
+        for key in ("person_anchor", "equipment_target"):
+            point = geometry[key]
+            if (not isinstance(point, list) or len(point) != 2
+                    or any(type(v) not in (int, float) or not 0 <= v <= 1 for v in point)):
+                raise ValidationError({"observations": "Puntos geométricos normalizados inválidos."})
     distance = number(observations["normalized_distance"], "normalized_distance")
     duration = number(observations["duration_s"], "duration_s")
     if distance > parameters["max_distance"] or parameters["minimum_duration_seconds"] - duration > 1e-9:
