@@ -10,6 +10,8 @@ from uuid import uuid4
 from operix_engine.event_publishing import EventContext, HttpEventSink, event_candidate_payload
 from operix_engine.rules import PairEventCandidate, InteractionIdentity
 from operix_engine.spatiotemporal import ObjectIdentity
+from operix_engine.proximity_geometry import PROXIMITY_GEOMETRY_VERSION
+from operix_engine.zone_geometry import NormalizedPoint
 
 
 class PairPublishingTests(unittest.TestCase):
@@ -30,6 +32,14 @@ class PairPublishingTests(unittest.TestCase):
         self.assertEqual(body["observations"], {"normalized_distance": .2, "duration_s": 1.})
         self.assertEqual(body["episode"]["started_timestamp_s"], 1.)
         self.assertEqual(body["source"]["kind"], "controlled_fixture")
+
+    def test_versioned_geometry_reaches_event_without_changing_legacy_payload(self):
+        candidate = replace(self.pair, proximity_geometry_version=PROXIMITY_GEOMETRY_VERSION,
+                            person_anchor=NormalizedPoint(.2,.5), equipment_target=NormalizedPoint(.4,.5))
+        observed = event_candidate_payload(candidate, self.context)["observations"]
+        self.assertEqual(observed["normalized_distance"], .2)
+        self.assertEqual(observed["proximity_geometry"], candidate.proximity_geometry)
+        self.assertNotIn("proximity_geometry", event_candidate_payload(self.pair, self.context)["observations"])
 
     def test_sink_deduplicates_pair_but_not_other_pair_or_episode(self):
         response = MagicMock()

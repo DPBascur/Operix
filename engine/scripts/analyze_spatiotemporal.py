@@ -52,6 +52,7 @@ def main() -> int:
     analyzer = SpatiotemporalAnalyzer(
         width=args.width, height=args.height, fps=args.fps,
         zones=config.zones,
+        proximity_roles=config.proximity_roles,
     )
     object_rows: list[dict[str, object]] = []
     pair_rows: list[dict[str, object]] = []
@@ -101,6 +102,11 @@ def main() -> int:
                     "class_name_a": pair.class_name_a,
                     "class_name_b": pair.class_name_b,
                     "normalized_distance": pair.normalized_distance,
+                    "proximity_geometry_version": pair.geometry_version,
+                    "point_a_x": pair.point_a.x if pair.point_a else None,
+                    "point_a_y": pair.point_a.y if pair.point_a else None,
+                    "point_b_x": pair.point_b.x if pair.point_b else None,
+                    "point_b_y": pair.point_b.y if pair.point_b else None,
                 })
             expected_frame += 1
     if expected_frame != args.end_frame + 1:
@@ -113,6 +119,7 @@ def main() -> int:
     pair_columns = (
         "frame_index", "timestamp_s", "track_id_a", "track_id_b", "normalized_distance",
         "class_name_a", "class_name_b",
+        "proximity_geometry_version", "point_a_x", "point_a_y", "point_b_x", "point_b_y",
     )
     for path, columns, rows in (
         (args.output_objects, object_columns, object_rows),

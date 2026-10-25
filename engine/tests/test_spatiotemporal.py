@@ -220,7 +220,7 @@ class SpatiotemporalTest(unittest.TestCase):
         pair = self.analyzer.update(0, (person, forklift)).proximities[0]
         self.assertEqual({pair.identity_a, pair.identity_b},
                          {ObjectIdentity("person", 1), ObjectIdentity("forklift", 1)})
-        self.assertAlmostEqual(pair.normalized_distance, 0.5)
+        self.assertAlmostEqual(pair.normalized_distance, math.hypot(.35, .3))
         self.analyzer.reset()
         self.assertEqual(pair, self.analyzer.update(0, (forklift, person)).proximities[0])
 

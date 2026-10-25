@@ -38,13 +38,13 @@ class ProximityVisualizationTests(unittest.TestCase):
     def test_known_distance_geometry_and_same_numeric_ids(self):
         spatial, result = self.step(0)
         evaluation = result.evaluations[0]
-        self.assertAlmostEqual(evaluation.observed_normalized_distance, .5)
+        self.assertAlmostEqual(evaluation.observed_normalized_distance, np.hypot(.25, .4))
         self.assertNotEqual(evaluation.interaction.person, evaluation.interaction.forklift)
         with patch("operix_engine.visualization.cv2.line", wraps=cv2.line) as line, \
                 patch.object(self.renderer, "_draw_label", wraps=self.renderer._draw_label) as labels:
             annotated = self.renderer.render_proximity(self.frame, spatial, result)
-        self.assertEqual(line.call_args.args[1:3], ((20, 20), (50, 60)))
-        self.assertTrue(any("0.500 norm" in call.args[1] for call in labels.call_args_list))
+        self.assertEqual(line.call_args.args[1:3], ((20, 20), (45, 60)))
+        self.assertTrue(any("0.472 norm" in call.args[1] for call in labels.call_args_list))
         self.assertTrue(any("DURATION_ACCUMULATING" in call.args[1] for call in labels.call_args_list))
         self.assertTrue(np.any(annotated))
         self.assertFalse(np.any(self.frame))
@@ -107,8 +107,8 @@ class ProximityVisualizationTests(unittest.TestCase):
 
     def test_overlap_containment_zero_and_edge_positions_use_anchor_distance(self):
         for forklift, expected in ((replace(self.forklift, bounding_box=self.person.bounding_box), 0.),
-                (replace(self.forklift, bounding_box=BoundingBox(0, 0, 80, 80)), np.hypot(.2, .6)),
-                (replace(self.forklift, bounding_box=BoundingBox(90, 90, 100, 100)), np.hypot(.75, .8))):
+                (replace(self.forklift, bounding_box=BoundingBox(0, 0, 80, 80)), .6),
+                (replace(self.forklift, bounding_box=BoundingBox(90, 90, 100, 100)), np.hypot(.7, .8))):
             self.setUp()
             spatial, result = self.step(0, (self.person, forklift))
             self.assertAlmostEqual(result.evaluations[0].observed_normalized_distance, expected)

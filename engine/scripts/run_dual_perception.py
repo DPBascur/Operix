@@ -113,6 +113,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         analyzer = SpatiotemporalAnalyzer(
             width=metadata.width, height=metadata.height,
             fps=metadata.declared_fps, zones=config.zones,
+            proximity_roles=config.proximity_roles,
         )
         rules = RuleEngine(config)
         writer = cv2.VideoWriter(

@@ -101,6 +101,9 @@ class WebPersistenceTests(LiveServerTestCase):
             self.assertEqual(relation["state"], "CONDITION_SATISFIED")
             self.assertAlmostEqual(relation["distance"], float(event.observations["normalized_distance"]))
             self.assertAlmostEqual(relation["duration"], float(event.observations["duration_s"]))
+            self.assertEqual(event.observations["proximity_geometry"], {
+                "version": relation["geometry_version"], "person_anchor": relation["person_anchor"],
+                "equipment_target": relation["equipment_target"]})
             verify = "import cv2,hashlib,sys; a=cv2.imread(sys.argv[1]); print(hashlib.sha256(a.tobytes()).hexdigest())"
             raw_hash = subprocess.check_output([str(self.python), "-B", "-c", verify, event.evidence_image.path], text=True).strip()
             self.assertEqual(raw_hash, receipt["image_sha256"])

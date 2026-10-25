@@ -19,6 +19,7 @@ from operix_engine.operational_config import Zone
 from operix_engine.tracking import Track
 from operix_engine.rules import PairEventCandidate, PairRuleEvaluation, RuleFrameResult
 from operix_engine.spatiotemporal import FrameSpatialState
+from operix_engine.proximity_geometry import PROXIMITY_GEOMETRY_VERSION
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,9 +233,13 @@ class OpenCvRenderer:
             left, right = (objects.get(identity) for identity in (item.interaction.person, item.interaction.forklift))
             if left is None or right is None:
                 raise ValueError("La relación no corresponde a objetos presentes")
-            # El analizador normaliza con width/height, no con width-1/height-1.
-            endpoints = tuple((min(width - 1, max(0, round(obj.position.x * width))),
-                               min(height - 1, max(0, round(obj.position.y * height)))) for obj in (left, right))
+            if (item.proximity_geometry_version != PROXIMITY_GEOMETRY_VERSION
+                    or item.person_anchor is None or item.equipment_target is None):
+                raise ValueError("El overlay requiere los puntos geométricos versionados de la regla")
+            # Solo conversión raster; no reconstruir el target desde la caja/centro.
+            endpoints = tuple((min(width - 1, max(0, round(point.x * width))),
+                               min(height - 1, max(0, round(point.y * height))))
+                              for point in (item.person_anchor, item.equipment_target))
             color = self._ZONE_EVENT_COLOR if item.satisfied else self._ZONE_NORMAL_COLOR
             cv2.line(annotated, *endpoints, color, self.config.box_thickness, self._LINE_TYPE)
             for point in endpoints:

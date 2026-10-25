@@ -12,6 +12,7 @@ from operix_engine.detection import BoundingBox
 from operix_engine.operational_config import Zone
 from operix_engine.tracking import Track
 from operix_engine.zone_geometry import NormalizedPoint, normalized_bottom_center, point_in_zone
+from operix_engine.proximity_geometry import PROXIMITY_GEOMETRY_VERSION, person_to_equipment_ground_edge
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -78,6 +79,9 @@ class PairwiseProximity:
     normalized_distance: float
     class_name_a: str = "person"
     class_name_b: str = "person"
+    geometry_version: str | None = None
+    point_a: NormalizedPoint | None = None
+    point_b: NormalizedPoint | None = None
     identity_a: ObjectIdentity = field(init=False)
     identity_b: ObjectIdentity = field(init=False)
 
@@ -107,6 +111,7 @@ class SpatiotemporalAnalyzer:
         fps: float,
         zones: tuple[Zone, ...],
         max_trajectory_points: int = 60,
+        proximity_roles: tuple[tuple[str, str], ...] = (("person", "forklift"),),
     ) -> None:
         if type(width) is not int or width <= 0 or type(height) is not int or height <= 0:
             raise ValueError("width y height deben ser enteros positivos")
@@ -124,7 +129,30 @@ class SpatiotemporalAnalyzer:
         self.fps = float(fps)
         self.zones = zones
         self.max_trajectory_points = max_trajectory_points
+        if (not isinstance(proximity_roles, tuple) or any(
+                not isinstance(pair, tuple) or len(pair) != 2 or pair[0] == pair[1]
+                or any(not isinstance(name, str) or not name.strip() for name in pair) for pair in proximity_roles)):
+            raise ValueError("proximity_roles requiere pares de clases distintas")
+        self._proximity_roles = set(proximity_roles)
+        if any((b, a) in self._proximity_roles for a, b in self._proximity_roles):
+            raise ValueError("Roles de proximidad contradictorios")
         self.reset()
+
+    def _proximity(self, left: ObjectSpatialState, right: ObjectSpatialState,
+                   frame_index: int, timestamp_s: float) -> PairwiseProximity:
+        roles = (left.class_name, right.class_name)
+        forward = roles in self._proximity_roles
+        if forward or roles[::-1] in self._proximity_roles:
+            person, equipment = (left, right) if forward else (right, left)
+            measured = person_to_equipment_ground_edge(person.bounding_box, equipment.bounding_box, self.width, self.height)
+            points = (measured.person_anchor, measured.equipment_target)
+            if not forward:
+                points = points[::-1]
+            return PairwiseProximity(left.track_id, right.track_id, frame_index, timestamp_s,
+                measured.normalized_distance, *roles, PROXIMITY_GEOMETRY_VERSION, *points)
+        # Observación genérica entre clases sin estos roles; no alimenta la regla de equipos.
+        return PairwiseProximity(left.track_id, right.track_id, frame_index, timestamp_s,
+            math.dist((left.position.x, left.position.y), (right.position.x, right.position.y)), *roles)
 
     def reset(self) -> None:
         """Inicia una nueva secuencia sin historial ni permanencia previa."""
@@ -212,11 +240,7 @@ class SpatiotemporalAnalyzer:
             )
 
         proximities = tuple(
-            PairwiseProximity(
-                left.track_id, right.track_id, frame_index, timestamp_s,
-                math.dist((left.position.x, left.position.y), (right.position.x, right.position.y)),
-                left.class_name, right.class_name,
-            )
+            self._proximity(left, right, frame_index, timestamp_s)
             for index, left in enumerate(objects)
             for right in objects[index + 1:]
         )

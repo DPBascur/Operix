@@ -203,6 +203,7 @@ def process(args: argparse.Namespace) -> None:
         analyzer = SpatiotemporalAnalyzer(
             width=metadata.width, height=metadata.height,
             fps=metadata.declared_fps, zones=config.zones,
+            proximity_roles=config.proximity_roles,
         )
         rules = RuleEngine(config)
         started = time.perf_counter()

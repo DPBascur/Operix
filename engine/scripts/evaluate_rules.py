@@ -83,7 +83,8 @@ def main() -> int:
     elif args.analysis_run_id is not None or args.recording_start_at is not None:
         parser.error("El contexto de publicación requiere --publish-api")
     analyzer = SpatiotemporalAnalyzer(
-        width=args.width, height=args.height, fps=args.fps, zones=config.zones
+        width=args.width, height=args.height, fps=args.fps, zones=config.zones,
+        proximity_roles=config.proximity_roles,
     )
     engine = RuleEngine(config)
     expected_frame = 0

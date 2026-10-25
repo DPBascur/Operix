@@ -118,6 +118,7 @@ def run_video_event_pipeline(
             height=metadata.height,
             fps=metadata.declared_fps,
             zones=config.zones,
+            proximity_roles=config.proximity_roles,
         )
         for frame_index, frame in source.frames():
             if frame_index != frames:

@@ -14,6 +14,8 @@ from types import MappingProxyType
 
 from operix_engine.operational_config import OperationalConfig, RuleConfig
 from operix_engine.spatiotemporal import FrameSpatialState, ObjectIdentity
+from operix_engine.zone_geometry import NormalizedPoint
+from operix_engine.proximity_geometry import PROXIMITY_GEOMETRY_VERSION
 
 
 # Tolerancia exclusivamente numérica en segundos; no es una gracia operacional.
@@ -87,6 +89,9 @@ class PairRuleEvaluation:
     reason: str | None
     started_frame_index: int | None = None
     started_timestamp_s: float | None = None
+    proximity_geometry_version: str | None = None
+    person_anchor: NormalizedPoint | None = None
+    equipment_target: NormalizedPoint | None = None
 
     @property
     def episode_key(self) -> tuple | None:
@@ -118,6 +123,24 @@ class PairEventCandidate:
     observed_normalized_distance: float
     observed_duration_s: float
 
+    proximity_geometry_version: str | None = None
+    person_anchor: NormalizedPoint | None = None
+    equipment_target: NormalizedPoint | None = None
+
+    @property
+    def proximity_geometry(self) -> dict | None:
+        if self.proximity_geometry_version is None:
+            if self.person_anchor is not None or self.equipment_target is not None:
+                raise ValueError("Los puntos requieren versión geométrica")
+            return None  # Candidatos históricos/manuales sin geometría versionada.
+        if (self.proximity_geometry_version != PROXIMITY_GEOMETRY_VERSION
+                or not isinstance(self.person_anchor, NormalizedPoint)
+                or not isinstance(self.equipment_target, NormalizedPoint)):
+            raise ValueError("Snapshot geométrico incompleto o no soportado")
+        return {"version": self.proximity_geometry_version,
+                "person_anchor": [self.person_anchor.x, self.person_anchor.y],
+                "equipment_target": [self.equipment_target.x, self.equipment_target.y]}
+
     @property
     def episode_key(self) -> tuple:
         return (self.rule_id, self.rule_version, self.interaction, self.zone_id, self.started_frame_index)
@@ -147,6 +170,7 @@ class PairEventCandidate:
             "observed_normalized_distance": self.observed_normalized_distance,
             "observed_duration_s": self.observed_duration_s,
             "reason": self.reason,
+            **({"proximity_geometry": self.proximity_geometry} if self.proximity_geometry is not None else {}),
         }
 
 
@@ -280,6 +304,12 @@ class RuleEngine:
                 interaction = InteractionIdentity(b, a)
             else:
                 continue
+            if (proximity.geometry_version != PROXIMITY_GEOMETRY_VERSION
+                    or proximity.point_a is None or proximity.point_b is None):
+                raise RuleEngineError("La regla requiere geometría ground-edge y roles configurados en el analizador")
+            person_anchor, equipment_target = (proximity.point_a, proximity.point_b)
+            if a != interaction.person:
+                person_anchor, equipment_target = equipment_target, person_anchor
             members = tuple(objects.get(identity) for identity in
                             (interaction.person, interaction.forklift))
             memberships = tuple(
@@ -309,6 +339,7 @@ class RuleEngine:
                         rule.config.rule_id, rule.config.version, frame.frame_index, frame.timestamp_s,
                         interaction, rule.zone_id, rule.parameters, episode.started_frame_index,
                         episode.started_timestamp_s, distance, duration,
+                        proximity.geometry_version, person_anchor, equipment_target,
                     ))
                 episodes[key] = _PairEpisode(
                     episode.started_frame_index, episode.started_timestamp_s,
@@ -321,6 +352,7 @@ class RuleEngine:
                 interaction, rule.zone_id, rule.parameters, distance, duration, satisfied, reason,
                 episode.started_frame_index if episode else None,
                 episode.started_timestamp_s if episode else None,
+                proximity.geometry_version, person_anchor, equipment_target,
             ))
         return evaluations, candidates
 

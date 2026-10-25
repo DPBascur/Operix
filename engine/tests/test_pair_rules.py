@@ -27,7 +27,8 @@ class PairProximityRuleTest(unittest.TestCase):
         self.zone = Zone("lane", "Zona sintética", ((0.1, 0.1), (0.9, 0.1),
                                                    (0.9, 0.9), (0.1, 0.9)))
         self.person = track()
-        self.forklift = track("forklift", x=0.5)
+        # El borde izquierdo queda en x=.50: distancia exacta .25 desde PERSON.
+        self.forklift = track("forklift", x=0.52)
         self.parameters = {
             "kind": "person_forklift_proximity", "zone_id": "lane",
             "max_distance": 0.25, "minimum_duration_seconds": 1.0,
@@ -39,7 +40,8 @@ class PairProximityRuleTest(unittest.TestCase):
         self.config = OperationalConfig(1, "synthetic", (self.zone,),
                                         (RuleConfig("pair_demo", 1, enabled, parameters),))
         self.engine = RuleEngine(self.config)
-        self.analyzer = SpatiotemporalAnalyzer(width=100, height=100, fps=2, zones=(self.zone,))
+        self.analyzer = SpatiotemporalAnalyzer(width=100, height=100, fps=2, zones=(self.zone,),
+                                             proximity_roles=self.config.proximity_roles)
 
     def step(self, frame, *objects, timestamp=None):
         state = self.analyzer.update(frame, tuple(objects))
@@ -247,7 +249,8 @@ class PairProximityRuleTest(unittest.TestCase):
         state = self.analyzer.update(0, (self.person, self.forklift))
         pair = state.proximities[0]
         reverse = replace(pair, track_id_a=pair.track_id_b, track_id_b=pair.track_id_a,
-                          class_name_a=pair.class_name_b, class_name_b=pair.class_name_a)
+                          class_name_a=pair.class_name_b, class_name_b=pair.class_name_a,
+                          point_a=pair.point_b, point_b=pair.point_a)
         first = self.engine.evaluate(state).candidates[0]
         self.engine.reset()
         second = self.engine.evaluate(replace(state, proximities=(reverse,))).candidates[0]
@@ -345,6 +348,12 @@ class PairProximityRuleTest(unittest.TestCase):
         state = self.analyzer.update(0, (self.person, self.forklift))
         state = replace(state, proximities=(replace(state.proximities[0], normalized_distance=0.9),))
         self.assertEqual(self.engine.evaluate(state).candidates, ())
+
+    def test_unversioned_pair_geometry_is_not_silently_used_for_new_analysis(self):
+        state = self.analyzer.update(0, (self.person, self.forklift))
+        pair = replace(state.proximities[0], geometry_version=None, point_a=None, point_b=None)
+        with self.assertRaisesRegex(ValueError, "ground-edge"):
+            self.engine.evaluate(replace(state, proximities=(pair,)))
 
     def test_configurable_roles_and_class_ids_are_independent(self):
         self.configure(person_class="worker", forklift_class="vehicle", minimum_duration_seconds=0)

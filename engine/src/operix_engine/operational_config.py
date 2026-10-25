@@ -97,6 +97,13 @@ class OperationalConfig:
     zones: tuple[Zone, ...]
     rules: tuple[RuleConfig, ...]
 
+    @property
+    def proximity_roles(self) -> tuple[tuple[str, str], ...]:
+        """Roles de clase para geometría, no una selección de algoritmos/umbrales."""
+        pairs = ((rule.parameters.get("person_class", "person"), rule.parameters.get("forklift_class", "forklift"))
+                 for rule in self.rules if rule.parameters.get("kind") == "person_forklift_proximity")
+        return tuple(dict.fromkeys(pairs)) or (("person", "forklift"),)
+
     def __post_init__(self) -> None:
         if type(self.schema_version) is not int or self.schema_version != 1:
             raise OperationalConfigError("schema_version soportada: 1")

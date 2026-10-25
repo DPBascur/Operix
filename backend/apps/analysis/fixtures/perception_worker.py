@@ -51,6 +51,9 @@ def main():
                     "forklift": item.interaction.forklift.track_id,
                     "distance": item.observed_normalized_distance,
                     "duration": item.observed_duration_s, "state": item.rule_state,
+                    "geometry_version": item.proximity_geometry_version,
+                    "person_anchor": [item.person_anchor.x, item.person_anchor.y],
+                    "equipment_target": [item.equipment_target.x, item.equipment_target.y],
                     "started_frame": item.started_frame_index}
                     for item in result.evaluations if isinstance(item, PairRuleEvaluation)]})
             (args.session_dir / "TEST_ONLY_overlay_receipts.json").write_text(json.dumps(receipts), encoding="utf-8")
