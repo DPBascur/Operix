@@ -12,6 +12,7 @@ import numpy as np
 
 from operix_engine.operational_config import Zone
 from operix_engine.rules import EventCandidate
+from operix_engine.spatiotemporal import ObjectIdentity
 from operix_engine.tracking import Track
 
 
@@ -24,9 +25,11 @@ def render_track_frame(
     height: int,
 ) -> bytes:
     """Codifica un PNG del frame de tracks evaluado, sin inventar imagen de cámara."""
-    matching = [track for track in tracks if track.track_id == candidate.track_id]
-    if len(matching) != 1 or matching[0].class_name != candidate.class_name:
-        raise ValueError("El track del candidato no aparece en su frame")
+    identity = ObjectIdentity(candidate.class_name, candidate.track_id)
+    matching = [track for track in tracks
+                if ObjectIdentity(track.class_name, track.track_id) == identity]
+    if len(matching) != 1:
+        raise ValueError("La identidad clase/track del candidato está ausente o duplicada en su frame")
     if not any(zone.zone_id == candidate.zone_id for zone in zones):
         raise ValueError("La zona del candidato no aparece en la configuración")
     if width <= 0 or height <= 0 or width > 2048 or height > 2048:
@@ -41,7 +44,8 @@ def render_track_frame(
         cv2.polylines(canvas, [vertices], True, (110, 105, 30), 2)
     for track in tracks:
         box = track.bounding_box
-        color = (150, 70, 30) if track.track_id == candidate.track_id else (120, 120, 120)
+        color = ((150, 70, 30) if ObjectIdentity(track.class_name, track.track_id) == identity
+                 else (120, 120, 120))
         cv2.rectangle(
             canvas,
             (round(box.x_min * scale), round(box.y_min * scale)),

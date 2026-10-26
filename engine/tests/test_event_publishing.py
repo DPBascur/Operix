@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import io
 import json
+import hashlib
+import tempfile
 import os
 import runpy
 import sys
@@ -180,6 +182,30 @@ class EventPublishingTest(unittest.TestCase):
             with self.assertRaises(OSError):
                 render_track_frame(self.candidate, (track,), config.zones, width=100, height=100)
 
+    def test_replay_resolves_and_highlights_class_scoped_identity(self) -> None:
+        import cv2
+        config = load_operational_config(EXAMPLE)
+        candidate = replace(self.candidate, track_id=1)
+        person = Track(1, 0, "person", .9, BoundingBox(35, 40, 45, 50))
+        for other in (Track(1, 1, "forklift", .9, BoundingBox(60, 65, 80, 85)),
+                      Track(2, 0, "person", .9, BoundingBox(60, 65, 80, 85))):
+            with self.subTest(other=(other.class_name, other.track_id)):
+                with patch("operix_engine.event_evidence.cv2.rectangle", wraps=cv2.rectangle) as rectangles:
+                    png = render_track_frame(candidate, (other, person), config.zones, width=100, height=100)
+                self.assertTrue(png.startswith(b"\x89PNG"))
+                self.assertEqual(rectangles.call_args_list[0].args[1:4],
+                                 ((360, 390), (480, 510), (120, 120, 120)))
+                self.assertEqual(rectangles.call_args_list[1].args[1:4],
+                                 ((210, 240), (270, 300), (150, 70, 30)))
+
+    def test_replay_rejects_missing_class_and_duplicate_full_identity(self) -> None:
+        config = load_operational_config(EXAMPLE)
+        person = Track(731, 0, "person", .9, BoundingBox(35, 40, 45, 50))
+        with self.assertRaisesRegex(ValueError, "ausente o duplicada"):
+            render_track_frame(self.candidate, (person, person), config.zones, width=100, height=100)
+        with self.assertRaisesRegex(ValueError, "class_name"):
+            render_track_frame(replace(self.candidate, class_name=""), (person,), config.zones, width=100, height=100)
+
     def test_replay_capture_failure_does_not_send(self) -> None:
         with patch("operix_engine.event_evidence.cv2.imencode", return_value=(False, None)):
             with patch("operix_engine.event_publishing.urlopen") as send:
@@ -278,6 +304,25 @@ class EventPublishingTest(unittest.TestCase):
         self.assertEqual((output["frames"], len(output["candidates"])), (6, 1))
         self.assertNotIn("publications", output)
         send.assert_not_called()
+
+    def test_multiclass_replay_publishes_candidate_and_matching_evidence_endpoint(self) -> None:
+        records = [json.loads(line) for line in FIXTURE.read_text().splitlines()]
+        for record in records:
+            record["tracks"].append({"track_id": 731, "class_id": 1, "class_name": "forklift",
+                "confidence": .9, "bounding_box": {"x_min": 60, "y_min": 65, "x_max": 80, "y_max": 85}})
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / "multiclass.ndjson"
+            fixture.write_text("\n".join(json.dumps(row) for row in records))
+            with patch(__name__ + ".FIXTURE", fixture), \
+                    patch(__name__ + ".FIXTURE_SHA256", hashlib.sha256(fixture.read_bytes()).hexdigest()), \
+                    patch("operix_engine.event_publishing.urlopen") as send:
+                send.side_effect = [self._response(201, json.dumps({"id": EVENT_ID}).encode()),
+                                    self._response(201, b"{}")]
+                status, output = self._run_replay(publish=True, capture=True)
+        self.assertEqual(status, 0, output)
+        self.assertEqual(output["publications"][0]["status"], "published")
+        self.assertTrue(send.call_args_list[0].args[0].full_url.endswith("/events/"))
+        self.assertTrue(send.call_args_list[1].args[0].full_url.endswith(f"/events/{EVENT_ID}/evidence/"))
 
     def test_replay_continues_after_backend_failure(self) -> None:
         with patch("operix_engine.event_publishing.urlopen", side_effect=URLError("refused")):
