@@ -379,9 +379,17 @@ class PairProximityRuleTest(unittest.TestCase):
         self.assertEqual(len(result.candidates), 1)
         send.assert_not_called()
 
+    def test_normalized_distance_domain_and_representable_duration(self):
+        import sys
+        for maximum in (0, .25, 1, 1.2, math.sqrt(2)):
+            with self.subTest(maximum=maximum):
+                self.configure(max_distance=maximum, minimum_duration_seconds=sys.float_info.max)
+        with self.assertRaisesRegex(ValueError, "sqrt"):
+            self.configure(max_distance=math.nextafter(math.sqrt(2), math.inf))
+
     def test_invalid_configuration_is_rejected(self):
         for field in ("max_distance", "minimum_duration_seconds"):
-            for value in (-1, math.inf, math.nan, True, "1"):
+            for value in (-1, math.inf, -math.inf, math.nan, True, "1", "9" * 5000, 10**1000, None, []):
                 with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                     self.configure(**{field: value})
         for field in ("person_class", "forklift_class", "zone_id"):

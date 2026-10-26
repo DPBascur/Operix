@@ -1,12 +1,16 @@
 """Contrato de pares y consultas mixtas: fixtures, no evaluación de percepción."""
 
 from copy import deepcopy
+import json
+import math
+import sys
 from uuid import uuid4
 
 from django.test import override_settings
 from rest_framework.test import APITestCase
 
 from .models import Event
+from .pair_contract import validate_pair_parameters
 
 
 def pair_payload():
@@ -34,6 +38,30 @@ class PairEventApiTests(APITestCase):
 
     def post(self, payload=None):
         return self.client.post("/api/v1/events/", payload or self.payload, format="json")
+
+    def test_extreme_pair_parameters_are_400_without_persistence(self):
+        for name in ("max_distance", "minimum_duration_seconds"):
+            for value in (10**1000, math.nan, math.inf, -math.inf, "9" * 5000, "bad", True, None, [], -1):
+                with self.subTest(name=name, value_type=type(value).__name__):
+                    payload = deepcopy(self.payload)
+                    payload["rule_parameters"][name] = value
+                    response = self.client.post("/api/v1/events/", json.dumps(payload), content_type="application/json")
+                    self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(Event.objects.count(), 0)
+
+    def test_pair_numeric_domain_preserves_valid_values_above_one(self):
+        for distance in (0, .25, 1, 1.2, math.sqrt(2)):
+            with self.subTest(distance=distance):
+                payload = deepcopy(self.payload)
+                payload["analysis_run_id"] = str(uuid4())
+                payload["rule_parameters"]["max_distance"] = distance
+                payload["observations"]["normalized_distance"] = min(.2, distance)
+                self.assertEqual(self.post(payload).status_code, 201)
+        parameters = self.payload["rule_parameters"] | {"minimum_duration_seconds": sys.float_info.max}
+        validate_pair_parameters(parameters)
+        payload = deepcopy(self.payload)
+        payload["rule_parameters"]["max_distance"] = math.nextafter(math.sqrt(2), math.inf)
+        self.assertEqual(self.post(payload).status_code, 400)
 
     def test_pair_snapshot_survives_retrieval_without_fictitious_primary_object(self):
         result = self.post()

@@ -11,7 +11,13 @@ EVENT_TYPES = ("zone_dwell", "person_forklift_proximity")
 
 
 def number(value, name):
-    if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+    if type(value) not in (int, float):
+        raise ValidationError({name: "Debe ser numérico, finito y no negativo."})
+    try:
+        converted = float(value)
+    except (OverflowError, ValueError, TypeError):
+        raise ValidationError({name: "Número no representable."}) from None
+    if not math.isfinite(converted) or converted < 0:
         raise ValidationError({name: "Debe ser finito y no negativo."})
     return value
 
@@ -27,6 +33,9 @@ def validate_pair_parameters(parameters):
     if parameters["person_class"] == parameters["forklift_class"]:
         raise ValidationError({"rule_parameters": "Las clases de los roles deben ser distintas."})
     number(parameters["max_distance"], "max_distance")
+    # hypot(dx/width, dy/height): ambos ejes en [0,1], diagonal máxima sqrt(2).
+    if parameters["max_distance"] > math.sqrt(2):
+        raise ValidationError({"max_distance": "Debe estar entre 0 y sqrt(2) normalizado en imagen."})
     number(parameters["minimum_duration_seconds"], "minimum_duration_seconds")
 
 

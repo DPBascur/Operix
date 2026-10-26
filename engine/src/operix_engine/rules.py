@@ -33,6 +33,19 @@ class RuleEngineError(ValueError):
     """Configuración de regla o secuencia de frames no válida."""
 
 
+def _nonnegative_parameter(value: object, name: str) -> float:
+    """Valida representabilidad antes de evaluar o convertir parámetros de reglas."""
+    if type(value) not in (int, float):
+        raise RuleEngineError(f"{name} debe ser numérico, finito y >= 0")
+    try:
+        converted = float(value)
+    except (OverflowError, ValueError, TypeError):
+        raise RuleEngineError(f"{name} no es representable") from None
+    if not math.isfinite(converted) or converted < 0:
+        raise RuleEngineError(f"{name} debe ser finito y >= 0")
+    return converted
+
+
 @dataclass(frozen=True, slots=True)
 class RuleEvaluation:
     rule_id: str
@@ -226,9 +239,9 @@ def _validate_pair_rule(rule: RuleConfig, zone_ids: set[str]) -> _PairProximityR
     if values["zone_id"] not in zone_ids:
         raise RuleEngineError(f"{rule.rule_id}: zone_id debe identificar una zona configurada")
     for name in ("max_distance", "minimum_duration_seconds"):
-        value = values[name]
-        if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
-            raise RuleEngineError(f"{rule.rule_id}: {name} debe ser finito y >= 0")
+        _nonnegative_parameter(values[name], f"{rule.rule_id}: {name}")
+    if values["max_distance"] > math.sqrt(2):
+        raise RuleEngineError(f"{rule.rule_id}: max_distance debe estar entre 0 y sqrt(2) normalizado")
     return _PairProximityRule(
         rule, values["person_class"], values["forklift_class"], values["zone_id"],
         float(values["max_distance"]), float(values["minimum_duration_seconds"]),
@@ -256,8 +269,7 @@ def _validate_rule(rule: RuleConfig, zone_ids: set[str]) -> _ZoneDwellRule | _Pa
         raise RuleEngineError(f"{rule.rule_id}: class_name debe ser texto no vacío")
     if not isinstance(zone_id, str) or not zone_id.strip() or zone_id not in zone_ids:
         raise RuleEngineError(f"{rule.rule_id}: zone_id debe identificar una zona configurada")
-    if type(duration) not in (int, float) or not math.isfinite(duration) or duration < 0:
-        raise RuleEngineError(f"{rule.rule_id}: min_duration_s debe ser finito y >= 0")
+    _nonnegative_parameter(duration, f"{rule.rule_id}: min_duration_s")
     return _ZoneDwellRule(
         rule, class_name, zone_id, float(duration), MappingProxyType(dict(values))
     )
