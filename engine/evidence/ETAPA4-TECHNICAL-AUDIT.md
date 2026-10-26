@@ -845,3 +845,132 @@ Reportes generados permanecen fuera de Git. No hubo inferencia nueva, entrenamie
 tuning, lectura de holdouts, TEST2 o REAL_HOLDOUT_V2. Modelos/checkpoints, confidence,
 NMS, ByteTrack, geometría `person_equipment_nearest_ground_edges_v1`, umbrales,
 perfiles, transporte/persistencia productivos, frontend, Excel, main y tags intactos.
+
+## 17. Selección de percepción y extensión de equipos — 25-10-2026
+
+Base `cac92912fe57151f4b4e9090e33aa0448974827b`, `dev` limpio/sincronizado.
+Campaña **PERSON_MODEL_SELECTION_DEVELOPMENT**; resultados etiquetados
+**DEVELOPMENT_SELECTION_METRICS**, no validación final ni ejecución de
+PERSON_EVALUATION_PROTOCOL_V1. Producción permanece en YOLO11n COCO PERSON y
+FORKLIFT specialist v2.
+
+Se reutilizan 273 imágenes revisadas por humanos: 225 KEREMBERKE y 48 TEST3,
+307 cajas PERSON, 152 imágenes positivas y 121 negativos verificados. Se verifican
+hashes de imágenes/etiquetas y se fija el manifiesto antes de inferencia. Hay
+preanotación previa, procedencia industrial débil y un solo video TEST3 de origen
+desconocido: sirven para selección de desarrollo, no independencia o generalización.
+No se inventan etiquetas de oclusión/operador/dificultad tras observar resultados.
+No se accede a PERSON_FINAL_HOLDOUT_V2, TEST2, REAL_HOLDOUT_V2 u otro test final.
+
+Comparación común: COCO n/s/m/l, 640, confidence 0,10, NMS 0,70, batch 1, FP32,
+CUDA:0; filtro PERSON y matching existente uno-a-uno por confianza, IoU≥0,50.
+Se reutiliza el adaptador productivo, que predice COCO y filtra después por clase.
+Cada checkpoint verifica `model.names`: person=0 y truck=7, sin asumir esos IDs.
+n se reutilizó con su SHA conocido; s/m/l se descargaron mediante Ultralytics
+desde `ultralytics/assets`, release v8.4.0. No se instalaron dependencias nuevas.
+x queda fuera del estudio acotado; no se afirma que no quepa en VRAM.
+
+| Modelo | Parámetros antes de fusionar | Bytes del checkpoint | SHA-256 |
+| --- | ---: | ---: | --- |
+| yolo11n.pt | 2624080 | 5613764 | `0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1` |
+| yolo11s.pt | 9458752 | 19313732 | `85a76fe86dd8afe384648546b56a7a78580c7cb7b404fc595f97969322d502d5` |
+| yolo11m.pt | 20114688 | 40684120 | `d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95` |
+| yolo11l.pt | 25372160 | 51387343 | `9ebd0e09d59811db4b1d61e2bc6730649608b1ac47f8dd01e2da6bca7c20023f` |
+
+RTX 3070 8 GiB, Ryzen 5 5500, Windows 10 Pro x64, RAM visible ≈31,9 GiB,
+driver 616.92, PyTorch 2.14.0+cu130 y Ultralytics 8.4.146. Tres repeticiones,
+20 inferencias iniciales de warm-up; reloj perf_counter_ns y sincronización CUDA
+antes/después. Calidad calculada una vez por imagen; los otros pases miden tiempo.
+Inferencia excluye lectura. Pipeline serial: decode → PERSON + FORKLIFT →
+ByteTrack → analizador/reglas → renderer, sin escritura, HTTP, MJPEG ni persistencia.
+Trackers/historiales/reglas se reinician por repetición; se procesan los 20 frames
+iniciales pero se excluyen del tiempo. A/B/C tienen 277/300/418 frames; son 2805
+frames medidos por modelo. FPS global = frames / suma de tiempos, nunca promedio
+de FPS instantáneos. p95 usa interpolación lineal; desviación estándar muestral.
+
+| COCO | TP / FP / FN | P | R | F1 | Predicciones | Inferencia FPS / ms medios | Pipeline dual FPS | Pico dual asignado / reservado MiB |
+| --- | --- | ---: | ---: | ---: | ---: | --- | ---: | --- |
+| n | 230 / 258 / 77 | 0,471 | 0,749 | 0,579 | 488 | 46,118 / 21,684 | 15,275 | 66,3 / 100 |
+| s | 244 / 222 / 63 | 0,524 | 0,795 | 0,631 | 466 | 42,845 / 23,340 | 15,452 | 103,3 / 144 |
+| m | 254 / 167 / 53 | 0,603 | 0,827 | 0,698 | 421 | 28,809 / 34,711 | 11,404 | 166,7 / 324 |
+| l | 255 / 143 / 52 | 0,641 | 0,831 | 0,723 | 398 | 18,898 / 52,915 | 12,176 | 195,1 / 362 |
+
+VRAM corresponde al allocator PyTorch, no a memoria global de GPU, contexto CUDA
+completo ni presupuesto para procesos concurrentes. No hubo OOM; no se instrumenta
+utilización GPU. El orden n/s/m/l no está contrabalanceado. La inversión de FPS
+pipeline entre m/l **no demuestra que l sea intrínsecamente más rápido**: también
+varía la etapa del especialista idéntico (por ejemplo B, 26,2 frente a 20,2 ms en
+la primera repetición). Se conservan las observaciones, sin corregirlas a mano.
+Ningún resultado acredita 30 FPS sostenidos o tiempo real universal. La cifra de
+carga + 20 warm-ups (5,17/0,70/0,94/1,61 s) no es ahorro demostrado de residencia.
+
+| COCO | IDs PERSON A/B/C | Huecos internos A: episodios / observaciones-ID ausentes | Cobertura PERSON C | Eventos C: dwell / proximidad |
+| --- | --- | --- | --- | --- |
+| n | 8 / 1 / 2 | 4 / 15 | 360/418 | 2 / 2 |
+| s | 3 / 1 / 1 | 3 / 16 | 418/418 | 1 / 1 |
+| m | 4 / 1 / 1 | 0 / 0 | 418/418 | 1 / 1 |
+| l | 3 / 1 / 1 | 0 / 0 | 413/418 | 2 / 2 |
+
+B mantiene PERSON en 300/300 con un ID; FORKLIFT conserva un ID y observación en
+todos los frames de cada demo. Las tres repeticiones repiten conteos de detección,
+tracking y eventos. No hay IDs PERSON duplicados dentro del mismo frame. Son
+descriptores, no métricas MOT ni ID switches confirmados. En l/C, ausencias en 123
+y 128–131 reinician la duración; proximidad vuelve a emitir en 162. No se añade
+gracia. Menos IDs no prueba por sí solo mejor asociación física.
+
+Se mantienen zonas/dwell productivos de A/B/C. Para observar proximidad se añade
+**solo offline** TEST_DATA_PAIR con 0,25 norm y 1 s, copiados del fixture existente,
+sin calibración ni activación productiva. Los pares evaluados A/B/C son
+644/300/360 (n), 644/300/418 (s), 650/300/418 (m), 654/300/413 (l). Más eventos no
+es criterio de selección. FP sobre negativos verificados: n=27, s=37, m=15, l=13;
+la mejora agregada de s no es uniforme.
+
+**PERSON_OPERATIONAL_RECOMMENDATION: RECOMMEND_YOLO11M**, propuesta para análisis
+diferido de Etapa 4, sujeta a aprobación y sin cambiar producción. Frente a n,
+F1 mejora 0,119, FP bajan 91 y FN bajan 24; en A/C no presenta huecos internos
+en los registros medidos. Frente a s, aporta calidad a costo de ≈26 % de FPS dual.
+l gana un TP frente a m y reduce otros 24 FP, pero su inferencia aislada cuesta
+≈52 % más y muestra cinco frames sin PERSON en C. No se elige simplemente el
+mayor F1; s queda como alternativa de eficiencia, no una mejora universal.
+
+### Evolución compatible de equipos: diseño, no implementación
+
+- Detection/Track e identidad `(class_name, track_id)` son reutilizables. Canales y
+  PerceptionFrame fijan person/forklift; reglas/InteractionIdentity, renderer,
+  snapshots, validadores, constraint de pares, API y UI aún nombran forklift.
+- Frontera pequeña propuesta: una inferencia COCO → separar person/truck →
+  trackers independientes por clase; segundo forward del especialista forklift.
+  Mapear `perception_class`, rol PERSON/MOBILE_EQUIPMENT, subtipo y SHA/source_model
+  sin cambiar la clase observada ni perder namespace. No crear un framework.
+- Conservar person_forklift_proximity, snapshots y replay originales. Una futura
+  person_mobile_equipment_proximity tendría `equipment_types=[forklift,truck]`,
+  configuración por subtipo y nuevo contrato discriminado, validación/constraint,
+  identidad de análisis con todos los modelos y revisión de UI; sin migrar historia.
+- COCO truck puede ser un falso rótulo de forklift, ya documentado en OP-34. No
+  inventar equivalencias ni suprimir por overlap entre ramas: también podría ocultar
+  dos equipos reales. Faltan escenas de desarrollo de camiones y conflictos entre
+  modelos. `TRUCK_INTEGRATION_READY_BUT_NOT_EVALUATED` describe solo disponibilidad
+  de clase COCO; **no** un pipeline truck listo ni métricas P/R válidas.
+- Complejidad media en Motor, media/alta end-to-end. La geometría D sigue siendo
+  distancia normalizada en imagen; no define metros ni distancias seguras universales.
+- Cada análisis actual abre un proceso y carga ambos modelos una vez, no por frame.
+  ResidentDetectors histórico es un cache experimental, no integrado. Un futuro
+  worker serial podría retener modelos por SHA/device/precisión, con estados
+  temporales nuevos, cancelación y liberación acotada; no se porta a ciegas.
+
+Decisión: **MOBILE_EQUIPMENT_EXTENSION_NEEDS_MORE_EVIDENCE**. YOLOE/YOLO-World
+quedan en [revisión documental](https://docs.ultralytics.com/models/yoloe/), sin
+instalar ni integrar; prompts no resuelven identidad, ocupancia o seguridad.
+La [familia YOLO11](https://docs.ultralytics.com/models/yolo11/) aporta los
+checkpoints COCO estudiados, sin extrapolar su benchmark publicado a esta GPU.
+
+Detalle local en `Operix-experiments/perception-architecture-study-2026-10-25/`:
+manifiesto previo, resultados aceptados `run-04`, predicciones, tiempos/agregados,
+comparación CSV, recibos de integridad, gráfico y láminas B/C en frame 150 fijado
+antes de inferencia. Tres preflights se conservan como abortados por errores del
+tooling (borde/serialización), sin cambiar la muestra o parámetros; no sustentan
+las tablas. Pesos, imágenes, JSON experimentales y capturas quedan fuera de Git.
+Tooling nuevo: 7/7 pruebas; suite Motor **421 descubiertas, 419 PASS y 2 SKIP**
+opt-in; pip check y diff check aprobados. Solo se versionan tooling, tests y esta
+síntesis. No hubo entrenamiento, sweeps, acceso a holdouts, cambios de producción,
+ByteTrack, reglas, geometría, Backend, Frontend, Excel, main, tags o arquitectura v1.0.
