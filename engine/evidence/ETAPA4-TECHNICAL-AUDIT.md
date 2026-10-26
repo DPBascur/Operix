@@ -1268,3 +1268,53 @@ hover/active/focus-visible, disabled/loading. Foco visible y sin overflow.
 La recaptura real procesa 418/418 frames y conserva los dos tipos de evento.
 Impeccable no detecta hallazgos mecánicos; se conserva la identidad existente.
 Esta corrección visual no sustituye el gate final ni autoriza main/tag.
+
+
+## 23. Gate final de v0.2.0 — 26-10-2026
+
+Base `7bd8a2e307c148ce54e43cca6e8d8d9b66711210`; candidato ejecutado
+`60999b9a2ecf4500dbeb74ca59f6198c004f54bd`, dev/origin/dev 0/0 y limpio.
+El commit de versión modifica solo engine/pyproject.toml, la constante pública
+del Motor y frontend/package.json a **0.2.0**. Metadata instalada del Motor
+verificada; pnpm conserva su lock con instalación offline/frozen, sin resolver
+versiones nuevas. API, modelos, reglas, geometría y referencias históricas no cambian.
+El apartado de versión pendiente de RELEASE_NOTES.md pertenece a la preparación
+anterior: aún menciona 0.1.0 y deberá alinearse antes de promover el candidato.
+
+| Validación | Resultado de esta ejecución |
+| --- | --- |
+| Motor | 427 descubiertas: 425 PASS, 2 SKIP opt-in; cero fallos. |
+| Backend | 127/127 PASS en PostgreSQL test aislado. |
+| Django / migraciones | System check, makemigrations --check --dry-run y migrate --check PASS; sin pendientes. |
+| Python | pip check Motor/Backend PASS; entorno CPU/OpenCV y CUDA RTX 3070 PASS. |
+| Frontend | 37/37 PASS; lint y typecheck PASS. Build nativo compila/genera páginas, pero finaliza exit 1 con SecurityFatalError de Next.js; NO se registra como PASS. |
+| Browser versionado | 1/1 PASS sobre artefacto compilado en loopback/API fixture, incluyendo sesiones, video/seek, teclado, error/cancelación y geometría light/dark a 1440/1280/390. No anula el fallo del build. |
+| Formato | format:check global FAIL: 62 archivos preexistentes con CRLF. Diagnóstico sin escribir: pasan al normalizar en memoria a LF; package.json modificado PASS estricto. No se normaliza el checkout. |
+| E2E CUDA nativo | 1/1 PASS: demo C autorizada, fixture de pares existente sin tuning, 418/418 decodificados y PERSON visible; IDs temporales 1 por clase. Eventos dwell frame 60 y proximidad frame 30, persistencia saved, PNG/GET de evidencia/histórico/resultado correctos. |
+| Identidad / snapshots | PERSON YOLO11M_COCO_PERSON y FORKLIFT specialist v2: SHA esperados verificados; 640 / 0,10 / 0,70 y 640 / 0,45 / 0,55, FP32 CUDA:0. Rule ID/version, geometry person_equipment_nearest_ground_edges_v1 y objetos compuestos conservados; endpoints comunes a regla/overlay cubiertos por regresión. |
+| Docker | Compose CPU/GPU config PASS; builds Backend/Frontend PASS; PostgreSQL, Backend y Frontend healthy en proyecto QA aislado. Smoke NVIDIA con ambos modelos PASS, H.264 encode/decode PASS, sin checkpoints en /app, binds externos read-only y pip check PASS. El build Docker exitoso no elimina los advisories. |
+| Assets / higiene | PNG 1440×1000 con SHA 7b88c30a5a1d8f1475fce384efede617128161d2ac247c39913756b7cbc98225, decode/metadata correctos. 143 enlaces/anclas/case PASS; cero ignorados versionados ni patrones de secretos/rutas privadas en 280 textos. Solo tres MP4 históricos intencionales superan 5 MiB. |
+
+**Bloqueo nuevo de seguridad:** pnpm audit devuelve 2 critical y 2 high:
+[Next Image Optimization](https://github.com/advisories/GHSA-2464-fhr4-w9xw),
+[Next use cache](https://github.com/advisories/GHSA-673q-mjm6-r5xr),
+[Next Server Actions](https://github.com/advisories/GHSA-p3m5-59mp-jv5r) y
+[Zod transitivo de tooling](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5).
+Next 16.4.0 está en los rangos afectados y los avisos identifican 16.4.1 como
+versión corregida. No se demuestra explotación en Operix: los impactos dependen
+de plataforma/funciones; no se encontraron directivas use server/use cache en src.
+El gate exige resolver o evaluar formalmente este hallazgo y repetir el build;
+no se actualizan dependencias, no se omite el control ni se aplica un bypass.
+
+Incidencias de harness separadas: pnpm requirió refrescar node_modules tras el
+bump, con caché offline y lock frozen; el observador E2E usa OpenCV del entorno
+Motor, no del Backend; Compose usa secretos QA efímeros ante ausencia de .env raíz.
+Ninguna de estas incidencias se cuenta como defecto productivo ni borra el fallo
+real de seguridad. Artefactos/recibos permanecen fuera de Git.
+
+F15/F16/F17/F18/F20 permanecen conocidos y sin cambios. **F02 OPEN:** validación
+externa/contextual experta pendiente; no bloquea por sí sola el MVP, pero impide
+afirmar validación académica/industrial final. No se usan holdouts, TEST2, Excel
+ni informe, ni se cambian modelos, thresholds o arquitectura. Main y tags intactos.
+
+**Decisión: V0_2_0_RELEASE_GATE_BLOCKED.** No promover main ni crear v0.2.0.
