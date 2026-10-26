@@ -1,8 +1,8 @@
 # Operix — auditoría técnica final para Etapa 4
 
-**Vigencia:** la [sección 19](#19-checkpoint-pre-v020--26-10-2026) reconcilia
-los hallazgos con el estado pre-v0.2.0 del 26-10-2026. Las secciones anteriores
-conservan sus cortes, decisiones y resultados históricos.
+**Vigencia:** la [sección 20](#20-cierre-de-p1-funcionales--26-10-2026) registra
+el cierre posterior de F08/F09/F13. La sección 19 conserva el checkpoint previo;
+las demás secciones mantienen sus decisiones y resultados históricos.
 
 Fecha: **25-10-2026** (America/Santiago). Base auditada:
 `7e03a5a5e40b6e6892efc567567da2b7d6a8a647`, rama `dev`.
@@ -1054,12 +1054,12 @@ crudos de evaluación. La prioridad original no se cambia retrospectivamente.
 | F05 / P1 | CLOSED | `684f9f9`, inspect_recorded_video y worker: prelectura, segunda lectura y verificación de salida completa; tests EOF/conteo/error. Rechazo conservador no prueba detectar toda corrupción previa. |
 | F06 / P1 | CLOSED | Contrato CFR explícito, timestamps observados, rechazo de irregularidad detectable y warning NOMINAL_FPS_UNVERIFIED_CFR cuando el backend no aporta reloj. No se promete soporte VFR universal. |
 | F07 / P1 | CLOSED | `c3a8e1c`: desmontar ya no envía DELETE; referencia de sesión recuperable en la misma pestaña. `cac9291` añade flujo browser con navegación/recuperación. |
-| F08 / P1 | PARTIALLY_CLOSED | START/STOP/poll tienen generación y selector busy; applyZone incrementa generación pero aplica la respuesta/error/finally sin comprobarla. Falta cierre equivalente/test de PUT tardío; no se afirma corrupción de sesión reproducida en browser. |
-| F09 / P1 | OPEN | render_track_frame sigue buscando solo track_id y resaltando por ese número. Reproducción actual PERSON 1 + FORKLIFT 1: ValueError pese a existir el candidato. Afecta captura del replay sintético legacy, no el PNG del worker web dual. |
+| F08 / P1 | CLOSED | Cierre posterior en sección 20: applyZone reutiliza generación y protege éxito/error/finally. Tests de A/B fuera de orden, contexto invalidado y PUT retrasado en browser. |
+| F09 / P1 | CLOSED | Cierre posterior en sección 20: ObjectIdentity canónica para selección/resaltado. Regresión PERSON 1/FORKLIFT 1, cajas, casos legacy y CLI con PNG/endpoint correctos. |
 | F10 / P1 | CLOSED | `cac9291`, tests/browser/analysis-flow.test.mjs: sesión, navegación, respuesta tardía de poll, MP4/seek, teclado, errores, historial/PNG y 18 combinaciones ruta/viewport. API fixture, no inferencia ni persistencia real. No certifica todos los intercalados posibles. |
 | F11 / P1 | DEFERRED_BY_DECISION | OCCUPANT_ASSOCIATION_DESIGN_ONLY, sección 16 y tests adversariales; containment/movimiento no justifican suprimir PERSON. Limitación semántica explícita, sin filtro de ocupantes implementado. |
 | F12 / P1 | CLOSED | TRACKING_CONTINUITY_CHARACTERIZED, `44d62b9`/`44c341d`: pérdidas, recuperación, cambio de IDs, 10/30/60 FPS y ByteTrack. Se cierra caracterización/decisión; fragmentación y ausencia de GT MOT permanecen. |
-| F13 / P1 | PARTIALLY_CLOSED | Shapes/perfil/vértices/Range de análisis tienen tests y respuestas controladas. EventSerializer aún deja escapar OverflowError para max_distance=10**1000 en parámetros de pares; reproducción sin DB. |
+| F13 / P1 | CLOSED | Cierre posterior en sección 20: números finitos/representables, dominio de distancia [0,sqrt(2)] y HTTP 400 para extremos; validación nativa previa a evaluación. |
 | F14 / P1 | CLOSED | Editor permite insertar X/Y, cerrar y aplicar sin puntero; código, tests geométricos y flujo browser versionado. No implica certificación WCAG completa. |
 | F15 / P2 | OPEN | validate_png acepta un chunk crítico ABCD desconocido con CRC válido; reproducción actual. Tests existentes de scanlines/Adam7 no cubren este caso. |
 | F16 / P2 | OPEN | append no valida el final previo del journal. Reproducción: cola truncada → enqueue con HTTP fallido → replay: 0 recuperados, 1 registro inválido. No declara saved falsamente, pero pierde recuperabilidad automática de esa entrada. |
@@ -1073,7 +1073,7 @@ crudos de evaluación. La prioridad original no se cambia retrospectivamente.
 | F24 / DEFER | DEFERRED_BY_DECISION | Registro RAM no recuperable tras reinicio; eventos/PNG y journal independientes. Recuperación al navegar no equivale a persistencia de sesiones. |
 | F25 / DEFER | DEFERRED_BY_DECISION | Lista completa y carga acotada documentadas; paginación solo ante alcance/volumen que la exija. |
 
-Balance: 9 CLOSED, 7 OPEN, 3 PARTIALLY_CLOSED, 6 DEFERRED_BY_DECISION y
+Balance actualizado tras sección 20: 12 CLOSED, 6 OPEN, 1 PARTIALLY_CLOSED, 6 DEFERRED_BY_DECISION y
 0 NO_LONGER_APPLICABLE. Un test de happy path no cierra un caso adversarial ausente.
 
 ### Demo y assets: estado de presentación
@@ -1099,7 +1099,7 @@ examinados; no se certifican todas las anclas/URLs externas. Escaneo textual
 versionado sin patrones de rutas personales/tokens habituales/claves privadas;
 0 tracked que coincidan con ignore. No es una auditoría completa del historial.
 
-### Decisión de readiness y bloqueos concretos
+### Decisión del checkpoint previo (superada por sección 20)
 
 **BLOCKED_BY_CRITICAL_ISSUES** para dar por cerrado el checkpoint técnico previo
 al release. No hay un P0 runtime nuevo ni fallo demostrado de la pasada web CUDA.
@@ -1140,3 +1140,70 @@ resultados previos de la base, no nuevos PASS. Se actualiza únicamente este inf
 y el snapshot existente, conservando los cortes históricos. Resultado:
 **PRE_V0_2_0_TECHNICAL_AUDIT_COMPLETE**, con decisión de release bloqueada por los
 dos P1 concretos indicados y sin cambio funcional.
+
+
+## 20. Cierre de P1 funcionales — 26-10-2026
+
+Base `49d7c78ec55c8ccefc11b0512b22bf996c5e0c2f`, dev limpio y 0/0.
+Se corrigen exclusivamente F09, F13 y F08; no se amplía a los P2.
+
+- **F09 CLOSED.** render_track_frame resuelve y resalta por ObjectIdentity
+  (class_name, track_id), reutilizando la identidad canónica. PERSON 1 y FORKLIFT 1
+  ya no colisionan; PERSON 1/PERSON 2 y single-class conservan su comportamiento.
+  Falta de clase o identidad completa duplicada produce error explícito, nunca
+  selección arbitraria. Tests comprueban cajas/colores, endpoints de evento/PNG y
+  replay CLI real con HTTP simulado. El renderer de pares mantiene sus endpoints
+  geométricos para PERSON 1/FORKLIFT 1. No se añade publicación legacy de pares:
+  su límite explícito anterior se conserva; Web/worker ya tienen esa integración.
+- **F13 CLOSED.** Backend y validación de configuración del Motor rechazan antes
+  de evaluar valores no numéricos, bool, negativos, no finitos o no representables.
+  Conversión protegida frente a OverflowError/ValueError/TypeError, seguida de
+  comprobación finita; no se convierten strings numéricos gigantes en parámetros.
+  max_distance tiene dominio **[0, sqrt(2)]**, derivado de hypot(dx/width,dy/height)
+  con ambos ejes normalizados. Valores >1, como 1,2, siguen siendo válidos por la
+  diagonal; no son metros ni una distancia segura. Las duraciones siguen siendo
+  no negativas y finitas/representables, sin un máximo operacional inventado.
+  Se prueban cero, normales, sqrt(2), el siguiente float fuera de dominio,
+  10**1000, NaN/±Infinity, strings y tipos inválidos. HTTP devuelve 400 y no crea
+  filas ante entradas inválidas; la configuración nativa falla antes de evaluar.
+  No se modifican umbrales configurados, comparación temporal ni geometría.
+- **F08 CLOSED.** applyZoneRequest usa el mismo ref generation del workspace.
+  Solo la generación vigente aplica respuesta, error y finally; navegar/cancelar
+  contexto invalida la pendiente. Tres tests con promesas controladas verifican
+  B antes que A, éxito/error obsoletos y error vigente. Browser añade un PUT
+  retrasado al navegar/recuperar, sin cambiar layout, copy o política de sesiones.
+
+Reconciliación P1 acotada: **F03–F10 y F12–F14 CLOSED**;
+**F11 DEFERRED_BY_DECISION / OCCUPANT_ASSOCIATION_DESIGN_ONLY**.
+**F02 OPEN**: validación externa/contextual experta y operacional final realista;
+no bloquea v0.2.0 como MVP integrado, sí afirmaciones de cierre final/v1.0.0.
+
+Regresión ejecutada sobre las correcciones:
+
+| Gate | Resultado |
+| --- | --- |
+| Motor completo | 427 descubiertas: **425 PASS + 2 SKIP** opt-in de modelos reales. |
+| Targets replay/identidad, pares y endpoints geométricos | **6/6 PASS**, además de la suite completa. |
+| Backend/PostgreSQL test | **127/127 PASS**, incluidos HTTP extremos y persistencia/evidencia fixture. |
+| Frontend, Node 24.2.0 / pnpm 11.28.2 | **37/37 PASS**; lint, typecheck y production build PASS. |
+| Browser con API fixture aislada | **1/1 PASS**, PUT retrasado al navegar, MP4/seek, teclado, estados y 18 combinaciones ruta/viewport. |
+| Django/migraciones/dependencias | check y migration checks PASS, sin cambios ni pendientes; pip check PASS en ambos entornos. |
+| Formato/diff | Prettier estricto en los cinco archivos frontend tocados y git diff --check PASS; sin normalización global de EOL. |
+
+El nuevo fixture multiclase calcula su propio SHA esperado; un primer intento
+usó el hash del fixture legacy y fue rechazado correctamente. No se debilitó el
+gate. Browser requirió autorización de ejecución de Chromium tras un timeout CDP
+en el entorno restringido; la repetición completa aprobó. Los servidores fixture
+se detienen al terminar y no sustituyen servicios operativos.
+
+**READY_FOR_V0_2_0_RELEASE_PREP**. No se identificó otro P1 funcional reproducible
+al revisar estos cambios. No equivale a crear/publicar el tag ni a haber repetido
+el gate futuro Docker/CUDA real. Demo actual, rotulación histórica y notas siguen
+como preparación F19. F15/F16/F17/F18/F20 permanecen abiertos y no se corrigen ni
+se elevan a P0 aquí. Maquinaria móvil sigue NEEDS_MORE_EVIDENCE.
+
+PERSON m, FORKLIFT v2, pesos, ByteTrack, perfiles/umbrales, geometría D, ocupancia,
+contratos de transporte/persistencia, Docker, main y tags permanecen intactos.
+No se entrenan modelos, no se usan holdouts/TEST2 y no se abre Excel/informe.
+Solo cambia la validación de entradas, la identidad de evidencia legacy y la
+aceptación frontend de respuestas; se conserva toda la evidencia histórica.
