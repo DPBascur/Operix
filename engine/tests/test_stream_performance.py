@@ -23,6 +23,27 @@ class PreviewScheduleTest(unittest.TestCase):
         self.assertTrue(due(0, 300, 30.0, None, 10.0))
         self.assertTrue(due(299, 300, 30.0, 297, 10.0))
 
+    def test_operational_cli_defaults_to_single_frame_batch(self):
+        arguments = ["worker", "--session-dir", "fixture", "--video", "fixture.mp4",
+                     "--config", "fixture.json", "--person-weights", "person.pt",
+                     "--person-sha256", "a" * 64, "--forklift-weights", "forklift.pt",
+                     "--forklift-sha256", "b" * 64]
+        with patch.object(sys, "argv", arguments), patch.object(self.worker, "process") as process:
+            self.assertEqual(self.worker.main(), 0)
+        self.assertEqual(process.call_args.args[0].batch_size, 1)
+
+    def test_wrong_operational_person_hash_rejects_before_loading_models(self):
+        with tempfile.TemporaryDirectory() as directory:
+            weights = Path(directory) / "person.pt"
+            weights.write_bytes(b"not-an-approved-checkpoint")
+            arguments = SimpleNamespace(person_weights=weights,
+                person_sha256="d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95")
+            scripts = str(Path(__file__).resolve().parents[1] / "scripts")
+            with patch.object(sys, "path", [scripts, *sys.path]), patch.object(self.worker, "YoloDetector") as detector:
+                with self.assertRaisesRegex(ValueError, "SHA-256 distinto"):
+                    self.worker.process(arguments)
+            detector.assert_not_called()
+
     def test_preview_throttle_never_drops_analysis_indices(self):
         processed, previews = [], []
         previous = None

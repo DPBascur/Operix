@@ -49,6 +49,7 @@ def checked_file(path: Path | None, expected: str | None, label: str) -> str:
 def model_identity(sha256: str) -> str:
     """Nombra checkpoints conocidos; no concede permiso ni omite su verificación SHA."""
     return {
+        "d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95": "YOLO11M_COCO_PERSON",
         "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1": "YOLO11N_COCO_PERSON",
         "21766a9dc664fac06da3b0b457e0449f25e1696acbf8e7e39993c4b42282083f": "PRE_EVALUATION_PRIMARY_PERSON",
         "1465105ea80737ddc65d72e97d6dc24fc253995a98d6d4eea9b377fe3a8edce6": "FORKLIFT_SPECIALIST_V2",

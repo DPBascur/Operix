@@ -62,6 +62,7 @@ class PersonOperationalIdentityTest(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("identity_diagnostic", scripts / "run_dual_perception.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
+        self.assertEqual(module.model_identity("d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95"), "YOLO11M_COCO_PERSON")
         self.assertEqual(module.model_identity("0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1"), "YOLO11N_COCO_PERSON")
         self.assertEqual(module.model_identity("21766a9dc664fac06da3b0b457e0449f25e1696acbf8e7e39993c4b42282083f"), "PRE_EVALUATION_PRIMARY_PERSON")
         with tempfile.TemporaryDirectory() as directory:
@@ -71,6 +72,8 @@ class PersonOperationalIdentityTest(unittest.TestCase):
             self.assertEqual(module.checked_file(weights, digest, "fixture"), digest)
             with self.assertRaisesRegex(ValueError, "distinto"):
                 module.checked_file(weights, "0" * 64, "fixture")
+            with self.assertRaisesRegex(ValueError, "distinto"):
+                module.checked_file(weights, "d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95", "PERSON operacional")
 
     def test_coco_class_mapping_filters_other_classes_before_tracking(self):
         tracker = FakeTracker()

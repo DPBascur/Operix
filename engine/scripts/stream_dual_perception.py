@@ -382,7 +382,7 @@ def main() -> int:
     parser.add_argument("--forklift-sha256", required=True)
     parser.add_argument("--preview-width", type=int, default=1280)
     parser.add_argument("--preview-fps", type=float, default=10.0)
-    parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--event-context", type=Path)
     args = parser.parse_args()
     try:

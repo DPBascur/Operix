@@ -39,8 +39,8 @@ PROFILE_DEMO_SETTINGS = {
     "B": ("forklift_human_nearmiss", "OPERIX_DEMO_VIDEO_B"),
     "C": ("warehouse_box_pickup", "OPERIX_DEMO_VIDEO_C"),
 }
-PERSON_MODEL_ID = "YOLO11N_COCO_PERSON"
-PERSON_SHA256 = "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1"
+PERSON_MODEL_ID = "YOLO11M_COCO_PERSON"
+PERSON_SHA256 = "d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95"
 FORKLIFT_MODEL_ID = "FORKLIFT_SPECIALIST_V2"
 FORKLIFT_SHA256 = "1465105ea80737ddc65d72e97d6dc24fc253995a98d6d4eea9b377fe3a8edce6"
 TERMINAL = {"completed", "cancelled", "error"}
@@ -526,6 +526,7 @@ def _start_session(session: AnalysisSession) -> None:
             "--config", str(PROFILES[session.profile]), "--polygon", str(polygon_path),
             "--person-weights", str(person), "--person-sha256", PERSON_SHA256,
             "--forklift-weights", str(forklift), "--forklift-sha256", FORKLIFT_SHA256,
+            "--batch-size", "1",
         ]
         session.outbox_directory = None
         session.analysis_run_id = str(uuid.uuid5(session.id, str(session.run)))

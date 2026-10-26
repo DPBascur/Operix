@@ -113,7 +113,7 @@ class WebPersistenceTests(LiveServerTestCase):
             raw_hash = subprocess.check_output([str(self.python), "-B", "-c", verify, event.evidence_image.path], text=True).strip()
             self.assertEqual(raw_hash, receipt["image_sha256"])
             self.assertEqual(event.source["perception"]["person"], {
-                "model_id": "YOLO11N_COCO_PERSON", "weights_sha256": sessions.PERSON_SHA256,
+                "model_id": "YOLO11M_COCO_PERSON", "weights_sha256": sessions.PERSON_SHA256,
                 "class_filter": "person", "imgsz": 640, "confidence": 0.10, "nms_iou": 0.70,
             })
             self.assertEqual(event.source["person_weights_sha256"], sessions.PERSON_SHA256)
