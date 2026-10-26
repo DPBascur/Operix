@@ -1,0 +1,201 @@
+{
+  "status": "CURRENT_DEMO_RELEASE_CANDIDATE_NOT_FINAL_VALIDATION",
+  "base_commit": "21b9b05704c2a8560d08f21a5a915b2b0a58cc91",
+  "source": {
+    "provider": "NVIDIA",
+    "dataset_revision": "d5b88d3abcf659f304a107f4336b71b4e2159133",
+    "scenario": "warehouse_box_pickup",
+    "run_id": "008caa590c5e5b7b4bca_run_8_seed_4731920",
+    "camera": "cam_00",
+    "filename": "008caa590c5e5b7b4bca_run_8_seed_4731920.cam_00.rgb.mp4",
+    "sha256": "eabf44d7abe50d1bf4824f238a9f0ac9ddc29419e10d66b89c6a92cb1b98329c",
+    "bytes": 22253530,
+    "included_in_git": false,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30.0,
+    "frames": 418,
+    "duration_seconds": 13.933333333333334,
+    "fully_decoded": true
+  },
+  "configuration": {
+    "file": "config.json",
+    "sha256": "f3da54c372902ff9ae3868d005c0fbab6f10852fb7a6b8e8129cc4404aaa51d5",
+    "origin": "Existing controlled development fixture, byte-identical; not default C profile",
+    "batch": 1,
+    "precision": "FP32",
+    "device": "CUDA:0",
+    "perception": {
+      "person": {
+        "imgsz": 640,
+        "nms_iou": 0.7,
+        "model_id": "YOLO11M_COCO_PERSON",
+        "confidence": 0.1,
+        "class_filter": "person",
+        "weights_sha256": "d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95"
+      },
+      "forklift": {
+        "imgsz": 640,
+        "nms_iou": 0.55,
+        "model_id": "FORKLIFT_SPECIALIST_V2",
+        "confidence": 0.45,
+        "class_filter": "forklift",
+        "weights_sha256": "1465105ea80737ddc65d72e97d6dc24fc253995a98d6d4eea9b377fe3a8edce6"
+      }
+    },
+    "geometry_version": "person_equipment_nearest_ground_edges_v1"
+  },
+  "output": {
+    "file": "operix-current-demo.mp4",
+    "sha256": "ad9ad593d585bcc02966c5ca92113596c7282c455ce3f7f8d04182fb229e5ee0",
+    "bytes": 5165910,
+    "codec": "H.264 / libx264",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30.0,
+    "frames": 418,
+    "fully_decoded": true,
+    "duration_seconds": 13.933333333333334
+  },
+  "capture": {
+    "build": "production",
+    "database": "isolated PostgreSQL test database",
+    "real_api_and_motor": true,
+    "screenshots": [
+      {
+        "file": "analysis-result.png",
+        "width": 1440,
+        "height": 1000,
+        "bytes": 902978,
+        "sha256": "6f3a6a2a650f8b22acce7620bfeebeef528930a2af93a62486d390a302c684ef"
+      },
+      {
+        "file": "analysis-running.png",
+        "width": 1440,
+        "height": 1000,
+        "bytes": 905412,
+        "sha256": "dab5970b4f32a7dbd6d686e29074986b73fd2aa27cf9f75e5c902fca40cee545"
+      },
+      {
+        "file": "event-detail.png",
+        "width": 1440,
+        "height": 1000,
+        "bytes": 420916,
+        "sha256": "403a07edf90f20441696e3e71f0d917bf02e5fb95522f1e67e154cc7cab6cd01"
+      },
+      {
+        "file": "event-history.png",
+        "width": 1440,
+        "height": 1000,
+        "bytes": 74315,
+        "sha256": "b3f6e51045d1b438b9c3e03ef8b2e89fe9a0faef770a0b91d21caed9b73af92e"
+      }
+    ]
+  },
+  "events": [
+    {
+      "event_type": "zone_dwell",
+      "frame_index": 60,
+      "video_timestamp_s": "2.000",
+      "rule_id": "demo_zone_dwell",
+      "rule_parameters": {
+        "kind": "zone_dwell",
+        "zone_id": "pasillo_cajas_demo",
+        "class_name": "person",
+        "min_duration_s": 2.0
+      },
+      "observations": {},
+      "perception": {
+        "person": {
+          "imgsz": 640,
+          "nms_iou": 0.7,
+          "model_id": "YOLO11M_COCO_PERSON",
+          "confidence": 0.1,
+          "class_filter": "person",
+          "weights_sha256": "d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95"
+        },
+        "forklift": {
+          "imgsz": 640,
+          "nms_iou": 0.55,
+          "model_id": "FORKLIFT_SPECIALIST_V2",
+          "confidence": 0.45,
+          "class_filter": "forklift",
+          "weights_sha256": "1465105ea80737ddc65d72e97d6dc24fc253995a98d6d4eea9b377fe3a8edce6"
+        }
+      }
+    },
+    {
+      "event_type": "person_forklift_proximity",
+      "frame_index": 30,
+      "video_timestamp_s": "1.000",
+      "rule_id": "TEST_DATA_PAIR",
+      "rule_parameters": {
+        "kind": "person_forklift_proximity",
+        "zone_id": "pasillo_cajas_demo",
+        "max_distance": 0.25,
+        "person_class": "person",
+        "forklift_class": "forklift",
+        "minimum_duration_seconds": 1.0
+      },
+      "observations": {
+        "duration_s": 1.0,
+        "proximity_geometry": {
+          "version": "person_equipment_nearest_ground_edges_v1",
+          "person_anchor": [
+            0.4095086733500163,
+            0.6372130217375579
+          ],
+          "equipment_target": [
+            0.3649532953898112,
+            0.5163440845630787
+          ]
+        },
+        "normalized_distance": 0.12881957024794383
+      },
+      "perception": {
+        "person": {
+          "imgsz": 640,
+          "nms_iou": 0.7,
+          "model_id": "YOLO11M_COCO_PERSON",
+          "confidence": 0.1,
+          "class_filter": "person",
+          "weights_sha256": "d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95"
+        },
+        "forklift": {
+          "imgsz": 640,
+          "nms_iou": 0.55,
+          "model_id": "FORKLIFT_SPECIALIST_V2",
+          "confidence": 0.45,
+          "class_filter": "forklift",
+          "weights_sha256": "1465105ea80737ddc65d72e97d6dc24fc253995a98d6d4eea9b377fe3a8edce6"
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "Synthetic authorized development demo, not independent final validation",
+    "Configured condition satisfied; human review required; not confirmed incident",
+    "Normalized image-space distance, not meters or universal safety threshold",
+    "Full video exported for demo; events persist PNG/snapshots, not session MP4"
+  ],
+  "pipeline_output_original": {
+    "file": "operix-current-demo.mp4",
+    "sha256": "f5c9bc0e9ca1a54d33944b6270a35814773d9e2ec073c08dc8bdafd7285cbbc6",
+    "bytes": 103526971,
+    "codec": "h264",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30.0,
+    "frames": 418,
+    "fully_decoded": true,
+    "duration_seconds": 13.933333333333334,
+    "included_in_git": false
+  },
+  "presentation_encoding": {
+    "source": "pipeline_output_original",
+    "tool": "FFmpeg 7.1 (imageio-ffmpeg 0.6.0 Windows wheel from PyPI)",
+    "tool_wheel_sha256": "02fa47c83703c37df6bfe4896aab339013f62bf02c5ebf2dce6da56af04ffc0a",
+    "settings": "libx264 preset medium crf 22 pix_fmt yuv420p fps_mode passthrough; no audio; metadata removed; faststart",
+    "scope": "Presentation-only recompression; no resizing, frame selection, overlay edits or analysis changes"
+  }
+}

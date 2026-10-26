@@ -20,3 +20,17 @@ original ni propiedad de Operix.
 La atribución de los datos de entrada y del material visual subyacente corresponde
 al proveedor del dataset. Los pesos del modelo, los JSONL de ejecución y otros
 artefactos locales no se incluyen aquí.
+
+## Demo actual del candidato v0.2.0
+
+El [video anotado actual](../../assets/demo/v0.2.0/operix-current-demo.mp4) deriva
+de `warehouse_box_pickup`, archivo de entrada
+`008caa590c5e5b7b4bca_run_8_seed_4731920.cam_00.rgb.mp4`, cámara `cam_00`;
+SHA-256 del input:
+`eabf44d7abe50d1bf4824f238a9f0ac9ddc29419e10d66b89c6a92cb1b98329c`.
+Ese input no se redistribuye en Git. El video derivado y los píxeles NVIDIA
+visibles en las capturas conservan la atribución y licencia OpenMDW-1.1 indicada
+arriba. La UI y superposiciones pertenecen al prototipo Operix, sin atribuirle la
+autoría del material sintético subyacente. No son registros de una empresa ni
+validación industrial. Hash del output y metadatos:
+[recibo de demo](../../assets/demo/v0.2.0/metadata.json).

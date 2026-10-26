@@ -1,6 +1,11 @@
-# Clips de demostración
+# Clips históricos del PoC
 
-Estos tres MP4 son la excepción deliberada a la exclusión general de videos en
+Este directorio conserva entradas y salida de OP-34/35/60/61. La salida anotada
+corresponde al PoC histórico; para el MVP dual vigente ver la
+[demo actual](v0.2.0/README.md). Los inputs originales siguen siendo fixtures
+sintéticos reutilizables. Sus hashes y resultados históricos no se modifican.
+
+Estos tres MP4 históricos son excepciones deliberadas a la exclusión de videos en
 [`.gitignore`](../../.gitignore). El material visual procede del dataset sintético
 **NVIDIA PhysicalAI WorldModel Synthetic Warehouse Operations Scenes**, revisión
 `d5b88d3abcf659f304a107f4336b71b4e2159133`. Su origen, SHA-256,

@@ -91,6 +91,7 @@ Thumbs.db
 !/assets/demo/forklift_human_nearmiss_ceiling00.mp4
 !/assets/demo/warehouse_fire_ceiling04.mp4
 !/assets/demo/warehouse_fire_ceiling04_operix_annotated.mp4
+!/assets/demo/v0.2.0/operix-current-demo.mp4
 
 # Auxiliares LaTeX; no excluye fuentes ni documentos PDF
 *.aux
