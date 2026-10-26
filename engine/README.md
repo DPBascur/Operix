@@ -16,6 +16,9 @@ Posteriormente se seleccionó **YOLO11M_COCO_PERSON** para análisis diferido,
 mediante comparación sobre datos de desarrollo. Esta selección no constituye
 validación independiente final ni PERSON v2, que sigue diferido.
 El historial y la decisión se conservan en la [auditoría de Etapa 4](evidence/ETAPA4-TECHNICAL-AUDIT.md).
+La [demo actual](../assets/demo/v0.2.0/README.md) documenta la configuración
+demostrativa explícita y el flujo integrado; los experimentos OP-34/60/61 de
+secciones posteriores conservan sus modelos y resultados históricos.
 
 Flujo conceptual: video → detección → tracking → variables espacio-temporales → reglas configurables → `EventCandidate`. `scripts/evaluate_rules.py` conserva el replay de tracks; `scripts/process_video_events.py` demuestra la cadena desde video en una sola pasada local controlada.
 
@@ -449,7 +452,7 @@ conteos más amplios antes de cerrar el piloto o un test realmente ciego.
 
 ## Componentes de arquitectura
 
-Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios independientes. Procesamiento, detección, seguimiento, análisis espacio-temporal, configuración y evaluación inicial de reglas están implementados. Existe una salida HTTP opcional para el replay y una prueba local integrada desde video; la gestión persistente corresponde al Backend. La orquestación de producción del sistema general sigue pendiente:
+Estos siete componentes conceptuales pertenecen al mismo motor; no son servicios independientes. El worker lanzado por el Backend ya orquesta el pipeline local integrado; el Motor publica por HTTP y la gestión persistente corresponde al Backend. Esto no implica despliegue industrial ni validación operacional final:
 
 1. Procesador de video.
 2. Detector de objetos.

@@ -210,6 +210,10 @@ Las pruebas usan PostgreSQL y crean/destruyen `test_<POSTGRES_DB>`. El Admin reg
 
 ## PERSON operacional posterior a evaluación
 
+La [demo actual](../assets/demo/v0.2.0/README.md) muestra el recorrido real de
+análisis, evidencia e histórico con una configuración demostrativa explícita;
+no modifica los perfiles por defecto ni los registros operativos.
+
 `OPERIX_PERSON_WEIGHTS` debe apuntar al `yolo11m.pt` local cuyo SHA es
 `d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95`.
 El Backend transmite ese hash exacto al worker; otro checkpoint se rechaza.

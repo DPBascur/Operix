@@ -101,6 +101,10 @@ Los tokens se exponen mediante variables CSS y `@theme inline`, por ejemplo `bg-
 
 ## Estado de integración
 
+Las [capturas actuales](../assets/demo/v0.2.0/README.md) corresponden al build de
+producción con API real y base de demo aislada. No confundirlas con la API fixture
+de regresión browser ni con el material histórico de UI_REFRESH.
+
 El [snapshot de Etapa 3](../engine/evidence/ETAPA3-PROJECT-STATE.md) separa
 funcionalidad y validación. El detalle prioriza PNG, mediciones y tiempo del video;
 la trazabilidad completa es desplegable. La fecha UTC proxy no se presenta como

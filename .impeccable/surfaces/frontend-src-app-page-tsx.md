@@ -7,6 +7,11 @@ related_targets: ["frontend/src/app/login/page.tsx","frontend/src/app/users/page
 
 # UI refresh — contrato de dirección
 
+**Referencia histórica del refresh original.** Las menciones a glass/blur de este
+contrato no prescriben la UI vigente. Para su identidad actual consultar
+[DESIGN.md](../../DESIGN.md) y las [capturas actuales](../../assets/demo/v0.2.0/README.md).
+Se conserva el texto original para trazabilidad; no autoriza rediseñar el producto.
+
 Modo: Operate. Identidad heredada y ampliada; estructuras fijadas por el encargo, sin sustituir el branding. No se requiere una nueva selección aleatoria de identidad.
 
 ## Direction contract
