@@ -46,7 +46,6 @@
     "geometry_version": "person_equipment_nearest_ground_edges_v1"
   },
   "output": {
-    "file": "operix-current-demo.mp4",
     "sha256": "ad9ad593d585bcc02966c5ca92113596c7282c455ce3f7f8d04182fb229e5ee0",
     "bytes": 5165910,
     "codec": "H.264 / libx264",
@@ -55,7 +54,9 @@
     "fps": 30.0,
     "frames": 418,
     "fully_decoded": true,
-    "duration_seconds": 13.933333333333334
+    "duration_seconds": 13.933333333333334,
+    "included_in_git": false,
+    "storage": "External QA artifact, not a repository asset"
   },
   "capture": {
     "build": "production",
@@ -66,31 +67,13 @@
         "file": "analysis-result.png",
         "width": 1440,
         "height": 1000,
-        "bytes": 902978,
-        "sha256": "6f3a6a2a650f8b22acce7620bfeebeef528930a2af93a62486d390a302c684ef"
-      },
-      {
-        "file": "analysis-running.png",
-        "width": 1440,
-        "height": 1000,
-        "bytes": 905412,
-        "sha256": "dab5970b4f32a7dbd6d686e29074986b73fd2aa27cf9f75e5c902fca40cee545"
-      },
-      {
-        "file": "event-detail.png",
-        "width": 1440,
-        "height": 1000,
-        "bytes": 420916,
-        "sha256": "403a07edf90f20441696e3e71f0d917bf02e5fb95522f1e67e154cc7cab6cd01"
-      },
-      {
-        "file": "event-history.png",
-        "width": 1440,
-        "height": 1000,
-        "bytes": 74315,
-        "sha256": "b3f6e51045d1b438b9c3e03ef8b2e89fe9a0faef770a0b91d21caed9b73af92e"
+        "bytes": 904812,
+        "sha256": "7b88c30a5a1d8f1475fce384efede617128161d2ac247c39913756b7cbc98225"
       }
-    ]
+    ],
+    "note": "Single current screenshot recaptured after shared button geometry correction; auxiliary captures retained externally",
+    "ui_base_commit": "967c1af10e73f7801ed0476ffc0434e1b54ef878",
+    "ui_changes": "Shared button radius token; dark-only radius overrides removed"
   },
   "events": [
     {
@@ -179,7 +162,6 @@
     "Full video exported for demo; events persist PNG/snapshots, not session MP4"
   ],
   "pipeline_output_original": {
-    "file": "operix-current-demo.mp4",
     "sha256": "f5c9bc0e9ca1a54d33944b6270a35814773d9e2ec073c08dc8bdafd7285cbbc6",
     "bytes": 103526971,
     "codec": "h264",

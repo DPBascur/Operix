@@ -19,12 +19,11 @@ un detector especializado de FORKLIFT y ByteTrack. Muestra zonas, permanencia y
 proximidad mediante una **configuración demostrativa ya existente**; no cambia
 los perfiles predeterminados ni calibra parámetros de seguridad.
 
-[![Análisis actual con personas, montacargas, zona y relación de proximidad](assets/demo/v0.2.0/analysis-result.png)](assets/demo/v0.2.0/operix-current-demo.mp4)
+![Análisis actual con personas, montacargas, zona y relación de proximidad](assets/demo/v0.2.0/analysis-result.png)
 
-[Abrir/descargar video anotado](assets/demo/v0.2.0/operix-current-demo.mp4) ·
-[Configuración, identidad y reproducción](assets/demo/v0.2.0/README.md) ·
-[Detalle de un evento](assets/demo/v0.2.0/event-detail.png) ·
-[Histórico](assets/demo/v0.2.0/event-history.png)
+[Configuración, identidad y reproducción](assets/demo/v0.2.0/README.md).
+La captura actual representa el MVP integrado; el video de QA se conserva
+externamente y no forma parte de los assets versionados del candidato.
 
 La línea une puntos de los segmentos inferiores de las cajas. La distancia es
 **normalizada en espacio de imagen**, no metros ni distancia física real.

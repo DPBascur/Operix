@@ -6,20 +6,19 @@ revisión humana y no confirma incidente, Near Miss, accidente o culpabilidad.
 
 ## Material
 
-- [Video anotado H.264](operix-current-demo.mp4).
-- [Análisis en ejecución](analysis-running.png), [resultado](analysis-result.png),
-  [detalle de evento](event-detail.png) e [histórico](event-history.png).
+- [Captura actual del análisis](analysis-result.png), recapturada después de
+  unificar la geometría de botones entre light y dark.
 - [Configuración exacta](config.json) y [recibo de identidad/metadatos](metadata.json).
 
-Las capturas son del build de producción a 1440×1000, con API real y PostgreSQL
-de pruebas aislado. Los registros/PNG proceden del Motor; no se usa la API fixture
-del test browser. La fecha civil es ancla del análisis, no fecha de grabación.
-El video completo es una salida temporal de sesión, exportada aquí como excepción
-de demostración; los eventos guardan su PNG/snapshot, no ese MP4 completo.
-El MP4 versionado es una copia de presentación recomprimida en H.264, conservando
-1920×1080, 30 FPS y los 418 frames/overlays. El original del encoder del worker
-(103.526.971 bytes) permanece fuera de Git; ambos hashes y la receta de compresión
-están en metadata.json. No se modifica el encoder productivo ni el análisis.
+La única captura versionada es del build de producción a 1440×1000, con API real
+y PostgreSQL de pruebas aislado. Los registros/PNG proceden del Motor; no se usa
+la API fixture del test browser. La fecha civil es ancla del análisis, no fecha
+real de grabación.
+
+El video de QA/demostración y las capturas auxiliares permanecen fuera de Git.
+El video completo es una salida temporal de sesión; los eventos guardan su
+PNG/snapshot, no ese MP4 completo. metadata.json conserva las identidades de
+los videos externos para trazabilidad, sin enlaces ni rutas locales.
 
 ## Input y configuración
 
@@ -84,7 +83,7 @@ un directorio de salida nuevo fuera del repositorio y usar el worker existente:
 
 Sin event-context esta CLI no publica por HTTP. Para eventos/evidencia/histórico,
 usar el recorrido Web anterior. Nueva codificación no implica identidad binaria
-con el MP4 versionado. No sobrescribir históricos OP-60/61.
+con el video externo de QA. No sobrescribir históricos OP-60/61.
 
 ## Lectura del resultado y límites
 
