@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { eventId } from "../fixtures/analysis-api.mjs";
+import { checkButtonThemes } from "./theme-geometry.mjs";
 
 // Transporte WS ya distribuido con Next fijado; no instala otro paquete.
 const { WebSocket } = createRequire(import.meta.url)("next/dist/compiled/ws");
@@ -319,6 +320,7 @@ test(
         ]) {
           await go(route);
           await wait("document.fonts.status==='loaded'");
+          await checkButtonThemes(evaluate);
           assert.equal(
             await evaluate(
               "document.documentElement.scrollWidth<=innerWidth+1",
@@ -328,6 +330,7 @@ test(
           );
         }
       }
+      await checkButtonThemes(evaluate, call);
       const screenshot = await call("Page.captureScreenshot", {
         format: "png",
       });
