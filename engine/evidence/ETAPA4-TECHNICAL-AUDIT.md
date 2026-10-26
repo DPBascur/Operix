@@ -974,3 +974,58 @@ Tooling nuevo: 7/7 pruebas; suite Motor **421 descubiertas, 419 PASS y 2 SKIP**
 opt-in; pip check y diff check aprobados. Solo se versionan tooling, tests y esta
 síntesis. No hubo entrenamiento, sweeps, acceso a holdouts, cambios de producción,
 ByteTrack, reglas, geometría, Backend, Frontend, Excel, main, tags o arquitectura v1.0.
+
+## 18. PERSON operacional YOLO11m — 26-10-2026
+
+Decisión humana aprobada sobre base `43ffd7cbf8da4310d76eaf1c66f71a7f5600f225`:
+**YOLO11M_COCO_PERSON_OPERATIONAL**, para análisis diferido. Se verificó el archivo
+externo `yolo11m.pt`, SHA-256
+`d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95`.
+No se incorpora a Git ni a la imagen Docker. El Backend exige ese hash al worker;
+el montaje Docker continúa siendo un archivo individual read-only.
+
+Se mantiene 640 / confidence 0,10 / NMS 0,70, filtro person, FP32 y CUDA:0.
+Batch 1 queda explícito en el lanzamiento web y como default del worker (antes 4).
+La comparación de desarrollo de la sección 17 sustenta el trade-off: frente a n,
+m aporta +24 TP, −91 FP, −24 FN y +0,119 F1, con inferencia aislada de 34,711 ms
+frente a 21,684 ms. l alcanza F1 0,723 frente a 0,698, pero solo +1 TP, 52,915 ms
+aislados y cinco frames sin PERSON en C. No se afirma superioridad universal de m.
+**Esta selección no constituye validación independiente final.** El holdout ya
+observado no se reutiliza para validar m.
+
+Historial conservado, sin sustituir resultados ni identidades:
+PRE_EVALUATION_PRIMARY_PERSON → YOLO11N_COCO_PERSON (primera configuración
+operacional post-evaluación) → YOLO11M_COCO_PERSON (selección de desarrollo).
+PERSON v2 continúa diferido. FORKLIFT specialist v2, ByteTrack, parámetros de
+reglas, perfiles y geometría `person_equipment_nearest_ground_edges_v1` no cambian.
+
+Regresión controlada con CUDA real, demo C autorizada, PostgreSQL de pruebas y
+medios externos: **418/418 frames**, PERSON observado en 418/418 con un ID;
+FORKLIFT conserva un ID. Se valida resultado H.264 1920×1080, 30 FPS, 418 frames,
+overlay, candidatos, HTTP, persistencia, PNG, detalle e historial. Se guardan dos
+eventos: zone_dwell en frame 60 y person_forklift_proximity en frame 30. Proximidad
+usa **solo en el fixture local** TEST_DATA_PAIR, 0,25 norm / 1 s, iguales a la
+regresión anterior; no se activa ni calibra una regla productiva.
+
+Snapshots y source.perception registran YOLO11M_COCO_PERSON, SHA y 640/0,10/0,70;
+FORKLIFT conserva su identidad/hash. No se modifican eventos históricos. Sanity
+local: 34,926 s de pared desde START hasta verificar salidas, RTX 3070, sin OOM;
+pico asignado PyTorch 168,7 MiB, no memoria total de GPU. No es un benchmark
+comparable a OP-43 ni al estudio; no acredita 30 FPS sostenidos.
+
+Compose CPU/GPU config aprobado; imagen QA construida sin pesos, smoke H.264
+aprobado y un frame demo procesado dentro de Docker con ambos checkpoints externos
+read-only. Se comprueban hash, identidad m, clase person=0, CUDA:0 y FP32. No se
+repite un E2E completo dentro de Docker. El E2E nativo usa el worker productivo
+con un observador local: el primer recibo consultó el modelo base CPU en lugar
+del predictor efectivo; se corrigió solo ese observador y la repetición aprobó.
+
+Motor: **423 descubiertas, 421 aprobadas y 2 omitidas** opt-in; Backend **125/125**;
+E2E CUDA real **1/1**. Django check, migration check (sin cambios), pip check de
+ambos entornos, check_environment --require-cuda y diff check aprobados. Frontend
+intacto; no requiere repetir lint/typecheck/build. Recibos/scripts/medios locales
+en `Operix-experiments/person-m-operational-2026-10-26/`, fuera de Git.
+
+No se accede a holdouts finales, TEST2 o REAL_HOLDOUT_V2; sin entrenamiento,
+sweeps ni tuning. MOBILE_EQUIPMENT_EXTENSION_NEEDS_MORE_EVIDENCE y
+TRUCK_INTEGRATION_READY_BUT_NOT_EVALUATED conservan el alcance de la sección 17.

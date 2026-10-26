@@ -11,8 +11,11 @@ El [índice de evidencia](evidence/README.md) y el
 [snapshot de Etapa 3](evidence/ETAPA3-PROJECT-STATE.md) resumen el estado vigente:
 evaluación PERSON V1 ejecutada y sellada, con limitación importante de
 generalización de CURRENT_PERSON, conservado como PRE_EVALUATION_PRIMARY_PERSON.
-Desde la decisión explícita posterior, PERSON operacional es YOLO11N_COCO_PERSON;
-no es una nueva evaluación independiente ni PERSON v2, que sigue diferido.
+La primera configuración operacional post-evaluación fue YOLO11N_COCO_PERSON.
+Posteriormente se seleccionó **YOLO11M_COCO_PERSON** para análisis diferido,
+mediante comparación sobre datos de desarrollo. Esta selección no constituye
+validación independiente final ni PERSON v2, que sigue diferido.
+El historial y la decisión se conservan en la [auditoría de Etapa 4](evidence/ETAPA4-TECHNICAL-AUDIT.md).
 
 Flujo conceptual: video → detección → tracking → variables espacio-temporales → reglas configurables → `EventCandidate`. `scripts/evaluate_rules.py` conserva el replay de tracks; `scripts/process_video_events.py` demuestra la cadena desde video en una sola pasada local controlada.
 

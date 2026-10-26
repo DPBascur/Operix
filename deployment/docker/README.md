@@ -48,10 +48,12 @@ docker compose -f compose.yaml -f compose.gpu.yaml exec backend python -c "impor
 `OPERIX_PERSON_WEIGHTS_HOST` y `OPERIX_FORKLIFT_WEIGHTS_HOST` son archivos
 individuales existentes, montados read-only como `/data/weights/person.pt` y
 `/data/weights/forklift.pt`. No se crean rutas ausentes automáticamente.
-PERSON operacional es YOLO11N_COCO_PERSON (`yolo11n.pt`), SHA
-`0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1`,
-640 / 0,10 / NMS 0,70, filtro `person`. Es adopción explícita posterior a la evaluación,
-no validación independiente nueva. El checkpoint adaptado anterior se conserva
+PERSON operacional es YOLO11M_COCO_PERSON (`yolo11m.pt`), SHA
+`d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95`,
+640 / 0,10 / NMS 0,70, filtro `person`, batch 1 y FP32 en CUDA:0.
+Es selección para análisis diferido basada en datos de desarrollo, no validación
+independiente final. YOLO11N_COCO_PERSON se conserva como configuración histórica.
+El checkpoint adaptado anterior se conserva
 como PRE_EVALUATION_PRIMARY_PERSON con sus resultados históricos. FORKLIFT v2
 conserva SHA `1465105ea80737ddc65d72e97d6dc24fc253995a98d6d4eea9b377fe3a8edce6`,
 640 / 0,45 / NMS 0,55. No se cambia ByteTrack ni reglas.

@@ -77,7 +77,8 @@ presenta como fecha real de grabación. Los umbrales no son estándares universa
 | Configuración | Rol vigente | Resultado y alcance |
 | --- | --- | --- |
 | PRE_EVALUATION_PRIMARY_PERSON (CURRENT_PERSON en el protocolo) | Primaria histórica evaluada; 640 / confidence 0,10 / NMS 0,70 | Holdout PERSON: precision 0,339, recall 0,119, F1 0,176; limitación importante de generalización |
-| YOLO11N_COCO_PERSON | Operacional de desarrollo/finalización, adoptado post-evaluación; mismo operating point | Precision 0,557, recall 0,899, F1 0,688; desempeño sustancialmente superior en ese conjunto; adopción posterior explícita, sin validación independiente nueva |
+| YOLO11N_COCO_PERSON | Primera configuración operacional post-evaluación, ahora histórica; mismo operating point | Precision 0,557, recall 0,899, F1 0,688; desempeño sustancialmente superior en ese conjunto; adopción posterior explícita, sin validación independiente nueva |
+| YOLO11M_COCO_PERSON | Operacional para análisis diferido; 640 / confidence 0,10 / NMS 0,70 | Selección de desarrollo: precision 0,603, recall 0,827, F1 0,698; no validación independiente final |
 | FORKLIFT specialist v2 | Baseline experimental congelado; 640 / confidence 0,45 / NMS 0,55 | Validation propia: TP 273, FP 18, FN 15; no equivale a validación industrial ni al holdout PERSON |
 
 PERSON se evaluó con matching 1:1 IoU ≥0,50 en **91 imágenes únicas**, 67 positivas,
@@ -87,9 +88,15 @@ Posibles omisiones/ambigüedades del GT limitan la interpretación de FP y negat
 no se corrigió el GT ni se recalcularon métricas. La elección posterior de COCO
 es una decisión de ingeniería informada por esos resultados; el mismo holdout
 no constituye validación independiente de la configuración elegida post-hoc.
+Tras un estudio comparativo sobre datos de desarrollo, YOLO11m COCO fue
+seleccionado como configuración PERSON para análisis diferido por ofrecer un
+mejor equilibrio entre calidad de detección y costo computacional en el equipo
+de desarrollo. Esta selección no constituye validación independiente final; sus
+métricas proceden de una muestra distinta del holdout histórico descrito arriba.
+Véase el [estudio y la decisión](engine/evidence/ETAPA4-TECHNICAL-AUDIT.md).
 **PERSON v2: no iniciado/diferido**.
-La [decisión operacional y regresión](engine/evidence/etapa3-experimentos.md#decisión-operacional-person-post-evaluación--25-10-2026)
-registra la adopción sin reabrir la evaluación.
+La [decisión operacional histórica](engine/evidence/etapa3-experimentos.md#decisión-operacional-person-post-evaluación--25-10-2026)
+registra la primera adopción de COCO sin reabrir la evaluación.
 Hashes, resultados completos y límites: [evidencia experimental](engine/evidence/etapa3-experimentos.md#ejecución-person-evaluation-protocol-v1--24-10-2026).
 
 ## Repositorio y ejecución nativa
