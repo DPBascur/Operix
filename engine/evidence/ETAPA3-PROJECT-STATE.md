@@ -1,5 +1,53 @@
 # Etapa 3 — snapshot técnico de cierre
 
+## Estado vigente pre-v0.2.0 — 26-10-2026
+
+Base de este checkpoint: `f4652f609beb1121bb6d8a0d2425f1eba28bc0fc`, `dev`
+limpio y sincronizado. El corte del 24 de octubre conservado más abajo es
+histórico; sus roles de modelos y conteos no sustituyen este estado posterior.
+
+PERSON operacional es **YOLO11M_COCO_PERSON**, SHA
+`d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95`,
+640 / confidence 0,10 / NMS 0,70, batch 1, FP32 y CUDA:0 para análisis diferido.
+Es una selección de desarrollo, **no validación independiente final**. Se conservan
+PRE_EVALUATION_PRIMARY_PERSON y YOLO11N_COCO_PERSON con sus resultados históricos.
+PERSON v2 sigue diferido; FORKLIFT specialist v2 permanece congelado.
+
+ByteTrack por clase, identidades compuestas y reglas zone_dwell /
+person_forklift_proximity forman el flujo integrado. La proximidad mide entre
+ambos segmentos inferiores con `person_equipment_nearest_ground_edges_v1`, en
+coordenadas normalizadas de imagen; no representa metros ni seguridad física.
+Overlay y PNG usan las observaciones del analizador/regla. Pérdidas o nuevos IDs
+reinician episodios sin inventar permanencia durante el hueco. La ocupancia queda
+en **OCCUPANT_ASSOCIATION_DESIGN_ONLY**, sin supresión de operadores.
+
+Sesiones protegidas frente a cierre/expiración, prelectura de integridad y contrato
+temporal CFR están implementados. La Web conserva la referencia de sesión al
+navegar; existen controles por generación, editor por coordenadas y una regresión
+browser versionada con API fixture. Persisten límites de requests tardías y
+recuperación detallados por hallazgo, sin declarar hardening absoluto.
+
+Eventos/PNG, snapshots, journal, reenvío, historial y frecuencias siguen integrados.
+Docker mantiene mounts individuales read-only y el modo nativo. La regresión más
+reciente de la promoción m registró Motor 421 PASS + 2 SKIP, Backend 125/125,
+E2E CUDA real 418/418 frames y dos eventos con PNG; Docker GPU tuvo smoke de un
+frame, no otra ejecución completa. **No se repiten esas suites en este checkpoint.**
+
+La [reconciliación pre-v0.2.0](ETAPA4-TECHNICAL-AUDIT.md#19-checkpoint-pre-v020--26-10-2026)
+conserva pendientes concretos: replay sintético multiclase, overflow de entradas
+de pares, validación PNG, append de journal truncado y deuda UX/documental. La
+preparación técnica del release queda **BLOCKED_BY_CRITICAL_ISSUES** hasta cerrar
+F09/F13 y ejecutar el gate final. No se crea tag ni se sincroniza main aquí.
+
+La validación externa/contextual experta y la validación operacional final
+realista siguen pendientes. No bloquean v0.2.0 como MVP integrado de Etapa 3,
+pero sí impiden afirmar v1.0.0/cierre académico final. También permanecen
+MOBILE_EQUIPMENT_EXTENSION_NEEDS_MORE_EVIDENCE, ausencia de GT MOT, API local
+sin autenticación empresarial y retención manual. No se accede a holdouts ni
+se modifica el backlog oficial.
+
+## Corte histórico de cierre — 24-10-2026
+
 Fecha del corte: **24-10-2026**, equipo de desarrollo del proyecto.
 Base auditada: `85c064136233638a2a560357b9a2403086578f73` en `dev`, limpia y 0/0
 antes de consolidar. Este documento y la actualización de README son posteriores

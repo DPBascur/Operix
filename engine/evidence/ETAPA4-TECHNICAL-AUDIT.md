@@ -1,5 +1,9 @@
 # Operix — auditoría técnica final para Etapa 4
 
+**Vigencia:** la [sección 19](#19-checkpoint-pre-v020--26-10-2026) reconcilia
+los hallazgos con el estado pre-v0.2.0 del 26-10-2026. Las secciones anteriores
+conservan sus cortes, decisiones y resultados históricos.
+
 Fecha: **25-10-2026** (America/Santiago). Base auditada:
 `7e03a5a5e40b6e6892efc567567da2b7d6a8a647`, rama `dev`.
 Al inicio `dev = origin/dev = main = origin/main`, árbol limpio.
@@ -1029,3 +1033,110 @@ en `Operix-experiments/person-m-operational-2026-10-26/`, fuera de Git.
 No se accede a holdouts finales, TEST2 o REAL_HOLDOUT_V2; sin entrenamiento,
 sweeps ni tuning. MOBILE_EQUIPMENT_EXTENSION_NEEDS_MORE_EVIDENCE y
 TRUCK_INTEGRATION_READY_BUT_NOT_EVALUATED conservan el alcance de la sección 17.
+
+## 19. Checkpoint pre-v0.2.0 — 26-10-2026
+
+Base `f4652f609beb1121bb6d8a0d2425f1eba28bc0fc`, rama dev, árbol limpio y
+0/0 después de fetch. Se inspeccionan código, tests, historial, documentación y
+assets versionados; se ejecutan cuatro reproducciones pequeñas sin modelos ni
+DB persistente. No se repiten suites completas, browser, builds ni inferencia:
+esta campaña define el gate final. No se abren holdouts, TEST2, Excel ni archivos
+crudos de evaluación. La prioridad original no se cambia retrospectivamente.
+
+### Reconciliación de los 25 hallazgos
+
+| ID / prioridad | Estado actual | Evidencia y alcance |
+| --- | --- | --- |
+| F01 / P0 | CLOSED | Decisión humana posterior: n y luego m operacional, gates/snapshots actualizados en `e11f6ea`; regresión CUDA y límites en sección 18. Cierra la decisión de ingeniería, no demuestra validación final de percepción. |
+| F02 / P0 | OPEN | Validación externa/contextual experta y operacional final realista aún pendientes. No bloquea v0.2.0 como MVP acotado; sí v1.0.0/cierre académico final. |
+| F03 / P1 | CLOSED | `37a7024`, sessions: reserva hasta terminar proceso, cierre irreversible y pertenencia al registro; tests DELETE/START/referencia retirada. |
+| F04 / P1 | CLOSED | Mismo hardening: expiración bajo exclusión, generación de timer y watcher; tests timer anterior frente a nuevo START. |
+| F05 / P1 | CLOSED | `684f9f9`, inspect_recorded_video y worker: prelectura, segunda lectura y verificación de salida completa; tests EOF/conteo/error. Rechazo conservador no prueba detectar toda corrupción previa. |
+| F06 / P1 | CLOSED | Contrato CFR explícito, timestamps observados, rechazo de irregularidad detectable y warning NOMINAL_FPS_UNVERIFIED_CFR cuando el backend no aporta reloj. No se promete soporte VFR universal. |
+| F07 / P1 | CLOSED | `c3a8e1c`: desmontar ya no envía DELETE; referencia de sesión recuperable en la misma pestaña. `cac9291` añade flujo browser con navegación/recuperación. |
+| F08 / P1 | PARTIALLY_CLOSED | START/STOP/poll tienen generación y selector busy; applyZone incrementa generación pero aplica la respuesta/error/finally sin comprobarla. Falta cierre equivalente/test de PUT tardío; no se afirma corrupción de sesión reproducida en browser. |
+| F09 / P1 | OPEN | render_track_frame sigue buscando solo track_id y resaltando por ese número. Reproducción actual PERSON 1 + FORKLIFT 1: ValueError pese a existir el candidato. Afecta captura del replay sintético legacy, no el PNG del worker web dual. |
+| F10 / P1 | CLOSED | `cac9291`, tests/browser/analysis-flow.test.mjs: sesión, navegación, respuesta tardía de poll, MP4/seek, teclado, errores, historial/PNG y 18 combinaciones ruta/viewport. API fixture, no inferencia ni persistencia real. No certifica todos los intercalados posibles. |
+| F11 / P1 | DEFERRED_BY_DECISION | OCCUPANT_ASSOCIATION_DESIGN_ONLY, sección 16 y tests adversariales; containment/movimiento no justifican suprimir PERSON. Limitación semántica explícita, sin filtro de ocupantes implementado. |
+| F12 / P1 | CLOSED | TRACKING_CONTINUITY_CHARACTERIZED, `44d62b9`/`44c341d`: pérdidas, recuperación, cambio de IDs, 10/30/60 FPS y ByteTrack. Se cierra caracterización/decisión; fragmentación y ausencia de GT MOT permanecen. |
+| F13 / P1 | PARTIALLY_CLOSED | Shapes/perfil/vértices/Range de análisis tienen tests y respuestas controladas. EventSerializer aún deja escapar OverflowError para max_distance=10**1000 en parámetros de pares; reproducción sin DB. |
+| F14 / P1 | CLOSED | Editor permite insertar X/Y, cerrar y aplicar sin puntero; código, tests geométricos y flujo browser versionado. No implica certificación WCAG completa. |
+| F15 / P2 | OPEN | validate_png acepta un chunk crítico ABCD desconocido con CRC válido; reproducción actual. Tests existentes de scanlines/Adam7 no cubren este caso. |
+| F16 / P2 | OPEN | append no valida el final previo del journal. Reproducción: cola truncada → enqueue con HTTP fallido → replay: 0 recuperados, 1 registro inválido. No declara saved falsamente, pero pierde recuperabilidad automática de esa entrada. |
+| F17 / P2 | OPEN | listEvents usa fetch sin deadline; detalle aborta al desmontar, pero tampoco fija plazo. La petición pendiente indefinida sigue posible. |
+| F18 / P2 | OPEN | Filtros locales de EventsTable y retorno fijo /events: período/tipo no viajan en URL y se pierden al volver del detalle. |
+| F19 / P2 | PARTIALLY_CLOSED | README vivos describen m y flujo integrado; demo anotada sigue siendo PoC histórico, faltan captura vigente/notas de release y persiste drift del surface brief glass. Inventario visual abajo. |
+| F20 / P2 | OPEN | Workspace/CSS grandes y configuración repartida entre sesión/worker; no se hizo refactor productivo. Deuda de mantenimiento, sin fallo adicional demostrado por tamaño. |
+| F21 / DEFER | DEFERRED_BY_DECISION | API local AllowAny, login/roles demostrativos; IAM empresarial fuera del MVP. Exposición pública de la API requeriría otra decisión. |
+| F22 / DEFER | DEFERRED_BY_DECISION | API/worker local y arquitectura actual; sin requisito nuevo de broker, microservicios o cloud. |
+| F23 / DEFER | DEFERRED_BY_DECISION | PERSON v2/ReID/nuevos trackers diferidos. La promoción m resuelve la decisión operacional, no obliga a entrenar. |
+| F24 / DEFER | DEFERRED_BY_DECISION | Registro RAM no recuperable tras reinicio; eventos/PNG y journal independientes. Recuperación al navegar no equivale a persistencia de sesiones. |
+| F25 / DEFER | DEFERRED_BY_DECISION | Lista completa y carga acotada documentadas; paginación solo ante alcance/volumen que la exija. |
+
+Balance: 9 CLOSED, 7 OPEN, 3 PARTIALLY_CLOSED, 6 DEFERRED_BY_DECISION y
+0 NO_LONGER_APPLICABLE. Un test de happy path no cierra un caso adversarial ausente.
+
+### Demo y assets: estado de presentación
+
+Inventario versionado: 3 MP4, 7 PNG, 4 PDF, 1 SVG; ningún GIF ni screenshot de UI
+actual versionado. Los tres MP4 coinciden con SHA-256 del NOTICE. Se conservan
+todos los históricos. No se recaptura ni se vuelve a reproducir attachments aquí.
+
+| Visual / referencia | Clasificación | Acción posterior |
+| --- | --- | --- |
+| forklift_human_nearmiss_ceiling00.mp4 y warehouse_fire_ceiling04.mp4 | CURRENT como entradas sintéticas reutilizables; origen histórico OP-34/35 | Mantener atribución y no confundir entrada con resultado del modelo actual. |
+| warehouse_fire_ceiling04_operix_annotated.mp4, OP-60/61 | HISTORICAL_POC | Mantener sus cifras y hash; no presentarlo como salida m/dual/reglas/UI actual. |
+| Player «Resultado de Operix» del README principal | OUTDATED_CURRENT_REFERENCE | En preparación del release, rotular explícitamente PoC histórico y añadir recorrido actual autorizado. Los enlaces a OP-61 contextualizan, pero el título no distingue versión. |
+| Otros dos attachments del README | CURRENT como referencias a entradas sintéticas | Se confirma que hay tres URLs; no se recertifica disponibilidad/reproducción remota. |
+| Seis diagramas, exportación IcePanel y cinco ADR | CURRENT como diseño v1.0 cerrado | 11 artefactos conceptuales disponibles, con exportaciones duplicadas intencionales; no describen por sí solos implementación completa. |
+| Logo PNG e icono SVG | CURRENT | Branding, no evidencia experimental. |
+| UI_REFRESH / documentación y clips OP-33/34/35/43/60/61 | HISTORICAL_POC en sus resultados/visuales | Conservar fechas; no extrapolar performance ni cobertura al pipeline actual. |
+| README principal/Motor/Backend/Frontend/Docker | CURRENT en instrucciones funcionales | Frontend documenta recuperación/teclado/browser; modelos n y CURRENT permanecen como historia. Falta demo visual nueva/notas. |
+| Surface brief Impeccable: glass/blur | OUTDATED_CURRENT_REFERENCE | Alinear documentación normativa con DESIGN/producto en preparación visual; no rediseñar UI por ese texto. |
+
+No se detectan destinos de archivo ausentes en enlaces Markdown relativos
+examinados; no se certifican todas las anclas/URLs externas. Escaneo textual
+versionado sin patrones de rutas personales/tokens habituales/claves privadas;
+0 tracked que coincidan con ignore. No es una auditoría completa del historial.
+
+### Decisión de readiness y bloqueos concretos
+
+**BLOCKED_BY_CRITICAL_ISSUES** para dar por cerrado el checkpoint técnico previo
+al release. No hay un P0 runtime nuevo ni fallo demostrado de la pasada web CUDA.
+Los bloqueos son los P1 reproducidos aún vigentes: **F09**, evidencia del replay
+multiclase documentado como disponible, y **F13**, overflow no controlado de la
+API de pares. No se corrigen dentro de esta auditoría ni se debilitan los gates.
+La preparación de capturas/notas puede planificarse, pero no autoriza sincronizar
+main, publicar tag ni afirmar regresión final aprobada.
+
+F08 requiere completar/revisar la protección de PUT tardío y su test antes del
+gate browser. F15/F16/F17/F18/F20 se conservan como deuda abierta; el caso F16 no
+debe prometerse como recuperación automática soportada. F19 requiere material
+actual/rotulación antes de anunciar el release. No se elevan estos P2 a P0.
+F02, ocupancia y maquinaria móvil no bloquean el MVP integrado v0.2.0 con sus
+límites explícitos; sí sigue pendiente la aceptación final académica/operacional.
+
+### Gate final requerido antes de tag (definido, no reejecutado aquí)
+
+| Bloque | Ejecución / comprobación exacta | Aceptación |
+| --- | --- | --- |
+| Base e integridad | dev/origin/dev 0/0, árbol limpio, referencias main/tag guardadas; Get-FileHash del m y FORKLIFT externos | m `d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95` y FORKLIFT `1465105ea80737ddc65d72e97d6dc24fc253995a98d6d4eea9b377fe3a8edce6`; un checkpoint distinto falla antes de cargar. |
+| Motor | Python del Motor: `python -B -m unittest discover -s engine/tests` desde raíz | Ningún fallo; registrar descubiertas/PASS/SKIP por separado. Última base: 423/421/2; nuevos tests de correcciones incrementarán el total. |
+| Backend | Desde backend, entorno local cargado: `.venv/Scripts/python.exe -B manage.py test --noinput` | PostgreSQL test aislado, ninguna escritura a eventos históricos; sin fallos. Última suite: 125/125. Incluir F13 con input enorme → 400, nunca excepción. |
+| Django/migraciones | `manage.py check`, `makemigrations --check --dry-run`, `migrate --check` | Sin incidencias ni drift/migraciones inesperadas. |
+| Dependencias | `python -m pip check` en ambos entornos Python | Sin incompatibilidades; sin cambiar locks por conveniencia. |
+| CUDA nativo | Python Motor: `engine/scripts/check_environment.py --require-cuda` | CPU/OpenCV/CUDA operativos, RTX 3070, versiones registradas. |
+| Frontend | Node 24.2.0/pnpm 11.28.2: `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` | Todos aprobados sobre el candidato definitivo; no atribuir PASS de esta auditoría. |
+| Formato | `pnpm format:check`; si reaparece CRLF global, distinguirlo del cambio y comprobar Prettier estricto en archivos tocados | Registrar resultado real; no declarar PASS ni normalizar masivamente sin autorización. |
+| Browser | API fixture explícita: `pnpm fixture:api`; frontend modo API/puertos de fixture aislados; `pnpm test:browser` | No usar la API real como fixture. Sesión/navegar/recargar, source/PUT/START/STOP tardíos, limpiar, error/cancelación, 99,9 antes de completed, MP4/seek, teclado, PNG/histórico, filtros y dashboard; 1440/1280/390 px. Ampliar casos ausentes antes de afirmar cobertura. |
+| Compose | Con env local y rutas externas individuales: `docker compose -f compose.yaml config --quiet` y `docker compose -f compose.yaml -f compose.gpu.yaml config --quiet` | Loopback, pesos/input read-only, sin datasets/holdouts/pesos dentro de imagen. |
+| Docker GPU | Construir imagen candidata y smoke con un frame autorizado y ambos modelos | Hash/clase PERSON/identidad m, FP32/CUDA:0 y H.264 correctos, sin OOM; no confundir con E2E completo Docker. |
+| E2E nativo CUDA | Repetir regresión controlada de sección 18 sobre demo C y DB test: fixture de pares existente, sin tocar perfiles productivos | 418/418 y resultado completo; ambos tipos, observaciones/geometry D coherentes, snapshots m/FORKLIFT, PNG accesible y eventos en historial. Documentar diferencias sin forzar conteos. |
+| Evidencia/recuperación | Regresión F09 con IDs iguales entre clases; F15 PNG crítico desconocido; F16 interrupción→enqueue fallido→replay | F09 produce PNG correcto. Corregir o mantener exclusiones P2 explícitas y recibos de error veraces; no esconder fallos tras happy paths. |
+| Git/documentación | Revisar diff/staged completos, `git diff --check`, `git diff --cached --check`; escaneo de rutas/secretos/medios y enlaces/assets | Solo archivos autorizados, históricos conservados, demo actual rotulada, notas preparadas. Sin Excel, main ni tag modificados por auditoría. |
+
+No se ejecuta el gate completo en este checkpoint. Las cifras de sección 18 son
+resultados previos de la base, no nuevos PASS. Se actualiza únicamente este informe
+y el snapshot existente, conservando los cortes históricos. Resultado:
+**PRE_V0_2_0_TECHNICAL_AUDIT_COMPLETE**, con decisión de release bloqueada por los
+dos P1 concretos indicados y sin cambio funcional.
