@@ -21,7 +21,9 @@ un GitHub Release ni cambian las versiones declaradas de los paquetes.
 - Hardening de sesiones, integridad/cadencia de video, navegación y respuestas
   obsoletas; correcciones del replay multiclase y entradas numéricas extremas.
 - Ruta nativa y Docker Compose CPU/GPU, con pesos externos read-only.
-- [Demo actual](assets/demo/v0.2.0/README.md) y capturas del flujo real. El
+- Geometría de botones compartida entre light/dark, conservando colores y estados.
+- [Captura actual](assets/demo/v0.2.0/README.md) del flujo real como único asset
+  visual principal; el video actual de QA permanece fuera de Git. El
   [PoC v0.1.0](assets/demo/README.md) permanece identificado como histórico.
 
 ### Evidencia y regresión

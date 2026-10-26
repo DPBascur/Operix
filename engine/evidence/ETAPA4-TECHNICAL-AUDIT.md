@@ -1,6 +1,7 @@
 # Operix — auditoría técnica final para Etapa 4
 
-**Vigencia:** la [sección 21](#21-demo-y-documentación-pre-v020--26-10-2026) cierra F19.
+**Vigencia:** la [sección 21](#21-demo-y-documentación-pre-v020--26-10-2026) cierra F19;
+la [sección 22](#22-consistencia-de-temas-y-simplificación-de-assets--26-10-2026) actualiza su material visual.
 La sección 20 registra el cierre de F08/F09/F13; la sección 19 conserva el checkpoint
 previo. Las demás secciones mantienen sus decisiones y resultados históricos.
 
@@ -1065,7 +1066,7 @@ crudos de evaluación. La prioridad original no se cambia retrospectivamente.
 | F16 / P2 | OPEN | append no valida el final previo del journal. Reproducción: cola truncada → enqueue con HTTP fallido → replay: 0 recuperados, 1 registro inválido. No declara saved falsamente, pero pierde recuperabilidad automática de esa entrada. |
 | F17 / P2 | OPEN | listEvents usa fetch sin deadline; detalle aborta al desmontar, pero tampoco fija plazo. La petición pendiente indefinida sigue posible. |
 | F18 / P2 | OPEN | Filtros locales de EventsTable y retorno fijo /events: período/tipo no viajan en URL y se pierden al volver del detalle. |
-| F19 / P2 | CLOSED | Sección 21: demo actual real, cuatro capturas production, PoC rotulado histórico, README y notas candidatas actualizados; surface brief original marcado como histórico. Gate/tag aún pendientes. |
+| F19 / P2 | CLOSED | Secciones 21–22: demo actual real, captura principal production, PoC rotulado histórico, README y notas candidatas actualizados; surface brief original marcado como histórico. Gate/tag aún pendientes. |
 | F20 / P2 | OPEN | Workspace/CSS grandes y configuración repartida entre sesión/worker; no se hizo refactor productivo. Deuda de mantenimiento, sin fallo adicional demostrado por tamaño. |
 | F21 / DEFER | DEFERRED_BY_DECISION | API local AllowAny, login/roles demostrativos; IAM empresarial fuera del MVP. Exposición pública de la API requeriría otra decisión. |
 | F22 / DEFER | DEFERRED_BY_DECISION | API/worker local y arquitectura actual; sin requisito nuevo de broker, microservicios o cloud. |
@@ -1247,3 +1248,23 @@ versión Web. No hay una fuente única global; los tres siguen en 0.1.0. /api/v1
 es la versión del release. **READY_FOR_FINAL_RELEASE_GATE**, no tag autorizado:
 faltan la regresión final sobre el candidato definitivo y la promoción explícita.
 F02 sigue OPEN, F11 DEFERRED_BY_DECISION; F15/F16/F17/F18/F20 siguen abiertos.
+
+
+## 22. Consistencia de temas y simplificación de assets — 26-10-2026
+
+La preparación posterior a `967c1af10e73f7801ed0476ffc0434e1b54ef878` sustituye
+la selección visual de la sección 21 por una única captura principal recapturada.
+Los videos actuales de QA y las capturas auxiliares se conservan externamente,
+sin reescribir los resultados de la ejecución anterior ni retirar los MP4 históricos.
+README, metadata, atribución y notas candidatas reflejan esta decisión.
+
+Dos overrides dark de `.button` imponían 10 px frente a la píldora de light.
+Se retiran y se comparte un token de radio de botón, sin alterar cards, inputs,
+paneles, navegación ni parámetros de análisis. La regresión browser compara
+geometría computada entre temas en rutas reales y variantes/estados de Button.
+Frontend 37/37, lint, typecheck y production build PASS. Browser 1/1 PASS:
+seis rutas a 1440/1280/390 px, light/dark, cinco variantes y tres tamaños;
+hover/active/focus-visible, disabled/loading. Foco visible y sin overflow.
+La recaptura real procesa 418/418 frames y conserva los dos tipos de evento.
+Impeccable no detecta hallazgos mecánicos; se conserva la identidad existente.
+Esta corrección visual no sustituye el gate final ni autoriza main/tag.
