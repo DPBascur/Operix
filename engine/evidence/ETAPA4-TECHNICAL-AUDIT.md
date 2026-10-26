@@ -1,8 +1,8 @@
 # Operix — auditoría técnica final para Etapa 4
 
-**Vigencia:** la [sección 20](#20-cierre-de-p1-funcionales--26-10-2026) registra
-el cierre posterior de F08/F09/F13. La sección 19 conserva el checkpoint previo;
-las demás secciones mantienen sus decisiones y resultados históricos.
+**Vigencia:** la [sección 21](#21-demo-y-documentación-pre-v020--26-10-2026) cierra F19.
+La sección 20 registra el cierre de F08/F09/F13; la sección 19 conserva el checkpoint
+previo. Las demás secciones mantienen sus decisiones y resultados históricos.
 
 Fecha: **25-10-2026** (America/Santiago). Base auditada:
 `7e03a5a5e40b6e6892efc567567da2b7d6a8a647`, rama `dev`.
@@ -1065,7 +1065,7 @@ crudos de evaluación. La prioridad original no se cambia retrospectivamente.
 | F16 / P2 | OPEN | append no valida el final previo del journal. Reproducción: cola truncada → enqueue con HTTP fallido → replay: 0 recuperados, 1 registro inválido. No declara saved falsamente, pero pierde recuperabilidad automática de esa entrada. |
 | F17 / P2 | OPEN | listEvents usa fetch sin deadline; detalle aborta al desmontar, pero tampoco fija plazo. La petición pendiente indefinida sigue posible. |
 | F18 / P2 | OPEN | Filtros locales de EventsTable y retorno fijo /events: período/tipo no viajan en URL y se pierden al volver del detalle. |
-| F19 / P2 | PARTIALLY_CLOSED | README vivos describen m y flujo integrado; demo anotada sigue siendo PoC histórico, faltan captura vigente/notas de release y persiste drift del surface brief glass. Inventario visual abajo. |
+| F19 / P2 | CLOSED | Sección 21: demo actual real, cuatro capturas production, PoC rotulado histórico, README y notas candidatas actualizados; surface brief original marcado como histórico. Gate/tag aún pendientes. |
 | F20 / P2 | OPEN | Workspace/CSS grandes y configuración repartida entre sesión/worker; no se hizo refactor productivo. Deuda de mantenimiento, sin fallo adicional demostrado por tamaño. |
 | F21 / DEFER | DEFERRED_BY_DECISION | API local AllowAny, login/roles demostrativos; IAM empresarial fuera del MVP. Exposición pública de la API requeriría otra decisión. |
 | F22 / DEFER | DEFERRED_BY_DECISION | API/worker local y arquitectura actual; sin requisito nuevo de broker, microservicios o cloud. |
@@ -1073,7 +1073,7 @@ crudos de evaluación. La prioridad original no se cambia retrospectivamente.
 | F24 / DEFER | DEFERRED_BY_DECISION | Registro RAM no recuperable tras reinicio; eventos/PNG y journal independientes. Recuperación al navegar no equivale a persistencia de sesiones. |
 | F25 / DEFER | DEFERRED_BY_DECISION | Lista completa y carga acotada documentadas; paginación solo ante alcance/volumen que la exija. |
 
-Balance actualizado tras sección 20: 12 CLOSED, 6 OPEN, 1 PARTIALLY_CLOSED, 6 DEFERRED_BY_DECISION y
+Balance actualizado tras sección 21: 13 CLOSED, 6 OPEN, 0 PARTIALLY_CLOSED, 6 DEFERRED_BY_DECISION y
 0 NO_LONGER_APPLICABLE. Un test de happy path no cierra un caso adversarial ausente.
 
 ### Demo y assets: estado de presentación
@@ -1207,3 +1207,43 @@ contratos de transporte/persistencia, Docker, main y tags permanecen intactos.
 No se entrenan modelos, no se usan holdouts/TEST2 y no se abre Excel/informe.
 Solo cambia la validación de entradas, la identidad de evidencia legacy y la
 aceptación frontend de respuestas; se conserva toda la evidencia histórica.
+
+
+## 21. Demo y documentación pre-v0.2.0 — 26-10-2026
+
+Base `21b9b05704c2a8560d08f21a5a915b2b0a58cc91`, dev limpio y sincronizado.
+**F19 CLOSED / CURRENT_DEMO_READY / README_CURRENT / V0_2_0_RELEASE_NOTES_READY.**
+Una demo principal C muestra el pipeline real con PERSON m, FORKLIFT v2,
+ByteTrack, zona, permanencia y proximidad con geometría D. Se reutiliza byte a byte
+el fixture controlado de la promoción m: 0,25 norm / 1 s, sin ajustar thresholds
+para la presentación ni cambiar los perfiles predeterminados. Su configuración y
+alcance demostrativo son explícitos en assets/demo/v0.2.0/README.md.
+
+Se procesan 418/418 frames y se persisten dos eventos con PNG en PostgreSQL de
+pruebas: proximidad en 30, permanencia en 60. Las cuatro capturas proceden del
+build de producción, API y Motor reales; no de la API fixture. El MP4 de
+presentación H.264 conserva 1920×1080, 30 FPS y 418 frames (13,933 s), se decodifica
+completo y ocupa 5.165.910 bytes. Es una recomprensión del output original del
+worker, preservado fuera de Git; ambos SHA y receta están en metadata.json.
+No se cambia el encoder productivo ni se presenta esto como benchmark.
+
+README prioriza demo, capacidades, arquitectura, ejecución y límites; los tres
+attachments y MP4 OP-34/60/61 se conservan como PoC histórico. Solo se corrigen
+inconsistencias materiales en los README secundarios. El brief visual original
+queda rotulado histórico; no se rediseña la UI. RELEASE_NOTES.md prepara el
+alcance del MVP integrado sin publicar release/tag ni atribuir validación final.
+
+Se verifica decode/hashes/metadata de video e imágenes, identidad y hash del
+fixture, ausencia de texto privado visible/metadata PNG y enlaces relativos con
+case exacto. README renderizado localmente en 1280/390 px, sin overflow de página;
+revisión visual de overlays, PNG, detalle e histórico. Build production PASS;
+recorrido real de captura y test de consistencia PASS. No se repite el gate completo.
+Las herramientas de render/compresión permanecen externas, sin cambios a dependencias.
+No se abrió holdout/TEST2, Excel o informe; no hubo tuning ni modificaciones de código.
+
+Versionado pendiente, sin bump: engine/pyproject.toml es metadata del paquete,
+engine/src/operix_engine/__init__.py la refleja; frontend/package.json declara la
+versión Web. No hay una fuente única global; los tres siguen en 0.1.0. /api/v1 no
+es la versión del release. **READY_FOR_FINAL_RELEASE_GATE**, no tag autorizado:
+faltan la regresión final sobre el candidato definitivo y la promoción explícita.
+F02 sigue OPEN, F11 DEFERRED_BY_DECISION; F15/F16/F17/F18/F20 siguen abiertos.
