@@ -60,7 +60,7 @@ No existe una única versión global compartida entre componentes:
 - `engine/src/operix_engine/__init__.py`: constante pública que debe concordar.
 - `frontend/package.json`: versión propia de la aplicación Web.
 
-Los tres siguen en **0.1.0** durante esta preparación. Su eventual actualización
-a 0.2.0 debe ser explícita en el release final, junto con checks de metadata e
-instalación. La ruta `/api/v1` es versión del contrato API y no cambia por este tag.
+Las tres fuentes activas declaran **0.2.0** como versión candidata. La promoción
+a main y el tag permanecen pendientes de repetir y aprobar el gate final.
+La ruta `/api/v1` es versión del contrato API y no cambia por este release.
 El tag anotado v0.1.0 conserva su objetivo histórico.
