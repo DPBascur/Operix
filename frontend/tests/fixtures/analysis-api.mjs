@@ -26,7 +26,9 @@ export async function startFixtureApi(port = 8000) {
     deleted = 0,
     failNext = false,
     delayNextStatus = false,
-    waitingStatus = false;
+    waitingStatus = false,
+    delayNextZone = false;
+  const pendingZones = [];
   const event = {
     id: eventId,
     occurred_at: "2026-10-25T12:00:01Z",
@@ -84,10 +86,15 @@ export async function startFixtureApi(port = 8000) {
         }
         if (body.failNext) failNext = true;
         if (body.delayNextStatus) delayNextStatus = true;
+        if (body.delayNextZone) delayNextZone = true;
+        if (body.releaseZones) {
+          for (const release of pendingZones.splice(0)) release();
+        }
         return send({
           created: sequence,
           deleted,
           waitingStatus,
+          waitingZones: pendingZones.length,
           ids: [...sessions.keys()],
         });
       }
@@ -156,6 +163,12 @@ export async function startFixtureApi(port = 8000) {
             polygon: body.polygon ?? session.zone.polygon,
           };
           session.pending_changes = true;
+          if (delayNextZone) {
+            delayNextZone = false;
+            const snapshot = structuredClone(session);
+            pendingZones.push(() => send(snapshot));
+            return;
+          }
           return send(session);
         }
         if (action === "start/") {

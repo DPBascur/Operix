@@ -29,6 +29,7 @@ import { pointInFrame } from "./zone-editor-geometry";
 import { environment } from "@/config/environment";
 import {
   analysisPercent,
+  applyZoneRequest,
   tabStorage,
   sessionVideoInfo,
   readSessionReference,
@@ -423,19 +424,23 @@ export function AnalysisWorkspace({
     }
     setBusy(true);
     setError(null);
-    try {
-      generation.current += 1;
-      setSession(
-        await analysisService.updateZone(session.id, { polygon: draft }),
-      );
-      setEditing(false);
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "No se pudo aplicar la zona.",
-      );
-    } finally {
-      setBusy(false);
-    }
+    await applyZoneRequest(
+      generation,
+      () => analysisService.updateZone(session.id, { polygon: draft }),
+      {
+        applied: (updated) => {
+          setSession(updated);
+          setEditing(false);
+        },
+        failed: (cause) =>
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "No se pudo aplicar la zona.",
+          ),
+        settled: () => setBusy(false),
+      },
+    );
   }
 
   async function changeProfile(next: AnalysisProfile) {

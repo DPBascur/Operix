@@ -1,5 +1,26 @@
 import type { AnalysisSessionStatus } from "@/services/analysis.service";
 
+/** Usa la generación del workspace; no crea otro estado de concurrencia. */
+export async function applyZoneRequest(
+  generation: { current: number },
+  update: () => Promise<AnalysisSessionStatus>,
+  callbacks: {
+    applied: (session: AnalysisSessionStatus) => void;
+    failed: (cause: unknown) => void;
+    settled: () => void;
+  },
+): Promise<void> {
+  const current = ++generation.current;
+  try {
+    const updated = await update();
+    if (generation.current === current) callbacks.applied(updated);
+  } catch (cause) {
+    if (generation.current === current) callbacks.failed(cause);
+  } finally {
+    if (generation.current === current) callbacks.settled();
+  }
+}
+
 /** Solo una referencia por pestaña; el estado y la retención pertenecen al servidor. */
 export function tabStorage(
   host: { readonly sessionStorage: Storage } | undefined = typeof window ===

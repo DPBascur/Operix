@@ -248,6 +248,25 @@ test(
       await click("Cerrar polígono");
       await click("Aplicar zona");
       await wait(text("Hay cambios de zona pendientes"));
+      await control({ delayNextZone: true });
+      await click("Editar zona");
+      await click("Aplicar zona");
+      const zoneDeadline = Date.now() + 5000;
+      while (!(await control()).waitingZones && Date.now() < zoneDeadline)
+        await pause(50);
+      assert.equal((await control()).waitingZones, 1);
+      await navigate("/events");
+      await wait(text("Proximidad persona"));
+      await navigate("/analysis");
+      await wait(text("Hay cambios de zona pendientes"));
+      await control({ releaseZones: true });
+      await pause(200);
+      assert.equal((await control()).waitingZones, 0);
+      assert.equal(
+        await evaluate(text("Hay cambios de zona pendientes")),
+        true,
+      );
+      assert.equal(await evaluate(text("No se pudo aplicar la zona.")), false);
       await control({ failNext: true });
       await click("Volver a analizar");
       await wait(text("Error de análisis"));

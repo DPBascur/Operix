@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   analysisPercent,
+  applyZoneRequest,
   tabStorage,
   sessionVideoInfo,
   readSessionReference,
@@ -18,6 +19,69 @@ const memory = () => {
     removeItem: (key) => data.delete(key),
   };
 };
+
+const deferred = () => {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+};
+
+test("aplicar B antes de A conserva B y no libera busy desde la respuesta vieja", async () => {
+  const generation = { current: 0 },
+    a = deferred(),
+    b = deferred();
+  const effects = [];
+  const callbacks = {
+    applied: (session) => effects.push(session.id),
+    failed: () => effects.push("error"),
+    settled: () => effects.push("settled"),
+  };
+  const first = applyZoneRequest(generation, () => a.promise, callbacks);
+  const second = applyZoneRequest(generation, () => b.promise, callbacks);
+  b.resolve({ id: "B" });
+  await second;
+  a.resolve({ id: "A" });
+  await first;
+  assert.deepEqual(effects, ["B", "settled"]);
+});
+
+test("cambiar contexto invalida éxito, error y finally de applyZone", async () => {
+  for (const failed of [false, true]) {
+    const generation = { current: 0 },
+      request = deferred(),
+      effects = [];
+    const pending = applyZoneRequest(generation, () => request.promise, {
+      applied: () => effects.push("applied"),
+      failed: () => effects.push("failed"),
+      settled: () => effects.push("settled"),
+    });
+    generation.current++;
+    if (failed) request.reject(new Error("late error"));
+    else request.resolve({ id: "old context" });
+    await pending;
+    assert.deepEqual(effects, []);
+  }
+});
+
+test("error vigente de applyZone conserva el manejo de error y libera busy", async () => {
+  const effects = [],
+    cause = new Error("current error");
+  await applyZoneRequest(
+    { current: 0 },
+    async () => {
+      throw cause;
+    },
+    {
+      applied: () => effects.push("applied"),
+      failed: (error) => effects.push(error),
+      settled: () => effects.push("settled"),
+    },
+  );
+  assert.deepEqual(effects, [cause, "settled"]);
+});
 test("retiene solo la referencia y permite recuperarla o limpiarla por API", () => {
   const storage = memory(),
     key = sessionReferenceKey("http://fixture/api/v1/");
