@@ -1,18 +1,17 @@
 # Índice de evidencia técnica
 
-Estado transversal: [snapshot de Etapa 3](ETAPA3-PROJECT-STATE.md).
-La [matriz](ETAPA3-VALIDATION-MATRIX.md) distingue diseño, implementación y
-validación. El [handoff académico](ETAPA3-BACKLOG-HANDOFF.md) es una fuente factual
-para revisión humana posterior; no es otro backlog ni modifica estados oficiales.
+El [estado técnico y la validación del candidato](ETAPA4-TECHNICAL-AUDIT.md#24-final-v020-release-gate-pass--26-10-2026)
+resumen la versión vigente. La [matriz](ETAPA3-VALIDATION-MATRIX.md) conserva
+pruebas fechadas y trazabilidad de requisitos, sin sustituir el backlog oficial.
 
 ## Etapa 3: evidencia vigente por tema
 
 | Tema | Evidencia | Propósito / límite |
 | --- | --- | --- |
 | Experimentos de percepción, modelos y zonas | [Síntesis cronológica](etapa3-experimentos.md) | Configuraciones, datasets y resultados propios de cada campaña; no extrapolar A/B/C |
-| Requisitos e integración | [Matriz transversal](ETAPA3-VALIDATION-MATRIX.md) | Pruebas E2E, Campaign I/II y actualización vigente; conserva cortes históricos |
-| Persistencia de objeto único y pares | [Campaign II](ETAPA3-VALIDATION-MATRIX.md#campaign-ii--contrato-operacional-por-pares-24-10-2026), [Backend](../../backend/README.md#publicación-operacional-desde-sesiones-web) | Journal, snapshots, PNG, HTTP y PostgreSQL; fixtures E2E no evalúan detectores |
-| Histórico y consultas | [OP-40 histórico](../../backend/evidence/OP-40-event-query.md), [matriz vigente](ETAPA3-VALIDATION-MATRIX.md) | Período/tipo; ambos tipos comprobados posteriormente en Campaign II |
+| Requisitos e integración | [Matriz transversal](ETAPA3-VALIDATION-MATRIX.md) | Pruebas E2E fechadas y trazabilidad de entregables; conserva cortes históricos |
+| Persistencia de objeto único y pares | [Persistencia de pares](ETAPA3-VALIDATION-MATRIX.md#persistencia-operacional-por-pares--24-10-2026), [Backend](../../backend/README.md#publicación-operacional-desde-sesiones-web) | Journal, snapshots, PNG, HTTP y PostgreSQL; fixtures E2E no evalúan detectores |
+| Histórico y consultas | [OP-40 histórico](../../backend/evidence/OP-40-event-query.md), [matriz vigente](ETAPA3-VALIDATION-MATRIX.md) | Período/tipo; ambos tipos comprobados posteriormente en la prueba de pares |
 | Indicadores | [OP-41](../../backend/evidence/OP-41-event-frequencies.md) | Frecuencias UTC y conciliación; no tasas de incidentes o riesgo |
 | Fallos, retries e idempotencia | [Matriz](ETAPA3-VALIDATION-MATRIX.md), [outbox](../src/operix_engine/event_outbox.py), [tests de hardening](../../backend/apps/analysis/test_hardening.py) | Recuperación acotada; no entrega infinita ni atomicidad distribuida |
 | Performance y stress | [Matriz](ETAPA3-VALIDATION-MATRIX.md#rendimiento-y-estrés-preliminar-del-estado-actual), [OP-43 histórico](OP-43-performance.md) | Protocolos/alcances distintos; no comparar sus FPS directamente |

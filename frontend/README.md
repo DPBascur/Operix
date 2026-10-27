@@ -87,7 +87,7 @@ real. Al terminar, detener ambos servidores y volver al entorno habitual.
 
 ## Vistas y procedencia
 
-`/` e `/indicators` muestran el dashboard histórico, con selector explícito de ejemplo ilustrativo o registros API. En modo API, el mes UTC seleccionado consulta `/events/frequencies/` para frecuencia diaria y por tipo, y `/events/` para desglose horario, zona y actividad reciente; la comparación usa el mes UTC anterior. Se reconcilian los totales y se informa si los registros cambian entre consultas. Un mes vacío muestra un estado sin registros, sin estadísticas inventadas. Estos conteos pueden incluir ensayos y no equivalen a tasas verificadas de incidentes. `/dashboard` redirige a `/`. `/login` y `/users` son una demo local sin contraseñas ni autorización Backend y no bloquean el análisis. `/analysis` y `/events` conservan su integración real; `/rules` mantiene contexto de desarrollo y `/zones` dirige al editor de Análisis. El estado global consulta salud de API/base de datos, no certifica modelos ni GPU. Véase [alcance y contratos del refresh](UI_REFRESH.md).
+`/` e `/indicators` muestran el dashboard histórico, con selector explícito de ejemplo ilustrativo o registros API. En modo API, el mes UTC seleccionado consulta `/events/frequencies/` para frecuencia diaria y por tipo, y `/events/` para desglose horario, zona y actividad reciente; la comparación usa el mes UTC anterior. Se reconcilian los totales y se informa si los registros cambian entre consultas. Un mes vacío muestra un estado sin registros, sin estadísticas inventadas. Estos conteos pueden incluir ensayos y no equivalen a tasas verificadas de incidentes. `/dashboard` redirige a `/`. `/login` y `/users` son una demo local sin contraseñas ni autorización Backend y no bloquean el análisis. `/analysis` y `/events` conservan su integración real; `/rules` mantiene contexto de desarrollo y `/zones` dirige al editor de Análisis. El estado global consulta salud de API/base de datos, no certifica modelos ni GPU.
 
 ## Design tokens
 
@@ -101,12 +101,39 @@ Los tokens se exponen mediante variables CSS y `@theme inline`, por ejemplo `bg-
 
 ## Estado de integración
 
-Las [capturas actuales](../assets/demo/v0.2.0/README.md) corresponden al build de
-producción con API real y base de demo aislada. No confundirlas con la API fixture
-de regresión browser ni con el material histórico de UI_REFRESH.
+La [captura actual](../assets/demo/v0.2.0/README.md) corresponde al build de
+producción con API real y base de demo aislada. No confundirla con la API fixture
+de regresión browser; la revisión visual histórica se resume más abajo.
 
-El [snapshot de Etapa 3](../engine/evidence/ETAPA3-PROJECT-STATE.md) separa
-funcionalidad y validación. El detalle prioriza PNG, mediciones y tiempo del video;
+La [matriz de validación](../engine/evidence/ETAPA3-VALIDATION-MATRIX.md)
+separa funcionalidad y validación. El detalle prioriza PNG, mediciones y tiempo del video;
 la trazabilidad completa es desplegable. La fecha UTC proxy no se presenta como
 fecha de grabación. La [guía Docker](../deployment/docker/README.md) ofrece una
 ruta local alternativa con build standalone, sin sustituir el modo nativo.
+
+
+## Acceso demostrativo y almacenamiento
+
+El login no solicita contraseñas ni protege rutas o API. Las cuentas demo usan
+`localStorage` (`operix-demo-users-v1`), y la sesión de esa interfaz,
+`sessionStorage` (`operix-demo-session-v1`). Solo deben introducirse datos ficticios.
+La edición requiere Administrador demo en la interfaz; no representa RBAC del
+servidor ni sincronización multiusuario. Se rechazan correos duplicados, roles
+inválidos, datos corruptos y la pérdida del último administrador activo.
+
+El indicador de conexión consulta salud de API/DB cada 30 segundos con timeout
+de 5 segundos; suspende consultas con el documento oculto y las libera al desmontar.
+No certifica GPU, pesos ni disponibilidad de cámaras.
+
+## Validación histórica de la interfaz
+
+La revisión del refresh original precede al detalle y al contrato de frecuencias
+actuales. Sus resultados no se atribuyen a cambios posteriores:
+
+La revisión técnica detectó cinco problemas: retorno al ejemplo durante carga/error API, contraste del estado conectado, selección de una cuenta inactiva, acceso por teclado a los valores horarios y salto de línea de la comparación en tablet. Se corrigieron los cinco y la revisión de confirmación no dejó pendientes de esos hallazgos.
+
+La revisión visual/UX aceptó la dirección y detectó pérdida potencial del borrador al abrir otra cuenta. El editor pasó a exigir guardar o cancelar antes de cambiar de cuenta. La confirmación validó ese arreglo; no constituye certificación integral de accesibilidad ni una nueva puntuación de toda la interfaz.
+
+Se comprobó desconexión y recuperación del servicio: el histórico real muestra un error recuperable, el ejemplo permanece disponible y, al volver el servicio, reaparecen los registros API y el estado conectado. La regresión integrada de la muestra B completó 300/300 frames y produjo un MP4 de 1920×1080, 30 FPS y 300 frames, sin cambiar percepción ni configuración.
+
+Las capturas se revisaron a 1920, 1366, 768 y 390 píxeles. Para Usuarios se utilizaron capturas nativas del viewport por una limitación de captura de página completa; no se presentan como capturas full-page. Las pruebas automatizadas y la inspección visual no sustituyen una revisión con lector de pantalla real.

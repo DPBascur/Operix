@@ -1,9 +1,9 @@
 # Operix — auditoría técnica final para Etapa 4
 
-**Vigencia:** la [sección 21](#21-demo-y-documentación-pre-v020--26-10-2026) cierra F19;
-la [sección 22](#22-consistencia-de-temas-y-simplificación-de-assets--26-10-2026) actualiza su material visual.
-La sección 20 registra el cierre de F08/F09/F13; la sección 19 conserva el checkpoint
-previo. Las demás secciones mantienen sus decisiones y resultados históricos.
+**Lectura:** la [validación final de v0.2.0](#24-final-v020-release-gate-pass--26-10-2026)
+y el [estado consolidado de hallazgos](#19-estado-consolidado-de-hallazgos--26-10-2026)
+resumen el corte vigente. Los hallazgos iniciales y las evaluaciones siguientes
+conservan fecha, resultados y límites; no son instrucciones de trabajo pendientes.
 
 Fecha: **25-10-2026** (America/Santiago). Base auditada:
 `7e03a5a5e40b6e6892efc567567da2b7d6a8a647`, rama `dev`.
@@ -28,7 +28,7 @@ protocolo; L = validación transversal. No son estimaciones de horas.
 ### Método y límites
 
 - Inspección de Motor, scripts, Backend, Frontend, tests, configuración, Docker,
-  arquitectura/ADR y documentación versionada; contraste con el handoff de Etapa 3.
+  arquitectura/ADR y documentación versionada; contraste con la matriz de validación de Etapa 3.
 - Reproducciones con fixtures/procesos simulados y comprobación sintética en memoria.
   Se revisó el navegador local: dashboard ejemplo/API, preparación del análisis,
   histórico y detalle de un evento demo existente. No se inició ningún análisis.
@@ -81,7 +81,7 @@ producto: no hay evidencia para justificar otro rediseño general por «parecer 
 | ID | Área | Problema e impacto | Evidencia | Acción y criterio de cierre | Complejidad |
 | --- | --- | --- | --- | --- | --- |
 | F01 | PERSON / RF-02 | El flujo web sigue fijado a CURRENT_PERSON, cuyo recall independiente fue 0,119048 y F1 0,176211. Una demo sintética correcta no acredita cobertura de personas en condiciones realistas. | [SHA y lanzamiento](../../backend/apps/analysis/sessions.py#L42), [resultados sellados](etapa3-experimentos.md#ejecución-person-evaluation-protocol-v1--24-10-2026) | Decisión humana post-evaluación: mantener y acotar explícitamente el alcance o aprobar otra configuración congelada, con regresión downstream y evidencia operacional prospectiva. No ocultar el resultado ni promover COCO por defecto. | M |
-| F02 | Validación final / RF-05, RNF-02, PV-01 | Falta evidencia final contextual/experta que vincule condiciones reales, parámetros, errores aceptables y uso por un tercero. Las pruebas técnicas no equivalen a validación del sistema preventivo ni a aceptación académica completa. | [Snapshot y pendientes](ETAPA3-PROJECT-STATE.md), [matriz](ETAPA3-VALIDATION-MATRIX.md), [handoff](ETAPA3-BACKLOG-HANDOFF.md) | Acordar alcance y criterios antes de probar; ejecutar un protocolo final autorizado con casos operativos realistas, etiquetas de condiciones/revisión experta, resultados negativos y conclusiones. Incluir límites de duración, recursos, privacidad/retención y feedback. Reconciliar después el backlog oficial humanamente. | L |
+| F02 | Validación final / RF-05, RNF-02, PV-01 | Falta evidencia final contextual/experta que vincule condiciones reales, parámetros, errores aceptables y uso por un tercero. Las pruebas técnicas no equivalen a validación del sistema preventivo ni a aceptación académica completa. | [estado técnico](ETAPA4-TECHNICAL-AUDIT.md#24-final-v020-release-gate-pass--26-10-2026), [matriz](ETAPA3-VALIDATION-MATRIX.md), [trazabilidad de entregables](ETAPA3-VALIDATION-MATRIX.md#trazabilidad-de-entregables-al-24-10-2026) | Acordar alcance y criterios antes de probar; ejecutar un protocolo final autorizado con casos operativos realistas, etiquetas de condiciones/revisión experta, resultados negativos y conclusiones. Incluir límites de duración, recursos, privacidad/retención y feedback. Reconciliar después el backlog oficial humanamente. | L |
 
 ### Decisión PERSON recomendada, sin ejecutarla
 
@@ -159,7 +159,7 @@ condiciones que la regla realmente pretende señalar.
 | F16 | Outbox | Encolar tras una cola NDJSON interrumpida concatena la siguiente entrada; si su envío inmediato falla, replay no recupera esa entrada. | [append](../src/operix_engine/event_outbox.py#L67), [lector](../src/operix_engine/event_outbox.py#L132); fixture; requiere reutilizar directorio, no el run web normal | No continuar append sobre cola inválida sin separar/cuarentenar; conservar recibos y test interrupción→enqueue→replay. | S |
 | F17 | UX / red | Lista y detalle carecen de plazo explícito de fetch; una conexión pendiente puede dejar loading indefinido. | [adapter](../../frontend/src/services/adapters/api.adapter.ts#L34), [detalle](../../frontend/src/features/events/event-detail.tsx#L285) | Timeout/cancelación/reintento coherentes; tests de petición que nunca resuelve. | S |
 | F18 | UX / investigación | Volver del detalle pierde período/tipo porque los filtros no viajan en URL/retorno. | [tabla](../../frontend/src/features/events/events-table.tsx#L43), [retorno](../../frontend/src/features/events/event-detail.tsx#L320) | Guardar consulta en URL y restaurar contexto; test ida/vuelta. | S |
-| F19 | Documentación / release | Demo principal es histórica; faltan release notes y captura vigente del flujo UI. Hay drift puntual en referencias visuales. | [demo](../../assets/demo/README.md), [surface brief](../../.impeccable/surfaces/frontend-src-app-page-tsx.md#L16), [UI histórica](../../frontend/UI_REFRESH.md) | Preservar históricos, rotularlos; preparar notas/captura nueva solo en campaña autorizada. No inventar evidencias ni borrar assets. | S |
+| F19 | Documentación / release | Demo principal es histórica; faltan release notes y captura vigente del flujo UI. Hay drift puntual en referencias visuales. | [demo](../../assets/demo/README.md), [revisión histórica de UI](../../frontend/README.md#validación-histórica-de-la-interfaz) | Preservar históricos, rotularlos; preparar notas/captura nueva solo en campaña autorizada. No inventar evidencias ni borrar assets. | S |
 | F20 | Mantenibilidad | Workspace de 1.196 líneas, CSS de 2.726/1.906 líneas y configuración repetida entre snapshot/lanzamiento/worker dificultan revisar races y drift. | [workspace](../../frontend/src/features/analysis/analysis-workspace.tsx), [CSS](../../frontend/src/app/globals.css), [snapshot](../../backend/apps/analysis/sessions.py#L463), [detector](../scripts/stream_dual_perception.py#L176) | Después de tests de comportamiento, separar lifecycle y configuración efectiva en unidades pequeñas. No crear framework de plugins ni refactorizar por estética. | M |
 
 No se encontraron TODO/FIXME relevantes que por sí solos acrediten features sin
@@ -172,7 +172,7 @@ terminar; la ausencia de TODO no demuestra completitud. No se acusa código de s
 | --- | --- | --- | --- | --- |
 | F21 | Seguridad empresarial | Login/roles son demo; PV-02 no impone SSO/RBAC multitenant, canales ni alertas. [Settings](../../backend/config/settings.py#L80) no autentica API. | Mantener loopback y política mínima de acceso/retención para F02; decidir autenticación real si se amplía audiencia/red, no construir una plataforma IAM. | L |
 | F22 | Infraestructura distribuida | Single API/worker es límite explícito y probado; Docker no exige Motor REST, Redis/Celery, Kubernetes o cloud. [Guía](../../deployment/docker/README.md) | Preservar arquitectura; escalar solo ante demanda validada. | L |
-| F23 | Investigación de modelos/tracker | PERSON v2, ReID y nuevos trackers no son requisito automático del resultado bajo de CURRENT. [Estado](ETAPA3-PROJECT-STATE.md) | Resolver primero F01 con decisión explícita; no entrenar ni consumir TEST2/holdouts por conveniencia. | L |
+| F23 | Investigación de modelos/tracker | PERSON v2, ReID y nuevos trackers no son requisito automático del resultado bajo de CURRENT. [Estado](ETAPA4-TECHNICAL-AUDIT.md#24-final-v020-release-gate-pass--26-10-2026) | Resolver primero F01 con decisión explícita; no entrenar ni consumir TEST2/holdouts por conveniencia. | L |
 | F24 | Sesiones recuperables tras reinicio | El registro RAM no se restaura aunque Docker preserve archivos. Los eventos/PNG sí persisten. No se exige reanudar cada trabajo. [Límites](../../deployment/docker/README.md#persistencia-y-límites) | Documentar sesión temporal; recuperar historial/evidencia. Persistencia de sesiones/multiworker solo si se exige, no para ocultar F07. | M |
 | F25 | Paginación/escala ilimitada | API devuelve lista completa; carga mixta de 1.000 filas está probada, no hay pérdida demostrada. [Carga](../../backend/apps/events/test_validation_stress.py) | Delimitar tamaño/período de validación. Paginar después con contrato de filtros/agregados, desempates e inserciones concurrentes si el volumen lo requiere. | M |
 
@@ -226,92 +226,21 @@ almacenamiento; no se debe optimizar sin medir una necesidad real después.
 | PV-01 | Parámetros configurables y snapshots | **F02**: falta validación experta | Justificación contextual, unidades y límites |
 | PV-02 | Decisiones de roles/canales/alertas pendientes | No se impone feature nueva; F21 | Acordar alcance con experto y registrar exclusiones |
 
-El handoff ya recoge implementación, protocolos y pendientes: no hay que volver a
+La matriz conserva implementación, protocolos y pendientes; no es necesario volver a
 desarrollar variables, reglas, persistencia, indicadores o Docker. Esta auditoría
 añade defectos y gates verificables; no inventa OP nuevos ni estados del Excel.
 
-## 9. Inventario documental, multimedia y release hygiene
+## 9. Documentación y material de demostración
 
-Se inventariaron **44 Markdown, 7 PNG, 4 PDF, 3 MP4 y 1 SVG** versionados.
-Los destinos de enlaces relativos examinados no dieron archivos ausentes; no se
-certifica disponibilidad de todos los links externos/attachments ni anclas de cada
-documento histórico. No se reprodujeron clips ni se inspeccionaron holdouts.
+El [índice de evidencia](README.md) organiza fuentes, pruebas y resultados.
+La [guía de demo actual](../../assets/demo/v0.2.0/README.md) reúne captura,
+identidades y configuración; los clips OP-34/60/61 permanecen como antecedentes
+históricos. La [arquitectura v1.0](../../docs/architecture/README.md) conserva
+sus diagramas y ADR como diseño, distinguiéndolos de la implementación.
 
-| Grupo / ubicación | Clasificación | Acción para una versión actual |
-| --- | --- | --- |
-| README principal, guías Motor/Backend/Frontend/Docker, PRODUCT, avisos/NOTICE | CURRENT | Mantener; describen limitaciones y fuentes reales |
-| Índice, snapshot, handoff y cabecera de matriz de Etapa 3 | CURRENT | Añadir posteriormente referencia a este audit si se autoriza; no reescribir su corte |
-| Síntesis experimental y protocolo de adquisición PERSON | CURRENT con secciones HISTORICAL | Mantener resultados/sellos y cronología; no modificar manifiestos congelados |
-| OP-16/18/28/30/33–38/42/43/59–61, primera integración local y Backend OP-39/40 | HISTORICAL | KEEP_AS_HISTORICAL; OP-28 es actividad continua, no cierre global |
-| Backend OP-41 | HISTORICAL; frase de único tipo STALE como contrato vigente | KEEP_AS_HISTORICAL; usar guía/matriz actual para dos tipos, no falsear resultado antiguo |
-| Docker validation/receipt y frontend UI_REFRESH | HISTORICAL, con alcance/fecha declarados | KEEP_AS_HISTORICAL; no repetir sus pruebas por documentación |
-| DESIGN y surface brief Impeccable | CURRENT con drift / STALE en brief glass | REPLACE_FOR_V0.2.0 la descripción normativa discordante, no el diseño por obligación |
-| Arquitectura v1.0: README, seis diagramas, ADR-01–05 y exportación | CURRENT como diseño cerrado, HISTORICAL como hito | KEEP_AS_HISTORICAL; no alterar arquitectura para perseguir estado de implementación |
-| Tres PDF C4 individuales y exportación completa | REDUNDANT intencionalmente | KEEP_AS_HISTORICAL; sirven extracto y documento original |
-| Capturas del producto actual, recorrido móvil/error y release notes | MISSING | NEEDS_NEW_CAPTURE y notas nuevas en campaña posterior, sin generar medios aquí |
-| Links relativos examinados | BROKEN: ninguno detectado | No se identificó referencia interna concreta que retirar |
-
-### Material mostrado en README/docs/assets
-
-- `assets/demo/forklift_human_nearmiss_ceiling00.mp4`: **KEEP_AS_HISTORICAL**,
-  entrada OP-34 y limitación COCO/forklift; no prueba del detector dual actual.
-- `warehouse_fire_ceiling04.mp4`: **KEEP_AS_HISTORICAL**, entrada sintética autorizada
-  reutilizable; `warehouse_fire_ceiling04_operix_annotated.mp4`: **KEEP_AS_HISTORICAL**,
-  salida histórica PoC, no recorrido de UI/versión actual.
-- Tres `user-attachments` del README: conservar mientras estén rotulados como
-  muestras históricas. **REPLACE_FOR_V0.2.0** su función de demo principal con un
-  recorrido nuevo autorizado; **REMOVE_REFERENCE** solo si un enlace resulta roto
-  o se presenta engañosamente como evidencia actual, no por su antigüedad sola.
-- Los seis PNG y cuatro PDF son arquitectura, no screenshots de aplicación.
-  Marca PNG y SVG son **CURRENT**. No se encontró GIF versionado ni captura actual
-  de UI en Git. Las capturas locales relatadas en UI_REFRESH no están en el clon:
-  **NEEDS_NEW_CAPTURE**, sin fabricar que se revisó hoy móvil/lector de pantalla.
-
-## 10. Orden de ejecución y campañas
-
-### Top 10 next actions — orden estricto por impacto
-
-1. **F01:** decidir configuración PERSON post-evaluación y congelar su alcance.
-2. **F02:** acordar aceptación final, experto, material autorizado y protocolo prospectivo.
-3. **F03/F04:** cerrar atómicamente lifecycle/reserva GPU y expiración frente a START.
-4. **F05:** impedir que truncamientos queden ocultos como análisis completo.
-5. **F06:** fijar y verificar el contrato temporal de videos reales/CFR/VFR.
-6. **F07/F08:** preservar contexto al navegar y evitar respuestas obsoletas/cambio de fuente concurrente.
-7. **F10/F13:** incorporar regresión browser del ciclo y entradas inválidas controladas.
-8. **F11/F12:** validar relevancia operador/vehículo y continuidad de episodios sin inventar observaciones.
-9. **F09/F14/F15:** cerrar evidencia multiclase, acceso por teclado y PNG ilegible.
-10. **F02/F19:** ejecutar la validación final acordada, preparar demo/notas actuales y auditar el release.
-
-Campañas propuestas, sin ejecutarlas:
-
-- **A — Decisión PERSON y protocolo final:** F01/F02; aprobación humana antes de
-  modificar gates/modelos. Criterio: configuración y alcance inequívocos, sin reutilizar
-  el holdout como confirmación independiente ni iniciar v2 automáticamente.
-- **B — Sesiones y video confiables:** F03–06/F13; fixtures deterministas para carreras,
-  EOF prematuro, timestamps y entradas inválidas. Sin cambiar arquitectura.
-- **C — Condiciones y evidencia:** F09/F11/F12/F15/F16; definir semántica con experto
-  antes de grace o supresión; medir falsos descartes si se exige asociación.
-- **D — Flujo Web final:** F07/F08/F10/F14/F17/F18; browser E2E, teclado y matriz de
-  escritorio/móvil; mejora acotada de interacción, no rediseño estético.
-- **E — Validación final y release:** ejecutar F02 después de corregir lo pertinente,
-  política R-02, regresión, feedback, demo y notas F19; evaluar tareas oficiales
-  humanamente. F20 solo si ayuda a aislar los defectos, no refactorizar por moda.
-
-## 11. Readiness v0.2.0 y Etapa 4
-
-**Etapa 4: lista para comenzar con plan priorizado; no lista para declararse terminada.**
-El 100 % de implementación y la aceptación final deben contrastarse con el backlog
-oficial y el evaluador. Los P0 no se cierran contando tests o ocultando recall.
-
-**v0.2.0 como corte experimental de Etapa 3: candidato condicionado**, no certificación
-de cierre final ni de producción. Árbol base limpio, README actualizado, suites previas
-y Docker documentados favorecen el corte; faltan notas/demo actual y una decisión
-explícita sobre publicar con defectos conocidos o corregir antes F03–F10. Un tag
-experimental puede declarar límites; no debe prometer validación final inexistente.
-
-No se crea tag ni Release, no se toca `main`, no se actualizan Issues/Project/Excel.
-Solo este informe puede publicarse en `dev`. Resultado de la auditoría:
-**ETAPA4_TECHNICAL_AUDIT_COMPLETE + P0_EXECUTION_PLAN_READY + NO_PRODUCT_CHANGES**.
+Los resultados no se atribuyen a assets antiguos ni a fuentes externas ausentes
+en un clon. Los pesos, datos protegidos y salidas crudas permanecen fuera de Git;
+la atribución y las licencias se conservan en sus documentos específicos.
 
 ## 12. Hardening de sesiones y video — 25-10-2026
 
@@ -965,7 +894,7 @@ mayor F1; s queda como alternativa de eficiencia, no una mejora universal.
 
 Decisión: **MOBILE_EQUIPMENT_EXTENSION_NEEDS_MORE_EVIDENCE**. YOLOE/YOLO-World
 quedan en [revisión documental](https://docs.ultralytics.com/models/yoloe/), sin
-instalar ni integrar; prompts no resuelven identidad, ocupancia o seguridad.
+instalar ni integrar; una etiqueta textual de detección no resuelve identidad, ocupancia o seguridad.
 La [familia YOLO11](https://docs.ultralytics.com/models/yolo11/) aporta los
 checkpoints COCO estudiados, sin extrapolar su benchmark publicado a esta GPU.
 
@@ -1035,14 +964,11 @@ No se accede a holdouts finales, TEST2 o REAL_HOLDOUT_V2; sin entrenamiento,
 sweeps ni tuning. MOBILE_EQUIPMENT_EXTENSION_NEEDS_MORE_EVIDENCE y
 TRUCK_INTEGRATION_READY_BUT_NOT_EVALUATED conservan el alcance de la sección 17.
 
-## 19. Checkpoint pre-v0.2.0 — 26-10-2026
+## 19. Estado consolidado de hallazgos — 26-10-2026
 
-Base `f4652f609beb1121bb6d8a0d2425f1eba28bc0fc`, rama dev, árbol limpio y
-0/0 después de fetch. Se inspeccionan código, tests, historial, documentación y
-assets versionados; se ejecutan cuatro reproducciones pequeñas sin modelos ni
-DB persistente. No se repiten suites completas, browser, builds ni inferencia:
-esta campaña define el gate final. No se abren holdouts, TEST2, Excel ni archivos
-crudos de evaluación. La prioridad original no se cambia retrospectivamente.
+Se conservan los IDs y prioridades de la auditoría inicial. El cierre de los P1
+se documenta en la sección 20 y la aprobación funcional en la sección 24;
+la validación externa/contextual y las deudas explícitas no se cierran por conteos.
 
 ### Reconciliación de los 25 hallazgos
 
@@ -1066,7 +992,7 @@ crudos de evaluación. La prioridad original no se cambia retrospectivamente.
 | F16 / P2 | OPEN | append no valida el final previo del journal. Reproducción: cola truncada → enqueue con HTTP fallido → replay: 0 recuperados, 1 registro inválido. No declara saved falsamente, pero pierde recuperabilidad automática de esa entrada. |
 | F17 / P2 | OPEN | listEvents usa fetch sin deadline; detalle aborta al desmontar, pero tampoco fija plazo. La petición pendiente indefinida sigue posible. |
 | F18 / P2 | OPEN | Filtros locales de EventsTable y retorno fijo /events: período/tipo no viajan en URL y se pierden al volver del detalle. |
-| F19 / P2 | CLOSED | Secciones 21–22: demo actual real, captura principal production, PoC rotulado histórico, README y notas candidatas actualizados; surface brief original marcado como histórico. Gate/tag aún pendientes. |
+| F19 / P2 | CLOSED | Secciones 21–22: demo actual real, captura principal production, PoC rotulado histórico, README y notas candidatas actualizados; documentación interna duplicada consolidada. Gate funcional aprobado; promoción/tag pendientes. |
 | F20 / P2 | OPEN | Workspace/CSS grandes y configuración repartida entre sesión/worker; no se hizo refactor productivo. Deuda de mantenimiento, sin fallo adicional demostrado por tamaño. |
 | F21 / DEFER | DEFERRED_BY_DECISION | API local AllowAny, login/roles demostrativos; IAM empresarial fuera del MVP. Exposición pública de la API requeriría otra decisión. |
 | F22 / DEFER | DEFERRED_BY_DECISION | API/worker local y arquitectura actual; sin requisito nuevo de broker, microservicios o cloud. |
@@ -1074,73 +1000,8 @@ crudos de evaluación. La prioridad original no se cambia retrospectivamente.
 | F24 / DEFER | DEFERRED_BY_DECISION | Registro RAM no recuperable tras reinicio; eventos/PNG y journal independientes. Recuperación al navegar no equivale a persistencia de sesiones. |
 | F25 / DEFER | DEFERRED_BY_DECISION | Lista completa y carga acotada documentadas; paginación solo ante alcance/volumen que la exija. |
 
-Balance actualizado tras sección 21: 13 CLOSED, 6 OPEN, 0 PARTIALLY_CLOSED, 6 DEFERRED_BY_DECISION y
+Balance al cierre del candidato v0.2.0: 13 CLOSED, 6 OPEN, 0 PARTIALLY_CLOSED, 6 DEFERRED_BY_DECISION y
 0 NO_LONGER_APPLICABLE. Un test de happy path no cierra un caso adversarial ausente.
-
-### Demo y assets: estado de presentación
-
-Inventario versionado: 3 MP4, 7 PNG, 4 PDF, 1 SVG; ningún GIF ni screenshot de UI
-actual versionado. Los tres MP4 coinciden con SHA-256 del NOTICE. Se conservan
-todos los históricos. No se recaptura ni se vuelve a reproducir attachments aquí.
-
-| Visual / referencia | Clasificación | Acción posterior |
-| --- | --- | --- |
-| forklift_human_nearmiss_ceiling00.mp4 y warehouse_fire_ceiling04.mp4 | CURRENT como entradas sintéticas reutilizables; origen histórico OP-34/35 | Mantener atribución y no confundir entrada con resultado del modelo actual. |
-| warehouse_fire_ceiling04_operix_annotated.mp4, OP-60/61 | HISTORICAL_POC | Mantener sus cifras y hash; no presentarlo como salida m/dual/reglas/UI actual. |
-| Player «Resultado de Operix» del README principal | OUTDATED_CURRENT_REFERENCE | En preparación del release, rotular explícitamente PoC histórico y añadir recorrido actual autorizado. Los enlaces a OP-61 contextualizan, pero el título no distingue versión. |
-| Otros dos attachments del README | CURRENT como referencias a entradas sintéticas | Se confirma que hay tres URLs; no se recertifica disponibilidad/reproducción remota. |
-| Seis diagramas, exportación IcePanel y cinco ADR | CURRENT como diseño v1.0 cerrado | 11 artefactos conceptuales disponibles, con exportaciones duplicadas intencionales; no describen por sí solos implementación completa. |
-| Logo PNG e icono SVG | CURRENT | Branding, no evidencia experimental. |
-| UI_REFRESH / documentación y clips OP-33/34/35/43/60/61 | HISTORICAL_POC en sus resultados/visuales | Conservar fechas; no extrapolar performance ni cobertura al pipeline actual. |
-| README principal/Motor/Backend/Frontend/Docker | CURRENT en instrucciones funcionales | Frontend documenta recuperación/teclado/browser; modelos n y CURRENT permanecen como historia. Falta demo visual nueva/notas. |
-| Surface brief Impeccable: glass/blur | OUTDATED_CURRENT_REFERENCE | Alinear documentación normativa con DESIGN/producto en preparación visual; no rediseñar UI por ese texto. |
-
-No se detectan destinos de archivo ausentes en enlaces Markdown relativos
-examinados; no se certifican todas las anclas/URLs externas. Escaneo textual
-versionado sin patrones de rutas personales/tokens habituales/claves privadas;
-0 tracked que coincidan con ignore. No es una auditoría completa del historial.
-
-### Decisión del checkpoint previo (superada por sección 20)
-
-**BLOCKED_BY_CRITICAL_ISSUES** para dar por cerrado el checkpoint técnico previo
-al release. No hay un P0 runtime nuevo ni fallo demostrado de la pasada web CUDA.
-Los bloqueos son los P1 reproducidos aún vigentes: **F09**, evidencia del replay
-multiclase documentado como disponible, y **F13**, overflow no controlado de la
-API de pares. No se corrigen dentro de esta auditoría ni se debilitan los gates.
-La preparación de capturas/notas puede planificarse, pero no autoriza sincronizar
-main, publicar tag ni afirmar regresión final aprobada.
-
-F08 requiere completar/revisar la protección de PUT tardío y su test antes del
-gate browser. F15/F16/F17/F18/F20 se conservan como deuda abierta; el caso F16 no
-debe prometerse como recuperación automática soportada. F19 requiere material
-actual/rotulación antes de anunciar el release. No se elevan estos P2 a P0.
-F02, ocupancia y maquinaria móvil no bloquean el MVP integrado v0.2.0 con sus
-límites explícitos; sí sigue pendiente la aceptación final académica/operacional.
-
-### Gate final requerido antes de tag (definido, no reejecutado aquí)
-
-| Bloque | Ejecución / comprobación exacta | Aceptación |
-| --- | --- | --- |
-| Base e integridad | dev/origin/dev 0/0, árbol limpio, referencias main/tag guardadas; Get-FileHash del m y FORKLIFT externos | m `d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95` y FORKLIFT `1465105ea80737ddc65d72e97d6dc24fc253995a98d6d4eea9b377fe3a8edce6`; un checkpoint distinto falla antes de cargar. |
-| Motor | Python del Motor: `python -B -m unittest discover -s engine/tests` desde raíz | Ningún fallo; registrar descubiertas/PASS/SKIP por separado. Última base: 423/421/2; nuevos tests de correcciones incrementarán el total. |
-| Backend | Desde backend, entorno local cargado: `.venv/Scripts/python.exe -B manage.py test --noinput` | PostgreSQL test aislado, ninguna escritura a eventos históricos; sin fallos. Última suite: 125/125. Incluir F13 con input enorme → 400, nunca excepción. |
-| Django/migraciones | `manage.py check`, `makemigrations --check --dry-run`, `migrate --check` | Sin incidencias ni drift/migraciones inesperadas. |
-| Dependencias | `python -m pip check` en ambos entornos Python | Sin incompatibilidades; sin cambiar locks por conveniencia. |
-| CUDA nativo | Python Motor: `engine/scripts/check_environment.py --require-cuda` | CPU/OpenCV/CUDA operativos, RTX 3070, versiones registradas. |
-| Frontend | Node 24.2.0/pnpm 11.28.2: `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` | Todos aprobados sobre el candidato definitivo; no atribuir PASS de esta auditoría. |
-| Formato | `pnpm format:check`; si reaparece CRLF global, distinguirlo del cambio y comprobar Prettier estricto en archivos tocados | Registrar resultado real; no declarar PASS ni normalizar masivamente sin autorización. |
-| Browser | API fixture explícita: `pnpm fixture:api`; frontend modo API/puertos de fixture aislados; `pnpm test:browser` | No usar la API real como fixture. Sesión/navegar/recargar, source/PUT/START/STOP tardíos, limpiar, error/cancelación, 99,9 antes de completed, MP4/seek, teclado, PNG/histórico, filtros y dashboard; 1440/1280/390 px. Ampliar casos ausentes antes de afirmar cobertura. |
-| Compose | Con env local y rutas externas individuales: `docker compose -f compose.yaml config --quiet` y `docker compose -f compose.yaml -f compose.gpu.yaml config --quiet` | Loopback, pesos/input read-only, sin datasets/holdouts/pesos dentro de imagen. |
-| Docker GPU | Construir imagen candidata y smoke con un frame autorizado y ambos modelos | Hash/clase PERSON/identidad m, FP32/CUDA:0 y H.264 correctos, sin OOM; no confundir con E2E completo Docker. |
-| E2E nativo CUDA | Repetir regresión controlada de sección 18 sobre demo C y DB test: fixture de pares existente, sin tocar perfiles productivos | 418/418 y resultado completo; ambos tipos, observaciones/geometry D coherentes, snapshots m/FORKLIFT, PNG accesible y eventos en historial. Documentar diferencias sin forzar conteos. |
-| Evidencia/recuperación | Regresión F09 con IDs iguales entre clases; F15 PNG crítico desconocido; F16 interrupción→enqueue fallido→replay | F09 produce PNG correcto. Corregir o mantener exclusiones P2 explícitas y recibos de error veraces; no esconder fallos tras happy paths. |
-| Git/documentación | Revisar diff/staged completos, `git diff --check`, `git diff --cached --check`; escaneo de rutas/secretos/medios y enlaces/assets | Solo archivos autorizados, históricos conservados, demo actual rotulada, notas preparadas. Sin Excel, main ni tag modificados por auditoría. |
-
-No se ejecuta el gate completo en este checkpoint. Las cifras de sección 18 son
-resultados previos de la base, no nuevos PASS. Se actualiza únicamente este informe
-y el snapshot existente, conservando los cortes históricos. Resultado:
-**PRE_V0_2_0_TECHNICAL_AUDIT_COMPLETE**, con decisión de release bloqueada por los
-dos P1 concretos indicados y sin cambio funcional.
 
 
 ## 20. Cierre de P1 funcionales — 26-10-2026
@@ -1212,88 +1073,33 @@ aceptación frontend de respuestas; se conserva toda la evidencia histórica.
 
 ## 21. Demo y documentación pre-v0.2.0 — 26-10-2026
 
-Base `21b9b05704c2a8560d08f21a5a915b2b0a58cc91`, dev limpio y sincronizado.
-**F19 CLOSED / CURRENT_DEMO_READY / README_CURRENT / V0_2_0_RELEASE_NOTES_READY.**
-Una demo principal C muestra el pipeline real con PERSON m, FORKLIFT v2,
-ByteTrack, zona, permanencia y proximidad con geometría D. Se reutiliza byte a byte
-el fixture controlado de la promoción m: 0,25 norm / 1 s, sin ajustar thresholds
-para la presentación ni cambiar los perfiles predeterminados. Su configuración y
-alcance demostrativo son explícitos en assets/demo/v0.2.0/README.md.
+Base `21b9b05704c2a8560d08f21a5a915b2b0a58cc91`. La ejecución C utiliza PERSON m,
+FORKLIFT v2 y el fixture controlado preexistente (0,25 normalizado / 1 s), sin
+cambiar perfiles predeterminados. Se procesan 418/418 frames; proximidad en frame
+30 y permanencia en 60, con dos eventos/PNG en PostgreSQL de pruebas.
+El output H.264 conserva 1920×1080, 30 FPS y 13,933 s. La copia de presentación
+ocupó 5.165.910 bytes; el original del worker quedó externo. Sus hashes y receta
+se conservan en [metadata](../../assets/demo/v0.2.0/metadata.json).
+La elección visual posterior conserva solo una captura principal versionada;
+video y capturas auxiliares permanecen externos. No se altera el encoder productivo.
 
-Se procesan 418/418 frames y se persisten dos eventos con PNG en PostgreSQL de
-pruebas: proximidad en 30, permanencia en 60. Las cuatro capturas proceden del
-build de producción, API y Motor reales; no de la API fixture. El MP4 de
-presentación H.264 conserva 1920×1080, 30 FPS y 418 frames (13,933 s), se decodifica
-completo y ocupa 5.165.910 bytes. Es una recomprensión del output original del
-worker, preservado fuera de Git; ambos SHA y receta están en metadata.json.
-No se cambia el encoder productivo ni se presenta esto como benchmark.
+## 22. Consistencia de temas — 26-10-2026
 
-README prioriza demo, capacidades, arquitectura, ejecución y límites; los tres
-attachments y MP4 OP-34/60/61 se conservan como PoC histórico. Solo se corrigen
-inconsistencias materiales en los README secundarios. El brief visual original
-queda rotulado histórico; no se rediseña la UI. RELEASE_NOTES.md prepara el
-alcance del MVP integrado sin publicar release/tag ni atribuir validación final.
+Dos overrides dark imponían 10 px de radio a Button frente a la píldora de light.
+Se retiraron a favor de un token compartido, sin cambiar cards, inputs, paneles ni
+navegación. La regresión compara geometría computada entre temas, cinco variantes,
+tres tamaños y estados hover/active/focus-visible/disabled/loading.
+Frontend 37/37, lint/typecheck/build y browser 1/1 PASS; foco visible y sin overflow.
+La recaptura real conserva 418/418 frames y los dos tipos de evento.
+Referencias de la revisión visual: `967c1af10e73f7801ed0476ffc0434e1b54ef878`;
+cierre de preparación `7bd8a2e307c148ce54e43cca6e8d8d9b66711210`.
 
-Se verifica decode/hashes/metadata de video e imágenes, identidad y hash del
-fixture, ausencia de texto privado visible/metadata PNG y enlaces relativos con
-case exacto. README renderizado localmente en 1280/390 px, sin overflow de página;
-revisión visual de overlays, PNG, detalle e histórico. Build production PASS;
-recorrido real de captura y test de consistencia PASS. No se repite el gate completo.
-Las herramientas de render/compresión permanecen externas, sin cambios a dependencias.
-No se abrió holdout/TEST2, Excel o informe; no hubo tuning ni modificaciones de código.
+## 23. Primer gate de v0.2.0 y cierre de seguridad — 26-10-2026
 
-Versionado pendiente, sin bump: engine/pyproject.toml es metadata del paquete,
-engine/src/operix_engine/__init__.py la refleja; frontend/package.json declara la
-versión Web. No hay una fuente única global; los tres siguen en 0.1.0. /api/v1 no
-es la versión del release. **READY_FOR_FINAL_RELEASE_GATE**, no tag autorizado:
-faltan la regresión final sobre el candidato definitivo y la promoción explícita.
-F02 sigue OPEN, F11 DEFERRED_BY_DECISION; F15/F16/F17/F18/F20 siguen abiertos.
-
-
-## 22. Consistencia de temas y simplificación de assets — 26-10-2026
-
-La preparación posterior a `967c1af10e73f7801ed0476ffc0434e1b54ef878` sustituye
-la selección visual de la sección 21 por una única captura principal recapturada.
-Los videos actuales de QA y las capturas auxiliares se conservan externamente,
-sin reescribir los resultados de la ejecución anterior ni retirar los MP4 históricos.
-README, metadata, atribución y notas candidatas reflejan esta decisión.
-
-Dos overrides dark de `.button` imponían 10 px frente a la píldora de light.
-Se retiran y se comparte un token de radio de botón, sin alterar cards, inputs,
-paneles, navegación ni parámetros de análisis. La regresión browser compara
-geometría computada entre temas en rutas reales y variantes/estados de Button.
-Frontend 37/37, lint, typecheck y production build PASS. Browser 1/1 PASS:
-seis rutas a 1440/1280/390 px, light/dark, cinco variantes y tres tamaños;
-hover/active/focus-visible, disabled/loading. Foco visible y sin overflow.
-La recaptura real procesa 418/418 frames y conserva los dos tipos de evento.
-Impeccable no detecta hallazgos mecánicos; se conserva la identidad existente.
-Esta corrección visual no sustituye el gate final ni autoriza main/tag.
-
-
-## 23. Gate final de v0.2.0 — 26-10-2026
-
-Base `7bd8a2e307c148ce54e43cca6e8d8d9b66711210`; candidato ejecutado
-`60999b9a2ecf4500dbeb74ca59f6198c004f54bd`, dev/origin/dev 0/0 y limpio.
-El commit de versión modifica solo engine/pyproject.toml, la constante pública
-del Motor y frontend/package.json a **0.2.0**. Metadata instalada del Motor
-verificada; pnpm conserva su lock con instalación offline/frozen, sin resolver
-versiones nuevas. API, modelos, reglas, geometría y referencias históricas no cambian.
-El apartado de versión pendiente de RELEASE_NOTES.md pertenece a la preparación
-anterior: aún menciona 0.1.0 y deberá alinearse antes de promover el candidato.
-
-| Validación | Resultado de esta ejecución |
-| --- | --- |
-| Motor | 427 descubiertas: 425 PASS, 2 SKIP opt-in; cero fallos. |
-| Backend | 127/127 PASS en PostgreSQL test aislado. |
-| Django / migraciones | System check, makemigrations --check --dry-run y migrate --check PASS; sin pendientes. |
-| Python | pip check Motor/Backend PASS; entorno CPU/OpenCV y CUDA RTX 3070 PASS. |
-| Frontend | 37/37 PASS; lint y typecheck PASS. Build nativo compila/genera páginas, pero finaliza exit 1 con SecurityFatalError de Next.js; NO se registra como PASS. |
-| Browser versionado | 1/1 PASS sobre artefacto compilado en loopback/API fixture, incluyendo sesiones, video/seek, teclado, error/cancelación y geometría light/dark a 1440/1280/390. No anula el fallo del build. |
-| Formato | format:check global FAIL: 62 archivos preexistentes con CRLF. Diagnóstico sin escribir: pasan al normalizar en memoria a LF; package.json modificado PASS estricto. No se normaliza el checkout. |
-| E2E CUDA nativo | 1/1 PASS: demo C autorizada, fixture de pares existente sin tuning, 418/418 decodificados y PERSON visible; IDs temporales 1 por clase. Eventos dwell frame 60 y proximidad frame 30, persistencia saved, PNG/GET de evidencia/histórico/resultado correctos. |
-| Identidad / snapshots | PERSON YOLO11M_COCO_PERSON y FORKLIFT specialist v2: SHA esperados verificados; 640 / 0,10 / 0,70 y 640 / 0,45 / 0,55, FP32 CUDA:0. Rule ID/version, geometry person_equipment_nearest_ground_edges_v1 y objetos compuestos conservados; endpoints comunes a regla/overlay cubiertos por regresión. |
-| Docker | Compose CPU/GPU config PASS; builds Backend/Frontend PASS; PostgreSQL, Backend y Frontend healthy en proyecto QA aislado. Smoke NVIDIA con ambos modelos PASS, H.264 encode/decode PASS, sin checkpoints en /app, binds externos read-only y pip check PASS. El build Docker exitoso no elimina los advisories. |
-| Assets / higiene | PNG 1440×1000 con SHA 7b88c30a5a1d8f1475fce384efede617128161d2ac247c39913756b7cbc98225, decode/metadata correctos. 143 enlaces/anclas/case PASS; cero ignorados versionados ni patrones de secretos/rutas privadas en 280 textos. Solo tres MP4 históricos intencionales superan 5 MiB. |
+El candidato `60999b9a2ecf4500dbeb74ca59f6198c004f54bd` alineó las tres fuentes
+activas a 0.2.0 sin cambiar dependencias. Motor 425 PASS + 2 SKIP, Backend 127/127,
+Frontend 37/37, browser/E2E y Docker pasaron; el build nativo terminó con
+SecurityFatalError tras compilar. La decisión fue BLOCKED, sin omitir ese control.
 
 **Bloqueo nuevo de seguridad:** pnpm audit devuelve 2 critical y 2 high:
 [Next Image Optimization](https://github.com/advisories/GHSA-2464-fhr4-w9xw),
@@ -1303,22 +1109,13 @@ anterior: aún menciona 0.1.0 y deberá alinearse antes de promover el candidato
 Next 16.4.0 está en los rangos afectados y los avisos identifican 16.4.1 como
 versión corregida. No se demuestra explotación en Operix: los impactos dependen
 de plataforma/funciones; no se encontraron directivas use server/use cache en src.
-El gate exige resolver o evaluar formalmente este hallazgo y repetir el build;
-no se actualizan dependencias, no se omite el control ni se aplica un bypass.
+El primer intento requirió resolver o evaluar formalmente el hallazgo y repetir
+el build. No se actualizaron dependencias dentro de esa prueba ni se omitió el control.
 
-Incidencias de harness separadas: pnpm requirió refrescar node_modules tras el
-bump, con caché offline y lock frozen; el observador E2E usa OpenCV del entorno
-Motor, no del Backend; Compose usa secretos QA efímeros ante ausencia de .env raíz.
-Ninguna de estas incidencias se cuenta como defecto productivo ni borra el fallo
-real de seguridad. Artefactos/recibos permanecen fuera de Git.
-
-F15/F16/F17/F18/F20 permanecen conocidos y sin cambios. **F02 OPEN:** validación
-externa/contextual experta pendiente; no bloquea por sí sola el MVP, pero impide
-afirmar validación académica/industrial final. No se usan holdouts, TEST2, Excel
-ni informe, ni se cambian modelos, thresholds o arquitectura. Main y tags intactos.
-
-**Decisión: V0_2_0_RELEASE_GATE_BLOCKED.** No promover main ni crear v0.2.0.
-
+El cierre posterior `5a702296121892eff99fa48accb8d977e1bb614f` fija Next 16.4.1
+y resuelve Zod 4.6.7 dentro de sus constraints, sin overrides ni exclusiones.
+La repetición completa del gate se documenta a continuación; los resultados
+funcionales anteriores no sustituyen esa nueva ejecución.
 
 ## 24. FINAL v0.2.0 RELEASE GATE PASS — 26-10-2026
 

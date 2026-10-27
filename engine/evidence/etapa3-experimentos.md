@@ -1,6 +1,6 @@
 # Etapa 3 — evaluación experimental del pipeline de percepción y eventos
 
-Estado transversal vigente: [snapshot técnico](ETAPA3-PROJECT-STATE.md) y
+Estado transversal vigente: [estado técnico](ETAPA4-TECHNICAL-AUDIT.md#24-final-v020-release-gate-pass--26-10-2026) y
 [matriz de validación](ETAPA3-VALIDATION-MATRIX.md). Las secciones cronológicas
 conservan sus configuraciones, decisiones y resultados históricos; los estados
 de espera de anotación o evaluación pertenecen a sus respectivos cortes.

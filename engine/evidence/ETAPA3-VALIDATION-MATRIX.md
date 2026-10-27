@@ -2,11 +2,12 @@
 
 ## Reconciliación vigente de cierre — 24-10-2026
 
-Base auditada `85c064136233638a2a560357b9a2403086578f73`. Esta sección prevalece
-para lectura del estado actual; el resto conserva los cortes históricos de cada
-campaña. No se consultó ni modificó el Product Backlog `.xlsm`, ni se recalculó un
-porcentaje académico. [Snapshot](ETAPA3-PROJECT-STATE.md), [índice](README.md) y
-[handoff factual](ETAPA3-BACKLOG-HANDOFF.md).
+Esta matriz reúne resultados y trazabilidad de los cortes del 23 y 24 de octubre.
+El estado posterior y la validación de v0.2.0 se documentan en la
+[auditoría técnica](ETAPA4-TECHNICAL-AUDIT.md#24-final-v020-release-gate-pass--26-10-2026).
+No sustituye el Product Backlog ni la aceptación académica. El corte siguiente
+corresponde a `85c064136233638a2a560357b9a2403086578f73`; el
+[índice](README.md) organiza las evidencias por tema.
 
 | Requisito | DESIGN | IMPLEMENTATION | VALIDATION / pendiente |
 | --- | --- | --- | --- |
@@ -34,8 +35,8 @@ Docker local/GPU está validado en el equipo documentado y el modo nativo se con
 
 ## Base y límites
 
-Las secciones anteriores a **Campaign II** conservan la auditoría histórica de
-Campaign I. Sus estados PARTIAL/MISSING y scorecard describen aquella base;
+Las secciones anteriores a **Persistencia operacional por pares** conservan la auditoría histórica de
+la primera validación. Sus estados PARTIAL/MISSING describen aquella base;
 la actualización del 24-10-2026 al final registra el estado posterior comprobado.
 
 Auditoría del 23-10-2026 sobre `dev`, base `8cea9eb7dc134b506ab8c6eba14e88c865bb531c`.
@@ -52,7 +53,7 @@ adquisición: 20/20/12/20/20 frames, todos PASS, sin abrir imágenes ni ejecutar
 FORKLIFT v2 conserva SHA `1465105ea80737ddc65d72e97d6dc24fc253995a98d6d4eea9b377fe3a8edce6`,
 640, confidence 0.45 y NMS 0.55. No se entrena ni calibra en esta campaña.
 
-## Auditoría inicial y backlog técnico
+## Cobertura inicial de requisitos
 
 | Requisito | OP | Estado real inicial | Evidencia | Trabajo faltante / prioridad |
 | --- | --- | --- | --- | --- |
@@ -288,22 +289,6 @@ no permitido falló por CORS; se usó el origen ya autorizado, sin debilitar COR
   sin causa demostrada. No hay P0/P1 nuevo reproducible en las suites finales,
   pero las fronteras funcionales indicadas siguen abiertas.
 
-## Scorecard de evidencia (no calificación)
-
-| Categoría de rúbrica | Peso de referencia | Estado | Sustento / faltante |
-| --- | ---: | --- | --- |
-| Retroalimentación | 20 | PARTIAL | OP-28 y ADR justifican tecnologías; falta nueva validación externa registrada |
-| Mejoras/optimización | 15 | ADEQUATE | Bugs reproducidos y corregidos; no aceleración no medida |
-| Implementación | 10 | ADEQUATE | 9/11 del núcleo técnico; denominador global académico por acordar |
-| Pruebas/resultados | 30 | STRONG | 410 PASS + 2 SKIP; E2E real con percepción fixture; límites de exactitud explícitos |
-| Validación preliminar | 10 | PARTIAL | Tres workers GPU + histórico 1.000 filas; PERSON y continuidad web pendientes |
-| Documentación/trazabilidad | 15 | STRONG | Matriz, commits separados, resultados locales con hashes; Excel no sobrescrito |
-
-**ETAPA3_AUTONOMOUS_ADVANCEMENT_COMPLETE** para esta campaña acotada.
-**ETAPA3_BLOCKED_BY_PERSON_ANNOTATION_AND_OPERATIONAL_PERSISTENCE_DECISIONS**
-para declarar cumplimiento completo. Existe validación preliminar de componentes,
-no un MVP integral universalmente listo ni cierre académico automático.
-
 ## Retroalimentación y mejoras
 
 La única retroalimentación de profesor registrada en OP-28 exige justificar las
@@ -312,10 +297,10 @@ mejoras internas posteriores. Specialist, dual perception, regla por pares,
 reproducción web, OP-41 y hardening son **INTERNAL_IMPROVEMENT** salvo fuente
 específica documentada. Véanse OP-28 y `etapa3-experimentos.md`.
 
-## Campaign II — contrato operacional por pares (24-10-2026)
+## Persistencia operacional por pares — 24-10-2026
 
 Base `0117c26c8f29bb353e3347517b6458d88420d084`. Esta sección registra el avance
-posterior; no convierte las conclusiones de Campaign I en mediciones del código nuevo.
+posterior; no convierte las conclusiones de la primera validación en mediciones del código nuevo.
 Se incorpora `person_forklift_proximity` sin cambiar RuleEngine, perfiles ni umbrales.
 El snapshot guarda `interaction` con ambos roles/clases/IDs; `observations` con
 distancia normalizada y duración; `episode` con inicio y emisión; parámetros efectivos,
@@ -345,7 +330,7 @@ vacía pasa; fallo de guardado DB elimina el PNG nuevo para evitar evidencia hu�
 La integración automática de sesiones web se verifica en el siguiente hito; este
 contrato por sí solo no declara aún `OPERATIONAL_PERSISTENCE_READY`.
 
-### Campaign II — conexión de sesiones web
+### Conexión de sesiones web
 
 El worker de streaming conserva todos los candidatos en un outbox durable y los
 publica por HTTP sin depender del último status IPC. La sesión prepara una copia
@@ -365,7 +350,7 @@ eventos e imágenes independientes; análisis completado con HTTP fallido y repl
 posterior idempotente. El cierre de sesión conserva el outbox y los eventos.
 Estas pruebas no usan pesos ni evalúan exactitud o capacidad GPU.
 
-### Campaign II — recuperación y revisión independiente
+### Recuperación y revisión independiente
 
 La revisión independiente encontró y corrigió: recibo IPC `saved` obsoleto tras
 crash; carrera stop/start que podía limpiar el proceso nuevo; fallo PNG sin
@@ -389,7 +374,7 @@ si falla su upload; el publicador lo informa como fallido y reintenta la misma
 identidad. El guardado de metadata del PNG usa transacción/bloqueo de fila y elimina
 el archivo nuevo si falla la DB. No se presenta esto como transacción distribuida.
 
-### Campaign II — prueba GPU Web/API y recursos
+### Prueba GPU Web/API y recursos
 
 Serie local A/A/A del 24-10-2026; código ejecutado:
 `a30dd21d4a89f207ac3700516bb78570a241f6f2`. El monitor terminó con HEAD
@@ -412,7 +397,7 @@ las consultas posteriores de comprobación. Incluye los 20 frames iniciales;
 las etapas warm existentes excluyen esos frames (257 muestras amortizadas por run).
 No se midió una sesión end-to-end con modelos residentes: las tres cargan pesos.
 831 frames / 81.3502041 s = **10.215 FPS globales**. No 30 FPS sostenidos ni
-comparación directa con OP-43 o Campaign I; sus alcances son diferentes.
+comparación directa con OP-43 o la primera validación; sus alcances son diferentes.
 
 Las tres corridas usaron el perfil A vigente, con `zone_dwell`, sin activar la regla
 de pares. Cada una verificó eventos, PNG, histórico, frecuencias, propiedad de
@@ -429,7 +414,7 @@ de fugas. El muestreo no demuestra estabilidad indefinida. Resultados locales en
 `etapa3-autonomous-II-2026-10-24/gpu-web-summary.json` y
 `gpu-web-resource-review.json`, fuera de Git. No se versionan MP4, PNG ni logs.
 
-### Campaign II — cobertura funcional y límites actuales
+### Cobertura funcional y límites del corte
 
 | ID | Comprobación | Resultado / límite |
 | --- | --- | --- |
@@ -451,7 +436,7 @@ Posteriormente también se abrió el nuevo `zone_dwell` de la ejecución web
 independiente descrita abajo: source/run, regla/parámetros y PNG visibles en el
 navegador. Esto amplía la comprobación visual de objeto único, no de pares.
 
-### Campaign II — trazabilidad vigente de requisitos
+### Trazabilidad de requisitos
 
 | Requisito | Implementación / validación | Evidencia | Limitación restante |
 | --- | --- | --- | --- |
@@ -480,12 +465,12 @@ PARTIAL como resguardo, OP-44/45 PARTIAL en validación ampliada y OP-46 BLOCKED
 por revisión experta. Seguridad productiva y despliegue empresarial: DEFERRED.
 Las dos omisiones con modelos reales siguen siendo SKIP, no pruebas aprobadas.
 
-### Campaign II — feedback y antes/después
+### Retroalimentación y cambios comprobados
 
 | Clasificación | Fuente | Cambio / commit | Evidencia |
 | --- | --- | --- | --- |
 | FEEDBACK_DRIVEN | OP-28, profesor guía, 25/09/2026 | Registro `9a4e8aa`, actualización `880744f`, ADR `49a3198`; no se inventa feedback posterior | [OP-28](OP-28-feedback-log.md), [ADR](../../docs/architecture/README.md) |
-| INTERNAL_IMPROVEMENT | Fronteras MISSING de Campaign I | Pares persistentes `ce83a92`; web `6b44d9c` | E3II-PAIR/E2E/WEB |
+| INTERNAL_IMPROVEMENT | Fronteras MISSING de la primera validación | Pares persistentes `ce83a92`; web `6b44d9c` | E3II-PAIR/E2E/WEB |
 | INTERNAL_IMPROVEMENT | Revisión independiente y regresiones | Recuperación `a30dd21`; carga mixta `e1d221a` | E3II-FAIL/GPU; test de carga |
 
 La justificación solicitada en OP-28 está respaldada por decisiones/documentación;
@@ -496,29 +481,7 @@ de esta campaña es IPC de último frame/pares no persistentes → journal compl
 contrato de dos tipos, publicación web, evidencia y consultas. No se atribuye una
 ganancia de precisión o velocidad que esta campaña no haya medido.
 
-### Presentación reproducible: LIVE PATH y FALLBACK PATH
-
-1. Seguir los README para PostgreSQL/API, Python del Motor/pesos aprobados y frontend;
-   `EVENT_POST_ENABLED=1` solo en entorno local controlado. Revisar health y `/events`.
-2. Anotar conteo/IDs anteriores, iniciar una demo autorizada desde `/analysis` y esperar
-   `completed` **y** `persistence=saved`; no confundir MP4 reproducible con guardado.
-3. Abrir histórico, detalle del nuevo evento, regla/versión/parámetros y PNG; comprobar
-   que frecuencias aumentan por el mismo run. Una nueva pulsación de inicio es otro run.
-4. Para demostrar pares sin cambiar perfiles congelados, ejecutar el E2E controlado:
-   `manage.py test apps.analysis.test_persistence apps.events.test_motor_integration --noinput`.
-   Explicar percepción fixture y DB temporal; no presentarlo como precisión real.
-5. Si GPU/Motor falla, mostrar el error y usar **FALLBACK PATH**: histórico real previo,
-   IDs, detalle/PNG y pruebas reproducibles. Aclarar fecha/run previo. No afirmar una
-   ejecución nueva ni sustituir el histórico por el dashboard ilustrativo.
-6. Si solo falla publicación, conservar outbox y reintentar guardado desde la sesión;
-   si está cerrada, usar la CLI documentada. Datos incompletos requieren revisión manual.
-
-La validación funcional está separada de **MODEL ACCURACY EVALUATION** y de
-**OPERATIONAL VALIDATION**. Permanecen humanas la anotación PERSON, aprobación
-experta de contexto/umbrales y decisión académica del alcance. No se modifica
-arquitectura v1.0, perfiles, thresholds, pesos, ByteTrack, Excel ni informe.
-
-### Campaign II — carga mixta y regresión final
+### Carga mixta y regresión del 24-10-2026
 
 SHA probado `e1d221af99e3278802dca8153cf02594b57e2190`; suite final Backend
 103/103, incluyendo Web E2E con pares y evidencia. Motor **319 descubiertas,
@@ -562,31 +525,6 @@ Los intentos de auditoría detectaron primero ese cambio de total y un uso de
 sin cambiar settings ni ocultar la discrepancia. El hash del subconjunto histórico
 es idéntico: no hubo reescritura de sus observaciones.
 
-### Campaign II — cierre técnico y scorecard actualizado
-
-Graphify: una consulta manual dirigida, presupuesto 1.000 tokens, usada para
-orientación entre sesión/worker/candidato/persistencia; resultados contrastados
-con código y tests. Grafo previo a los cambios, no fuente de verdad actualizada;
-sin hooks, always-on, cambios AGENTS ni salida del grafo versionada.
-
-| Categoría | Estado actual | Sustento / pendiente |
-| --- | --- | --- |
-| Retroalimentación | PARTIAL | Fuente profesor OP-28; falta feedback experto posterior |
-| Mejoras/robustez | STRONG funcional | Seis fallos concretos revisados y regresiones; sin aceleración alegada |
-| Implementación | ADEQUATE | 11/11 del núcleo técnico delimitado, no porcentaje global |
-| Pruebas/resultados | STRONG funcional | 443 PASS + 2 SKIP; pares Web/HTTP/DB y GPU separados |
-| Validación preliminar | ADEQUATE funcional / PARTIAL operacional | Tres runs GPU, carga mixta; PERSON y experto pendientes |
-| Documentación/trazabilidad | STRONG en alcance | Matriz vigente, snapshots, migración compatible, demo/fallback |
-
-**ETAPA3_AUTONOMOUS_ADVANCEMENT_II_COMPLETE** para esta campaña técnica delimitada.
-**OPERATIONAL_PERSISTENCE_READY** en entorno local controlado: Web/API → worker →
-eventos, PNG, consultas e indicadores comprobados; pares con percepción fixture.
-No se declara automáticamente `ETAPA3_READY_EXCEPT_PERSON_AND_EXPERT_VALIDATION`:
-la aceptación académica del denominador, feedback y suficiencia del alcance debe
-confirmarse humanamente. API sin autenticación, retención manual, precisión PERSON
-pendiente, sin GT MOT, muestras acotadas y rendimiento dependiente del entorno.
-No son garantías de producción ni cierre académico global.
-
 ## Actualización PERSON — evaluación congelada ejecutada — 24-10-2026
 
 **`PERSON_EVALUATION_PROTOCOL_V1_EXECUTED` + `PERSON_RESULTS_SEALED`**.
@@ -610,3 +548,56 @@ El siguiente desarrollo no puede reutilizar conocimiento de este conjunto y lueg
 presentarlo como un test independiente no consultado. No hubo tuning, entrenamiento
 de PERSON v2, cambio de CURRENT_PERSON ni uso de TEST2/REAL_HOLDOUT_V2. No se cierran
 automáticamente tareas ni se modifica Excel mediante esta actualización.
+
+
+## Trazabilidad de entregables al 24-10-2026
+
+Base `85c064136233638a2a560357b9a2403086578f73`. Relación entre requisitos,
+pruebas y commits del corte; no constituye otro backlog ni modifica estados
+académicos oficiales.
+
+| Trabajo / requisito | Estado técnico y criterio observado | Evidencia / tests | Commits principales | Limitación / siguiente revisión |
+| --- | --- | --- | --- | --- |
+| 1. Variables espacio-temporales — RF-03/04/05 | Implementadas: pertenencia, permanencia, trayectorias e identidad `(clase, track_id)` sin colisiones entre canales | [OP-37](OP-37-spatiotemporal.md), [tests](../tests/test_spatiotemporal.py) | `ed06beb`, `323d175` | Geometría de imagen, sin calibración métrica ni GT MOT |
+| 2. Reglas configurables — RF-05, RNF-01, PV-01 | RuleEngine consume estados descriptivos; false→true emite una vez, rearme tras false/ausencia; regla/versión/parámetros conservados | [OP-38](OP-38-rules.md), [tests](../tests/test_rules.py) | `2608fce` | Umbrales experimentales; falta aprobación contextual/experta |
+| 3. person_forklift_proximity — RF-05 | Misma zona, distancia y permanencia configuradas; pares independientes y tiempo robusto a error float | [Síntesis](etapa3-experimentos.md), [tests](../tests/test_pair_rules.py) | `5a4c615`, `323d175` | No riesgo confirmado; asociación operador/vehículo pendiente |
+| 4. Persistencia real — RF-06 | POST valida candidato y guarda Event de objeto único/pares en PostgreSQL; retry equivalente devuelve mismo ID | [Backend](../../backend/README.md), [E2E](../../backend/apps/events/test_motor_integration.py) | `37b53bb`, `ce83a92` | API local; no transacción distribuida entre fila y PNG |
+| 5. Candidate journal — RF-06, RNF-01 | Intención/snapshot antes de HTTP; journal durable y replay sin recalcular percepción/reglas | [Matriz](ETAPA3-VALIDATION-MATRIX.md), [tests](../tests/test_event_outbox.py) | `ce83a92`, `6b44d9c`, `a30dd21` | Disco fallido o snapshot incompleto requiere revisión; entrega acotada |
+| 6. Evidencia — RF-06, R-02 | PNG validado y recuperable por UUID; MP4 reproducible de sesión; referencia en DB y bytes externos | [API](../../backend/README.md), [tests de persistencia](../../backend/apps/analysis/test_persistence.py) | `1ec97b1`, `bee649e`, `a30dd21` | MP4 de sesión temporal; retención de PNG/outbox manual |
+| 7. Historical queries — RF-07 | Filtros inclusivos por período/tipo con timezone; dos tipos reales discriminados y carga mixta conciliada | [OP-40 histórico](../../backend/evidence/OP-40-event-query.md), [carga mixta](../../backend/apps/events/test_validation_stress.py) | `da5d851`, `ce83a92`, `e1d221a` | Sin paginación ni escala industrial acreditada; el PARTIAL histórico era de un solo tipo |
+| 8. Indicadores — RF-08 | Agregados diarios UTC y por tipo concuerdan con registros/Counter; Web separa ejemplo y API | [OP-41](../../backend/evidence/OP-41-event-frequencies.md), [tests](../../backend/apps/events/test_frequencies.py) | `661cd06`, `e1d221a` | Conteos de condiciones, no tasas verificadas de incidentes/riesgo |
+| 9. Web/API — RF-01/06/07/08 | Upload/demo, configuración, inicio/status/resultado, cancelación, guardado y retry por sesión; dos runs separados | [Backend](../../backend/README.md#publicación-operacional-desde-sesiones-web), [E2E web](../../backend/apps/analysis/test_persistence.py) | `6b44d9c`, `a30dd21` | Una API local; sesiones en RAM; no seguridad de producción |
+| 10. Event Detail — RF-06, RNF-01 | PNG prioritario/ampliable, mediciones vs parámetros, tiempo de video y ancla UTC explícita; payload en disclosure | [modelo UI](../../frontend/src/features/events/event-detail-model.ts), [tests](../../frontend/tests/event-detail-model.test.mjs) | `4cb8e2a` | Revisión UI funcional; no certificación WCAG ni confirmación de incidente |
+| 11. Failure handling/idempotencia — RF-06, RNF-01 | Fallos DB/PNG controlados, retry acotado sin duplicado, journal truncado no informa éxito total | [Matriz](ETAPA3-VALIDATION-MATRIX.md), [hardening](../../backend/apps/analysis/test_hardening.py) | `7ff24ee`, `22a9421`, `a30dd21` | Sin garantía infinita; preservar conflictos y datos incompletos para revisión |
+| 12. Stress/performance — RNF-02 | Carga histórica controlada de 1.000 filas y corrida dual GPU descriptiva con entorno y límites | [Matriz](ETAPA3-VALIDATION-MATRIX.md#rendimiento-y-estrés-preliminar-del-estado-actual), [OP-43 histórico](OP-43-performance.md) | `67d1c6e`, `e1d221a`, `d6eb909` | Protocolos distintos; sin claim universal de 30 FPS, nueva campaña o tuning |
+| 13. Holdout independiente PERSON — RF-02, R-01/02 | FROZEN: 92 registros, 91 imágenes únicas, 67 positivas/24 negativas, 168 GT; derechos y declaración humana archivados | [Protocolo](PERSON-INDEPENDENT-HOLDOUT-PROTOCOL.md), [freeze tests](../tests/test_person_coco_freeze.py) | `10adad2`, `e7e0edb` | Independencia dentro del proceso Operix, no de pretraining externo; posible GT incompleto |
+| 14. PERSON evaluation protocol — RF-02, RNF-01 | V1 fijado antes de inferencia: matching 1:1, IoU 0,50/0,75, roles/config y métricas; hash sellado | [Manifest](../config/evaluation/person-evaluation-protocol-v1.json), [tests](../tests/test_person_protocol.py) | `472500f`, `92bab58` | Sin sweeps/AP/mAP ni selección automática de modelo |
+| 15. PERSON sealed evaluation — RF-02, PV-01 | Una corrida completa válida por modelo; CURRENT TP20/FP39/FN148 frente a COCO TP151/FP120/FN17; resultados sellados antes de revisión | [Resultados](etapa3-experimentos.md#ejecución-person-evaluation-protocol-v1--24-10-2026) | `accda35` | CURRENT con limitación importante de generalización; COCO referencia, PERSON v2 diferido; GT sin reetiquetar |
+| 16. Docker local — RF-01/06/07/08, RNF-01/02 | Infra CPU usable, DB propia y healthchecks; arranque desde volúmenes nuevos, filtros/evidencia y persistencia tras recreación PASS | [Validación](DOCKER-LOCAL-VALIDATION.md), [recibo](docker-local-receipt.json) | `cb1605b`, `85c0641` | Alternativa local, no reemplaza modo nativo; sesiones RAM no se restauran |
+| 17. Docker GPU — RF-02/06, RNF-02 | RTX 3070 real: demo 277/277, 3 candidatos/3 eventos, 0 fallos y PNG/MP4 recuperables; segunda ejecución fresca PASS | [Validación](DOCKER-LOCAL-VALIDATION.md), [guía](../../deployment/docker/README.md) | `cb1605b`, `85c0641` | Docker Desktop WSL2; pesos individuales read-only; sin garantía para cualquier GPU |
+| 18. Reproducibilidad/documentación — RNF-01/02, R-01/02/03 | Locks nativo/Linux, hashes/protocolos, fuentes y evidencia indexada; suites y checks del corte sin fallos | [Índice](README.md), [estado técnico](ETAPA4-TECHNICAL-AUDIT.md#24-final-v020-release-gate-pass--26-10-2026), [terceros](../../THIRD_PARTY_NOTICES.md) | `d6eb909`, `accda35`, `85c0641`; consolidación documental posterior | No equivalencia a reconstrucción bit a bit, auditoría jurídica o cierre académico automático |
+
+
+## Identidad y alcance de los cortes documentales
+
+El corte documental del 24-10-2026 registró 353 pruebas del Motor (351 PASS y
+2 SKIP), Backend 103/103 y Frontend 30/30; las omisiones no se cuentan como PASS.
+El corte pre-release sobre `f4652f609beb1121bb6d8a0d2425f1eba28bc0fc` registró
+421 PASS + 2 SKIP del Motor, Backend 125/125 y un E2E CUDA real de 418/418 frames
+con dos eventos. Son resultados de esas bases, no cifras de la versión final.
+
+### Identidades de la evaluación sellada del 24-10-2026
+
+La comparación CURRENT_PERSON / YOLO11N_COCO_PERSON y sus límites se recogen en
+[la evaluación sellada](#actualización-person--evaluación-congelada-ejecutada--24-10-2026)
+y en la síntesis experimental, sin repetir sus tablas aquí.
+
+- CURRENT_PERSON: `21766a9dc664fac06da3b0b457e0449f25e1696acbf8e7e39993c4b42282083f`.
+- YOLO11N_COCO_PERSON: `0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1`.
+- FORKLIFT specialist v2: `1465105ea80737ddc65d72e97d6dc24fc253995a98d6d4eea9b377fe3a8edce6`.
+- Freeze PERSON_FINAL_HOLDOUT_V2: `A71F2558BB5C2A8DF580B6A2908860A9A89F729487BA1C904A14F37C5ADC5339`.
+- Protocolo PERSON V1: `C2012598048352B9681031301AD4EC76667CA982D2C7D32F64ECECA7D835496F`.
+
+Estos identificadores describen el corte de evaluación, no una promoción de
+modelos ni una nueva consulta al holdout. La configuración vigente se documenta
+en la auditoría del candidato.

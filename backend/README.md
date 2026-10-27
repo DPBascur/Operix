@@ -4,7 +4,7 @@ Django + Django REST Framework gestiona sesiones web con el worker existente,
 recibe candidatos de objeto único o pares y conserva eventos en PostgreSQL con
 evidencia PNG. Histórico, filtros y frecuencias consultan esos registros. La
 integración E2E está comprobada en entorno controlado; no es operación industrial.
-Véanse el [snapshot vigente](../engine/evidence/ETAPA3-PROJECT-STATE.md) y la
+Véanse el [estado técnico](../engine/evidence/ETAPA4-TECHNICAL-AUDIT.md#24-final-v020-release-gate-pass--26-10-2026) y la
 [alternativa Docker local](../deployment/docker/README.md); el modo nativo se conserva.
 
 ## Requisitos y configuración

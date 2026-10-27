@@ -1,7 +1,5 @@
 # Operix
 
-<!-- impeccable:product-schema 1 -->
-
 ## Platform
 
 web
@@ -16,11 +14,11 @@ Convertir observaciones de video y reglas explícitas en antecedentes revisables
 
 ## Capabilities and Constraints
 
-Análisis real mediante la API existente, con sesiones, preview y resultados. No modificar Motor, modelos, zonas, thresholds ni transporte de análisis. Autenticación y usuarios: demo local explícita aprobada, sin contraseñas ni seguridad Backend, sin bloquear rutas de análisis. Datos analíticos de ejemplo separados de consultas reales; no reemplazar errores API con ejemplos.
+El análisis usa la API existente, con sesiones, preview y resultados. Autenticación y usuarios son una demostración local sin contraseñas ni seguridad Backend, que no bloquea las rutas de análisis. Los datos analíticos de ejemplo se distinguen de las consultas reales y nunca sustituyen errores de la API.
 
 ## Brand Commitments
 
-Conservar nombre, logo y paleta de Operix. Interfaz industrial, analítica y profesional; formularios claros, login split y dashboard histórico son estructuras solicitadas. Implementación directa en código aprobada.
+Nombre, logo y paleta de Operix identifican una interfaz analítica y profesional, con formularios claros, acceso en dos paneles y consulta de antecedentes históricos.
 
 ## Evidence on Hand
 

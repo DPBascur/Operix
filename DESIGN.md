@@ -29,7 +29,7 @@ typography:
     fontWeight: 400
     lineHeight: 1.6
 rounded:
-  control: "10px dark / pill light"
+  control: "pill light / pill dark"
   panel: "8px dark / 1rem light"
   pill: "999px"
 spacing:
@@ -72,7 +72,7 @@ Paneles analíticos abiertos con separadores finos. En dark la navegación manti
 
 ## Shapes
 
-En dark los botones tienen 10px de radio, los inputs 8px y los paneles 8px; el shell conserva un radio moderado. Los controles de estado/toggle pueden seguir siendo píldoras. El modo claro conserva sus radios existentes.
+Los botones comparten la silueta de píldora en claro y oscuro mediante `--radius-button`. Su geometría no depende del tema. En dark los inputs y paneles mantienen 8px y el shell conserva un radio moderado; estos componentes no heredan el radio de Button.
 
 ## Components
 

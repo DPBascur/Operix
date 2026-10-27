@@ -152,11 +152,12 @@ Los eventos/PNG persisten; el registro RAM de sesiones no se restaura al reinici
 - P2 conocidos de validación PNG, recuperación de journals truncados, requests,
   contexto de filtros y mantenibilidad siguen documentados, sin ocultarlos.
 
-La última regresión de cierre P1 registró **425 pruebas aprobadas + 2 omitidas**
+La validación final del candidato v0.2.0 registró **425 pruebas aprobadas + 2 omitidas**
 del Motor, **127/127** Backend, **37/37** Frontend y browser **1/1**. Son resultados
 funcionales del corte documentado, no una nueva evaluación de percepción.
-El [gate final](engine/evidence/ETAPA4-TECHNICAL-AUDIT.md#gate-final-requerido-antes-de-tag-definido-no-reejecutado-aquí)
-debe ejecutarse sobre el candidato definitivo antes del tag.
+El [gate final](engine/evidence/ETAPA4-TECHNICAL-AUDIT.md#24-final-v020-release-gate-pass--26-10-2026)
+fue aprobado; la promoción de main y la creación del tag requieren una decisión
+separada.
 
 ```powershell
 .\engine\.venv\Scripts\python.exe -B -m unittest discover -s engine/tests

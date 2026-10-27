@@ -8,7 +8,7 @@ Estado de implementación, integración, pruebas y límites actuales:
 [matriz de validación preliminar de Etapa 3](evidence/ETAPA3-VALIDATION-MATRIX.md).
 Separa integración funcional, persistencia web/CLI y evaluación de percepción.
 El [índice de evidencia](evidence/README.md) y el
-[snapshot de Etapa 3](evidence/ETAPA3-PROJECT-STATE.md) resumen el estado vigente:
+[estado técnico](evidence/ETAPA4-TECHNICAL-AUDIT.md#24-final-v020-release-gate-pass--26-10-2026) resumen el estado vigente:
 evaluación PERSON V1 ejecutada y sellada, con limitación importante de
 generalización de CURRENT_PERSON, conservado como PRE_EVALUATION_PRIMARY_PERSON.
 La primera configuración operacional post-evaluación fue YOLO11N_COCO_PERSON.

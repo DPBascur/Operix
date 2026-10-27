@@ -2,8 +2,8 @@
 
 ## v0.2.0 — MVP integrado / cierre técnico de Etapa 3
 
-**Candidato en preparación, no publicado.** Falta ejecutar el gate final sobre el
-commit definitivo antes de sincronizar main y crear el tag. Estas notas no crean
+**Candidato validado, no publicado.** El gate final está aprobado; quedan pendientes
+la promoción de main y la creación del tag. Estas notas no crean
 un GitHub Release ni cambian las versiones declaradas de los paquetes.
 
 ### Alcance
@@ -61,6 +61,6 @@ No existe una única versión global compartida entre componentes:
 - `frontend/package.json`: versión propia de la aplicación Web.
 
 Las tres fuentes activas declaran **0.2.0** como versión candidata. La promoción
-a main y el tag permanecen pendientes de repetir y aprobar el gate final.
+a main y el tag permanecen pendientes de autorización tras aprobar el gate final.
 La ruta `/api/v1` es versión del contrato API y no cambia por este release.
 El tag anotado v0.1.0 conserva su objetivo histórico.

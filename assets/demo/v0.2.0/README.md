@@ -63,6 +63,11 @@ expresamente esta configuración de demostración, sin cambiar perfiles producti
    no una recomendación operacional universal. No ajustar parámetros para igualar
    conteos; documentar diferencias si cambia hardware/runtime.
 
+Si falla el Motor, revisar el error o mostrar registros previos con su fecha y
+origen explícitos; no presentarlos como una ejecución nueva ni sustituirlos por
+el dashboard ilustrativo. Ante un fallo de publicación, conservar el journal y
+seguir la recuperación descrita en la guía Backend.
+
 Los checkpoints no se distribuyen aquí. Una configuración sin la regla de pares
 habilitada no debe prometer el mismo evento de proximidad.
 
