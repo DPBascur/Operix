@@ -1318,3 +1318,42 @@ afirmar validación académica/industrial final. No se usan holdouts, TEST2, Exc
 ni informe, ni se cambian modelos, thresholds o arquitectura. Main y tags intactos.
 
 **Decisión: V0_2_0_RELEASE_GATE_BLOCKED.** No promover main ni crear v0.2.0.
+
+
+## 24. FINAL v0.2.0 RELEASE GATE PASS — 26-10-2026
+
+HEAD evaluado funcionalmente: `5a702296121892eff99fa48accb8d977e1bb614f`,
+dev/origin/dev 0/0 y árbol limpio al inicio y antes de esta nota. Este gate
+posterior al cierre de seguridad sustituye la decisión BLOCKED de la sección 23;
+los resultados históricos se conservan. No se cambia runtime, configuración ni deuda.
+
+| Control | Resultado nuevo |
+| --- | --- |
+| Seguridad / versión | pnpm audit: 0 vulnerabilidades, incluidas 0 HIGH/CRITICAL; Next 16.4.1, Zod resuelto 4.6.7. Las tres fuentes activas y metadata instalada del Motor declaran 0.2.0; v0.1.0 sigue histórico. |
+| Motor | 427 descubiertas: 425 PASS, 2 SKIP legítimas de integración opt-in; cero fallos. |
+| Backend / Django | 127/127 PASS con PostgreSQL test aislado; system check, makemigrations --check --dry-run y migrate --check PASS, sin migraciones nuevas/pendientes. |
+| Entornos Python | pip check Motor/Backend PASS; CPU/OpenCV y CUDA/RTX 3070 PASS. |
+| Frontend | 37/37 PASS, lint/typecheck/production build PASS, sin SecurityFatalError. |
+| Browser versionado | 1/1 PASS: sesiones, carreras obsoletas, navegación, start/stop/error/cancelación, video/seek, zonas, histórico/evidencia, dashboard y paridad light/dark; 1440/1280/390 px. |
+| CUDA E2E nativo | 1/1 PASS: demo C autorizada, fixture existente idéntico al JSON de demo, sin tuning; 418/418 frames decodificados a 1920×1080/30 FPS. Eventos zone_dwell frame 60 (2 s) y person_forklift_proximity frame 30 (1 s), persistencia saved, PNG/histórico/video accesibles. |
+| Geometría / snapshots | person_equipment_nearest_ground_edges_v1; identidades compuestas PERSON/FORKLIFT, rule ID/version y tiempo UTC/video conservados. Distancia 0,12881957024794383 coincide con endpoints; máximo 0,25 / mínimo 1 s del fixture. Renderer consume endpoints/distancia de la relación evaluada, sin recalcular geometría ni umbrales. |
+| Docker | Compose CPU/GPU config y builds relevantes PASS, tres servicios healthy; frontend Next 16.4.1/producto 0.2.0. Smoke ambos modelos FP32/CUDA:0 y H.264 PASS; binds externos read-only, sin checkpoints en imagen. |
+| Assets / documentación | Captura 1440×1000 decode/hash/metadata/README PASS; nuevo MP4 no versionado, tres MP4 históricos intactos. 143 enlaces relativos/anclas/case PASS; notas candidatas coherentes, sin claims industriales, metros, incidentes confirmados ni tiempo real garantizado. |
+| Higiene / Git | Escaneo de 280 textos sin patrones materiales de secretos/rutas privadas; cero ignorados versionados, sin pesos/DB/logs/QA nuevos. Solo tres MP4 históricos intencionales superan 5 MiB; diff checks PASS. |
+| Formato | format:check global FAIL conocido por 62 archivos CRLF preexistentes; se confirma en memoria su normalización LF. package.json reciente PASS estricto; lock generado por pnpm excluido por la política Prettier vigente. No se normaliza ni modifica ningún archivo. |
+
+SHA gates reales aceptan los pesos esperados y rechazan mismatch, sin warnings sustitutivos:
+PERSON `d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95`;
+FORKLIFT `1465105ea80737ddc65d72e97d6dc24fc253995a98d6d4eea9b377fe3a8edce6`.
+PNG actual: `7b88c30a5a1d8f1475fce384efede617128161d2ac247c39913756b7cbc98225`.
+
+F15/F16/F17/F18/F20 siguen OPEN, sin impacto P0/P1 nuevo demostrado. F02 OPEN:
+validación externa/contextual experta pendiente; no bloquea este MVP integrado,
+pero impide afirmar validación académica/industrial final o v1.0.0 final.
+No se usan holdouts, TEST2, Excel ni informe; no se retocan modelos, dependencias,
+UX, parámetros, arquitectura, main ni tags. Recibos y salidas QA quedan externos.
+
+**V0_2_0_RELEASE_GATE_PASS.** La aprobación permite proponer la promoción, no la
+ejecuta. El commit posterior contiene únicamente esta nota: las suites se
+atribuyen al HEAD evaluado arriba, no a una ejecución sobre el nuevo SHA.
+La revisión del diff confirma contenido ejecutable/build/config idéntico.
