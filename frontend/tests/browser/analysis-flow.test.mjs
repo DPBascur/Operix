@@ -102,9 +102,16 @@ test(
       });
       let next = 0;
       let sessionId;
+      let resolveLoad;
       const pending = new Map();
       socket.addEventListener("message", ({ data }) => {
         const response = JSON.parse(data);
+        if (
+          response.sessionId === sessionId &&
+          response.method === "Page.loadEventFired"
+        ) {
+          resolveLoad?.();
+        }
         if (response.id && pending.has(response.id)) {
           const { resolve, reject, timeout } = pending.get(response.id);
           pending.delete(response.id);
@@ -118,7 +125,11 @@ test(
           const id = ++next;
           const timeout = setTimeout(() => {
             pending.delete(id);
-            reject(new Error(`CDP timeout: ${method}`));
+            reject(
+              new Error(
+                `CDP timeout: ${method} ${params.expression?.slice(0, 120) ?? ""}`,
+              ),
+            );
           }, 15000);
           pending.set(id, { resolve, reject, timeout });
           socket.send(
@@ -161,7 +172,20 @@ test(
         await evaluate(`(${expression}).click()`);
       };
       const go = async (route) => {
-        await call("Page.navigate", { url: `${base}${route}` });
+        const loaded = new Promise((resolve) => {
+          resolveLoad = resolve;
+        });
+        const timer = setTimeout(() => resolveLoad?.(), 10000);
+        try {
+          const navigation = await call("Page.navigate", {
+            url: `${base}${route}`,
+          });
+          assert.equal(navigation.errorText, undefined);
+          await loaded;
+        } finally {
+          clearTimeout(timer);
+          resolveLoad = undefined;
+        }
         await wait(
           "document.readyState==='complete' && !!document.querySelector('main')",
         );
@@ -185,10 +209,21 @@ test(
           flatten: true,
         })
       ).sessionId;
+      await call("Page.enable");
       await viewport(1440);
+      await go("/rules");
+      await wait(text("Reglas por perfil"));
+      await wait(text("Proximidad persona ↔ montacargas · v2 · Habilitada"));
+      await evaluate(
+        "[...document.querySelectorAll('main summary')].find(el=>el.textContent.includes('Habilitada')).parentElement.open=true",
+      );
+      await wait(text("Distancia normalizada máxima"));
       await go("/analysis?source=manual");
       await click("Perfil B Demo B");
       await wait(text("TEST_DATA_B.mp4"));
+      await click("Detalles");
+      await wait(text("REGLAS DEL PRÓXIMO ANÁLISIS"));
+      await click("Detalles");
       // Demo → archivo propio: la API entrega una zona vacía, sin polígonos ocultos.
       await evaluate(
         `(async()=>{const video=document.querySelector('video'); const blob=await (await fetch(video.src)).blob(); const dt=new DataTransfer();dt.items.add(new File([blob], 'TEST_DATA_custom.mp4', {type:'video/mp4'}));const input=document.querySelector('input[type=file]');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`,
@@ -248,6 +283,9 @@ test(
       );
       await navigate("/analysis");
       await wait(text("Análisis completado"));
+      await click("Detalles");
+      await wait(text("REGLAS DEL RESULTADO"));
+      await click("Detalles");
       assert.equal(
         (await control()).created,
         before.created,
@@ -424,8 +462,19 @@ test(
           "/analysis",
         ]) {
           await go(route);
+          if (route === `/events/${eventId}`) {
+            await wait(
+              text("requiere revisión humana, no confirma un incidente"),
+            );
+          }
           await wait("document.fonts.status==='loaded'");
-          await checkButtonThemes(evaluate);
+          try {
+            await checkButtonThemes(evaluate);
+          } catch (error) {
+            throw new Error(`Controles de tema: ${width} ${route}`, {
+              cause: error,
+            });
+          }
           assert.equal(
             await evaluate(
               "document.documentElement.scrollWidth<=innerWidth+1",

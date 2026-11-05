@@ -10,6 +10,25 @@ const polygon = [
   [0.9, 0.9],
   [0.1, 0.9],
 ];
+function rulesFor(profile, zoneId = "TEST_DATA_ZONE") {
+  return {
+    config_sha256: "0".repeat(64),
+    rules: [
+      {
+        rule_id: `TEST_DATA_${profile}`,
+        version: 2,
+        enabled: profile !== "A",
+        parameters: {
+          kind: "person_forklift_proximity",
+          zone_id: zoneId,
+          max_distance: 0.25,
+          minimum_duration_seconds: 1,
+        },
+      },
+    ],
+  };
+}
+
 export async function startFixtureApi(port = 8000) {
   const video = await readFile(
     new URL(
@@ -112,6 +131,7 @@ export async function startFixtureApi(port = 8000) {
           ["A", "B", "C"].map((id) => ({
             id,
             display_name: `Demo ${id}`,
+            configuration: rulesFor(id),
             default_demo_video: {
               id: `demo-${id}`,
               filename: `TEST_DATA_${id}.mp4`,
@@ -146,6 +166,10 @@ export async function startFixtureApi(port = 8000) {
             polygon: manual ? [] : polygon,
           },
           run: 0,
+          configuration: rulesFor(
+            profile,
+            manual ? "custom_zone" : "TEST_DATA_ZONE",
+          ),
           result: null,
           pending_changes: false,
           frame: 0,
@@ -176,6 +200,11 @@ export async function startFixtureApi(port = 8000) {
           return send({});
         }
         if (action === "zone/") {
+          session.profile = body.profile ?? session.profile;
+          session.configuration = rulesFor(
+            session.profile,
+            session.zone.zone_id,
+          );
           session.zone = {
             ...session.zone,
             polygon: body.polygon ?? session.zone.polygon,
@@ -241,6 +270,7 @@ export async function startFixtureApi(port = 8000) {
                   event_ids: [eventId],
                 },
                 result: {
+                  ...session.configuration,
                   profile: session.profile,
                   zone: session.zone,
                   source_video: session.filename,

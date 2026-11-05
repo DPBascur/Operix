@@ -18,6 +18,17 @@ export interface AnalysisProfileDefinition {
   id: AnalysisProfile;
   display_name: string;
   default_demo_video: DemoVideoSource | null;
+  configuration?: AnalysisRuleSnapshot | null;
+}
+
+export interface AnalysisRuleSnapshot {
+  config_sha256: string;
+  rules: {
+    rule_id: string;
+    version: number;
+    enabled: boolean;
+    parameters: Record<string, unknown>;
+  }[];
 }
 
 export interface AnalysisResultConfig {
@@ -39,6 +50,8 @@ export interface AnalysisResultConfig {
   person: { imgsz: number; confidence: number; nms_iou: number };
   forklift: { imgsz: number; confidence: number; nms_iou: number };
   run: number;
+  rules?: AnalysisRuleSnapshot["rules"];
+  config_sha256?: string;
 }
 
 export interface AnalysisSessionStatus {
@@ -53,6 +66,11 @@ export interface AnalysisSessionStatus {
   zone: { zone_id: string; name: string; polygon: NormalizedVertex[] };
   run: number;
   result: AnalysisResultConfig | null;
+  configuration?: (AnalysisRuleSnapshot & { profile: AnalysisProfile }) | null;
+  active_configuration?: Pick<
+    AnalysisResultConfig,
+    "profile" | "run" | "rules" | "config_sha256"
+  > | null;
   pending_changes: boolean;
   frame: number;
   total: number | null;

@@ -1,6 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- MJPEG multipart necesita img nativo. */
 
+import { RuleConfiguration } from "@/features/analysis/rule-configuration";
 import {
   ChevronDown,
   Info,
@@ -354,6 +355,7 @@ export function AnalysisWorkspace({
     }
     setDemoSource(demo);
     setSession(created);
+    setProfile(created.profile);
     setDraft(created.zone.polygon);
     setClosed(created.zone.polygon.length >= 3);
     setSelectedVertex(null);
@@ -449,12 +451,13 @@ export function AnalysisWorkspace({
     setBusy(true);
     setError(null);
     try {
-      setProfile(next);
       if (session?.source_kind === "manual") {
-        generation.current += 1;
+        const current = ++generation.current;
         const updated = await analysisService.updateZone(session.id, {
           profile: next,
         });
+        if (generation.current !== current) return;
+        setProfile(updated.profile);
         setSession(updated);
         setDraft(updated.zone.polygon);
         setClosed(updated.zone.polygon.length >= 3);
@@ -471,6 +474,7 @@ export function AnalysisWorkspace({
           if (session) await analysisService.closeAnalysisSession(session.id);
           writeSessionReference(tabStorage(), referenceKey, null);
           setSession(null);
+          setProfile(next);
           setDemoSource(null);
           setDraft([]);
           setEditing(false);
@@ -1356,11 +1360,6 @@ export function AnalysisWorkspace({
                     ? (session.result?.zone.name ?? "—")
                     : (session?.zone.name ?? "—")}
                 </dd>
-                <dt>Regla</dt>
-                <dd className="analysis-data-note">
-                  Definida por el perfil del servidor. El evento conserva la
-                  regla y versión aplicadas.
-                </dd>
                 <dt>Resolución</dt>
                 <dd>
                   {sourceName
@@ -1380,6 +1379,34 @@ export function AnalysisWorkspace({
                     : "—"}
                 </dd>
               </dl>
+              <div className="mt-4 grid gap-2">
+                <p className="section-heading">
+                  {showResult
+                    ? "Reglas del resultado"
+                    : session.state === "processing" ||
+                        session.state === "preparing"
+                      ? "Reglas de la ejecución"
+                      : "Reglas del próximo análisis"}
+                </p>
+                <RuleConfiguration
+                  snapshot={
+                    showResult
+                      ? session.result
+                      : session.state === "processing" ||
+                          session.state === "preparing"
+                        ? session.active_configuration
+                        : session.configuration
+                  }
+                />
+                {showResult && session.pending_changes && (
+                  <>
+                    <p className="section-heading">
+                      Reglas del próximo análisis
+                    </p>
+                    <RuleConfiguration snapshot={session.configuration} />
+                  </>
+                )}
+              </div>
             </div>
           )}
           {!session && (

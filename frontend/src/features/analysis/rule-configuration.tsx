@@ -1,0 +1,81 @@
+import type { AnalysisRuleSnapshot } from "@/services/analysis.service";
+
+const labels: Record<string, string> = {
+  kind: "Tipo",
+  zone_id: "ID de zona",
+  class_name: "Clase",
+  person_class: "Clase de persona",
+  forklift_class: "Clase de montacargas",
+  min_duration_s: "Duración mínima (s)",
+  minimum_duration_seconds: "Duración mínima (s)",
+  max_distance: "Distancia normalizada máxima",
+};
+
+const kinds: Record<string, string> = {
+  zone_dwell: "Permanencia",
+  person_forklift_proximity: "Proximidad persona ↔ montacargas",
+};
+
+export function RuleConfiguration({
+  snapshot,
+}: {
+  snapshot?: Partial<AnalysisRuleSnapshot> | null;
+}) {
+  if (!snapshot?.rules) {
+    return (
+      <p className="text-sm text-text-secondary">
+        Configuración no disponible.
+      </p>
+    );
+  }
+  if (!snapshot.rules.length) {
+    return (
+      <p className="text-sm text-text-secondary">
+        El perfil no declara reglas.
+      </p>
+    );
+  }
+
+  return (
+    <div className="grid gap-2">
+      {snapshot.rules.map((rule) => {
+        const kind = String(rule.parameters.kind ?? "");
+        return (
+          <details
+            key={rule.rule_id}
+            className="rounded-md border border-border p-2"
+          >
+            <summary className="cursor-pointer break-words text-sm font-medium">
+              {kinds[kind] ?? rule.rule_id} · v{rule.version} ·{" "}
+              {rule.enabled ? "Habilitada" : "Deshabilitada"}
+            </summary>
+            <p className="my-2 break-words text-xs text-text-secondary">
+              {rule.rule_id} · Parámetros del snapshot
+            </p>
+            <dl className="grid gap-1 text-sm">
+              {Object.entries(rule.parameters).map(([key, value]) => (
+                <div
+                  key={key}
+                  className="flex flex-wrap justify-between gap-x-3 break-all"
+                >
+                  <dt className="text-text-secondary">{labels[key] ?? key}</dt>
+                  <dd>
+                    {typeof value === "string" ? value : JSON.stringify(value)}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </details>
+        );
+      })}
+      {snapshot.config_sha256 && (
+        <details className="text-xs text-text-secondary">
+          <summary className="cursor-pointer">
+            Huella de configuración (SHA-256)
+          </summary>
+          <p className="mt-1 break-all font-mono">{snapshot.config_sha256}</p>
+        </details>
+      )}
+    </div>
+  );
+}
