@@ -1204,11 +1204,13 @@ export function AnalysisWorkspace({
               al resultado.
             </p>
           )}
-          {showResult && (
+          {(showStream || showResult) && (
             <p className="analysis-result-help">
-              Resultado anotado: use los controles para pausar o buscar un
-              momento del video. Condición configurada satisfecha; requiere
-              revisión humana, no confirma un incidente.
+              En las anotaciones de proximidad, P# identifica a la persona y F#
+              al montacargas. «d» indica la distancia observada y «max» el
+              umbral configurado, ambos en espacio de imagen normalizado.
+              Condición configurada satisfecha; requiere revisión humana, no
+              confirma un incidente.
             </p>
           )}
           {session && (

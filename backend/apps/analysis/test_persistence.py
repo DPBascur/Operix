@@ -114,6 +114,10 @@ class WebPersistenceTests(LiveServerTestCase):
             self.assertEqual(event.observations["proximity_geometry"], {
                 "version": relation["geometry_version"], "person_anchor": relation["person_anchor"],
                 "equipment_target": relation["equipment_target"]})
+            detail = self.client.get(f"/api/v1/events/{event.id}/")
+            self.assertEqual(detail.status_code, 200)
+            for field in ("interaction", "observations", "rule_parameters", "episode", "rule_id", "rule_version"):
+                self.assertEqual(detail.data[field], getattr(event, field))
             verify = "import cv2,hashlib,sys; a=cv2.imread(sys.argv[1]); print(hashlib.sha256(a.tobytes()).hexdigest())"
             raw_hash = subprocess.check_output([str(self.python), "-B", "-c", verify, event.evidence_image.path], text=True).strip()
             self.assertEqual(raw_hash, receipt["image_sha256"])

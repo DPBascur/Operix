@@ -44,8 +44,8 @@ class ProximityVisualizationTests(unittest.TestCase):
                 patch.object(self.renderer, "_draw_label", wraps=self.renderer._draw_label) as labels:
             annotated = self.renderer.render_proximity(self.frame, spatial, result)
         self.assertEqual(line.call_args.args[1:3], ((25, 20), (45, 60)))
-        self.assertTrue(any("0.447 norm" in call.args[1] for call in labels.call_args_list))
-        self.assertTrue(any("DURATION_ACCUMULATING" in call.args[1] for call in labels.call_args_list))
+        self.assertTrue(any("P#1 / F#1 | d 0.4472 / max 0.5 norm" in call.args[1] for call in labels.call_args_list))
+        self.assertTrue(any("Acumulando duracion | 0 s / min 1 s" in call.args[1] for call in labels.call_args_list))
         self.assertTrue(np.any(annotated))
         self.assertFalse(np.any(self.frame))
 
@@ -77,13 +77,22 @@ class ProximityVisualizationTests(unittest.TestCase):
                 self.assertNotEqual(initial.evaluations[0].episode_key, result.evaluations[0].episode_key)
                 self.assertEqual(result.candidates, ())
 
-    def test_outside_or_no_pair_has_no_line(self):
-        for tracks in ((), (self.person,), (self.person, track("forklift", 1, 95, 95))):
+    def test_no_pair_has_no_line(self):
+        for tracks in ((), (self.person,)):
             self.setUp()
             spatial, result = self.step(0, tracks)
             with patch("operix_engine.visualization.cv2.line") as line:
                 self.renderer.render_proximity(self.frame, spatial, result)
             line.assert_not_called()
+
+    def test_outside_threshold_displays_one_observation_without_an_event(self):
+        spatial, result = self.step(0, (self.person, track("forklift", 1, 95, 95)))
+        with patch("operix_engine.visualization.cv2.line", wraps=cv2.line) as line, \
+                patch.object(self.renderer, "_draw_label") as labels:
+            self.renderer.render_proximity(self.frame, spatial, result)
+        line.assert_called_once()
+        self.assertTrue(any("Fuera del umbral" in call.args[1] for call in labels.call_args_list))
+        self.assertEqual(result.candidates, ())
 
     def test_multiple_roles_and_crossing_preserve_identity(self):
         tracks = (self.person, track("person", 2, 40, 50), self.forklift, track("forklift", 2, 25, 25))
@@ -118,7 +127,7 @@ class ProximityVisualizationTests(unittest.TestCase):
         result = replace(result, evaluations=(replace(result.evaluations[0], observed_normalized_distance=.123),))
         with patch.object(self.renderer, "_draw_label") as label:
             self.renderer.render_proximity(self.frame, spatial, result)
-        self.assertTrue(any("0.123 norm" in call.args[1] for call in label.call_args_list))
+        self.assertTrue(any("d 0.123 / max 0.5 norm" in call.args[1] for call in label.call_args_list))
 
     def test_mismatched_frame_is_rejected(self):
         spatial, result = self.step(0)

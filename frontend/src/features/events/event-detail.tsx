@@ -20,6 +20,7 @@ import {
 import {
   evidenceHref,
   eventMeasurements,
+  eventProximityGeometry,
   eventTime,
   measurement,
   operationalSubjects,
@@ -148,6 +149,7 @@ function Evidence({
 function EventContent({ event }: { event: OperationalEvent }) {
   const time = eventTime(event),
     source = record(event.source);
+  const geometry = eventProximityGeometry(event);
   const observations =
     event.event_type === "zone_dwell"
       ? {
@@ -192,15 +194,26 @@ function EventContent({ event }: { event: OperationalEvent }) {
             ))}
             {event.event_type === "person_forklift_proximity" && (
               <p className={styles.measureNote}>
-                Distancia en coordenadas normalizadas, sin unidad física; no
-                representa metros.
+                Distancia en espacio de imagen normalizado, sin unidad física.
               </p>
             )}
           </div>
           <dl className={styles.context}>
-            <Field label="Objetos involucrados">
-              {operationalSubjects(event)}
-            </Field>
+            {event.event_type === "person_forklift_proximity" &&
+            event.interaction ? (
+              <>
+                <Field label="Persona">
+                  ID de seguimiento {event.interaction.person.track_id}
+                </Field>
+                <Field label="Montacargas">
+                  ID de seguimiento {event.interaction.forklift.track_id}
+                </Field>
+              </>
+            ) : (
+              <Field label="Objeto involucrado">
+                {operationalSubjects(event)}
+              </Field>
+            )}
             <Field label="Zona">{event.zone_id}</Field>
             <Field label="Regla y versión">
               {event.rule_id}{" "}
@@ -248,6 +261,21 @@ function EventContent({ event }: { event: OperationalEvent }) {
                 : String(event.frame_index)}
             </Field>
             <Field label="Tipo canónico">{event.event_type}</Field>
+            {geometry && (
+              <>
+                <Field label="Versión de geometría">{geometry.version}</Field>
+                {geometry.personAnchor && (
+                  <Field label="Punto de persona (x, y)">
+                    {geometry.personAnchor}
+                  </Field>
+                )}
+                {geometry.equipmentTarget && (
+                  <Field label="Punto de montacargas (x, y)">
+                    {geometry.equipmentTarget}
+                  </Field>
+                )}
+              </>
+            )}
             <Field label="Timestamp original recibido">
               <time dateTime={time.iso}>{time.iso}</time>
             </Field>

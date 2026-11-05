@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   eventMeasurements,
+  eventProximityGeometry,
   eventTime,
   evidenceHref,
   measurement,
@@ -39,6 +40,43 @@ test("pares muestran distancia sin metros y duración desde observaciones reales
   assert.equal(metrics[0].observed, "0,2");
   assert.equal(metrics[0].configured, "0,25");
   assert.equal(metrics[1].observed, "1,25 s");
+  assert.equal(metrics[1].configured, "1 s");
+});
+test("geometría explícita conserva extremos, versión histórica y ausencia de datos", () => {
+  const pair = { ...single, event_type: "person_forklift_proximity" };
+  assert.equal(eventProximityGeometry(single), null);
+  assert.deepEqual(eventProximityGeometry(pair), {
+    version: "No registrado",
+    personAnchor: null,
+    equipmentTarget: null,
+  });
+  assert.equal(eventMeasurements(pair)[0].observed, "No registrada");
+  for (const version of [
+    "person_equipment_nearest_ground_edges_v1",
+    "person_bottom_center_to_equipment_ground_edge_v1",
+  ]) {
+    const event = {
+      ...pair,
+      observations: {
+        normalized_distance: 0,
+        duration_s: 0,
+        proximity_geometry: {
+          version,
+          person_anchor: [0, 1],
+          equipment_target: [0, 1],
+        },
+      },
+      rule_parameters: { max_distance: 0, minimum_duration_seconds: 0 },
+    };
+    assert.deepEqual(eventProximityGeometry(event), {
+      version,
+      personAnchor: "[0,1]",
+      equipmentTarget: "[0,1]",
+    });
+    assert.equal(eventMeasurements(event)[0].observed, "0");
+    assert.equal(eventMeasurements(event)[0].configured, "0");
+    assert.equal(eventMeasurements(event)[1].observed, "0 s");
+  }
 });
 test("ausentes, booleanos y valores inválidos no se convierten en ceros", () => {
   for (const value of [

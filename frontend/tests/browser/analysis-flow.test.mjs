@@ -380,6 +380,30 @@ test(
         `document.querySelector('a[href="/events/${eventId}"]').click()`,
       );
       await wait(text("Resumen operacional"));
+      for (const value of [
+        "Persona",
+        "Montacargas",
+        "Distancia normalizada",
+        "0,1",
+        "Máximo configurado",
+        "0,25",
+        "Duración de la condición",
+        "Mínimo configurado",
+      ])
+        await wait(text(value));
+      const subjects = await evaluate(
+        "Object.fromEntries([...document.querySelectorAll('main dt')].filter(dt=>['Persona','Montacargas'].includes(dt.innerText)).map(dt=>[dt.innerText,dt.nextElementSibling.innerText]))",
+      );
+      assert.deepEqual(subjects, {
+        Persona: "ID de seguimiento 1",
+        Montacargas: "ID de seguimiento 1",
+      });
+      await evaluate(
+        "[...document.querySelectorAll('summary')].find(s=>s.innerText.includes('Trazabilidad técnica')).click()",
+      );
+      await wait(text("person_equipment_nearest_ground_edges_v1"));
+      await wait(text("[0.2,0.5]"));
+      await wait(text("[0.3,0.5]"));
       await wait(
         "!!document.querySelector('figure img') && document.querySelector('figure img').complete && document.querySelector('figure img').naturalWidth>0",
       );

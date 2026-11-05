@@ -227,6 +227,14 @@ class OpenCvRenderer:
         ))
         selected = [item for index, item in enumerate(relevant)
                     if index < max_pairs or item.episode_key in emitted]
+        if not selected:
+            # Una sola referencia cuando todavía no hay un episodio activo.
+            observed = [item for item in result.evaluations
+                        if isinstance(item, PairRuleEvaluation)
+                        and item.reason in {"outside_distance", "outside_zone"}
+                        and (item.frame_index, item.timestamp_s) == (result.frame_index, result.timestamp_s)]
+            if observed:
+                selected = [min(observed, key=lambda item: item.observed_normalized_distance)]
         annotated = frame.copy()
         height, width = frame.shape[:2]
         for index, item in enumerate(selected):
@@ -245,18 +253,24 @@ class OpenCvRenderer:
             for point in endpoints:
                 cv2.circle(annotated, point, 4, color, -1, self._LINE_TYPE)
             midpoint = tuple(round((a + b) / 2) for a, b in zip(*endpoints))
+            pair = f"P#{left.track_id} / F#{right.track_id}"
             self._draw_label(annotated,
-                f"P#{left.track_id} F#{right.track_id}: {item.observed_normalized_distance:.3f} norm",
+                f"{pair} | d {item.observed_normalized_distance:.4g} / max {item.parameters['max_distance']:.4g} norm",
                 midpoint, color, fit_width=True)
-            # Carril de trazabilidad separado de la medida junto a la línea.
-            labels = (f"{item.rule_id} v{item.rule_version} | P#{left.track_id} F#{right.track_id}",
-                      f"max {item.parameters['max_distance']:g} norm | {item.observed_duration_s:.2f}s"
-                      f" / {item.parameters['minimum_duration_seconds']:g}s | {item.rule_state}")
-            for row, label in enumerate(labels):
-                self._draw_label(annotated, label, (8, 28 + index * 52 + row * 24), color, fit_width=True)
+            # OpenCV usa texto ASCII. La duración y el estado comparten un carril compacto.
+            state = {
+                "outside_distance": "Fuera del umbral",
+                "outside_zone": "Fuera de zona",
+                "insufficient_duration": "Acumulando duracion",
+            }.get(item.reason, "Condicion satisfecha" if item.satisfied else "En evaluacion")
+            self._draw_label(annotated,
+                f"{pair} | {state} | {item.observed_duration_s:.4g} s"
+                f" / min {item.parameters['minimum_duration_seconds']:.4g} s"
+                f" | {item.rule_id} v{item.rule_version}",
+                (8, 28 + index * 24), color, fit_width=True)
         if len(selected) < len(relevant):
             self._draw_label(annotated, f"Relaciones visibles: {len(selected)}/{len(relevant)}",
-                             (8, 28 + len(selected) * 52), self._ZONE_NORMAL_COLOR, fit_width=True)
+                             (8, 28 + len(selected) * 24), self._ZONE_NORMAL_COLOR, fit_width=True)
         return annotated
 
     def render_zone(

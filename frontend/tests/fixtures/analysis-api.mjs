@@ -48,8 +48,16 @@ export async function startFixtureApi(port = 8000) {
       filename: "TEST_DATA_demo.mp4",
       timestamp_basis: "ANALYSIS_START_PROXY_NOT_RECORDING_TIME",
     },
-    parameters: { max_distance: 0.25, minimum_duration_seconds: 1 },
-    observations: { normalized_distance: 0.1, duration_s: 1 },
+    rule_parameters: { max_distance: 0.25, minimum_duration_seconds: 1 },
+    observations: {
+      normalized_distance: 0.1,
+      duration_s: 1,
+      proximity_geometry: {
+        version: "person_equipment_nearest_ground_edges_v1",
+        person_anchor: [0.2, 0.5],
+        equipment_target: [0.3, 0.5],
+      },
+    },
     evidence_url: `/api/v1/events/${eventId}/evidence/`,
   };
   const server = createServer(async (req, res) => {

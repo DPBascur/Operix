@@ -66,6 +66,27 @@ export function eventMeasurements(event: OperationalEvent) {
     },
   ];
 }
+export function eventProximityGeometry(event: OperationalEvent) {
+  if (event.event_type !== "person_forklift_proximity") return null;
+  const geometry = record(record(event.observations).proximity_geometry);
+  const point = (value: unknown) =>
+    Array.isArray(value) &&
+    value.length === 2 &&
+    value.every(
+      (axis) =>
+        typeof axis === "number" &&
+        Number.isFinite(axis) &&
+        axis >= 0 &&
+        axis <= 1,
+    )
+      ? JSON.stringify(value)
+      : null;
+  return {
+    version: text(geometry.version),
+    personAnchor: point(geometry.person_anchor),
+    equipmentTarget: point(geometry.equipment_target),
+  };
+}
 export function eventTime(event: OperationalEvent) {
   const basis = record(event.source).timestamp_basis;
   const proxy = basis === "ANALYSIS_START_PROXY_NOT_RECORDING_TIME";
