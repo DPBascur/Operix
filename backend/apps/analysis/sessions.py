@@ -5,6 +5,7 @@ from __future__ import annotations
 import atexit
 import hashlib
 import json
+from copy import deepcopy
 import logging
 import os
 import shutil
@@ -86,6 +87,18 @@ class AnalysisSession:
     analysis_run_id: str | None = None
     _closed: bool = field(default=False, repr=False)
     _cleanup_generation: int = field(default=0, repr=False)
+    profile_config: dict | None = field(default=None, repr=False)
+
+    def operational_config(self) -> dict:
+        actual = deepcopy(self.profile_config) if self.profile_config is not None else read_profile(self.profile)
+        original_zone_id = actual["zones"][0]["zone_id"]
+        actual["zones"] = [deepcopy(self.zone)]
+        if self.source_kind == "manual":
+            actual["view_id"] = "manual_video"
+        for rule in actual["rules"]:
+            if rule["parameters"].get("zone_id") == original_zone_id:
+                rule["parameters"]["zone_id"] = self.zone["zone_id"]
+        return actual
 
     def touch(self) -> None:
         self.last_access = time.monotonic()
@@ -102,6 +115,10 @@ class AnalysisSession:
                 "percent": None, "fps": None, "person_detections": 0,
                 "forklift_detections": 0, "person_tracks": 0, "forklift_tracks": 0,
                 "run": self.run, "result": None,
+                "configuration": (
+                    {"profile": self.profile, **rule_snapshot(self.operational_config())}
+                    if self.profile_config is not None else None
+                ),
                 "analysis_run_id": self.analysis_run_id,
                 "persistence": {"state": "pending" if self.outbox_directory else "disabled",
                                 "candidates": 0, "saved": 0, "failed": 0},
@@ -144,6 +161,9 @@ class AnalysisSession:
                     self.state = "error"
                     payload["detail"] = "No se generó un resultado reproducible."
             payload["result"] = self.result_config if self.state == "completed" else None
+            payload["active_configuration"] = (
+                self.active_config if self.state in {"preparing", "processing"} else None
+            )
             if self.outbox_directory and (self.state in {"error", "cancelled"} or
                     (self.state in TERMINAL and payload["persistence"]["state"] == "pending")):
                 payload["persistence"] = {"state": "failed", "detail": "El análisis terminó sin confirmar la persistencia; revise el journal."}
@@ -154,7 +174,9 @@ class AnalysisSession:
                     payload["persistence"] = {"state": "failed", "detail": "No se pudo verificar la persistencia."}
             payload["pending_changes"] = bool(
                 self.result_config and
-                (self.profile != self.result_config["profile"] or self.zone != self.result_config["zone"])
+                (self.profile != self.result_config["profile"] or self.zone != self.result_config["zone"]
+                 or (payload["configuration"] is not None and "config_sha256" in self.result_config
+                     and payload["configuration"]["config_sha256"] != self.result_config["config_sha256"]))
             )
             payload["state"] = self.state
             if self.state == "cancelled":
@@ -268,13 +290,30 @@ def _demo_path(profile: str) -> tuple[str, Path] | None:
     return source_id, path
 
 
+def read_profile(profile: str) -> dict:
+    return json.loads(PROFILES[profile].read_text(encoding="utf-8"))
+
+
+def rule_snapshot(config: dict) -> dict:
+    return {"rules": config["rules"], "config_sha256": hashlib.sha256(config_bytes(config)).hexdigest()}
+
+
+def config_bytes(config: dict) -> bytes:
+    return json.dumps(config, sort_keys=True).encode()
+
+
 def profile_catalog() -> list[dict]:
     result = []
     for profile in PROFILES:
         demo = _demo_path(profile)
+        try:
+            configuration = rule_snapshot(read_profile(profile))
+        except (OSError, ValueError, KeyError):
+            configuration = None
         result.append({
             "id": profile,
             "display_name": PROFILE_NAMES[profile],
+            "configuration": configuration,
             "default_demo_video": None if demo is None else {
                 "id": demo[0],
                 "filename": demo[1].name,
@@ -314,12 +353,14 @@ def _register_session(
     source_bytes: int, source_kind: str, demo_source_id: str | None,
     directory: Path,
 ) -> AnalysisSession:
-    zone = (json.loads(PROFILES[profile].read_text(encoding="utf-8"))["zones"][0]
+    profile_config = read_profile(profile)
+    zone = (profile_config["zones"][0]
             if source_kind == "demo" else
             {"zone_id": "custom_zone", "name": "Zona del video", "polygon": []})
     session = AnalysisSession(
         uuid.uuid4(), directory, filename, profile, video_path, source_sha256,
         source_bytes, source_kind, demo_source_id, zone,
+        profile_config=profile_config,
     )
     with _lock:
         if len(_sessions) >= settings.OPERIX_ANALYSIS_MAX_SESSIONS:
@@ -460,10 +501,14 @@ def expire_session(session_id: uuid.UUID, generation: int | None = None) -> None
 
 
 def _clear_run_outputs(session: AnalysisSession) -> None:
+    try:
+        (session.directory / "annotated.mp4").unlink(missing_ok=True)
+    except PermissionError as error:
+        raise ValueError("Cierre la reproducción del resultado antes de volver a analizar") from error
     shutil.rmtree(session.directory / "preview", ignore_errors=True)
     session.preview_clock = PreviewClock()
     for filename in (
-        "status.json", "frame.jpg", "annotated.partial.mp4", "annotated.mp4",
+        "status.json", "frame.jpg", "annotated.partial.mp4",
         "error.log", "polygon.json", "run_config.json",
     ):
         (session.directory / filename).unlink(missing_ok=True)
@@ -498,6 +543,7 @@ def _start_session(session: AnalysisSession) -> None:
         forklift = Path(settings.OPERIX_FORKLIFT_WEIGHTS) if settings.OPERIX_FORKLIFT_WEIGHTS else None
         if not python.is_file() or person is None or not person.is_file() or forklift is None or not forklift.is_file():
             raise RuntimeError("Configure OPERIX_ENGINE_PYTHON y los pesos person/forklift fuera de Git")
+        actual = session.operational_config()
         _clear_run_outputs(session)
         session._cleanup_generation += 1
         if session._cleanup_timer is not None:
@@ -519,33 +565,20 @@ def _start_session(session: AnalysisSession) -> None:
                          "class_filter": "forklift", "imgsz": 640, "confidence": 0.45, "nms_iou": 0.55},
             "tracker": "ByteTrack independiente por clase",
             "run": session.run,
+            **rule_snapshot(actual),
         }
-        (session.directory / "run_config.json").write_text(
-            json.dumps(session.active_config, ensure_ascii=False), encoding="utf-8",
-        )
         polygon_path = session.directory / "polygon.json"
         polygon_path.write_text(json.dumps(session.zone["polygon"]), encoding="utf-8")
         command = [
             str(python), str(ROOT / "engine/scripts/stream_dual_perception.py"),
             "--session-dir", str(session.directory), "--video", str(session.video_path),
-            "--config", str(PROFILES[session.profile]), "--polygon", str(polygon_path),
+            "--config", str(session.directory / "operational_config.json"), "--polygon", str(polygon_path),
             "--person-weights", str(person), "--person-sha256", PERSON_SHA256,
             "--forklift-weights", str(forklift), "--forklift-sha256", FORKLIFT_SHA256,
             "--batch-size", "1",
         ]
-        # La configuración de ejecución debe usar la zona de esta fuente incluso sin persistencia.
-        actual = json.loads(PROFILES[session.profile].read_text(encoding="utf-8"))
-        original_zone_id = actual["zones"][0]["zone_id"]
-        actual["zones"] = [json.loads(json.dumps(session.zone))]
-        if session.source_kind == "manual":
-            actual["view_id"] = "manual_video"
-        for rule in actual["rules"]:
-            if rule["parameters"].get("zone_id") == original_zone_id:
-                rule["parameters"]["zone_id"] = session.zone["zone_id"]
-        snapshot = json.dumps(actual, sort_keys=True).encode()
         config_path = session.directory / "operational_config.json"
-        config_path.write_bytes(snapshot)
-        command[command.index("--config") + 1] = str(config_path)
+        config_path.write_bytes(config_bytes(actual))
         session.outbox_directory = None
         session.analysis_run_id = str(uuid.uuid5(session.id, str(session.run)))
         if settings.EVENT_POST_ENABLED:
@@ -554,7 +587,7 @@ def _start_session(session: AnalysisSession) -> None:
             session.outbox_directory.mkdir(parents=True, exist_ok=False)
             source = {"filename": session.filename, "kind": session.source_kind,
                       "video_sha256": session.source_sha256,
-                      "config_sha256": hashlib.sha256(snapshot).hexdigest(),
+                      "config_sha256": session.active_config["config_sha256"],
                       "person_weights_sha256": PERSON_SHA256, "forklift_weights_sha256": FORKLIFT_SHA256,
                       "perception": {name: dict(session.active_config[name]) for name in ("person", "forklift")},
                       "timestamp_basis": "ANALYSIS_START_PROXY_NOT_RECORDING_TIME",

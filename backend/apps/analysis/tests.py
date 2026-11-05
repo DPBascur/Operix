@@ -107,6 +107,74 @@ class AnalysisSessionApiTests(SimpleTestCase):
             self.identities.append(uuid.UUID(response.data["id"]))
         return response
 
+    def test_demo_profile_is_bound_to_source(self):
+        url = "/api/v1/analysis/sessions/"
+        created = self.client.post(url, {"profile": "A", "demo_source_id": "warehouse_fire"}, format="json")
+        identity = uuid.UUID(created.data["id"])
+        self.identities.append(identity)
+        changed = self.client.put(f"{url}{identity}/zone/", {"profile": "B"}, format="json")
+        self.assertEqual(changed.status_code, 409)
+        current = self.client.get(f"{url}{identity}/status/").data
+        for field in ("profile", "demo_source_id", "zone", "source_sha256"):
+            self.assertEqual(current[field], created.data[field])
+        other = self.client.post(url, {"profile": "B", "demo_source_id": "forklift_human_nearmiss"}, format="json")
+        self.assertEqual(other.status_code, 201)
+        self.identities.append(uuid.UUID(other.data["id"]))
+        self.assertEqual(other.data["profile"], "B")
+
+    def test_zone_rejects_motor_invalid_polygons_without_mutating_session(self):
+        created = self.create()
+        url = f"/api/v1/analysis/sessions/{created.data['id']}/zone/"
+        polygon = [[0, 0], [1, 0], [0.5, 0.5], [1, 1], [0, 1]]
+        self.assertEqual(self.client.put(url, {"polygon": polygon}, format="json").status_code, 200)
+        for invalid in (
+            [[0, 0], [1, 1], [0, 1], [1, 0]],
+            [[0, 0], [0, 0], [1, 1], [0, 1]],
+            [[0, 0], [0.5, 0.5], [1, 1]],
+            [[0, 0], [1, 0], [0.5, 0], [1, 1]],
+        ):
+            with self.subTest(polygon=invalid):
+                response = self.client.put(url, {"profile": "B", "polygon": invalid}, format="json")
+                self.assertEqual(response.status_code, 400)
+        current = self.client.get(url.replace("zone/", "status/")).data
+        self.assertEqual(current["zone"]["polygon"], polygon)
+        self.assertEqual(current["profile"], "A")
+        with override_settings(OPERIX_ENGINE_PYTHON=str(Path(self.demo_directory.name) / "missing-python")):
+            self.assertEqual(self.client.put(url, {"polygon": polygon}, format="json").status_code, 503)
+        self.assertEqual(self.client.get(url.replace("zone/", "status/")).data["zone"]["polygon"], polygon)
+
+    def test_result_rejects_unknown_and_old_run_even_with_range(self):
+        self.create()
+        session = sessions.get_session(self.identities[0])
+        session.state = "completed"
+        session.run = 2
+        session.active_config = {"run": 2, "profile": "A", "zone": session.zone}
+        (session.directory / "annotated.mp4").write_bytes(b"second")
+        url = f"/api/v1/analysis/sessions/{session.id}/result/"
+        for query, code in (("run=999", 404), ("run=1", 404), ("run=", 400), ("run=2&run=2", 400)):
+            with self.subTest(query=query):
+                response = self.client.get(f"{url}?{query}", HTTP_RANGE="bytes=0-3")
+                self.assertEqual(response.status_code, code)
+        response = self.client.get(f"{url}?run=2", HTTP_RANGE="bytes=0-3")
+        self.assertEqual(response.status_code, 206)
+        self.assertEqual(b"".join(response.streaming_content), b"seco")
+        response.close()
+        other = self.create().data["id"]
+        foreign = self.client.get(f"/api/v1/analysis/sessions/{other}/result/?run=2", HTTP_RANGE="bytes=0-3")
+        self.assertEqual(foreign.status_code, 404)
+
+    def test_prepared_configuration_exposes_actual_rules_and_manual_zone(self):
+        created = self.create()
+        configuration = created.data["configuration"]
+        self.assertEqual(configuration["profile"], "A")
+        original = json.loads(sessions.PROFILES["A"].read_text(encoding="utf-8"))
+        self.assertTrue(configuration["rules"])
+        expected = original["rules"]
+        for rule in expected:
+            if rule["parameters"].get("zone_id") == original["zones"][0]["zone_id"]:
+                rule["parameters"]["zone_id"] = "custom_zone"
+        self.assertEqual(configuration["rules"], expected)
+
     def test_create_returns_profile_and_temporary_video(self):
         response = self.create()
         self.assertEqual(response.status_code, 201)

@@ -20,7 +20,7 @@ from apps.events.publication import event_publisher_environment
 
 from .sessions import (
     PROFILES, create_demo_session, create_session, get_demo_video, get_session,
-    profile_catalog, remove_session, start_session, stream_frames,
+    profile_catalog, read_profile, remove_session, start_session, stream_frames,
     local_event_api_url,
 )
 
@@ -161,33 +161,67 @@ class SessionZoneView(APIView):
             return Response({"detail": "Sesión inexistente"}, status=404)
         if session.status()["state"] not in {"ready", "completed", "cancelled", "error"}:
             return Response({"detail": "La zona no puede editarse mientras se procesa"}, status=409)
-        profile = request.data.get("profile", session.profile)
-        if not isinstance(profile, str) or profile not in PROFILES:
+        profile = request.data.get("profile")
+        if "profile" in request.data and (not isinstance(profile, str) or profile not in PROFILES):
             return Response({"detail": "Perfil de zona no válido"}, status=400)
         if "profile" not in request.data and "polygon" not in request.data:
             return Response({"detail": "Indique perfil o polígono"}, status=400)
-        zone = (
-            json.loads(PROFILES[profile].read_text(encoding="utf-8"))["zones"][0]
-            if profile != session.profile and session.source_kind == "demo" else session.zone
-        )
-        polygon = request.data.get("polygon", zone["polygon"])
-        if not isinstance(polygon, list) or not (
-            3 <= len(polygon) <= 32 or
-            (polygon == [] and session.source_kind == "manual" and "polygon" not in request.data)
-        ):
-            return Response({"detail": "Se requieren entre 3 y 32 vértices"}, status=400)
-        for point in polygon:
-            if not isinstance(point, list) or len(point) != 2 or any(
-                type(value) not in (int, float) or not 0 <= value <= 1 or not math.isfinite(value)
-                for value in point
-            ):
-                return Response({"detail": "Vértices normalizados inválidos"}, status=400)
+        if "polygon" in request.data:
+            polygon = request.data["polygon"]
+            if not isinstance(polygon, list) or not 3 <= len(polygon) <= 32:
+                return Response({"detail": "Se requieren entre 3 y 32 vértices"}, status=400)
+            for point in polygon:
+                if not isinstance(point, list) or len(point) != 2 or any(
+                    type(value) not in (int, float) or not 0 <= value <= 1 or not math.isfinite(value)
+                    for value in point
+                ):
+                    return Response({"detail": "Vértices normalizados inválidos"}, status=400)
+            try:
+                valid = _motor_accepts_polygon(polygon)
+            except (OSError, RuntimeError, subprocess.TimeoutExpired):
+                return Response({"detail": "El validador de geometría del Motor no está disponible"}, status=503)
+            if not valid:
+                return Response({"detail": "El polígono debe tener área y lados sin cruces ni solapamientos"}, status=400)
         with session._guard:
             if session._closed or session.state not in {"ready", "completed", "cancelled", "error"}:
                 return Response({"detail": "La zona no puede editarse mientras se procesa"}, status=409)
-            session.profile = profile
-            session.zone = {**zone, "polygon": polygon}
+            if session.source_kind == "demo" and profile is not None and profile != session.profile:
+                return Response({"detail": "Seleccione la fuente demo correspondiente al perfil"}, status=409)
+            if profile is not None and profile != session.profile:
+                try:
+                    profile_config = read_profile(profile)
+                except (OSError, ValueError, KeyError):
+                    return Response({"detail": "No se pudo leer la configuración del perfil"}, status=503)
+                session.profile = profile
+                session.profile_config = profile_config
+            if "polygon" in request.data:
+                session.zone = {**session.zone, "polygon": polygon}
         return Response(session.status())
+
+
+def _motor_accepts_polygon(polygon):
+    # El Backend nativo y el Motor pueden usar entornos Python distintos.
+    validator = """
+import json
+import sys
+from operix_engine.operational_config import Zone
+from operix_engine.zone_geometry import NormalizedPoint, point_in_zone
+
+try:
+    point_in_zone(NormalizedPoint(0, 0), Zone("session", "Sesión", json.load(sys.stdin)))
+except ValueError:
+    print("invalid")
+else:
+    print("valid")
+"""
+    result = subprocess.run(
+        [settings.OPERIX_ENGINE_PYTHON, "-B", "-c", validator],
+        input=json.dumps(polygon), capture_output=True, text=True, timeout=5,
+    )
+    outcome = result.stdout.strip()
+    if result.returncode or outcome not in {"valid", "invalid"}:
+        raise RuntimeError("No se pudo validar la geometría")
+    return outcome == "valid"
 
 
 class SessionStreamView(APIView):
@@ -213,16 +247,22 @@ class SessionSourceView(APIView):
         return _video_response(request, session.video_path, session.filename)
 
 
-def _file_chunks(path, start, length):
-    with path.open("rb") as source:
-        source.seek(start)
-        remaining = length
-        while remaining > 0:
-            block = source.read(min(256 * 1024, remaining))
+class _FileRange:
+    def __init__(self, source, start, length):
+        self.source = source
+        self.source.seek(start)
+        self.remaining = length
+
+    def __iter__(self):
+        while self.remaining:
+            block = self.source.read(min(256 * 1024, self.remaining))
             if not block:
                 break
-            remaining -= len(block)
+            self.remaining -= len(block)
             yield block
+
+    def close(self):
+        self.source.close()
 
 
 def _video_response(request, path, filename):
@@ -250,7 +290,7 @@ def _video_response(request, path, filename):
             return response
         length = end - start + 1
         response = StreamingHttpResponse(
-            _file_chunks(path, start, length), status=206, content_type="video/mp4",
+            _FileRange(path.open("rb"), start, length), status=206, content_type="video/mp4",
         )
         response["Content-Range"] = f"bytes {start}-{end}/{size}"
         response["Content-Length"] = str(length)
@@ -268,9 +308,12 @@ class SessionResultView(APIView):
         session = get_session(pk)
         if session is None:
             return Response({"detail": "Sesión inexistente"}, status=404)
-        if session.status()["state"] != "completed":
-            return Response({"detail": "El resultado aún no está disponible"}, status=409)
-        path = session.directory / "annotated.mp4"
-        if not path.is_file():
-            return Response({"detail": "Resultado no disponible"}, status=404)
-        return _video_response(request, path, "operix-annotated.mp4")
+        runs = request.query_params.getlist("run")
+        if runs and (len(runs) != 1 or not re.fullmatch(r"[1-9][0-9]{0,19}", runs[0])):
+            return Response({"detail": "Identificador de ejecución inválido"}, status=400)
+        with session._guard:
+            if session._closed or (runs and int(runs[0]) != session.run):
+                return Response({"detail": "Ejecución inexistente para esta sesión"}, status=404)
+            if session.status()["state"] != "completed":
+                return Response({"detail": "El resultado aún no está disponible"}, status=409)
+            return _video_response(request, session.directory / "annotated.mp4", "operix-annotated.mp4")

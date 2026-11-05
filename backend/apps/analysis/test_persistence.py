@@ -1,5 +1,6 @@
 """Web/API → worker real (detecciones fixture) → HTTP → DB/evidencia/consultas."""
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -86,6 +87,11 @@ class WebPersistenceTests(LiveServerTestCase):
 
     def test_web_pair_persistence_result_evidence_history_and_retention(self):
         identity = self.create()
+        url = f"/api/v1/analysis/sessions/{identity}/status/"
+        prepared = self.client.get(url).json()["configuration"]
+        changed_profile = json.loads(self.config.read_text(encoding="utf-8"))
+        changed_profile["rules"][0]["parameters"]["max_distance"] = .05
+        self.config.write_text(json.dumps(changed_profile), encoding="utf-8")
         data = self.run_analysis(identity)
         self.assertEqual(data["state"], "completed", data)
         self.assertEqual(data["persistence"]["state"], "saved", data)
@@ -93,6 +99,12 @@ class WebPersistenceTests(LiveServerTestCase):
         self.assertEqual(data["frame"], 4)
         self.assertEqual(Event.objects.count(), 2)
         session = sessions.get_session(identity)
+        snapshot = (session.directory / "operational_config.json").read_bytes()
+        digest = hashlib.sha256(snapshot).hexdigest()
+        self.assertEqual(digest, prepared["config_sha256"])
+        self.assertEqual(digest, data["result"]["config_sha256"])
+        self.assertEqual(prepared["rules"], json.loads(snapshot)["rules"])
+        self.assertEqual(prepared["rules"], data["result"]["rules"])
         receipts = json.loads((session.directory / "TEST_ONLY_overlay_receipts.json").read_text(encoding="utf-8"))
         self.assertEqual([row["frame"] for row in receipts], [0, 1, 2, 3])
         self.assertEqual(set(Event.objects.values_list("analysis_run_id", flat=True)), {UUID(data["analysis_run_id"])})
@@ -132,6 +144,12 @@ class WebPersistenceTests(LiveServerTestCase):
             self.assertEqual(evidence.status_code, 200)
             self.assertTrue(b"".join(evidence.streaming_content).startswith(b"\x89PNG"))
             self.assertEqual(event.source["session_id"], str(identity))
+            self.assertEqual(event.source["config_sha256"], digest)
+            rule = prepared["rules"][0]
+            self.assertEqual(event.rule_id, rule["rule_id"])
+            self.assertEqual(event.rule_version, rule["version"])
+            for key, value in rule["parameters"].items():
+                self.assertEqual(event.rule_parameters[key], value)
         self.assertEqual(self.client.get("/api/v1/events/frequencies/").json()["total"], 2)
         directory = sessions.get_session(identity).outbox_directory
         self.client.delete(f"/api/v1/analysis/sessions/{identity}/")
