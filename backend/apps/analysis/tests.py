@@ -111,7 +111,8 @@ class AnalysisSessionApiTests(SimpleTestCase):
         response = self.create()
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data["state"], "ready")
-        self.assertEqual(response.data["zone"]["zone_id"], "area_transito_demo")
+        self.assertEqual(response.data["zone"]["zone_id"], "custom_zone")
+        self.assertEqual(response.data["zone"]["polygon"], [])
         self.assertTrue(sessions.get_session(self.identities[0]).video_path.is_file())
         self.assertEqual(response.data["source_bytes"], 17)
         self.assertEqual(self.client.get(f"/api/v1/analysis/sessions/{self.identities[0]}/status/").status_code, 200)
@@ -164,6 +165,7 @@ class AnalysisSessionApiTests(SimpleTestCase):
                 self.identities.append(identity)
                 self.assertEqual(sessions.get_session(identity).video_path, self.demo_paths[profile].resolve())
                 self.assertEqual(response.data["demo_source_id"], source_id)
+                self.assertEqual(response.data["zone"], json.loads(sessions.PROFILES[profile].read_text(encoding="utf-8"))["zones"][0])
                 sessions.remove_session(identity)
                 self.identities.remove(identity)
 
@@ -225,6 +227,30 @@ class AnalysisSessionApiTests(SimpleTestCase):
         self.assertEqual(updated.status_code, 200)
         self.assertEqual(updated.data["source_kind"], "manual")
         self.assertEqual(session.video_path, original)
+
+    def test_manual_zones_do_not_inherit_demo_or_other_uploads(self):
+        for profile in ("A", "B", "C"):
+            response = self.create(profile)
+            identity = uuid.UUID(response.data["id"])
+            self.assertEqual(response.data["zone"]["polygon"], [])
+            polygon = [[0.1, 0.1], [0.9, 0.1], [0.8, 0.9]]
+            url = f"/api/v1/analysis/sessions/{identity}/zone/"
+            self.assertEqual(self.client.put(url, {"profile": "B"}, format="json").data["zone"]["polygon"], [])
+            self.assertEqual(self.client.put(url, {"polygon": polygon}, format="json").status_code, 200)
+            self.assertEqual(self.client.put(url, {"profile": "C"}, format="json").data["zone"]["polygon"], polygon)
+            self.assertEqual(self.client.get(f"/api/v1/analysis/sessions/{identity}/status/").data["zone"]["polygon"], polygon)
+            self.assertEqual(self.client.put(url, {"polygon": polygon[:2]}, format="json").status_code, 400)
+            sessions.remove_session(identity)
+            self.identities.remove(identity)
+
+    def test_manual_without_zone_cannot_start_worker(self):
+        self.create()
+        session = sessions.get_session(self.identities[0])
+        with patch("apps.analysis.sessions.subprocess.Popen") as process:
+            with self.assertRaisesMessage(ValueError, "Dibuje y aplique una zona"):
+                sessions.start_session(session)
+        process.assert_not_called()
+        self.assertEqual(session.run, 0)
 
     def test_invalid_upload_and_missing_session(self):
         self.assertEqual(self.create(name="secret.txt").status_code, 400)
@@ -325,6 +351,7 @@ class AnalysisSessionApiTests(SimpleTestCase):
     def test_restart_same_source_clears_old_result_and_resets_run(self):
         self.create()
         session = sessions.get_session(self.identities[0])
+        session.zone["polygon"] = [[0.1, 0.1], [0.9, 0.1], [0.8, 0.9]]
         session.state = "completed"
         (session.directory / "annotated.mp4").write_bytes(b"old")
         (session.directory / "status.json").write_text('{"state":"completed"}', encoding="utf-8")
@@ -333,6 +360,11 @@ class AnalysisSessionApiTests(SimpleTestCase):
         existing = Path(__file__)
         with override_settings(OPERIX_ENGINE_PYTHON=str(existing), OPERIX_PERSON_WEIGHTS=str(existing), OPERIX_FORKLIFT_WEIGHTS=str(existing)), patch("apps.analysis.sessions.subprocess.Popen", return_value=fake), patch("apps.analysis.sessions.threading.Thread.start"):
             sessions.start_session(session)
+        actual = json.loads((session.directory / "operational_config.json").read_text())
+        self.assertEqual(actual["zones"], [session.zone])
+        self.assertEqual(actual["view_id"], "manual_video")
+        self.assertEqual(actual["rules"][0]["parameters"]["zone_id"], "custom_zone")
+        self.assertEqual(actual["rules"][0]["parameters"]["min_duration_s"], 2.0)
         self.assertEqual(session.state, "preparing")
         self.assertEqual(session.run, 1)
         self.assertTrue(session.video_path.exists())

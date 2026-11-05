@@ -189,6 +189,47 @@ test(
       await go("/analysis?source=manual");
       await click("Perfil B Demo B");
       await wait(text("TEST_DATA_B.mp4"));
+      // Demo → archivo propio: la API entrega una zona vacía, sin polígonos ocultos.
+      await evaluate(
+        `(async()=>{const video=document.querySelector('video'); const blob=await (await fetch(video.src)).blob(); const dt=new DataTransfer();dt.items.add(new File([blob], 'TEST_DATA_custom.mp4', {type:'video/mp4'}));const input=document.querySelector('input[type=file]');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`,
+      );
+      await wait(text("Crear zona"));
+      assert.equal(
+        await evaluate("document.querySelectorAll('polygon').length"),
+        0,
+      );
+      await click("Crear zona");
+      await evaluate(
+        `(()=>{const svg=document.querySelector('svg[viewBox="0 0 100 100"]');const r=svg.getBoundingClientRect();for(const [x,y] of [[.1,.1],[.9,.1],[.9,.9],[.1,.9]])svg.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,clientX:r.left+x*r.width,clientY:r.top+y*r.height}));})()`,
+      );
+      await wait("document.querySelectorAll('ellipse').length===4");
+      await click("Cerrar polígono");
+      await click("Aplicar zona");
+      await wait(text("Editar zona"));
+      // Otro archivo propio vuelve a empezar vacío; el anterior no se reutiliza.
+      await evaluate(
+        `(async()=>{const blob=await (await fetch(document.querySelector('video').src)).blob();const dt=new DataTransfer();dt.items.add(new File([blob],'TEST_DATA_other.mp4',{type:'video/mp4'}));const input=document.querySelector('input[type=file]');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`,
+      );
+      await wait(text("Crear zona"));
+      assert.equal(
+        await evaluate("document.querySelectorAll('polygon').length"),
+        0,
+      );
+      await click("Perfil A Demo A");
+      await wait(text("Crear zona"));
+      // En una fuente manual cambiar perfil tampoco importa la geometría demo.
+      assert.equal(
+        await evaluate("document.querySelectorAll('polygon').length"),
+        0,
+      );
+      await evaluate(
+        "document.querySelector('details.analysis-more').open=true",
+      );
+      await click("Limpiar sesión");
+      await wait(text("Sin fuente preparada"));
+      await go("/analysis?profile=B");
+      await click("Perfil B Demo B");
+      await wait(text("TEST_DATA_B.mp4"));
       await click("Iniciar análisis");
       await wait(text("Preparando modelos y video"));
       assert.equal(
@@ -241,14 +282,54 @@ test(
         [90, 10],
         [90, 90],
         [10, 90],
+        [10, 50],
       ]) {
         await input("X (%)", String(x));
         await input("Y (%)", String(y));
         await click("Añadir vértice");
       }
       await click("Cerrar polígono");
+      await evaluate("document.querySelectorAll('ellipse')[4].focus()");
+      await click("Eliminar vértice");
+      await wait("document.querySelectorAll('ellipse').length===4");
+      await evaluate("document.querySelectorAll('ellipse')[3].focus()");
+      await call("Input.dispatchKeyEvent", {
+        type: "keyDown",
+        key: "Delete",
+        code: "Delete",
+        windowsVirtualKeyCode: 46,
+      });
+      await wait("document.querySelectorAll('ellipse').length===3");
+      await evaluate("document.querySelector('ellipse').focus()");
+      assert.equal(
+        await evaluate(
+          "[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Eliminar vértice').disabled",
+        ),
+        true,
+      );
+      await call("Input.dispatchKeyEvent", {
+        type: "keyDown",
+        key: "Backspace",
+        code: "Backspace",
+        windowsVirtualKeyCode: 8,
+      });
+      assert.equal(
+        await evaluate("document.querySelectorAll('ellipse').length"),
+        3,
+      );
       await click("Aplicar zona");
       await wait(text("Hay cambios de zona pendientes"));
+      const currentIds = (await control()).ids;
+      const applied = await (
+        await fetch(
+          `${api}/api/v1/analysis/sessions/${currentIds.at(-1)}/status/`,
+        )
+      ).json();
+      assert.equal(
+        applied.zone.polygon.length,
+        3,
+        "La zona guardada coincide con los tres puntos visibles",
+      );
       await control({ delayNextZone: true });
       await click("Editar zona");
       await click("Aplicar zona");

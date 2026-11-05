@@ -116,17 +116,27 @@ export async function startFixtureApi(port = 8000) {
         req.method === "POST"
       ) {
         const id = `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}`;
-        const profile = body.profile ?? "A";
+        const manual = req.headers["content-type"]?.includes(
+          "multipart/form-data",
+        );
+        const profile =
+          body.profile ??
+          raw.match(/name="profile"\r\n\r\n([ABC])/)?.[1] ??
+          "A";
         const session = {
           id,
           state: "ready",
           filename: `TEST_DATA_${profile}.mp4`,
           profile,
           source_bytes: video.length,
-          source_kind: "demo",
+          source_kind: manual ? "manual" : "demo",
           source_sha256: "0".repeat(64),
-          demo_source_id: `demo-${profile}`,
-          zone: { zone_id: "TEST_DATA_ZONE", name: "Zona fixture", polygon },
+          demo_source_id: manual ? null : `demo-${profile}`,
+          zone: {
+            zone_id: manual ? "custom_zone" : "TEST_DATA_ZONE",
+            name: "Zona fixture",
+            polygon: manual ? [] : polygon,
+          },
           run: 0,
           result: null,
           pending_changes: false,

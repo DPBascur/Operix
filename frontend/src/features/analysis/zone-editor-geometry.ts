@@ -22,3 +22,19 @@ export function pointInFrame(event: PointerSample): NormalizedVertex | null {
     Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height)),
   ];
 }
+
+/** Un polígono cerrado nunca pierde su mínimo geométrico. */
+export function removeVertex(
+  vertices: NormalizedVertex[],
+  index: number | null,
+): NormalizedVertex[] {
+  if (
+    index === null ||
+    !Number.isInteger(index) ||
+    index < 0 ||
+    index >= vertices.length ||
+    vertices.length <= 3
+  )
+    return vertices;
+  return vertices.filter((_, current) => current !== index);
+}

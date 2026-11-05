@@ -64,6 +64,11 @@ class WebPersistenceTests(LiveServerTestCase):
         self.assertEqual(response.status_code, 201, response.data)
         identity = UUID(response.data["id"])
         self.identities.append(identity)
+        # Una carga manual exige dibujar/aplicar su zona antes de ejecutar.
+        polygon = [[0, 0], [1, 0], [1, 1], [0, 1]]
+        applied = self.client.put(f"/api/v1/analysis/sessions/{identity}/zone/",
+                                  {"polygon": polygon}, format="json")
+        self.assertEqual(applied.status_code, 200, applied.data)
         return identity
 
     def run_analysis(self, identity):

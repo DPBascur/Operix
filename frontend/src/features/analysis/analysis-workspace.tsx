@@ -25,7 +25,7 @@ import {
   type DemoVideoSource,
   type NormalizedVertex,
 } from "@/services/analysis.service";
-import { pointInFrame } from "./zone-editor-geometry";
+import { pointInFrame, removeVertex } from "./zone-editor-geometry";
 import { environment } from "@/config/environment";
 import {
   analysisPercent,
@@ -171,7 +171,7 @@ export function AnalysisWorkspace({
             setProfile(restored.value.profile);
             setDraft(restored.value.zone.polygon);
             setVideoInfo(sessionVideoInfo(restored.value));
-            setClosed(true);
+            setClosed(restored.value.zone.polygon.length >= 3);
             return;
           }
         }
@@ -301,7 +301,8 @@ export function AnalysisWorkspace({
       }
       setSession(created);
       setDraft(created.zone.polygon);
-      setClosed(true);
+      setClosed(created.zone.polygon.length >= 3);
+      setSelectedVertex(null);
     } catch (cause) {
       if (generation.current === current) {
         if (selectedLocally) {
@@ -354,7 +355,8 @@ export function AnalysisWorkspace({
     setDemoSource(demo);
     setSession(created);
     setDraft(created.zone.polygon);
-    setClosed(true);
+    setClosed(created.zone.polygon.length >= 3);
+    setSelectedVertex(null);
     setEditing(false);
   }
 
@@ -455,7 +457,8 @@ export function AnalysisWorkspace({
         });
         setSession(updated);
         setDraft(updated.zone.polygon);
-        setClosed(true);
+        setClosed(updated.zone.polygon.length >= 3);
+        setSelectedVertex(null);
         setEditing(false);
       } else {
         const nextDemo = profiles.find(
@@ -571,6 +574,13 @@ export function AnalysisWorkspace({
     event: KeyboardEvent<SVGEllipseElement>,
     index: number,
   ) {
+    if (event.key === "Delete" || event.key === "Backspace") {
+      event.preventDefault();
+      setDraft((points) => removeVertex(points, index));
+      setSelectedVertex(null);
+      dragging.current = null;
+      return;
+    }
     const step = event.shiftKey ? 0.01 : 0.005;
     const movement: Partial<Record<string, NormalizedVertex>> = {
       ArrowLeft: [-step, 0],
@@ -813,7 +823,7 @@ export function AnalysisWorkspace({
                           vectorEffect="non-scaling-stroke"
                           tabIndex={0}
                           role="button"
-                          aria-label={`Vértice ${index + 1}, x ${(x * 100).toFixed(1)} %, y ${(y * 100).toFixed(1)} %. Use las flechas para moverlo; mantenga Mayús para un desplazamiento mayor.`}
+                          aria-label={`Vértice ${index + 1}, x ${(x * 100).toFixed(1)} %, y ${(y * 100).toFixed(1)} %. Use las flechas para moverlo y Mayús para un desplazamiento mayor; Suprimir elimina el vértice si hay más de tres.`}
                           onFocus={() => setSelectedVertex(index)}
                           onKeyDown={(event) =>
                             moveVertexWithKeyboard(event, index)
@@ -907,6 +917,7 @@ export function AnalysisWorkspace({
                 <Button
                   className="order-first"
                   onClick={() => void start()}
+                  disabled={!session || !validPolygon(session.zone.polygon)}
                   variant="primary"
                 >
                   {state === "ready" ? (
@@ -935,11 +946,16 @@ export function AnalysisWorkspace({
                 <Button
                   onClick={() => {
                     videoRef.current?.pause();
+                    setClosed((session?.zone.polygon.length ?? 0) >= 3);
+                    setSelectedVertex(null);
                     setEditing(true);
                   }}
                   variant="outline"
                 >
-                  <Waypoints size={16} aria-hidden="true" /> Editar zona
+                  <Waypoints size={16} aria-hidden="true" />{" "}
+                  {session && session.zone.polygon.length < 3
+                    ? "Crear zona"
+                    : "Editar zona"}
                 </Button>
               )}
               {session && canEdit && (
@@ -989,14 +1005,10 @@ export function AnalysisWorkspace({
                 <Button
                   variant="secondary"
                   onClick={() => {
-                    setDraft((points) =>
-                      points.filter((_, index) => index !== selectedVertex),
-                    );
+                    setDraft((points) => removeVertex(points, selectedVertex));
                     setSelectedVertex(null);
                   }}
-                  disabled={
-                    selectedVertex === null || (closed && draft.length <= 3)
-                  }
+                  disabled={selectedVertex === null || draft.length <= 3}
                 >
                   Eliminar vértice
                 </Button>
@@ -1021,7 +1033,7 @@ export function AnalysisWorkspace({
                 <span className="text-text-secondary">
                   {draft.length} {draft.length === 1 ? "vértice" : "vértices"} ·{" "}
                   {closed
-                    ? "arrastre o use flechas con foco"
+                    ? "seleccione un punto para moverlo o eliminarlo (mínimo 3)"
                     : "marque puntos y pulse el primero para cerrar"}
                 </span>
               </div>
@@ -1110,6 +1122,9 @@ export function AnalysisWorkspace({
                 : sourceName
                   ? "Video listo para preparar."
                   : "No hay un análisis en curso."}
+            {session && !editing && session.zone.polygon.length < 3 && (
+              <span> Cree y aplique una zona para iniciar el análisis.</span>
+            )}
             {visibleError && (
               <span className="analysis-error-message">{visibleError}</span>
             )}

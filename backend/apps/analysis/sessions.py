@@ -313,7 +313,9 @@ def _register_session(
     source_bytes: int, source_kind: str, demo_source_id: str | None,
     directory: Path,
 ) -> AnalysisSession:
-    zone = json.loads(PROFILES[profile].read_text(encoding="utf-8"))["zones"][0]
+    zone = (json.loads(PROFILES[profile].read_text(encoding="utf-8"))["zones"][0]
+            if source_kind == "demo" else
+            {"zone_id": "custom_zone", "name": "Zona del video", "polygon": []})
     session = AnalysisSession(
         uuid.uuid4(), directory, filename, profile, video_path, source_sha256,
         source_bytes, source_kind, demo_source_id, zone,
@@ -488,6 +490,8 @@ def _start_session(session: AnalysisSession) -> None:
             session.process is not None and session.process.poll() is None
         ):
             raise ValueError("Espere a que termine el análisis actual")
+        if len(session.zone.get("polygon", [])) < 3:
+            raise ValueError("Dibuje y aplique una zona antes de iniciar el análisis")
         python = Path(settings.OPERIX_ENGINE_PYTHON)
         person = Path(settings.OPERIX_PERSON_WEIGHTS) if settings.OPERIX_PERSON_WEIGHTS else None
         forklift = Path(settings.OPERIX_FORKLIFT_WEIGHTS) if settings.OPERIX_FORKLIFT_WEIGHTS else None
@@ -528,16 +532,23 @@ def _start_session(session: AnalysisSession) -> None:
             "--forklift-weights", str(forklift), "--forklift-sha256", FORKLIFT_SHA256,
             "--batch-size", "1",
         ]
+        # La configuración de ejecución debe usar la zona de esta fuente incluso sin persistencia.
+        actual = json.loads(PROFILES[session.profile].read_text(encoding="utf-8"))
+        original_zone_id = actual["zones"][0]["zone_id"]
+        actual["zones"] = [json.loads(json.dumps(session.zone))]
+        if session.source_kind == "manual":
+            actual["view_id"] = "manual_video"
+        for rule in actual["rules"]:
+            if rule["parameters"].get("zone_id") == original_zone_id:
+                rule["parameters"]["zone_id"] = session.zone["zone_id"]
+        snapshot = json.dumps(actual, sort_keys=True).encode()
+        config_path = session.directory / "operational_config.json"
+        config_path.write_bytes(snapshot)
+        command[command.index("--config") + 1] = str(config_path)
         session.outbox_directory = None
         session.analysis_run_id = str(uuid.uuid5(session.id, str(session.run)))
         if settings.EVENT_POST_ENABLED:
             api_url = local_event_api_url()
-            actual = json.loads(PROFILES[session.profile].read_text(encoding="utf-8"))
-            actual["zones"] = [json.loads(json.dumps(session.zone))]
-            snapshot = json.dumps(actual, sort_keys=True).encode()
-            config_path = session.directory / "operational_config.json"
-            config_path.write_bytes(snapshot)
-            command[command.index("--config") + 1] = str(config_path)
             session.outbox_directory = Path(settings.MEDIA_ROOT) / "analysis-events" / session.analysis_run_id
             session.outbox_directory.mkdir(parents=True, exist_ok=False)
             source = {"filename": session.filename, "kind": session.source_kind,

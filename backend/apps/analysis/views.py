@@ -167,10 +167,13 @@ class SessionZoneView(APIView):
             return Response({"detail": "Indique perfil o polígono"}, status=400)
         zone = (
             json.loads(PROFILES[profile].read_text(encoding="utf-8"))["zones"][0]
-            if profile != session.profile else session.zone
+            if profile != session.profile and session.source_kind == "demo" else session.zone
         )
         polygon = request.data.get("polygon", zone["polygon"])
-        if not isinstance(polygon, list) or not 3 <= len(polygon) <= 32:
+        if not isinstance(polygon, list) or not (
+            3 <= len(polygon) <= 32 or
+            (polygon == [] and session.source_kind == "manual" and "polygon" not in request.data)
+        ):
             return Response({"detail": "Se requieren entre 3 y 32 vértices"}, status=400)
         for point in polygon:
             if not isinstance(point, list) or len(point) != 2 or any(

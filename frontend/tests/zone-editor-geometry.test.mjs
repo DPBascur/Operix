@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { pointInFrame } from "../src/features/analysis/zone-editor-geometry.ts";
+import {
+  pointInFrame,
+  removeVertex,
+} from "../src/features/analysis/zone-editor-geometry.ts";
 
 const sample = (clientX, clientY, width = 200, height = 100) => ({
   clientX,
@@ -30,4 +33,31 @@ test("el punto capturado sobrevive al evento React liberado y a updaters diferid
 test("un canvas sin área visible no produce coordenadas NaN", () => {
   assert.equal(pointInFrame(sample(0, 0, 0)), null);
   assert.equal(pointInFrame(sample(0, 0, 200, 0)), null);
+});
+
+test("elimina solo el vértice elegido sin mutar el polígono original", () => {
+  const points = [
+    [0, 0],
+    [1, 0],
+    [1, 1],
+    [0, 1],
+  ];
+  assert.deepEqual(removeVertex(points, 1), [
+    [0, 0],
+    [1, 1],
+    [0, 1],
+  ]);
+  assert.equal(points.length, 4);
+});
+
+test("protege el mínimo de tres puntos e ignora selecciones inválidas", () => {
+  const triangle = [
+    [0, 0],
+    [1, 0],
+    [0, 1],
+  ];
+  assert.equal(removeVertex(triangle, 1), triangle);
+  const square = [...triangle, [0.5, 0.5]];
+  for (const index of [null, -1, 4, 0.5])
+    assert.equal(removeVertex(square, index), square);
 });
