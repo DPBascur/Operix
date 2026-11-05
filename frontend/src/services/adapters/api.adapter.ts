@@ -23,15 +23,14 @@ export class ApiAdapter implements FrontendDataAdapter {
     if (!environment.apiBaseUrl) {
       throw new Error("Falta NEXT_PUBLIC_API_BASE_URL para consultar la API.");
     }
-    const url = new URL(`${environment.apiBaseUrl.replace(/\/$/, "")}/events/`);
+    const url = `${environment.apiBaseUrl.replace(/\/$/, "")}/events/`;
     const params = new URLSearchParams();
     if (filters.occurredAfter)
       params.set("occurred_after", filters.occurredAfter);
     if (filters.occurredBefore)
       params.set("occurred_before", filters.occurredBefore);
     if (filters.eventType) params.set("event_type", filters.eventType);
-    url.search = params.toString();
-    const response = await fetch(url.toString(), { cache: "no-store" });
+    const response = await fetch(`${url}?${params}`, { cache: "no-store" });
     if (!response.ok) {
       throw new Error(`La API respondió con estado ${response.status}.`);
     }
@@ -58,7 +57,9 @@ export class ApiAdapter implements FrontendDataAdapter {
       status: "Registrado",
       tone: "accent" as const,
       evidenceUrl: event.evidence_url?.startsWith("/api/v1/events/")
-        ? new URL(event.evidence_url, environment.apiBaseUrl).toString()
+        ? environment.apiBaseUrl === "/api/v1"
+          ? event.evidence_url
+          : new URL(event.evidence_url, environment.apiBaseUrl).toString()
         : null,
     }));
   }

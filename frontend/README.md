@@ -17,6 +17,57 @@ pnpm dev
 
 La aplicación queda disponible en `http://localhost:3000`.
 
+## Demo privada desde otro equipo por Tailscale (Windows con GPU)
+
+Con Tailscale conectado en ambos equipos, los entornos nativos instalados y
+`backend/.env` configurado (PostgreSQL local y pesos verificados fuera de Git),
+ejecutar desde la raíz del repositorio:
+
+```powershell
+.\scripts\start-demo.ps1
+```
+
+El script comprueba CUDA/pesos, inicia PostgreSQL local si hace falta y existe su
+instalación local, compila y levanta el frontend de producción en `0.0.0.0:13000`
+y Django exclusivamente en `127.0.0.1:18000`, sin autoreload. No descarga pesos ni
+dependencias. Detecta la IPv4 de Tailscale y muestra la URL para el otro equipo;
+en el PC también funciona `http://localhost:13000`. Mantener la terminal abierta;
+detener los análisis antes de cerrarla con Ctrl+C. Solo termina sus propios
+procesos; conserva PostgreSQL y los datos existentes. Los logs quedan en el
+directorio temporal de Windows, fuera de Git. No ejecutar simultáneamente otro
+frontend/API en esos puertos. No modifica ni necesita levantar Docker.
+
+Opciones: `-FrontendPort`, `-BackendPort`, `-TailnetAddress`, `-NodePath`,
+`-PostgresBin`, `-PostgresData`. Usa Node 24.2.0 y los entornos Python existentes.
+La configuración privada se carga solo en el proceso; no reescribe `.env`.
+
+El navegador usa `/api/v1` del mismo origen. El rewrite opt-in de Next apunta a
+`OPERIX_API_PROXY_TARGET` (solo servidor), sin incorporar `localhost` como URL
+de API en el navegador. Carga de archivos, MJPEG, MP4 con Range y PNG pasan por
+esa ruta. Los videos se suben al PC, donde Django lanza el Motor y la RTX 3070
+ejecuta la inferencia; el Mac solo recibe la interfaz y los resultados. API y
+PostgreSQL no necesitan puertos remotos. La ruta Docker existente permanece
+intacta, incluidos nombres de servicios y red interna.
+
+Antes de usar otro equipo, permitir en Windows Firewall **solo TCP del puerto
+frontend**, con dirección local igual a la IPv4 Tailscale del PC y dirección
+remota igual a la IPv4 Tailscale del equipo de la demo. No habilitar acceso por
+LAN/Internet ni reglas generales para Node. En PowerShell como administrador:
+
+```powershell
+$pcTailnet = '<IPv4 Tailscale del PC>'
+$peerTailnet = '<IPv4 Tailscale del Mac>'
+New-NetFirewallRule -DisplayName 'Operix demo Tailscale' -Direction Inbound -Action Allow -Protocol TCP -LocalAddress $pcTailnet -LocalPort 13000 -RemoteAddress $peerTailnet -Profile Any
+# Revertir únicamente esta autorización al terminar:
+Remove-NetFirewallRule -DisplayName 'Operix demo Tailscale'
+```
+
+Comprobar que no haya permisos amplios preexistentes para Node; esta regla acotada
+no los revoca. No abrir router, puertos de DB, túneles públicos ni Tailscale Funnel.
+No cambia autenticación: reservarlo a los equipos autorizados de la tailnet.
+Desde el Mac abrir la URL mostrada y comprobar `/api/v1/health/` en ese mismo
+origen. Para observar uso de GPU en el PC durante un análisis: `nvidia-smi -l 1`.
+
 ## Scripts
 
 - `pnpm dev`: servidor de desarrollo.

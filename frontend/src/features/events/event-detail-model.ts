@@ -97,6 +97,7 @@ export function evidenceHref(
     `/api/v1/events/${encodeURIComponent(event.id)}/evidence/`
   )
     return null;
+  if (apiBaseUrl === "/api/v1") return event.evidence_url;
   try {
     const base = new URL(apiBaseUrl);
     if (!["http:", "https:"].includes(base.protocol)) return null;

@@ -111,6 +111,10 @@ verificados permanecen fuera de Git y no se descargan al arrancar.
 El worker web requiere CUDA; instalar el Motor en CPU no habilita esa ruta.
 Login y usuarios son demostrativos y no protegen la API.
 
+Para una demo privada desde otro equipo conectado por Tailscale, ejecutar
+`.\scripts\start-demo.ps1` en Windows. La [guía del frontend](frontend/README.md#demo-privada-desde-otro-equipo-por-tailscale-windows-con-gpu)
+documenta el arranque nativo, acceso por el mismo origen y Firewall acotado.
+
 El lock Windows/CUDA fija Ultralytics 8.4.146 para las evidencias correspondientes.
 Una instalación genérica no fijada puede resolver otra versión compatible;
 las pruebas CPU históricas no cambian los resultados del entorno fijado.

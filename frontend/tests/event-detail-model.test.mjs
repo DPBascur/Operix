@@ -116,4 +116,12 @@ test("evidencia usa solo el endpoint del evento en la API configurada", () => {
       null,
     );
   assert.equal(evidenceHref(event, "javascript:alert(1)"), null);
+  assert.equal(evidenceHref(event, "/api/v1"), event.evidence_url);
+  assert.equal(
+    evidenceHref(
+      { ...event, evidence_url: "//elsewhere.test/image.png" },
+      "/api/v1",
+    ),
+    null,
+  );
 });
