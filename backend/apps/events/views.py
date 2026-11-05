@@ -9,11 +9,13 @@ from django.db.models.functions import TruncDate
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from config.access import CanReviewEvents
 
 from .models import Event
 from .publication import require_event_publisher
@@ -21,6 +23,8 @@ from .serializers import EventFilterSerializer, EventSerializer
 
 
 @api_view(["GET"])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def health(request):
     try:
         with connection.cursor() as cursor:
@@ -31,7 +35,18 @@ def health(request):
     return Response({"status": "ok", "database": "ok"})
 
 
-class EventListCreateView(generics.ListCreateAPIView):
+class PublisherWriteMixin:
+    def get_authenticators(self):
+        # POST pasa exclusivamente por require_event_publisher, incluso con cookie.
+        if self.request.method == "POST":
+            return []
+        return super().get_authenticators()
+
+    def get_permissions(self):
+        return [AllowAny()] if self.request.method == "POST" else [CanReviewEvents()]
+
+
+class EventListCreateView(PublisherWriteMixin, generics.ListCreateAPIView):
     serializer_class = EventSerializer
     queryset = Event.objects.all()
 
@@ -74,6 +89,7 @@ class EventListCreateView(generics.ListCreateAPIView):
 
 
 class EventDetailView(generics.RetrieveAPIView):
+    permission_classes = [CanReviewEvents]
     serializer_class = EventSerializer
     queryset = Event.objects.all()
 
@@ -98,6 +114,7 @@ def filtered_events(queryset, query_params):
 class EventFrequencyView(APIView):
     """Frecuencias UTC de eventos persistidos, no indicadores de riesgo."""
 
+    permission_classes = [CanReviewEvents]
     def get(self, request):
         queryset = filtered_events(Event.objects.all(), request.query_params)
         grouped = queryset.annotate(day=TruncDate("occurred_at", tzinfo=timezone.utc)).values(
@@ -197,7 +214,7 @@ def validate_png(content):
         offset += length
 
 
-class EventEvidenceView(APIView):
+class EventEvidenceView(PublisherWriteMixin, APIView):
     parser_classes = (MultiPartParser,)
 
     def get(self, request, pk):

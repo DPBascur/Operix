@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, override_settings
-from rest_framework.test import APIClient
+from config.test_clients import administrator_client
 
 from . import sessions
 
@@ -30,7 +30,7 @@ class AnalysisCandidateTransportTests(SimpleTestCase):
         registry = patch.dict(sessions._sessions, {self.identity: self.session})
         registry.start()
         self.addCleanup(registry.stop)
-        self.client = APIClient()
+        self.client = administrator_client()
         self.url = f"/api/v1/analysis/sessions/{self.identity}/status/"
 
     def update(self, **fields):
@@ -77,7 +77,7 @@ class AnalysisCandidateTransportTests(SimpleTestCase):
 )
 class AnalysisSessionApiTests(SimpleTestCase):
     def setUp(self):
-        self.client = APIClient()
+        self.client = administrator_client()
         self.identities = []
         self.demo_directory = tempfile.TemporaryDirectory()
         demo_root = Path(self.demo_directory.name)

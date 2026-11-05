@@ -16,6 +16,7 @@ from rest_framework import status
 from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from config.access import CanAnalyze, request_role
 from apps.events.publication import event_publisher_environment
 
 from .sessions import (
@@ -25,12 +26,22 @@ from .sessions import (
 )
 
 
-class ProfileListView(APIView):
+class AnalysisView(APIView):
+    permission_classes = [CanAnalyze]
+
+    def owned_session(self, request, pk):
+        session = get_session(pk)
+        if session and (request_role(request) == "administrator" or session.owner_id == request.user.pk):
+            return session
+        return None
+
+
+class ProfileListView(AnalysisView):
     def get(self, request):
         return Response(profile_catalog())
 
 
-class DemoSourceView(APIView):
+class DemoSourceView(AnalysisView):
     def get(self, request, profile, source_id):
         try:
             path = get_demo_video(profile, source_id)
@@ -41,7 +52,7 @@ class DemoSourceView(APIView):
         return _video_response(request, path, path.name)
 
 
-class SessionListView(APIView):
+class SessionListView(AnalysisView):
     parser_classes = [MultiPartParser, JSONParser]
 
     def post(self, request):
@@ -54,7 +65,7 @@ class SessionListView(APIView):
         demo_source_id = request.data.get("demo_source_id")
         try:
             if upload is not None and demo_source_id is None:
-                session = create_session(upload, profile)
+                session = create_session(upload, profile, owner_id=request.user.pk)
             elif upload is None and isinstance(demo_source_id, str):
                 expected = next(
                     (
@@ -66,7 +77,7 @@ class SessionListView(APIView):
                 )
                 if demo_source_id != expected:
                     raise ValueError("La fuente demo no corresponde al perfil")
-                session = create_demo_session(profile)
+                session = create_demo_session(profile, owner_id=request.user.pk)
             else:
                 raise ValueError("Seleccione un video o una fuente demo válida")
         except (ValueError, RuntimeError) as error:
@@ -76,22 +87,22 @@ class SessionListView(APIView):
         return Response(session.status(), status=status.HTTP_201_CREATED)
 
 
-class SessionDetailView(APIView):
+class SessionDetailView(AnalysisView):
     def get(self, request, pk):
-        session = get_session(pk)
+        session = self.owned_session(request, pk)
         return Response(session.status()) if session else Response({"detail": "Sesión inexistente"}, status=404)
 
     def delete(self, request, pk):
-        session = get_session(pk)
+        session = self.owned_session(request, pk)
         if session is None:
             return Response({"detail": "Sesión inexistente"}, status=404)
         remove_session(pk)
         return Response(status=204)
 
 
-class SessionStopView(APIView):
+class SessionStopView(AnalysisView):
     def post(self, request, pk):
-        session = get_session(pk)
+        session = self.owned_session(request, pk)
         if session is None:
             return Response({"detail": "Sesión inexistente"}, status=404)
         session.status()
@@ -102,9 +113,9 @@ class SessionStopView(APIView):
         return Response(session.status())
 
 
-class SessionStartView(APIView):
+class SessionStartView(AnalysisView):
     def post(self, request, pk):
-        session = get_session(pk)
+        session = self.owned_session(request, pk)
         if session is None:
             return Response({"detail": "Sesión inexistente"}, status=404)
         try:
@@ -118,13 +129,13 @@ class SessionStartView(APIView):
         return Response(session.status(), status=202)
 
 
-class SessionPersistenceRetryView(APIView):
+class SessionPersistenceRetryView(AnalysisView):
     """Solo reenvía snapshots existentes de esta sesión; no ejecuta inferencia."""
 
     def post(self, request, pk):
         if not settings.EVENT_POST_ENABLED:
             raise PermissionDenied("La publicación no está habilitada.")
-        session = get_session(pk)
+        session = self.owned_session(request, pk)
         if session is None:
             return Response({"detail": "Sesión inexistente"}, status=404)
         with session._guard:
@@ -152,11 +163,11 @@ class SessionPersistenceRetryView(APIView):
         return Response(session.status())
 
 
-class SessionZoneView(APIView):
+class SessionZoneView(AnalysisView):
     def put(self, request, pk):
         if not isinstance(request.data, Mapping):
             return Response({"detail": "Se requiere un objeto con perfil o polígono"}, status=400)
-        session = get_session(pk)
+        session = self.owned_session(request, pk)
         if session is None:
             return Response({"detail": "Sesión inexistente"}, status=404)
         if session.status()["state"] not in {"ready", "completed", "cancelled", "error"}:
@@ -224,9 +235,9 @@ else:
     return outcome == "valid"
 
 
-class SessionStreamView(APIView):
+class SessionStreamView(AnalysisView):
     def get(self, request, pk):
-        session = get_session(pk)
+        session = self.owned_session(request, pk)
         if session is None:
             return Response({"detail": "Sesión inexistente"}, status=404)
         if session.process is None and session.status()["state"] == "ready":
@@ -239,9 +250,9 @@ class SessionStreamView(APIView):
         return response
 
 
-class SessionSourceView(APIView):
+class SessionSourceView(AnalysisView):
     def get(self, request, pk):
-        session = get_session(pk)
+        session = self.owned_session(request, pk)
         if session is None:
             return Response({"detail": "Sesión inexistente"}, status=404)
         return _video_response(request, session.video_path, session.filename)
@@ -303,9 +314,9 @@ def _video_response(request, path, filename):
     return response
 
 
-class SessionResultView(APIView):
+class SessionResultView(AnalysisView):
     def get(self, request, pk):
-        session = get_session(pk)
+        session = self.owned_session(request, pk)
         if session is None:
             return Response({"detail": "Sesión inexistente"}, status=404)
         runs = request.query_params.getlist("run")

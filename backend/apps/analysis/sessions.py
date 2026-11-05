@@ -87,6 +87,7 @@ class AnalysisSession:
     analysis_run_id: str | None = None
     _closed: bool = field(default=False, repr=False)
     _cleanup_generation: int = field(default=0, repr=False)
+    owner_id: int | None = None
     profile_config: dict | None = field(default=None, repr=False)
 
     def operational_config(self) -> dict:
@@ -351,7 +352,7 @@ def _validate_video_file(path: Path, filename: str, size: int) -> None:
 def _register_session(
     *, profile: str, filename: str, video_path: Path, source_sha256: str,
     source_bytes: int, source_kind: str, demo_source_id: str | None,
-    directory: Path,
+    directory: Path, owner_id: int | None,
 ) -> AnalysisSession:
     profile_config = read_profile(profile)
     zone = (profile_config["zones"][0]
@@ -360,7 +361,7 @@ def _register_session(
     session = AnalysisSession(
         uuid.uuid4(), directory, filename, profile, video_path, source_sha256,
         source_bytes, source_kind, demo_source_id, zone,
-        profile_config=profile_config,
+        profile_config=profile_config, owner_id=owner_id,
     )
     with _lock:
         if len(_sessions) >= settings.OPERIX_ANALYSIS_MAX_SESSIONS:
@@ -370,7 +371,7 @@ def _register_session(
     return session
 
 
-def create_session(upload, profile: str) -> AnalysisSession:
+def create_session(upload, profile: str, *, owner_id: int | None = None) -> AnalysisSession:
     if not isinstance(profile, str) or profile not in PROFILES:
         raise ValueError("Perfil de zona no válido")
     filename = _clean_filename(upload.name)
@@ -400,14 +401,14 @@ def create_session(upload, profile: str) -> AnalysisSession:
         return _register_session(
             profile=profile, filename=filename, video_path=video_path,
             source_sha256=digest.hexdigest(), source_bytes=count,
-            source_kind="manual", demo_source_id=None, directory=directory,
+            source_kind="manual", demo_source_id=None, directory=directory, owner_id=owner_id,
         )
     except Exception:
         shutil.rmtree(directory, ignore_errors=True)
         raise
 
 
-def create_demo_session(profile: str) -> AnalysisSession:
+def create_demo_session(profile: str, *, owner_id: int | None = None) -> AnalysisSession:
     demo = _demo_path(profile)
     if demo is None:
         raise ValueError("El perfil no tiene un video demo disponible")
@@ -424,7 +425,7 @@ def create_demo_session(profile: str) -> AnalysisSession:
         return _register_session(
             profile=profile, filename=filename, video_path=video_path,
             source_sha256=digest.hexdigest(), source_bytes=source_bytes,
-            source_kind="demo", demo_source_id=source_id, directory=directory,
+            source_kind="demo", demo_source_id=source_id, directory=directory, owner_id=owner_id,
         )
     except Exception:
         shutil.rmtree(directory, ignore_errors=True)

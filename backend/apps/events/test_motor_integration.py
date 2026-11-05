@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from django.db import connection
 from django.test import LiveServerTestCase, override_settings
-from rest_framework.test import APIClient
+from config.test_clients import administrator_client
 from .publication import event_publisher_environment
 
 from .models import Event
@@ -130,12 +130,12 @@ print(json.dumps(outbox.replay()))
         self.assertEqual(again.returncode, 0, again.stderr)
         self.assertEqual(set(Event.objects.values_list("id", flat=True)), ids)
         for event in Event.objects.all():
-            response = APIClient().get(f"/api/v1/events/{event.id}/evidence/")
+            response = administrator_client().get(f"/api/v1/events/{event.id}/evidence/")
             self.assertEqual(response.status_code, 200)
             self.assertTrue(b"".join(response.streaming_content).startswith(b"\x89PNG"))
         filters = {"event_type": "person_forklift_proximity"}
-        self.assertEqual(len(APIClient().get("/api/v1/events/", filters).json()), 2)
-        self.assertEqual(APIClient().get("/api/v1/events/frequencies/", filters).json()["total"], 2)
+        self.assertEqual(len(administrator_client().get("/api/v1/events/", filters).json()), 2)
+        self.assertEqual(administrator_client().get("/api/v1/events/frequencies/", filters).json()["total"], 2)
 
     def execute_motor(self, run, *, fps=2, duration=1):
         process = subprocess.run([
@@ -192,7 +192,7 @@ print(json.dumps(outbox.replay()))
         self.assertEqual((event.track_id, event.zone_id), (7, "TEST_DATA_ZONE"))
         self.assertEqual((event.frame_index, float(event.video_timestamp_s)), (2, 1.0))
         self.assertEqual(float(event.observed_dwell_time_s), candidate["observed_dwell_time_s"])
-        api = APIClient()
+        api = administrator_client()
         detail = api.get(f"/api/v1/events/{event.id}/").json()
         image = api.get(detail["evidence_url"])
         try:

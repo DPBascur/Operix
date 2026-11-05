@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import uuid
 
 from rest_framework.test import APITestCase
+from config.test_clients import administrator_client
 
 from .models import Event
 
@@ -13,6 +14,7 @@ class EventFrequencyTests(APITestCase):
     url = "/api/v1/events/frequencies/"
 
     def setUp(self):
+        self.client = administrator_client()
         self.dates = [
             "2026-10-19T23:59:59+00:00", "2026-10-20T00:00:00+00:00",
             "2026-10-20T01:00:00+00:00", "2026-10-21T00:30:00+03:00",

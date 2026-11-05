@@ -28,6 +28,15 @@ if not re.fullmatch(r"[A-Za-z0-9_-]{32,}", OPERIX_EVENT_PUBLISH_TOKEN):
 OPERIX_EVENT_API_BASE_URL = os.environ.get("OPERIX_EVENT_API_BASE_URL", "http://127.0.0.1:8000/api/v1")
 ALLOWED_HOSTS = csv_setting("DJANGO_ALLOWED_HOSTS")
 CORS_ALLOWED_ORIGINS = csv_setting("CORS_ALLOWED_ORIGINS")
+CSRF_TRUSTED_ORIGINS = csv_setting("CSRF_TRUSTED_ORIGINS")
+SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = os.environ.get("OPERIX_SECURE_COOKIES", "0") == "1"
+SESSION_COOKIE_HTTPONLY = CSRF_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = CSRF_COOKIE_SAMESITE = "Lax"
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": f"django.contrib.auth.password_validation.{name}"}
+    for name in ("UserAttributeSimilarityValidator", "MinimumLengthValidator",
+                 "CommonPasswordValidator", "NumericPasswordValidator")
+]
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -84,8 +93,8 @@ DATABASES = {
 
 REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "apps.events.exceptions.api_exception_handler",
-    "DEFAULT_AUTHENTICATION_CLASSES": [],
-    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],
+    "DEFAULT_AUTHENTICATION_CLASSES": ["config.access.BrowserSessionAuthentication"],
+    "DEFAULT_PERMISSION_CLASSES": ["config.access.HasOperixRole"],
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     "DEFAULT_PARSER_CLASSES": ["rest_framework.parsers.JSONParser"],
 }

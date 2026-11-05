@@ -9,6 +9,7 @@ from uuid import uuid4
 from django.conf import settings
 from django.test import override_settings
 from rest_framework.test import APITestCase
+from config.test_clients import administrator_client
 
 from .models import Event
 from .pair_contract import validate_pair_parameters
@@ -35,6 +36,7 @@ def pair_payload():
 @override_settings(EVENT_POST_ENABLED=True)
 class PairEventApiTests(APITestCase):
     def setUp(self):
+        self.client = administrator_client()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {settings.OPERIX_EVENT_PUBLISH_TOKEN}")
         self.payload = pair_payload()
 

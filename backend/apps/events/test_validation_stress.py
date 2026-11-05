@@ -15,11 +15,15 @@ from uuid import uuid4
 
 from django.db import connection
 from rest_framework.test import APITestCase
+from config.test_clients import administrator_client
 
 from .models import Event
 
 
 class ControlledHistoryValidationTests(APITestCase):
+    def setUp(self):
+        self.client = administrator_client()
+
     def test_thousand_rows_reconcile_under_repeated_queries(self):
         anchor = datetime(2026, 10, 1, tzinfo=timezone.utc)
         dates = [anchor + timedelta(minutes=i * 37) for i in range(1000)]
@@ -93,6 +97,9 @@ class ControlledHistoryValidationTests(APITestCase):
 
 
 class MixedHistoryValidationTests(APITestCase):
+    def setUp(self):
+        self.client = administrator_client()
+
     def test_mixed_history_reconciles_under_bounded_load(self):
         from .serializers import EventSerializer
         from .test_pair_events import pair_payload

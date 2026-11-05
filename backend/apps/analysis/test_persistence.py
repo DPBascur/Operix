@@ -12,7 +12,7 @@ from uuid import UUID
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import LiveServerTestCase, SimpleTestCase, override_settings
-from rest_framework.test import APIClient
+from config.test_clients import administrator_client
 
 from apps.events.models import Event
 from . import sessions
@@ -56,7 +56,7 @@ class WebPersistenceTests(LiveServerTestCase):
         # Solo se sustituye percepción/carga CUDA en el proceso hijo. El bucle real,
         # OpenCV, ByteTrack, reglas, outbox, HTTP, PostgreSQL y rutas API se ejecutan.
         self.spawn = spawn
-        self.client = APIClient()
+        self.client = administrator_client()
 
     def create(self):
         with self.video.open("rb") as source:
@@ -223,7 +223,7 @@ class PersistenceFailureStatusTests(SimpleTestCase):
         registry = patch.dict(sessions._sessions, {self.session.id: self.session}, clear=True)
         registry.start()
         self.addCleanup(registry.stop)
-        self.client = APIClient()
+        self.client = administrator_client()
         self.url = f"/api/v1/analysis/sessions/{self.session.id}/persistence/retry/"
 
     @override_settings(EVENT_POST_ENABLED=True)

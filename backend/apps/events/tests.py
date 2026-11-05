@@ -11,13 +11,14 @@ from django.test import override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, transaction
 from rest_framework.test import APIClient, APITestCase
+from config.test_clients import administrator_client
 
 from .models import Event
 
 
 class EventApiTests(APITestCase):
     def setUp(self):
-        self.client = APIClient()
+        self.client = administrator_client()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {settings.OPERIX_EVENT_PUBLISH_TOKEN}")
         self.occurred_at = datetime(2026, 10, 13, 12, 0, tzinfo=timezone.utc)
         self.payload = {
@@ -342,7 +343,8 @@ class EventEvidenceTests(APITestCase):
         self.assertEqual(Event.objects.count(), 1)
         self.assertFalse(Event.objects.get().evidence_image)
         self.assertEqual(self.upload(created.data["id"]).status_code, 201)
-        response = anonymous.get(url)
+        self.assertEqual(anonymous.get(url).status_code, 401)
+        response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(b"".join(response.streaming_content), sample_png())
 

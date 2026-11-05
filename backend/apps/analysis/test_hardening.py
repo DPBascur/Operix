@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase, override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
-from rest_framework.test import APIClient
+from config.test_clients import administrator_client
 
 from . import sessions
 
@@ -222,11 +222,11 @@ class SessionHardeningTests(SimpleTestCase):
         sessions.remove_session(identity)
         self.assertIsNone(sessions.get_session(identity))
         self.assertFalse(directory.exists())
-        self.assertEqual(APIClient().get(f"/api/v1/analysis/sessions/{identity}/status/").status_code, 404)
+        self.assertEqual(administrator_client().get(f"/api/v1/analysis/sessions/{identity}/status/").status_code, 404)
 
     def test_unwritable_directory_error_does_not_expose_path(self):
         with patch("apps.analysis.views.start_session", side_effect=OSError("sensitive-path")):
-            response = APIClient().post(f"/api/v1/analysis/sessions/{self.session.id}/start/")
+            response = administrator_client().post(f"/api/v1/analysis/sessions/{self.session.id}/start/")
         self.assertEqual(response.status_code, 400)
         self.assertNotIn("sensitive-path", response.content.decode())
         self.assertIn("permisos", response.json()["detail"])
@@ -237,7 +237,7 @@ class SessionHardeningTests(SimpleTestCase):
             self.session.state = "processing"
             return {"state": "ready"}
         with patch.object(self.session, "status", side_effect=racing_status):
-            response = APIClient().put(f"/api/v1/analysis/sessions/{self.session.id}/zone/",
+            response = administrator_client().put(f"/api/v1/analysis/sessions/{self.session.id}/zone/",
                                        {"profile": "A"}, format="json")
         self.assertEqual(response.status_code, 409)
         self.assertEqual(self.session.zone, original)
@@ -408,7 +408,7 @@ class SessionHardeningTests(SimpleTestCase):
         self.assertTrue((self.session.directory / "annotated.mp4").is_file())
 
     def test_invalid_api_shapes_and_huge_coordinates_are_400(self):
-        client = APIClient()
+        client = administrator_client()
         for payload in ([], None, {"profile": []}, {"profile": {}}):
             response = client.post("/api/v1/analysis/sessions/", payload, format="json")
             self.assertEqual(response.status_code, 400)
@@ -418,7 +418,7 @@ class SessionHardeningTests(SimpleTestCase):
 
     def test_huge_range_is_416_not_internal_error(self):
         (self.session.directory / "input.mp4").write_bytes(b"video")
-        response = APIClient().get(f"/api/v1/analysis/sessions/{self.session.id}/source/",
+        response = administrator_client().get(f"/api/v1/analysis/sessions/{self.session.id}/source/",
                                    HTTP_RANGE="bytes=" + "9" * 5000 + "-")
         self.assertEqual(response.status_code, 416)
 
@@ -437,6 +437,6 @@ class SessionHardeningTests(SimpleTestCase):
             sessions.remove_session(created.id)
 
     def test_client_cannot_supply_a_local_video_path(self):
-        response = APIClient().post("/api/v1/analysis/sessions/",
+        response = administrator_client().post("/api/v1/analysis/sessions/",
                                     {"profile": "A", "video_path": "../preserve.mp4"}, format="json")
         self.assertEqual(response.status_code, 400)
