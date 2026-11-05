@@ -1,6 +1,8 @@
 """Environment-driven settings for the Operix API."""
 
 import os
+import re
+import secrets
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,6 +22,9 @@ def csv_setting(name: str) -> list[str]:
 SECRET_KEY = required("DJANGO_SECRET_KEY")
 DEBUG = os.environ.get("DJANGO_DEBUG", "0") == "1"
 EVENT_POST_ENABLED = os.environ.get("EVENT_POST_ENABLED", "0") == "1"
+OPERIX_EVENT_PUBLISH_TOKEN = os.environ.get("OPERIX_EVENT_PUBLISH_TOKEN", "").strip() or secrets.token_urlsafe(32)
+if not re.fullmatch(r"[A-Za-z0-9_-]{32,}", OPERIX_EVENT_PUBLISH_TOKEN):
+    raise RuntimeError("OPERIX_EVENT_PUBLISH_TOKEN requiere al menos 32 caracteres URL-safe.")
 OPERIX_EVENT_API_BASE_URL = os.environ.get("OPERIX_EVENT_API_BASE_URL", "http://127.0.0.1:8000/api/v1")
 ALLOWED_HOSTS = csv_setting("DJANGO_ALLOWED_HOSTS")
 CORS_ALLOWED_ORIGINS = csv_setting("CORS_ALLOWED_ORIGINS")

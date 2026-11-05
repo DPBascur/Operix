@@ -16,6 +16,7 @@ from rest_framework import status
 from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from apps.events.publication import event_publisher_environment
 
 from .sessions import (
     PROFILES, create_demo_session, create_session, get_demo_video, get_session,
@@ -135,7 +136,7 @@ class SessionPersistenceRetryView(APIView):
                 result = subprocess.run([
                     settings.OPERIX_ENGINE_PYTHON, "-B", "-m", "operix_engine.event_outbox",
                     str(session.outbox_directory), "--api-url", local_event_api_url(),
-                ], capture_output=True, text=True, timeout=120)
+                ], capture_output=True, text=True, timeout=120, env=event_publisher_environment())
                 summary = json.loads(result.stdout)
                 if (not isinstance(summary, dict) or summary.get("state") not in {"saved", "failed"}
                         or (result.returncode == 0) != (summary["state"] == "saved")

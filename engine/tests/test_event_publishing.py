@@ -44,6 +44,7 @@ EVENT_ID = "95111111-1111-4111-8111-111111111111"
 
 class EventPublishingTest(unittest.TestCase):
     def setUp(self) -> None:
+        self.enterContext(patch.dict(os.environ, {"OPERIX_EVENT_PUBLISH_TOKEN": ""}))
         config = load_operational_config(EXAMPLE)
         analyzer = SpatiotemporalAnalyzer(width=100, height=100, fps=2, zones=config.zones)
         engine = RuleEngine(config)
@@ -225,6 +226,23 @@ class EventPublishingTest(unittest.TestCase):
         self.assertTrue(upload.full_url.endswith(f"/events/{EVENT_ID}/evidence/"))
         self.assertIn(b'name="frame_index"\r\n\r\n4', upload.data)
         self.assertIn(b'name="video_timestamp_s"\r\n\r\n2.000', upload.data)
+
+    def test_publication_token_is_sent_on_both_posts_and_rejects_remote_http(self) -> None:
+        token = "test-publication-token-not-a-secret"
+        with patch.dict(os.environ, {"OPERIX_EVENT_PUBLISH_TOKEN": token}):
+            with self.assertRaisesRegex(ValueError, "requiere HTTPS"):
+                HttpEventSink("http://example.test/api/v1")
+            sink = HttpEventSink("http://127.0.0.1:8000/api/v1")
+        with patch.object(sink, "_request", side_effect=[
+            self._response(201, json.dumps({"id": EVENT_ID}).encode()),
+            self._response(201, b"{}"),
+        ]) as send:
+            result = sink.publish(self.candidate, self.context, b"\x89PNG\r\n\x1a\ncontent")
+        self.assertEqual(result.status, "published")
+        self.assertEqual(
+            [call.args[0].get_header("Authorization") for call in send.call_args_list],
+            [f"Bearer {token}", f"Bearer {token}"],
+        )
 
     def test_upload_failure_keeps_persisted_event_id(self) -> None:
         with patch("operix_engine.event_publishing.urlopen") as send:

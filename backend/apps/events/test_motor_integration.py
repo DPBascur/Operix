@@ -12,6 +12,7 @@ from uuid import uuid4
 from django.db import connection
 from django.test import LiveServerTestCase, override_settings
 from rest_framework.test import APIClient
+from .publication import event_publisher_environment
 
 from .models import Event
 
@@ -117,13 +118,15 @@ print(json.dumps(outbox.replay()))
         run = uuid4()
         command = [str(self.python), "-B", "-c", script, self.temporary.name,
                    self.live_server_url + "/api/v1", str(run)]
-        process = subprocess.run(command, cwd=self.repository, capture_output=True, text=True, timeout=45)
+        process = subprocess.run(command, cwd=self.repository, capture_output=True, text=True, timeout=45,
+                                 env=event_publisher_environment())
         self.assertEqual(process.returncode, 0, process.stderr)
         self.assertEqual(json.loads(process.stdout)["saved"], 2)
         self.assertEqual(Event.objects.count(), 2)
         ids = set(Event.objects.values_list("id", flat=True))
         # Reenvío del mismo run desde otro proceso: la DB conserva exactamente las identidades.
-        again = subprocess.run(command, cwd=self.repository, capture_output=True, text=True, timeout=45)
+        again = subprocess.run(command, cwd=self.repository, capture_output=True, text=True, timeout=45,
+                               env=event_publisher_environment())
         self.assertEqual(again.returncode, 0, again.stderr)
         self.assertEqual(set(Event.objects.values_list("id", flat=True)), ids)
         for event in Event.objects.all():
@@ -139,7 +142,7 @@ print(json.dumps(outbox.replay()))
             str(self.python), "-B", "-c", MOTOR_FIXTURE,
             str(Path(self.temporary.name) / "controlled.avi"),
             self.live_server_url + "/api/v1", str(run), str(fps), str(duration),
-        ], cwd=self.repository, capture_output=True, text=True, timeout=45)
+        ], cwd=self.repository, capture_output=True, text=True, timeout=45, env=event_publisher_environment())
         self.assertEqual(process.returncode, 0, process.stderr)
         return json.loads(process.stdout)
 

@@ -24,7 +24,15 @@ set -a; source .env; set +a
 .venv/bin/python manage.py runserver 127.0.0.1:8000
 ```
 
-`.env` está ignorado por Git. `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST` y `POSTGRES_PORT` son obligatorios, igual que `DJANGO_SECRET_KEY`. `DJANGO_DEBUG=1` habilita mensajes de desarrollo; `EVENT_POST_ENABLED=1` habilita expresamente el POST sin autenticación **solo para un entorno controlado**. `DJANGO_ALLOWED_HOSTS` y `CORS_ALLOWED_ORIGINS` son listas separadas por comas. No se permiten todos los orígenes.
+`.env` está ignorado por Git. `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST` y `POSTGRES_PORT` son obligatorios, igual que `DJANGO_SECRET_KEY`. `DJANGO_DEBUG=1` habilita mensajes de desarrollo. `DJANGO_ALLOWED_HOSTS` y `CORS_ALLOWED_ORIGINS` son listas separadas por comas.
+
+Con `EVENT_POST_ENABLED=1`, Django exige `Authorization: Bearer <token>` tanto
+para crear eventos como para adjuntar PNG. Por defecto genera un token por proceso
+y lo pasa al Motor y al replay mediante su entorno. Para un Motor CLI separado,
+genere un token con `secrets.token_urlsafe(32)` y configure el mismo
+`OPERIX_EVENT_PUBLISH_TOKEN` en ambos procesos. Manténgalo en configuración
+privada del servidor. Las consultas y el arranque de análisis conservan su
+contrato. Tras actualizar, reinicie el Backend para aplicar el control.
 
 `OPERIX_MEDIA_ROOT` define la carpeta local de capturas; una ruta relativa se resuelve desde `backend/` y el valor predeterminado es `backend/media/`. Esta carpeta está excluida de Git. Respaldar base y archivos juntos para conservar las referencias. El prototipo no tiene autenticación ni política de retención: mantener API y medios en loopback/desarrollo controlado.
 
@@ -35,7 +43,7 @@ set -a; source .env; set +a
 | GET | `/api/v1/health/` | Estado de Django y conexión a PostgreSQL, sin detalles sensibles |
 | GET | `/api/v1/events/` | Lista ordenada por `occurred_at` descendente |
 | GET | `/api/v1/events/{id}/` | Detalle por UUID |
-| POST | `/api/v1/events/` | Crea un evento (201) o devuelve el existente en un retry (200) cuando `EVENT_POST_ENABLED=1` |
+| POST | `/api/v1/events/` | Crea un evento (201) o devuelve el existente en un retry (200) con publicación habilitada y token válido |
 | POST | `/api/v1/events/{id}/evidence/` | Adjunta un PNG (201), reutiliza evidencia existente (200) o completa una imagen ausente |
 | GET | `/api/v1/events/{id}/evidence/` | Devuelve el PNG asociado, o 404 si falta |
 

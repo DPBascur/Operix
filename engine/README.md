@@ -286,6 +286,9 @@ orquestador `scripts/evaluate_rules.py` puede delegar cada candidato a
 `HttpEventSink`. Sin `--publish-api`, el replay conserva su comportamiento local
 y no requiere Backend. `NoopEventSink` está disponible para otros orquestadores.
 El Motor solo conoce el contrato HTTP; no importa Django ni accede a PostgreSQL.
+El Backend entrega al worker web y al replay el token de publicación mediante
+su entorno. Para publicar desde una CLI independiente, configure
+`OPERIX_EVENT_PUBLISH_TOKEN` con el mismo valor privado que usa Django.
 
 Para publicar se exige `--analysis-run-id` (UUID de esta ejecución) y
 `--recording-start-at` (inicio civil conocido del medio, ISO 8601 con zona

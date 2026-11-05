@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import socket
 import time
@@ -18,7 +19,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Literal, Mapping, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
+from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler, ProxyHandler
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from operix_engine.rules import EventCandidate, PairEventCandidate
@@ -198,12 +199,20 @@ class HttpEventSink:
             raise ValueError("OPERIX_API_BASE_URL debe ser una URL HTTP(S) sin credenciales")
         if local_only and (parsed.scheme != "http" or parsed.hostname not in {"localhost", "127.0.0.1", "::1"}):
             raise ValueError("La publicación web solo permite API local")
+        loopback = parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+        token = os.environ.get("OPERIX_EVENT_PUBLISH_TOKEN", "").strip()
+        if token and not loopback and parsed.scheme != "https":
+            raise ValueError("Publicar con credenciales fuera de loopback requiere HTTPS")
         if not isinstance(timeout_s, (int, float)) or not math.isfinite(timeout_s) or timeout_s <= 0:
             raise ValueError("OPERIX_API_TIMEOUT_S debe ser positivo y finito")
         self._events_url = api_base_url.rstrip("/") + "/events/"
         self._timeout_s = float(timeout_s)
         self._completed: dict[tuple, tuple[str, str]] = {}
-        self._opener = build_opener(_NoEventRedirect()) if local_only else None
+        self._authorization = {"Authorization": f"Bearer {token}"} if token else {}
+        if loopback and (local_only or token):
+            self._opener = build_opener(ProxyHandler({}), _NoEventRedirect())
+        else:
+            self._opener = build_opener(_NoEventRedirect()) if token else None
 
     def _request(self, request):
         return (self._opener.open(request, timeout=self._timeout_s) if self._opener else
@@ -234,7 +243,7 @@ class HttpEventSink:
             request = Request(
                 self._events_url,
                 data=json.dumps(payload, allow_nan=False).encode("utf-8"),
-                headers={"Content-Type": "application/json", "Accept": "application/json"},
+                headers={"Content-Type": "application/json", "Accept": "application/json", **self._authorization},
                 method="POST",
             )
             with self._request(request) as response:
@@ -287,7 +296,8 @@ class HttpEventSink:
             upload = Request(
                 f"{self._events_url}{event_id}/evidence/",
                 data=body,
-                headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "Accept": "application/json"},
+                headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "Accept": "application/json",
+                         **self._authorization},
                 method="POST",
             )
             try:

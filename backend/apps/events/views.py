@@ -3,7 +3,6 @@ import zlib
 from decimal import Decimal, InvalidOperation
 from datetime import timezone
 
-from django.conf import settings
 from django.db import DatabaseError, connection, transaction
 from django.db.models import Count
 from django.db.models.functions import TruncDate
@@ -11,12 +10,13 @@ from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.decorators import api_view
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Event
+from .publication import require_event_publisher
 from .serializers import EventFilterSerializer, EventSerializer
 
 
@@ -42,8 +42,7 @@ class EventListCreateView(generics.ListCreateAPIView):
         return filtered_events(queryset, self.request.query_params)
 
     def create(self, request, *args, **kwargs):
-        if not settings.EVENT_POST_ENABLED:
-            raise PermissionDenied("POST no está habilitado en este entorno.")
+        require_event_publisher(request)
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         values = serializer.validated_data
@@ -215,8 +214,7 @@ class EventEvidenceView(APIView):
         return response
 
     def post(self, request, pk):
-        if not settings.EVENT_POST_ENABLED:
-            raise PermissionDenied("POST no está habilitado en este entorno.")
+        require_event_publisher(request)
         event = get_object_or_404(Event, pk=pk)
         try:
             frame_index = int(request.data.get("frame_index", ""))

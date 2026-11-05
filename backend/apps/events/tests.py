@@ -6,16 +6,19 @@ import zlib
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 
+from django.conf import settings
 from django.test import override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, transaction
-from rest_framework.test import APITestCase
+from rest_framework.test import APIClient, APITestCase
 
 from .models import Event
 
 
 class EventApiTests(APITestCase):
     def setUp(self):
+        self.client = APIClient()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {settings.OPERIX_EVENT_PUBLISH_TOKEN}")
         self.occurred_at = datetime(2026, 10, 13, 12, 0, tzinfo=timezone.utc)
         self.payload = {
             "analysis_run_id": str(uuid.uuid4()),
@@ -320,6 +323,28 @@ class EventEvidenceTests(APITestCase):
             },
             format="multipart",
         )
+
+    @override_settings(EVENT_POST_ENABLED=True)
+    def test_anonymous_or_wrong_token_cannot_publish_event_or_evidence(self):
+        created = self.create_event()
+        self.assertEqual(created.status_code, 201)
+        url = f"/api/v1/events/{created.data['id']}/evidence/"
+        anonymous = APIClient()
+        for authorization in ("", "Bearer invalid-token", "Bearer inválido"):
+            with self.subTest(authorization=authorization):
+                headers = {"HTTP_AUTHORIZATION": authorization}
+                rejected = anonymous.post("/api/v1/events/", self.payload, format="json", **headers)
+                self.assertEqual(rejected.status_code, 403)
+                self.assertEqual(anonymous.post(url, {
+                    "frame_index": "310", "video_timestamp_s": "12.400",
+                    "image": SimpleUploadedFile("frame.png", sample_png(), content_type="image/png"),
+                }, format="multipart", **headers).status_code, 403)
+        self.assertEqual(Event.objects.count(), 1)
+        self.assertFalse(Event.objects.get().evidence_image)
+        self.assertEqual(self.upload(created.data["id"]).status_code, 201)
+        response = anonymous.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(b"".join(response.streaming_content), sample_png())
 
     def test_event_without_evidence_is_compatible(self):
         created = self.create_event()

@@ -6,6 +6,7 @@ import math
 import sys
 from uuid import uuid4
 
+from django.conf import settings
 from django.test import override_settings
 from rest_framework.test import APITestCase
 
@@ -34,6 +35,7 @@ def pair_payload():
 @override_settings(EVENT_POST_ENABLED=True)
 class PairEventApiTests(APITestCase):
     def setUp(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {settings.OPERIX_EVENT_PUBLISH_TOKEN}")
         self.payload = pair_payload()
 
     def post(self, payload=None):

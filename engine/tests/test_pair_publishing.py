@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from dataclasses import replace
 import json
+import os
 import unittest
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -17,6 +18,7 @@ from operix_engine.zone_geometry import NormalizedPoint
 
 class PairPublishingTests(unittest.TestCase):
     def setUp(self):
+        self.enterContext(patch.dict(os.environ, {"OPERIX_EVENT_PUBLISH_TOKEN": ""}))
         self.pair = PairEventCandidate("TEST_DATA_PAIR", 1, 60, 2.,
             InteractionIdentity(ObjectIdentity("person", 1), ObjectIdentity("forklift", 1)),
             "TEST_DATA_ZONE", {"kind": "person_forklift_proximity", "zone_id": "TEST_DATA_ZONE",

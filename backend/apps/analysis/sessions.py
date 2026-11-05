@@ -19,6 +19,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from django.conf import settings
+from apps.events.publication import event_publisher_environment
 
 from .preview import PreviewClock
 
@@ -567,7 +568,7 @@ def _start_session(session: AnalysisSession) -> None:
             command.extend(["--event-context", str(context_path)])
         (session.directory / "run_config.json").write_text(
             json.dumps(session.active_config, ensure_ascii=False), encoding="utf-8")
-        env = os.environ.copy()
+        env = event_publisher_environment() if settings.EVENT_POST_ENABLED else os.environ.copy()
         env["YOLO_CONFIG_DIR"] = str(session.directory)
         session.state = "preparing"
         session.touch()
