@@ -109,7 +109,7 @@ Crear los entornos de cada guía y cargar las variables locales del Backend ante
 de migrar/iniciar. Frontend usa `NEXT_PUBLIC_DATA_SOURCE=api`. Los dos checkpoints
 verificados permanecen fuera de Git y no se descargan al arrancar.
 El worker web requiere CUDA; instalar el Motor en CPU no habilita esa ruta.
-Login y usuarios son demostrativos y no protegen la API.
+El acceso requiere una cuenta de Django. Consulta [cómo crear cuentas, asignar roles y configurar el proxy](backend/README.md#acceso-y-despliegue).
 
 Para una demo privada desde otro equipo conectado por Tailscale, ejecutar
 `.\scripts\start-demo.ps1` en Windows. La [guía del frontend](frontend/README.md#demo-privada-desde-otro-equipo-por-tailscale-windows-con-gpu)

@@ -1,3 +1,5 @@
+"use client";
+
 import {
   Activity,
   BarChart3,
@@ -15,7 +17,8 @@ import type { ReactNode } from "react";
 import { ThemeSelector } from "@/components/ui/theme-selector";
 import { MobileNavigation } from "./mobile-navigation";
 import { ApiStatus } from "@/components/ui/api-status";
-import { DemoAccount } from "./demo-account";
+import { SessionAccount } from "./session-account";
+import { canOpen, useSession } from "@/features/auth/session-provider";
 
 const navigationGroups: {
   label: string;
@@ -88,9 +91,16 @@ function Brand({
 }
 
 function Navigation({ activePath }: { activePath: string }) {
+  const { user } = useSession();
+  const groups = navigationGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(({ href }) => user && canOpen(href, user.role)),
+    }))
+    .filter((group) => group.items.length);
   return (
     <nav aria-label="Navegación principal" className="navigation-groups">
-      {navigationGroups.map((group) => (
+      {groups.map((group) => (
         <section className="navigation-group" key={group.label}>
           <h2 className="navigation-group-label">{group.label}</h2>
           <ul className="space-y-0.5">
@@ -138,7 +148,7 @@ export function AppShell({
           <Navigation activePath={activePath} />
         </div>
         <div className="sidebar-footer">
-          <DemoAccount />
+          <SessionAccount />
           <div className="sidebar-appearance">
             <span>Apariencia</span>
             <ThemeSelector />
@@ -159,7 +169,7 @@ export function AppShell({
             <MobileNavigation>
               <Navigation activePath={activePath} />
               <div className="sidebar-footer">
-                <DemoAccount />
+                <SessionAccount />
                 <div className="sidebar-appearance">
                   <span>Apariencia</span>
                   <ThemeSelector />

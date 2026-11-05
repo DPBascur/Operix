@@ -1,4 +1,5 @@
 "use client";
+import { apiFetch } from "@/services/browser-session";
 import { useEffect, useMemo, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
@@ -74,7 +75,7 @@ export function HistoricalDashboard() {
         ];
         const responses = await Promise.all(
           endpoints.map((url) =>
-            fetch(url, { cache: "no-store", signal: controller.signal }),
+            apiFetch(url, { cache: "no-store", signal: controller.signal }),
           ),
         );
         if (responses.some((response) => !response.ok))

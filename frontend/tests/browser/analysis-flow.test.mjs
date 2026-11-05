@@ -212,6 +212,17 @@ test(
       await call("Page.enable");
       await viewport(1440);
       await go("/rules");
+      await wait("location.pathname==='/login'");
+      const credentials = async (password) => {
+        await evaluate(`(() => {
+          document.querySelector('#login-username').value = 'fixture-admin';
+          document.querySelector('#login-password').value = ${JSON.stringify(password)};
+        })()`);
+        await click("Ingresar");
+      };
+      await credentials("invalid");
+      await wait(text("Usuario o contraseña incorrectos."));
+      await credentials("TEST_ONLY_PASSWORD");
       await wait(text("Reglas por perfil"));
       await wait(text("Proximidad persona ↔ montacargas · v2 · Habilitada"));
       await evaluate(
@@ -462,11 +473,14 @@ test(
           "/analysis",
         ]) {
           await go(route);
+          await wait("!!document.querySelector('main#main-content')");
+          if (route === "/events") await wait(text("Proximidad persona"));
           if (route === `/events/${eventId}`) {
             await wait(
               text("requiere revisión humana, no confirma un incidente"),
             );
           }
+          if (route === "/analysis") await wait(text("Análisis detenido"));
           await wait("document.fonts.status==='loaded'");
           try {
             await checkButtonThemes(evaluate);
@@ -496,6 +510,21 @@ test(
       assert.ok(
         (await readFile(path.join(root, "analysis-mobile.png"))).length > 100,
       );
+      await viewport(1440);
+      await control({ expire: true });
+      await evaluate(
+        "document.querySelector('nav a[href=\"/events\"]').click()",
+      );
+      await wait("location.pathname==='/login'");
+      await wait(text("Tu sesión terminó."));
+      await credentials("TEST_ONLY_PASSWORD");
+      await wait("location.pathname==='/events'");
+      await evaluate(
+        "[...document.querySelectorAll('[aria-label=\"Cerrar sesión\"]')].find(button=>button.offsetParent!==null).click()",
+      );
+      await wait("location.pathname==='/login'");
+      await go("/events");
+      await wait("location.pathname==='/login'");
       console.log(
         "PASS: navegación sin DELETE, recuperación, 99.9 antes de completed, MP4/seek, polígono por teclado, error/cancelación, histórico/evidencia, 18 combinaciones de viewport/ruta.",
       );

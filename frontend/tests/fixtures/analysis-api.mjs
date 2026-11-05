@@ -48,6 +48,9 @@ export async function startFixtureApi(port = 8000) {
     waitingStatus = false,
     delayNextZone = false;
   const pendingZones = [];
+  let signedIn = false;
+  const account = { username: "fixture-admin", role: "administrator" };
+  const csrf = "TEST_ONLY_CSRF";
   const event = {
     id: eventId,
     occurred_at: "2026-10-25T12:00:01Z",
@@ -106,12 +109,14 @@ export async function startFixtureApi(port = 8000) {
           : {};
       if (url.pathname === "/__fixture") {
         if (body.reset) {
+          signedIn = false;
           sessions = new Map();
           sequence = 0;
           deleted = 0;
           failNext = false;
         }
         if (body.failNext) failNext = true;
+        if (body.expire) signedIn = false;
         if (body.delayNextStatus) delayNextStatus = true;
         if (body.delayNextZone) delayNextZone = true;
         if (body.releaseZones) {
@@ -126,6 +131,24 @@ export async function startFixtureApi(port = 8000) {
         });
       }
       if (url.pathname.endsWith("/health/")) return send({ status: "ok" });
+      if (url.pathname === "/api/v1/auth/session/")
+        return send({ user: signedIn ? account : null, csrf_token: csrf });
+      if (
+        url.pathname === "/api/v1/auth/login/" ||
+        url.pathname === "/api/v1/auth/logout/"
+      ) {
+        if (req.method !== "POST" || req.headers["x-csrftoken"] !== csrf)
+          return send({ detail: "CSRF inválido" }, 403);
+        if (
+          url.pathname.endsWith("/login/") &&
+          (body.username !== account.username ||
+            body.password !== "TEST_ONLY_PASSWORD")
+        )
+          return send({ detail: "Usuario o contraseña incorrectos." }, 401);
+        signedIn = url.pathname.endsWith("/login/");
+        return send({ user: signedIn ? account : null, csrf_token: csrf });
+      }
+      if (!signedIn) return send({ detail: "Sesión requerida" }, 401);
       if (url.pathname.endsWith("/profiles/"))
         return send(
           ["A", "B", "C"].map((id) => ({

@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch } from "@/services/browser-session";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -315,7 +316,7 @@ export function EventDetail({ id }: { id: string }) {
     const load = async () => {
       if (!environment.apiBaseUrl)
         throw new Error("Configure la API para recuperar el evento.");
-      const response = await fetch(
+      const response = await apiFetch(
         `${environment.apiBaseUrl.replace(/\/$/, "")}/events/${encodeURIComponent(id)}/`,
         { signal: controller.signal, cache: "no-store" },
       );

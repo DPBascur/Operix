@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { OperixMotionProvider } from "@/components/motion/motion-provider";
+import { SessionProvider } from "@/features/auth/session-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -19,7 +20,9 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body>
-        <OperixMotionProvider>{children}</OperixMotionProvider>
+        <OperixMotionProvider>
+          <SessionProvider>{children}</SessionProvider>
+        </OperixMotionProvider>
       </body>
     </html>
   );

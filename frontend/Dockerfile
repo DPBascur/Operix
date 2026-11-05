@@ -4,8 +4,9 @@ RUN npm install --global pnpm@11.28.2
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY frontend ./
-ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:18000/api/v1
-ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL NEXT_PUBLIC_DATA_SOURCE=api NEXT_TELEMETRY_DISABLED=1
+ARG NEXT_PUBLIC_API_BASE_URL=/api/v1
+ARG OPERIX_API_PROXY_TARGET=http://backend:8000
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL OPERIX_API_PROXY_TARGET=$OPERIX_API_PROXY_TARGET NEXT_PUBLIC_DATA_SOURCE=api NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 
 FROM node:24.2.0-bookworm-slim AS runtime

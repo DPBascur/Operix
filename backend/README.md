@@ -26,15 +26,24 @@ set -a; source .env; set +a
 
 `.env` está ignorado por Git. `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST` y `POSTGRES_PORT` son obligatorios, igual que `DJANGO_SECRET_KEY`. `DJANGO_DEBUG=1` habilita mensajes de desarrollo. `DJANGO_ALLOWED_HOSTS` y `CORS_ALLOWED_ORIGINS` son listas separadas por comas.
 
-Con `EVENT_POST_ENABLED=1`, Django exige `Authorization: Bearer <token>` tanto
-para crear eventos como para adjuntar PNG. Por defecto genera un token por proceso
-y lo pasa al Motor y al replay mediante su entorno. Para un Motor CLI separado,
-genere un token con `secrets.token_urlsafe(32)` y configure el mismo
-`OPERIX_EVENT_PUBLISH_TOKEN` en ambos procesos. Manténgalo en configuración
-privada del servidor. Las consultas y el arranque de análisis conservan su
-contrato. Tras actualizar, reinicie el Backend para aplicar el control.
+## Acceso y despliegue
 
-`OPERIX_MEDIA_ROOT` define la carpeta local de capturas; una ruta relativa se resuelve desde `backend/` y el valor predeterminado es `backend/media/`. Esta carpeta está excluida de Git. Respaldar base y archivos juntos para conservar las referencias. El prototipo no tiene autenticación ni política de retención: mantener API y medios en loopback/desarrollo controlado.
+1. Ejecutar `python manage.py migrate` y `python manage.py createsuperuser` con el entorno del Backend. Con Compose, usar `docker compose exec backend python manage.py createsuperuser` después de iniciar los servicios. Elegir una contraseña propia. No hay cuenta inicial incluida.
+2. En la administración local de Django (`/admin/` del Backend), crear los grupos exactos `Responsable de seguridad` y `Usuario`. Crear cuentas activas, establecer su contraseña y asignar un grupo. Los superusuarios tienen el rol administrador. Si una cuenta pertenece a ambos grupos, prevalece el rol de responsable de seguridad.
+3. Configurar el frontend con `NEXT_PUBLIC_DATA_SOURCE=api`, `NEXT_PUBLIC_API_BASE_URL=/api/v1` y `OPERIX_API_PROXY_TARGET` apuntando al Backend. Incluir el origen exacto del frontend en `CSRF_TRUSTED_ORIGINS`, con esquema y puerto cuando corresponda. Reiniciar Django y reconstruir Next si se usa un build. Docker Compose utiliza la red interna y el script Tailscale configura los orígenes de la demo.
+4. Para HTTPS, configurar `OPERIX_SECURE_COOKIES=1` y el origen HTTPS exacto. Conservar HTTP solo para desarrollo y demo privada controlada. Mantener `DJANGO_SECRET_KEY` estable y privada, y servir evidencias únicamente por la API.
+
+| Rol | Permisos |
+| --- | --- |
+| Administrador | Gestionar cuentas en Django, ejecutar y consultar análisis, revisar historial, indicadores y PNG. |
+| Responsable de seguridad | Consultar historial, indicadores, detalle y PNG del despliegue. |
+| Usuario | Preparar, ejecutar y consultar sus propios análisis, incluyendo fuente, resultado y estado de publicación. |
+
+Esta política mínima sigue el [plan de cierre de Etapa 4](../engine/evidence/ETAPA4-AUTH-VERIFICATION.md). Las sesiones del navegador duran ocho horas y se guardan en PostgreSQL. El cierre de sesión invalida la sesión en el servidor. La salud de API/DB permanece pública. El alcance de revisión es el despliegue completo. La asignación por sitio y el control de intentos de login requieren una decisión antes de ampliar el acceso.
+
+La publicación del Motor sigue usando `OPERIX_EVENT_PUBLISH_TOKEN` con `EVENT_POST_ENABLED=1`. En una sola instancia, el token automático dura lo mismo que el proceso Django. Tras un reinicio, un worker previo o un CLI externo necesita el token vigente para publicar. Para compartirlo entre procesos o mantenerlo entre reinicios, generar una vez con `secrets.token_urlsafe(32)` y configurar el mismo valor privado en las instancias autorizadas. Nunca usar una variable `NEXT_PUBLIC_*`. El registro de análisis temporal sigue en memoria y requiere una sola instancia operativa de análisis. Compartir el token no vuelve distribuido ese registro.
+
+`OPERIX_MEDIA_ROOT` define la carpeta de capturas y queda fuera de Git. Respaldar base y archivos juntos para conservar las referencias. La retención de evidencias sigue siendo manual.
 
 ## API v1
 

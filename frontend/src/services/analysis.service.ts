@@ -1,3 +1,4 @@
+import { apiFetch } from "@/services/browser-session";
 import { dataClient } from "./data-client";
 import { environment } from "@/config/environment";
 
@@ -126,7 +127,7 @@ export class AnalysisRequestError extends Error {
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     cache: "no-store",
     signal: AbortSignal.timeout(120_000),
     ...init,
@@ -191,7 +192,7 @@ export const analysisService = {
     );
   },
   async closeAnalysisSession(id: string) {
-    const response = await fetch(sessionUrl(id), {
+    const response = await apiFetch(sessionUrl(id), {
       method: "DELETE",
       keepalive: true,
       signal: AbortSignal.timeout(10_000),

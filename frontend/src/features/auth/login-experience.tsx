@@ -13,17 +13,16 @@ import {
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ThemeSelector } from "@/components/ui/theme-selector";
-import { useDemoUsers, signInDemo } from "@/services/demo/users-store";
-import { roles, resolveActiveUser } from "@/services/demo/user-model";
+import { signIn } from "@/services/browser-session";
+import { canOpen, useSession } from "./session-provider";
 import { enterTransition, revealVariants } from "@/lib/motion/presets";
 
 export function LoginExperience() {
-  const { users, error: storageError } = useDemoUsers();
-  const [account, setAccount] = useState("demo-safety");
+  const { setUser, expired } = useSession();
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const reduceMotion = useReducedMotion();
-  const chosenAccount = resolveActiveUser(users, account);
   return (
     <main className="login-page">
       <section className="login-form-side">
@@ -48,53 +47,84 @@ export function LoginExperience() {
           transition={reduceMotion ? { duration: 0 } : enterTransition}
         >
           <h1>Bienvenido a Operix.</h1>
-          <p>Todo listo para una nueva mirada.</p>
+          <p>
+            {expired
+              ? "Tu sesión terminó. Vuelve a ingresar para continuar."
+              : "Ingresa con tu cuenta."}
+          </p>
           <form
-            onSubmit={(e) => {
-              e.preventDefault();
+            method="post"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              if (busy) return;
+              const form = new FormData(event.currentTarget);
+              setError(null);
+              setBusy(true);
               try {
-                signInDemo(chosenAccount);
-                router.push("/");
+                const account = await signIn(
+                  String(form.get("username")),
+                  String(form.get("password")),
+                );
+                if (!account)
+                  throw new Error("La cuenta no tiene acceso a Operix.");
+                const nextValue = new URLSearchParams(
+                  window.location.search,
+                ).get("next");
+                const next =
+                  nextValue?.startsWith("/") && !nextValue.startsWith("//")
+                    ? new URL(nextValue, window.location.origin)
+                    : null;
+                const fallback =
+                  account.role === "operator" ? "/analysis" : "/";
+                setUser(account);
+                router.replace(
+                  next &&
+                    next.origin === window.location.origin &&
+                    next.pathname !== "/login" &&
+                    !next.pathname.startsWith("//") &&
+                    canOpen(next.pathname, account.role)
+                    ? next.pathname + next.search
+                    : fallback,
+                );
               } catch (cause) {
                 setError(
                   cause instanceof Error
                     ? cause.message
-                    : "No se pudo abrir la sesión demo.",
+                    : "No se pudo iniciar sesión.",
                 );
+              } finally {
+                setBusy(false);
               }
             }}
           >
-            <label htmlFor="demo-account">Perfil de acceso</label>
-            <select
-              id="demo-account"
-              value={chosenAccount}
-              onChange={(e) => setAccount(e.target.value)}
+            <label htmlFor="login-username">Usuario</label>
+            <input
               className="input"
-            >
-              {users
-                .filter((u) => u.active)
-                .map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} · {roles[u.role]}
-                  </option>
-                ))}
-            </select>
-            {(error || storageError) && (
+              id="login-username"
+              name="username"
+              autoComplete="username"
+              maxLength={150}
+              required
+            />
+            <label htmlFor="login-password">Contraseña</label>
+            <input
+              className="input"
+              id="login-password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              maxLength={4096}
+              required
+            />
+            {error && (
               <p className="form-error" role="alert">
-                {error || storageError}
+                {error}
               </p>
             )}
-            <Button
-              type="submit"
-              className="login-submit"
-              disabled={!chosenAccount}
-            >
-              Ingresar <ArrowRight size={18} />
+            <Button type="submit" className="login-submit" disabled={busy}>
+              {busy ? "Ingresando…" : "Ingresar"} <ArrowRight size={18} />
             </Button>
           </form>
-          <Link className="text-link" href="/sources">
-            Ir al análisis <ArrowRight size={15} />
-          </Link>
         </motion.div>
         <footer>
           Proyecto académico · Visión artificial aplicada a la prevención

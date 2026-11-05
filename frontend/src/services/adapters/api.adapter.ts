@@ -1,3 +1,4 @@
+import { apiFetch } from "@/services/browser-session";
 import { environment } from "@/config/environment";
 import type {
   AnalysisOverview,
@@ -30,7 +31,7 @@ export class ApiAdapter implements FrontendDataAdapter {
     if (filters.occurredBefore)
       params.set("occurred_before", filters.occurredBefore);
     if (filters.eventType) params.set("event_type", filters.eventType);
-    const response = await fetch(`${url}?${params}`, { cache: "no-store" });
+    const response = await apiFetch(`${url}?${params}`, { cache: "no-store" });
     if (!response.ok) {
       throw new Error(`La API respondió con estado ${response.status}.`);
     }

@@ -1,6 +1,6 @@
 # Operix Frontend
 
-Interfaz de Operix para análisis de video, revisión de eventos e histórico, con acceso y cuentas demostrativas locales explícitas.
+Interfaz de Operix para análisis de video, revisión de eventos e histórico, con autenticación de Django y autorización por rol.
 
 ## Requisitos
 
@@ -64,7 +64,7 @@ Remove-NetFirewallRule -DisplayName 'Operix demo Tailscale'
 
 Comprobar que no haya permisos amplios preexistentes para Node; esta regla acotada
 no los revoca. No abrir router, puertos de DB, túneles públicos ni Tailscale Funnel.
-No cambia autenticación: reservarlo a los equipos autorizados de la tailnet.
+Cada persona necesita su cuenta de Operix. Restringir el acceso a los equipos autorizados de la tailnet.
 Desde el Mac abrir la URL mostrada y comprobar `/api/v1/health/` en ese mismo
 origen. Para observar uso de GPU en el PC durante un análisis: `nvidia-smi -l 1`.
 
@@ -91,7 +91,7 @@ origen. Para observar uso de GPU en el PC durante un análisis: `nvidia-smi -l 1
 - `src/services`: servicios desacoplados y adaptador de datos activo.
 - `src/config`: configuración pública del frontend.
 
-Por defecto, el frontend usa `MockAdapter`; esos datos no provienen del Motor Python ni representan persistencia real. Para consultar los eventos y ejecutar análisis visual local, configurar `frontend/.env.local` con `NEXT_PUBLIC_DATA_SOURCE=api` y `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1`, y reiniciar Next.js. `/events` consulta la API; `/analysis` usa sesiones temporales del Backend y requiere los pesos indicados en `backend/README.md`. Durante el análisis muestra MJPEG; al terminar cambia a un MP4 H.264 con reproducción, pausa y búsqueda. La fuente queda temporalmente disponible para editar la zona y volver a analizar sin subirla de nuevo. «Detener» conserva la fuente; «Limpiar sesión» borra fuente y resultado. El FPS del Motor indica procesamiento, no velocidad de reproducción. El histórico, indicadores y detalle consultan registros persistidos en modo API; login/usuarios y vistas preparatorias conservan sus límites de demostración. Los fallos de API se muestran sin reemplazar silenciosamente datos reales por mock. El frontend nunca conecta directamente con el Motor.
+Por defecto, el frontend usa `MockAdapter`; esos datos no provienen del Motor Python ni representan persistencia real. Para consultar los eventos y ejecutar análisis visual local, configurar `frontend/.env.local` con `NEXT_PUBLIC_DATA_SOURCE=api` y `NEXT_PUBLIC_API_BASE_URL=/api/v1` y `OPERIX_API_PROXY_TARGET=http://127.0.0.1:8000`, y reiniciar Next.js. `/events` consulta la API; `/analysis` usa sesiones temporales del Backend y requiere los pesos indicados en `backend/README.md`. Durante el análisis muestra MJPEG; al terminar cambia a un MP4 H.264 con reproducción, pausa y búsqueda. La fuente queda temporalmente disponible para editar la zona y volver a analizar sin subirla de nuevo. «Detener» conserva la fuente; «Limpiar sesión» borra fuente y resultado. El FPS del Motor indica procesamiento, no velocidad de reproducción. El histórico, indicadores y detalle consultan registros persistidos con un rol autorizado. Los fallos de API se muestran sin reemplazar silenciosamente datos reales por mock. El frontend nunca conecta directamente con el Motor.
 
 En modo API, `/events` consulta PostgreSQL a través de los filtros del Backend `occurred_after`, `occurred_before` y `event_type`. Las fechas y horas se introducen en la hora local del navegador y se envían con zona horaria explícita; se admiten `zone_dwell` (permanencia en zona) y `person_forklift_proximity` (proximidad persona–montacargas). Se pueden aplicar y limpiar filtros sin recargar la aplicación. En modo mock se conserva la búsqueda y el filtro de zona locales de la maqueta.
 
@@ -116,7 +116,7 @@ umbrales del servidor.
 
 Usar tres terminales de desarrollo: `pnpm fixture:api`, `pnpm dev` y
 `pnpm test:browser`. El frontend debe estar en modo API, con
-`NEXT_PUBLIC_DATA_SOURCE=api` y `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api/v1`.
+`NEXT_PUBLIC_DATA_SOURCE=api` y `NEXT_PUBLIC_API_BASE_URL=/api/v1` y `OPERIX_API_PROXY_TARGET=http://127.0.0.1:8000`.
 Use el puerto de fixture únicamente si está libre; no detenga una API operativa
 para reemplazarla. Para otros puertos se admiten `OPERIX_FIXTURE_PORT` en el
 servidor, `OPERIX_FIXTURE_URL` y `OPERIX_BROWSER_BASE_URL` en el test y la dirección
@@ -138,7 +138,7 @@ real. Al terminar, detener ambos servidores y volver al entorno habitual.
 
 ## Vistas y procedencia
 
-`/` e `/indicators` muestran el dashboard histórico, con selector explícito de ejemplo ilustrativo o registros API. En modo API, el mes UTC seleccionado consulta `/events/frequencies/` para frecuencia diaria y por tipo, y `/events/` para desglose horario, zona y actividad reciente; la comparación usa el mes UTC anterior. Se reconcilian los totales y se informa si los registros cambian entre consultas. Un mes vacío muestra un estado sin registros, sin estadísticas inventadas. Estos conteos pueden incluir ensayos y no equivalen a tasas verificadas de incidentes. `/dashboard` redirige a `/`. `/login` y `/users` son una demo local sin contraseñas ni autorización Backend y no bloquean el análisis. `/analysis` y `/events` conservan su integración real; `/rules` mantiene contexto de desarrollo y `/zones` dirige al editor de Análisis. El estado global consulta salud de API/base de datos, no certifica modelos ni GPU.
+`/` e `/indicators` muestran el dashboard histórico, con selector explícito de ejemplo ilustrativo o registros API. En modo API, el mes UTC seleccionado consulta `/events/frequencies/` para frecuencia diaria y por tipo, y `/events/` para desglose horario, zona y actividad reciente; la comparación usa el mes UTC anterior. Se reconcilian los totales y se informa si los registros cambian entre consultas. Un mes vacío muestra un estado sin registros, sin estadísticas inventadas. Estos conteos pueden incluir ensayos y no equivalen a tasas verificadas de incidentes. `/dashboard` redirige a `/`. `/login` abre una sesión de Django y `/users` informa cómo administrar cuentas. `/analysis` y `/events` conservan su integración real; `/rules` mantiene contexto de desarrollo y `/zones` dirige al editor de Análisis. El estado global consulta salud de API/base de datos, no certifica modelos ni GPU.
 
 ## Design tokens
 
@@ -163,14 +163,9 @@ fecha de grabación. La [guía Docker](../deployment/docker/README.md) ofrece un
 ruta local alternativa con build standalone, sin sustituir el modo nativo.
 
 
-## Acceso demostrativo y almacenamiento
+## Acceso
 
-El login no solicita contraseñas ni protege rutas o API. Las cuentas demo usan
-`localStorage` (`operix-demo-users-v1`), y la sesión de esa interfaz,
-`sessionStorage` (`operix-demo-session-v1`). Solo deben introducirse datos ficticios.
-La edición requiere Administrador demo en la interfaz; no representa RBAC del
-servidor ni sincronización multiusuario. Se rechazan correos duplicados, roles
-inválidos, datos corruptos y la pérdida del último administrador activo.
+El frontend usa el proxy de Next para que login, API, MP4 y evidencia compartan origen. Las cookies de sesión son HttpOnly. El formulario obtiene un token CSRF del servidor y lo envía con las operaciones de escritura. Una sesión expirada vuelve al login con la ruta de destino. Las cuentas se gestionan en [Django](../backend/README.md#acceso-y-despliegue).
 
 El indicador de conexión consulta salud de API/DB cada 30 segundos con timeout
 de 5 segundos; suspende consultas con el documento oculto y las libera al desmontar.

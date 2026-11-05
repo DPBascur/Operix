@@ -96,6 +96,7 @@ except psycopg.OperationalError:
     Set-DemoEnvironment 'OPERIX_EVENT_API_BASE_URL' "http://127.0.0.1:$BackendPort/api/v1"
     Set-DemoEnvironment 'DJANGO_ALLOWED_HOSTS' 'localhost,127.0.0.1'
     Set-DemoEnvironment 'CORS_ALLOWED_ORIGINS' "http://localhost:$FrontendPort,http://127.0.0.1:$FrontendPort,http://${TailnetAddress}:$FrontendPort"
+    Set-DemoEnvironment 'CSRF_TRUSTED_ORIGINS' "http://localhost:$FrontendPort,http://127.0.0.1:$FrontendPort,http://${TailnetAddress}:$FrontendPort"
     Set-DemoEnvironment 'DJANGO_DEBUG' '0'
     Set-DemoEnvironment 'NEXT_PUBLIC_DATA_SOURCE' 'api'
     Set-DemoEnvironment 'NEXT_PUBLIC_API_BASE_URL' '/api/v1'
