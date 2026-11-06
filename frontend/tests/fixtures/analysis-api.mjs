@@ -51,7 +51,16 @@ export async function startFixtureApi(port = 8000) {
   let signedIn = false;
   const account = { username: "fixture-admin", role: "administrator" };
   const csrf = "TEST_ONLY_CSRF";
+  const run = "00000000-0000-4000-8000-000000000055";
   const event = {
+    analysis_run_id: run,
+    evidence_clip: {
+      kind: "annotated",
+      event_id: eventId,
+      analysis_run_id: run,
+      event_offset_s: 1,
+      url: `/api/v1/events/${eventId}/clips/${run}/`,
+    },
     id: eventId,
     occurred_at: "2026-10-25T12:00:01Z",
     event_type: "person_forklift_proximity",
@@ -93,6 +102,23 @@ export async function startFixtureApi(port = 8000) {
     const send = (data, code = 200) => {
       res.writeHead(code, { "Content-Type": "application/json" });
       res.end(JSON.stringify(data));
+    };
+    const sendVideo = () => {
+      const range = req.headers.range?.match(/bytes=(\d+)-(\d*)/);
+      const start = range ? Number(range[1]) : 0,
+        end =
+          range && range[2]
+            ? Math.min(Number(range[2]), video.length - 1)
+            : video.length - 1;
+      res.writeHead(range ? 206 : 200, {
+        "Content-Type": "video/mp4",
+        "Accept-Ranges": "bytes",
+        "Content-Length": end - start + 1,
+        ...(range
+          ? { "Content-Range": `bytes ${start}-${end}/${video.length}` }
+          : {}),
+      });
+      return res.end(video.subarray(start, end + 1));
     };
     try {
       if (req.method === "OPTIONS") {
@@ -318,21 +344,7 @@ export async function startFixtureApi(port = 8000) {
           }
         }
         if (["source/", "result/"].includes(action)) {
-          const range = req.headers.range?.match(/bytes=(\d+)-(\d*)/);
-          const start = range ? Number(range[1]) : 0,
-            end =
-              range && range[2]
-                ? Math.min(Number(range[2]), video.length - 1)
-                : video.length - 1;
-          res.writeHead(range ? 206 : 200, {
-            "Content-Type": "video/mp4",
-            "Accept-Ranges": "bytes",
-            "Content-Length": end - start + 1,
-            ...(range
-              ? { "Content-Range": `bytes ${start}-${end}/${video.length}` }
-              : {}),
-          });
-          return res.end(video.subarray(start, end + 1));
+          return sendVideo();
         }
         if (action === "stream/") {
           res.writeHead(200, { "Content-Type": "image/png" });
@@ -365,6 +377,7 @@ export async function startFixtureApi(port = 8000) {
         return send(
           url.searchParams.get("event_type") === "zone_dwell" ? [] : [event],
         );
+      if (url.pathname === event.evidence_clip.url) return sendVideo();
       if (url.pathname === event.evidence_url) {
         res.writeHead(200, { "Content-Type": "image/png" });
         return res.end(png);

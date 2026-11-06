@@ -20,6 +20,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from django.conf import settings
+from apps.events.clips import finish_clips, reserve_result
 from apps.events.publication import event_publisher_environment
 
 from .preview import PreviewClock
@@ -640,8 +641,12 @@ def _start_session(session: AnalysisSession) -> None:
             if session.state != "completed":
                 (session.directory / "annotated.partial.mp4").unlink(missing_ok=True)
                 (session.directory / "annotated.mp4").unlink(missing_ok=True)
+            clip_config = session.result_config if session.state == "completed" else None
+            clip_source = reserve_result(session.directory / "annotated.mp4", clip_config) if clip_config else None
             session.process = None
         session.schedule_cleanup()
+        if clip_source is not None:
+            finish_clips(clip_source, clip_config)
 
     threading.Thread(target=watch, name=f"analysis-{session.id}", daemon=True).start()
 

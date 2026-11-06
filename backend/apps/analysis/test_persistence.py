@@ -18,7 +18,8 @@ from apps.events.models import Event
 from . import sessions
 
 
-@override_settings(EVENT_POST_ENABLED=True, ALLOWED_HOSTS=["localhost", "127.0.0.1", "testserver"])
+@override_settings(EVENT_POST_ENABLED=True, OPERIX_CLIPS_ENABLED=False,
+                   ALLOWED_HOSTS=["localhost", "127.0.0.1", "testserver"])
 class WebPersistenceTests(LiveServerTestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()

@@ -440,6 +440,18 @@ test(
         `document.querySelector('a[href="/events/${eventId}"]').click()`,
       );
       await wait(text("Resumen operacional"));
+      await wait(
+        "document.querySelector('video[aria-label=\"Clip anotado del evento\"]')?.readyState >= 1",
+      );
+      await evaluate(
+        "(async()=>{const video=document.querySelector('video[aria-label=\"Clip anotado del evento\"]');video.muted=true;await video.play();})()",
+      );
+      await wait(
+        "document.querySelector('video[aria-label=\"Clip anotado del evento\"]').currentTime > 0",
+      );
+      await evaluate(
+        "document.querySelector('video[aria-label=\"Clip anotado del evento\"]').pause()",
+      );
       for (const value of [
         "Persona",
         "Montacargas",

@@ -20,6 +20,7 @@ import {
 } from "@/services/event-contract";
 import {
   evidenceHref,
+  evidenceClip,
   eventMeasurements,
   eventProximityGeometry,
   eventTime,
@@ -64,6 +65,8 @@ function Evidence({
 }) {
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [attempt, setAttempt] = useState(0);
+  const [clipError, setClipError] = useState(false);
+  const clip = evidenceClip(event, environment.apiBaseUrl);
   return (
     <figure className={styles.evidence} aria-labelledby="evidence-title">
       <div className={styles.sectionHeading}>
@@ -139,6 +142,35 @@ function Evidence({
           </>
         )}
       </div>
+      {clip && (
+        <section
+          aria-label="Clip anotado del evento"
+          className="my-3 grid gap-2"
+        >
+          <h4 className="text-sm font-semibold">Clip anotado</h4>
+          <p className={styles.muted}>
+            Extracto del resultado de Operix, sin audio. La condición se
+            registró en el segundo{" "}
+            {clip.offset.toLocaleString("es-CL", { maximumFractionDigits: 3 })}{" "}
+            del clip.
+          </p>
+          <video
+            className="w-full rounded-md bg-black"
+            aria-label="Clip anotado del evento"
+            controls
+            playsInline
+            preload="metadata"
+            src={clip.url}
+            onError={() => setClipError(true)}
+          />
+          {clipError && (
+            <p role="status">
+              No se pudo reproducir el clip. El PNG sigue disponible si está
+              adjunto.
+            </p>
+          )}
+        </section>
+      )}
       <figcaption>
         Frame {text(String(event.frame_index ?? ""), "no registrado")} ·{" "}
         {measurement(event.video_timestamp_s)} de video.

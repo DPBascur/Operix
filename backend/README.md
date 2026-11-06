@@ -45,6 +45,15 @@ La publicación del Motor sigue usando `OPERIX_EVENT_PUBLISH_TOKEN` con `EVENT_P
 
 `OPERIX_MEDIA_ROOT` define la carpeta de capturas y queda fuera de Git. Respaldar base y archivos juntos para conservar las referencias. La retención de evidencias sigue siendo manual.
 
+### Clips anotados de evidencia
+
+Los análisis web confirmados pueden generar un MP4 anotado por evento persistido. El PNG se conserva. El extracto usa la cadencia del resultado, tiene un lado máximo de 640 px y se genera sin audio ni inferencia adicional. La ventana se centra en el fotograma del evento, se recorta a los límites de la fuente e incluye el fotograma del evento.
+
+- `OPERIX_CLIPS_ENABLED=1` habilita la generación. `OPERIX_CLIP_WINDOW_SECONDS=5` define el margen por lado, de 1 a 10 segundos.
+- El detalle devuelve `evidence_clip` cuando está listo. La URL exige UUID de evento y run y aplica el mismo permiso de revisión que el PNG. Los históricos sin clip mantienen el detalle y su PNG.
+- Los límites locales son 12 MiB por clip, 512 MiB de MP4 publicados y 24 eventos candidatos por run. La generación usa un único cupo fuera del Motor. Si el cupo está ocupado, falla el códec o se agota la cuota, el evento y el PNG siguen disponibles. Recargar el detalle para consultar clips que se terminaron de generar.
+- Los clips y sus metadatos se respaldan con el resto de `OPERIX_MEDIA_ROOT`. Borrar un evento invalida la ruta y programa la retirada del extracto al confirmar la transacción. Tras un cierre abrupto o un bloqueo de archivo, la limpieza de archivos temporales o huérfanos es manual.
+
 ## API v1
 
 | Método | Ruta | Resultado |

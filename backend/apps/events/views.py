@@ -17,6 +17,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from config.access import CanReviewEvents
 
+from .clips import clip_directory, clip_info
 from .models import Event
 from .publication import require_event_publisher
 from .serializers import EventFilterSerializer, EventSerializer
@@ -92,6 +93,22 @@ class EventDetailView(generics.RetrieveAPIView):
     permission_classes = [CanReviewEvents]
     serializer_class = EventSerializer
     queryset = Event.objects.all()
+
+    def retrieve(self, request, *args, **kwargs):
+        event = self.get_object()
+        return Response({**self.get_serializer(event).data, "evidence_clip": clip_info(event)})
+
+
+class EventClipView(APIView):
+    permission_classes = [CanReviewEvents]
+
+    def get(self, request, pk, run):
+        from apps.analysis.views import _video_response
+
+        event = get_object_or_404(Event, pk=pk, analysis_run_id=run)
+        if clip_info(event) is None:
+            raise Http404("Clip no disponible")
+        return _video_response(request, clip_directory(event) / "clip.mp4", "operix-evidence.mp4")
 
 
 def filtered_events(queryset, query_params):

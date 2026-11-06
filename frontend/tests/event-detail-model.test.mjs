@@ -5,6 +5,7 @@ import {
   eventProximityGeometry,
   eventTime,
   evidenceHref,
+  evidenceClip,
   measurement,
   operationalSubjects,
   record,
@@ -17,6 +18,28 @@ const single = {
   observed_dwell_time_s: "2.000000000",
   rule_parameters: { min_duration_s: 2 },
 };
+test("clip solo usa la URL del evento y run exactos", () => {
+  const event = {
+    ...single,
+    analysis_run_id: "run",
+    evidence_clip: {
+      kind: "annotated",
+      event_id: single.id,
+      analysis_run_id: "run",
+      event_offset_s: 0,
+      url: "/api/v1/events/fixture/clips/run/",
+    },
+  };
+  assert.deepEqual(evidenceClip(event, "/api/v1"), {
+    url: event.evidence_clip.url,
+    offset: 0,
+  });
+  assert.equal(
+    evidenceClip({ ...event, analysis_run_id: "otro" }, "/api/v1"),
+    null,
+  );
+  assert.equal(evidenceClip(single, "/api/v1"), null);
+});
 test("detalle conserva duración y mínimo sin evaluar ni cambiar la regla", () => {
   assert.deepEqual(eventMeasurements(single), [
     {

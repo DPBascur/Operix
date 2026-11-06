@@ -112,17 +112,38 @@ export function evidenceHref(
   event: OperationalEvent,
   apiBaseUrl: string | undefined,
 ): string | null {
-  if (!apiBaseUrl) return null;
+  const path = `/api/v1/events/${encodeURIComponent(event.id)}/evidence/`;
+  return event.evidence_url === path ? evidencePath(path, apiBaseUrl) : null;
+}
+
+export function evidenceClip(
+  event: OperationalEvent,
+  apiBaseUrl: string | undefined,
+) {
+  const clip = record(event.evidence_clip);
+  const run = event.analysis_run_id;
   if (
-    event.evidence_url !==
-    `/api/v1/events/${encodeURIComponent(event.id)}/evidence/`
+    typeof run !== "string" ||
+    clip.kind !== "annotated" ||
+    clip.event_id !== event.id ||
+    clip.analysis_run_id !== run ||
+    typeof clip.event_offset_s !== "number" ||
+    !Number.isFinite(clip.event_offset_s) ||
+    clip.event_offset_s < 0
   )
     return null;
-  if (apiBaseUrl === "/api/v1") return event.evidence_url;
+  const path = `/api/v1/events/${encodeURIComponent(event.id)}/clips/${encodeURIComponent(run)}/`;
+  const url = clip.url === path ? evidencePath(path, apiBaseUrl) : null;
+  return url ? { url, offset: clip.event_offset_s } : null;
+}
+
+function evidencePath(path: string, apiBaseUrl: string | undefined) {
+  if (!apiBaseUrl) return null;
+  if (apiBaseUrl === "/api/v1") return path;
   try {
     const base = new URL(apiBaseUrl);
     if (!["http:", "https:"].includes(base.protocol)) return null;
-    return new URL(event.evidence_url, base).href;
+    return new URL(path, base).href;
   } catch {
     return null;
   }
