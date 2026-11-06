@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 from datetime import timezone
 
 from django.db import DatabaseError, connection, transaction
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.db.models.functions import TruncDate
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
@@ -113,7 +113,7 @@ class EventClipView(APIView):
 
 def filtered_events(queryset, query_params):
     """Comparte el contrato de filtros y sus límites inclusivos con la lista."""
-    unknown = set(query_params) - {"event_type", "occurred_after", "occurred_before"}
+    unknown = set(query_params) - {"event_type", "occurred_after", "occurred_before", "source_kind", "source_sha256"}
     if unknown:
         raise ValidationError({"filters": f"Parámetros desconocidos: {', '.join(sorted(unknown))}."})
     filters = EventFilterSerializer(data=query_params)
@@ -125,6 +125,13 @@ def filtered_events(queryset, query_params):
         queryset = queryset.filter(occurred_at__gte=data["occurred_after"])
     if "occurred_before" in data:
         queryset = queryset.filter(occurred_at__lte=data["occurred_before"])
+    if data.get("source_kind") == "unknown":
+        known = Q(source__kind="demo") | Q(source__kind="manual")
+        queryset = queryset.filter(Q(source__kind__isnull=True) | ~known)
+    elif "source_kind" in data:
+        queryset = queryset.filter(source__kind=data["source_kind"])
+    if "source_sha256" in data:
+        queryset = queryset.filter(source__video_sha256=data["source_sha256"])
     return queryset
 
 

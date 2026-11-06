@@ -65,7 +65,7 @@ Los análisis web confirmados pueden generar un MP4 anotado por evento persistid
 | POST | `/api/v1/events/{id}/evidence/` | Adjunta un PNG (201), reutiliza evidencia existente (200) o completa una imagen ausente |
 | GET | `/api/v1/events/{id}/evidence/` | Devuelve el PNG asociado, o 404 si falta |
 
-La lista admite `event_type`, `occurred_after` y `occurred_before`. Los tiempos requieren zona horaria explícita; ambos límites del período son inclusivos. Los filtros inválidos devuelven 400. No existen PUT, PATCH ni DELETE.
+La lista y las frecuencias admiten `event_type`, `occurred_after`, `occurred_before`, `source_kind` (`demo`, `manual` o `unknown`) y `source_sha256` (huella del video registrada en el evento). Los tiempos requieren zona horaria explícita; ambos límites del período son inclusivos. Los filtros inválidos devuelven 400. No existen PUT, PATCH ni DELETE.
 
 El POST admite `zone_dwell` y `person_forklift_proximity`, más el contexto civil y
 de ejecución suministrado por el integrador. El siguiente ejemplo sintético es

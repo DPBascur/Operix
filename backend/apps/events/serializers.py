@@ -152,6 +152,8 @@ class EventSerializer(serializers.ModelSerializer):
 
 class EventFilterSerializer(serializers.Serializer):
     event_type = serializers.ChoiceField(choices=EVENT_TYPES, required=False)
+    source_kind = serializers.ChoiceField(choices=("demo", "manual", "unknown"), required=False)
+    source_sha256 = serializers.RegexField(r"^[a-f0-9]{64}$", required=False)
     occurred_after = serializers.DateTimeField(required=False)
     occurred_before = serializers.DateTimeField(required=False)
 

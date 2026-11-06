@@ -62,6 +62,27 @@ class EventFrequencyTests(APITestCase):
             "by_period": [], "by_type": [],
         })
 
+    def test_provenance_and_video_filters_match_postgresql_history(self):
+        demo, manual, historical, other = list(Event.objects.order_by("frame_index"))
+        sha = "a" * 64
+        Event.objects.filter(pk=demo.pk).update(source={"kind": "demo", "video_sha256": sha})
+        Event.objects.filter(pk=manual.pk).update(source={"kind": "manual", "video_sha256": sha})
+        Event.objects.filter(pk=other.pk).update(source={"kind": "legacy"})
+        for params, expected in (
+            ({"source_kind": "demo"}, {demo.pk}),
+            ({"source_kind": "manual"}, {manual.pk}),
+            ({"source_kind": "unknown"}, {historical.pk, other.pk}),
+            ({"source_sha256": sha}, {demo.pk, manual.pk}),
+            ({"source_sha256": sha, "source_kind": "manual", "event_type": "zone_dwell",
+              "occurred_after": self.dates[1], "occurred_before": self.dates[1]}, {manual.pk}),
+            ({"source_sha256": "b" * 64}, set()),
+        ):
+            with self.subTest(params=params):
+                response = self.client.get("/api/v1/events/", params)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual({item["id"] for item in response.json()}, {str(pk) for pk in expected})
+                self.assertEqual(self.client.get(self.url, params).json()["total"], len(expected))
+
     def test_empty_database(self):
         Event.objects.all().delete()
         self.assertEqual(self.client.get(self.url).json()["total"], 0)
@@ -69,6 +90,7 @@ class EventFrequencyTests(APITestCase):
     def test_invalid_filters_are_rejected(self):
         for filters in (
             {"unexpected": "1"}, {"event_type": "invented"},
+            {"source_kind": "operational"}, {"source_sha256": "invalid"},
             {"occurred_after": "2026-10-20T00:00:00"},
             {"occurred_after": self.dates[2], "occurred_before": self.dates[1]},
         ):
