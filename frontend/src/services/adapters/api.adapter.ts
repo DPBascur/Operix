@@ -1,5 +1,6 @@
 import { apiFetch } from "@/services/browser-session";
 import { environment } from "@/config/environment";
+import { sourceKind, sourceNames } from "@/features/dashboard/history-model";
 import type {
   AnalysisOverview,
   DashboardSummary,
@@ -31,7 +32,12 @@ export class ApiAdapter implements FrontendDataAdapter {
     if (filters.occurredBefore)
       params.set("occurred_before", filters.occurredBefore);
     if (filters.eventType) params.set("event_type", filters.eventType);
-    const response = await apiFetch(`${url}?${params}`, { cache: "no-store" });
+    if (filters.sourceKind) params.set("source_kind", filters.sourceKind);
+    if (filters.sourceSha256) params.set("source_sha256", filters.sourceSha256);
+    const response = await apiFetch(`${url}?${params}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(15000),
+    });
     if (!response.ok) {
       throw new Error(`La API respondió con estado ${response.status}.`);
     }
@@ -50,6 +56,7 @@ export class ApiAdapter implements FrontendDataAdapter {
           ? event.source.filename
           : "No informada",
       detailUrl: `/events/${encodeURIComponent(event.id)}`,
+      sourceKindLabel: sourceNames[sourceKind(event.source?.kind)],
       confidence: null,
       time: new Date(event.occurred_at).toLocaleString("es-CL", {
         dateStyle: "short",

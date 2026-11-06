@@ -1,9 +1,39 @@
 import { AppShell } from "@/components/layout/app-shell";
-import { MockDataNotice } from "@/components/ui/mock-data-notice";
-import { environment } from "@/config/environment";
 import { EventsTable } from "@/features/events/events-table";
+import type { EventQuery } from "@/services/adapters/frontend-data.adapter";
 
-export default function EventsPage() {
+export default async function EventsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  const date = (key: string) => {
+    const value = params[key];
+    return typeof value === "string" && Number.isFinite(Date.parse(value))
+      ? value
+      : undefined;
+  };
+  const initial: EventQuery = {
+    sourceSha256:
+      typeof params.source_sha256 === "string" &&
+      /^[a-f0-9]{64}$/.test(params.source_sha256)
+        ? params.source_sha256
+        : undefined,
+    occurredAfter: date("occurred_after"),
+    occurredBefore: date("occurred_before"),
+    eventType:
+      params.event_type === "zone_dwell" ||
+      params.event_type === "person_forklift_proximity"
+        ? params.event_type
+        : undefined,
+    sourceKind:
+      params.source_kind === "demo" ||
+      params.source_kind === "manual" ||
+      params.source_kind === "unknown"
+        ? params.source_kind
+        : undefined,
+  };
   return (
     <AppShell activePath="/events">
       <div className="page-wrap operational-page">
@@ -14,13 +44,10 @@ export default function EventsPage() {
               Tipo, hora, zona y evidencia del registro operacional.
             </p>
           </div>
-          <span className="source-indicator">
-            {environment.dataSource === "api" ? "API local" : "Datos mock"}
-          </span>
+          <span className="source-indicator">Registros de PostgreSQL</span>
         </header>
-        {environment.dataSource === "mock" && <MockDataNotice />}
         <section className="event-ledger" aria-label="Investigación de eventos">
-          <EventsTable />
+          <EventsTable key={JSON.stringify(initial)} initial={initial} />
         </section>
       </div>
     </AppShell>

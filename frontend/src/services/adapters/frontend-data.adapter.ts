@@ -20,4 +20,6 @@ export interface EventQuery {
   occurredAfter?: string;
   occurredBefore?: string;
   eventType?: "zone_dwell" | "person_forklift_proximity";
+  sourceKind?: "demo" | "manual" | "unknown";
+  sourceSha256?: string;
 }

@@ -62,6 +62,7 @@ export interface EventListItem {
   tone: "accent" | "cyan" | "neutral";
   evidenceUrl?: string | null;
   source?: string;
+  sourceKindLabel?: string;
   detailUrl?: string;
 }
 

@@ -49,6 +49,7 @@ export async function startFixtureApi(port = 8000) {
     delayNextZone = false;
   const pendingZones = [];
   let signedIn = false;
+  let failHistory = false;
   const account = { username: "fixture-admin", role: "administrator" };
   const csrf = "TEST_ONLY_CSRF";
   const run = "00000000-0000-4000-8000-000000000055";
@@ -62,7 +63,7 @@ export async function startFixtureApi(port = 8000) {
       url: `/api/v1/events/${eventId}/clips/${run}/`,
     },
     id: eventId,
-    occurred_at: "2026-10-25T12:00:01Z",
+    occurred_at: `${new Date().toISOString().slice(0, 7)}-01T12:00:01Z`,
     event_type: "person_forklift_proximity",
     rule_id: "TEST_DATA_PAIR",
     rule_version: 1,
@@ -77,6 +78,8 @@ export async function startFixtureApi(port = 8000) {
     video_time_seconds: 1,
     source: {
       filename: "TEST_DATA_demo.mp4",
+      kind: "demo",
+      video_sha256: "a".repeat(64),
       timestamp_basis: "ANALYSIS_START_PROXY_NOT_RECORDING_TIME",
     },
     rule_parameters: { max_distance: 0.25, minimum_duration_seconds: 1 },
@@ -143,6 +146,7 @@ export async function startFixtureApi(port = 8000) {
         }
         if (body.failNext) failNext = true;
         if (body.expire) signedIn = false;
+        if (body.failHistory) failHistory = true;
         if (body.delayNextStatus) delayNextStatus = true;
         if (body.delayNextZone) delayNextZone = true;
         if (body.releaseZones) {
@@ -359,24 +363,42 @@ export async function startFixtureApi(port = 8000) {
         }
         return send(snapshot);
       }
-      if (url.pathname.endsWith("/frequencies/")) {
-        const total = url.searchParams
-          .get("occurred_after")
-          ?.startsWith("2026-09")
-          ? 0
-          : 1;
+      if (
+        ["/api/v1/events/", "/api/v1/events/frequencies/"].includes(
+          url.pathname,
+        )
+      ) {
+        if (failHistory) {
+          failHistory = false;
+          return send({ detail: "Fixture no disponible" }, 503);
+        }
+        const params = url.searchParams;
+        const matches =
+          Object.entries({
+            event_type: event.event_type,
+            source_kind: event.source.kind,
+            source_sha256: event.source.video_sha256,
+          }).every(
+            ([key, value]) => !params.has(key) || params.get(key) === value,
+          ) &&
+          (!params.has("occurred_after") ||
+            Date.parse(event.occurred_at) >=
+              Date.parse(params.get("occurred_after"))) &&
+          (!params.has("occurred_before") ||
+            Date.parse(event.occurred_at) <=
+              Date.parse(params.get("occurred_before")));
+        if (url.pathname === "/api/v1/events/")
+          return send(matches ? [event] : []);
         return send({
-          total,
+          total: matches ? 1 : 0,
           timezone: "UTC",
           period: "day",
-          by_period: total ? [{ date: "2026-10-25", count: 1 }] : [],
-          by_type: total ? [{ event_type: event.event_type, count: 1 }] : [],
+          by_period: matches
+            ? [{ date: event.occurred_at.slice(0, 10), count: 1 }]
+            : [],
+          by_type: matches ? [{ event_type: event.event_type, count: 1 }] : [],
         });
       }
-      if (url.pathname === "/api/v1/events/")
-        return send(
-          url.searchParams.get("event_type") === "zone_dwell" ? [] : [event],
-        );
       if (url.pathname === event.evidence_clip.url) return sendVideo();
       if (url.pathname === event.evidence_url) {
         res.writeHead(200, { "Content-Type": "image/png" });

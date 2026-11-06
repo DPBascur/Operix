@@ -1,18 +1,17 @@
 "use client";
 
-import { Activity, Search } from "lucide-react";
+import { Activity } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { environment } from "@/config/environment";
 import { eventsService } from "@/services/events.service";
 import type { EventQuery } from "@/services/adapters/frontend-data.adapter";
 import type { EventListItem } from "@/types/operix";
-import { historyError } from "@/features/dashboard/history-model";
+import { historyError, sourceNames } from "@/features/dashboard/history-model";
 
 function formatLocalMinute(date: Date): string {
   const parts = [
@@ -42,19 +41,40 @@ function localDateTimeToIso(value: string): string | null {
   return date.toISOString();
 }
 
-export function EventsTable() {
+function dateInput(value?: string) {
+  return value ? formatLocalMinute(new Date(value)) : "";
+}
+
+export function EventsTable({ initial }: { initial: EventQuery }) {
   const [events, setEvents] = useState<EventListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
-  const [query, setQuery] = useState("");
-  const [zone, setZone] = useState("all");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [from, setFrom] = useState(() => dateInput(initial.occurredAfter));
+  const [to, setTo] = useState(() => dateInput(initial.occurredBefore));
   const [eventType, setEventType] = useState<
     "" | "zone_dwell" | "person_forklift_proximity"
-  >("");
-  const [filters, setFilters] = useState<EventQuery>({});
+  >(initial.eventType ?? "");
+  const [source, setSource] = useState<
+    NonNullable<EventQuery["sourceKind"]> | ""
+  >(initial.sourceKind ?? "");
+  const [filters, setFilters] = useState<EventQuery>(initial);
+  function updateFilters(values: EventQuery) {
+    const params = new URLSearchParams();
+    if (values.occurredAfter)
+      params.set("occurred_after", values.occurredAfter);
+    if (values.occurredBefore)
+      params.set("occurred_before", values.occurredBefore);
+    if (values.eventType) params.set("event_type", values.eventType);
+    if (values.sourceKind) params.set("source_kind", values.sourceKind);
+    if (values.sourceSha256) params.set("source_sha256", values.sourceSha256);
+    window.history.replaceState(
+      null,
+      "",
+      params.size ? `/events?${params}` : "/events",
+    );
+    setFilters(values);
+  }
   const [filterError, setFilterError] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
@@ -77,22 +97,38 @@ export function EventsTable() {
   }, [filters, retry]);
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const occurredAfter = from ? localDateTimeToIso(from) : undefined;
-    const occurredBefore = to ? localDateTimeToIso(to) : undefined;
+    const occurredAfter =
+      from === dateInput(filters.occurredAfter)
+        ? filters.occurredAfter
+        : from
+          ? localDateTimeToIso(from)
+          : undefined;
+    const occurredBefore =
+      to === dateInput(filters.occurredBefore)
+        ? filters.occurredBefore
+        : to
+          ? localDateTimeToIso(to)
+          : undefined;
     if ((from && !occurredAfter) || (to && !occurredBefore)) {
       setFilterError("Ingresa fechas y horas locales válidas.");
       return;
     }
-    if (occurredAfter && occurredBefore && occurredAfter > occurredBefore) {
+    if (
+      occurredAfter &&
+      occurredBefore &&
+      Date.parse(occurredAfter) > Date.parse(occurredBefore)
+    ) {
       setFilterError("La fecha desde no puede ser posterior a la fecha hasta.");
       return;
     }
     setFilterError(null);
     setLoading(true);
-    setFilters({
+    updateFilters({
       occurredAfter: occurredAfter ?? undefined,
       occurredBefore: occurredBefore ?? undefined,
       eventType: eventType || undefined,
+      sourceKind: source || undefined,
+      sourceSha256: filters.sourceSha256,
     });
     setRetry((current) => current + 1);
   }
@@ -100,110 +136,84 @@ export function EventsTable() {
     setFrom("");
     setTo("");
     setEventType("");
-    setQuery("");
-    setZone("all");
+    setSource("");
     setFilterError(null);
     setLoading(true);
-    setFilters({});
+    updateFilters({});
     setRetry((current) => current + 1);
   }
-  const hasAppliedFilters = Boolean(
-    filters.occurredAfter || filters.occurredBefore || filters.eventType,
-  );
-  const hasDraftFilters = Boolean(from || to || eventType);
-  const zones = useMemo(
-    () => [...new Set(events.map((event) => event.zone))],
-    [events],
-  );
-  const filteredEvents = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase("es");
-    if (environment.dataSource === "api") return events;
-    return events.filter((event) => {
-      const matchesQuery =
-        !normalizedQuery ||
-        event.title.toLocaleLowerCase("es").includes(normalizedQuery) ||
-        event.rule.toLocaleLowerCase("es").includes(normalizedQuery);
-      return matchesQuery && (zone === "all" || event.zone === zone);
-    });
-  }, [events, query, zone]);
+  const hasAppliedFilters = Object.values(filters).some(Boolean);
+  const hasDraftFilters = Boolean(from || to || eventType || source);
+  const filteredEvents = events;
 
   return (
     <>
-      {environment.dataSource === "api" ? (
-        <form
-          className="grid gap-3 border-b border-border pb-5 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_auto] xl:items-end"
-          onSubmit={applyFilters}
-        >
-          <label className="grid gap-1 text-xs font-medium text-text-secondary">
-            Desde (hora local)
-            <Input
-              aria-label="Desde, fecha y hora local"
-              onChange={(event) => setFrom(event.target.value)}
-              type="datetime-local"
-              value={from}
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-medium text-text-secondary">
-            Hasta (hora local)
-            <Input
-              aria-label="Hasta, fecha y hora local"
-              onChange={(event) => setTo(event.target.value)}
-              type="datetime-local"
-              value={to}
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-medium text-text-secondary">
-            Tipo de evento
-            <select
-              className="select-control"
-              onChange={(event) =>
-                setEventType(
-                  event.target.value as
-                    "" | "zone_dwell" | "person_forklift_proximity",
-                )
-              }
-              value={eventType}
-            >
-              <option value="">Todos los tipos</option>
-              <option value="zone_dwell">Permanencia en zona</option>
-              <option value="person_forklift_proximity">
-                Proximidad persona–montacargas
+      <form
+        className="grid gap-3 border-b border-border pb-5 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_auto] xl:items-end"
+        onSubmit={applyFilters}
+      >
+        <label className="grid gap-1 text-xs font-medium text-text-secondary">
+          Desde (hora local)
+          <Input
+            aria-label="Desde, fecha y hora local"
+            onChange={(event) => setFrom(event.target.value)}
+            type="datetime-local"
+            value={from}
+          />
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-text-secondary">
+          Hasta (hora local)
+          <Input
+            aria-label="Hasta, fecha y hora local"
+            onChange={(event) => setTo(event.target.value)}
+            type="datetime-local"
+            value={to}
+          />
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-text-secondary">
+          Tipo de evento
+          <select
+            className="select-control"
+            onChange={(event) =>
+              setEventType(
+                event.target.value as
+                  "" | "zone_dwell" | "person_forklift_proximity",
+              )
+            }
+            value={eventType}
+          >
+            <option value="">Todos los tipos</option>
+            <option value="zone_dwell">Permanencia en zona</option>
+            <option value="person_forklift_proximity">
+              Proximidad persona–montacargas
+            </option>
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-text-secondary">
+          Procedencia
+          <select
+            className="select-control"
+            value={source}
+            onChange={(e) => setSource(e.target.value as typeof source)}
+          >
+            <option value="">Todas</option>
+            {Object.entries(sourceNames).map(([key, name]) => (
+              <option key={key} value={key}>
+                {name}
               </option>
-            </select>
-          </label>
-          <Button type="submit">Aplicar filtros</Button>
-        </form>
-      ) : (
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <label className="flex flex-1 items-center gap-2 rounded-control border border-border bg-surface-elevated px-3 py-2.5 text-sm text-text-secondary focus-within:border-accent">
-            <Search aria-hidden="true" size={17} />
-            <span className="sr-only">Buscar evento o regla</span>
-            <Input
-              className="!min-h-0 !border-0 !bg-transparent !p-0 text-foreground"
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Buscar evento o regla"
-              type="search"
-              value={query}
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-medium text-text-secondary">
-            <span className="sr-only">Filtrar por zona</span>
-            <select
-              className="h-full min-h-10 rounded-control border border-border bg-surface px-3 text-sm text-foreground"
-              onChange={(event) => setZone(event.target.value)}
-              value={zone}
-            >
-              <option value="all">Todas las zonas</option>
-              {zones.map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-      )}
+            ))}
+          </select>
+        </label>
+        <Button type="submit">Aplicar filtros</Button>
+      </form>
       {filterError && (
         <p role="alert" className="mt-2 text-sm text-danger">
           {filterError}
+        </p>
+      )}
+      {filters.sourceSha256 && (
+        <p className="mt-2 text-xs text-text-secondary">
+          Video filtrado · SHA-256 {filters.sourceSha256.slice(0, 12)}…
         </p>
       )}
 
@@ -213,9 +223,9 @@ export function EventsTable() {
             ? "Cargando eventos…"
             : error
               ? "Eventos no disponibles"
-              : `${filteredEvents.length} ${environment.dataSource === "api" ? (filteredEvents.length === 1 ? "evento registrado" : "eventos registrados") : filteredEvents.length === 1 ? "candidato simulado" : "candidatos simulados"}`}
+              : `${filteredEvents.length} ${filteredEvents.length === 1 ? "evento registrado" : "eventos registrados"}`}
         </p>
-        {(query || zone !== "all" || hasDraftFilters || hasAppliedFilters) && (
+        {(hasDraftFilters || hasAppliedFilters) && (
           <Button variant="ghost" onClick={clearFilters}>
             Limpiar filtros
           </Button>
@@ -246,11 +256,7 @@ export function EventsTable() {
       {!loading && !error && (
         <>
           <ul
-            aria-label={
-              environment.dataSource === "api"
-                ? "Eventos registrados"
-                : "Eventos simulados"
-            }
+            aria-label="Eventos registrados"
             className="divide-y divide-border xl:hidden"
           >
             {filteredEvents.map((event) => (
@@ -289,6 +295,9 @@ export function EventsTable() {
                     <dt className="text-text-secondary">Fuente</dt>
                     <dd className="mt-0.5 font-medium text-foreground">
                       {event.source ?? "No informada"}
+                      <small className="block text-text-secondary">
+                        {event.sourceKindLabel}
+                      </small>
                     </dd>
                   </div>
                   <div>
@@ -321,19 +330,11 @@ export function EventsTable() {
           <div
             className="mt-2 hidden overflow-x-auto rounded-control focus-visible:outline-accent xl:block"
             role="region"
-            aria-label={
-              environment.dataSource === "api"
-                ? "Tabla de eventos registrados; desplazamiento horizontal disponible"
-                : "Tabla de eventos simulados; desplazamiento horizontal disponible"
-            }
+            aria-label="Tabla de eventos registrados; desplazamiento horizontal disponible"
             tabIndex={0}
           >
             <table className="w-full min-w-180 text-left text-sm">
-              <caption className="sr-only">
-                {environment.dataSource === "api"
-                  ? "Eventos registrados"
-                  : "Candidatos de evento simulados"}
-              </caption>
+              <caption className="sr-only">Eventos registrados</caption>
               <thead className="border-b border-border text-xs uppercase tracking-wide text-text-secondary">
                 <tr>
                   {[
@@ -364,6 +365,7 @@ export function EventsTable() {
                     time,
                     evidenceUrl,
                     source,
+                    sourceKindLabel,
                     detailUrl,
                   }) => (
                     <tr
@@ -394,6 +396,7 @@ export function EventsTable() {
                       </td>
                       <td className="px-3 py-4 text-text-secondary">
                         {source ?? "No informada"}
+                        <small className="block">{sourceKindLabel}</small>
                       </td>
                       <td className="px-3 py-4 text-text-secondary">
                         {eventZone}
@@ -423,22 +426,9 @@ export function EventsTable() {
           </div>
           {filteredEvents.length === 0 ? (
             <p className="py-10 text-center text-sm text-text-secondary">
-              {hasAppliedFilters ||
-              (environment.dataSource === "mock" && (query || zone !== "all"))
-                ? "No se encontraron eventos para los filtros seleccionados."
-                : events.length === 0
-                  ? environment.dataSource === "api"
-                    ? "Todavía no hay eventos registrados."
-                    : "No hay eventos mock."
-                  : "No se encontraron eventos para los filtros seleccionados."}
               {hasAppliedFilters
-                ? " Amplíe el período o limpie los filtros."
-                : " "}
-              {!hasAppliedFilters && events.length === 0 && (
-                <Link href="/analysis" className="underline underline-offset-2">
-                  Analizar un video
-                </Link>
-              )}
+                ? "No se encontraron eventos para los filtros seleccionados. Amplíe el período o limpie los filtros."
+                : "Todavía no hay eventos registrados."}
             </p>
           ) : null}
         </>

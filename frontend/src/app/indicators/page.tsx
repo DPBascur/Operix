@@ -1,9 +1,30 @@
 import { AppShell } from "@/components/layout/app-shell";
 import { HistoricalDashboard } from "@/features/dashboard/historical-dashboard";
-export default function IndicatorsPage() {
+export default async function IndicatorsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const { month, type, source } = await searchParams;
+  const selection = {
+    initialMonth:
+      typeof month === "string" &&
+      /^[1-9][0-9]{3}-(0[1-9]|1[0-2])$/.test(month) &&
+      month <= new Date().toISOString().slice(0, 7)
+        ? month
+        : undefined,
+    initialType:
+      type === "zone_dwell" || type === "person_forklift_proximity"
+        ? type
+        : undefined,
+    initialSource:
+      source === "demo" || source === "manual" || source === "unknown"
+        ? source
+        : undefined,
+  };
   return (
     <AppShell activePath="/indicators">
-      <HistoricalDashboard />
+      <HistoricalDashboard key={JSON.stringify(selection)} {...selection} />
     </AppShell>
   );
 }

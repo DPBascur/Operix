@@ -8,6 +8,7 @@ import {
   monthUtcBounds,
   parseFrequency,
   summarizeApiHistory,
+  historyHref,
 } from "../src/features/dashboard/history-model.ts";
 test("errores de conexión, timeout y JSON usan mensajes recuperables", () => {
   assert.match(
@@ -22,6 +23,48 @@ test("errores de conexión, timeout y JSON usan mensajes recuperables", () => {
     historyError(new SyntaxError("JSON token")),
     /respuesta inválida/,
   );
+});
+
+test("agrupa archivos por huella, ejecuciones por ID y no clasifica históricos como operacionales", () => {
+  const sha = "a".repeat(64);
+  const timestamp = "2026-10-31T23:59:59.999999Z";
+  const summary = summarizeHistory(
+    [
+      {
+        ...event("1", timestamp),
+        analysis_run_id: "run-1",
+        source: { kind: "demo", filename: "a.mp4", video_sha256: sha },
+      },
+      {
+        ...event("2", timestamp),
+        analysis_run_id: "run-1",
+        source: {
+          kind: "manual",
+          filename: "renombrado.mp4",
+          video_sha256: sha,
+        },
+      },
+      event("3", timestamp),
+    ],
+    "2026-10",
+  );
+  assert.equal(summary.runsWithEvents, 1);
+  assert.deepEqual(summary.videos, [{ sha, name: "a.mp4", count: 2 }]);
+  assert.deepEqual(
+    summary.sources.map(({ label }) => label),
+    ["demo", "manual", "unknown"],
+  );
+  const query = new URLSearchParams({
+    occurred_before: timestamp,
+    event_type: "zone_dwell",
+  });
+  const url = new URL(
+    historyHref(query, { source_sha256: sha }),
+    "http://localhost",
+  );
+  assert.equal(url.searchParams.get("occurred_before"), timestamp);
+  assert.equal(url.searchParams.get("event_type"), "zone_dwell");
+  assert.equal(url.searchParams.get("source_sha256"), sha);
 });
 import { historyDemo } from "../src/services/demo/history-demo.ts";
 const event = (id, date, zone = "A") => ({

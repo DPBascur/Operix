@@ -485,6 +485,34 @@ test(
         ),
         true,
       );
+      await go("/indicators");
+      await wait(text("Eventos por procedencia"));
+      assert.equal(await evaluate(text("Ejemplo ilustrativo")), false);
+      const setProvenance = (value) =>
+        evaluate(`(() => {
+        const select = [...document.querySelectorAll('main select')].find(el => el.parentElement.textContent.startsWith('Procedencia'));
+        select.value = ${JSON.stringify(value)};
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      })()`);
+      await setProvenance("manual");
+      await wait(text("No existen registros para este período"));
+      await control({ failHistory: true });
+      await setProvenance("demo");
+      await wait(text("No se pudo cargar el histórico"));
+      await click("Reintentar consulta");
+      await wait(text("Eventos por procedencia"));
+      await evaluate(
+        "document.querySelector('main a[href*=source_sha256]').click()",
+      );
+      await wait(
+        "location.pathname==='/events' && location.search.includes('source_sha256=') && location.search.includes('source_kind=demo')",
+      );
+      await wait(text("1 evento registrado"));
+      await wait(text("Video filtrado"));
+      await evaluate(
+        `document.querySelector('main a[href="/events/${eventId}"]').click()`,
+      );
+      await wait(text("Resumen operacional"));
       for (const width of [1440, 1280, 390]) {
         await viewport(width);
         for (const route of [
@@ -498,6 +526,9 @@ test(
           await go(route);
           await wait("!!document.querySelector('main#main-content')");
           if (route === "/events") await wait(text("Proximidad persona"));
+          if (route === "/") await wait(text("Actividad reciente"));
+          if (route === "/indicators")
+            await wait(text("Eventos por procedencia"));
           if (route === `/events/${eventId}`) {
             await wait(
               text("requiere revisión humana, no confirma un incidente"),

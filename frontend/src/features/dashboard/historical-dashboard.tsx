@@ -8,15 +8,15 @@ import {
   ArrowUpRight,
   ArrowRight,
   RefreshCw,
-  Play,
   Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { environment } from "@/config/environment";
-import { historyDemo } from "@/services/demo/history-demo";
 import { eventTypeName } from "@/services/event-contract";
 import { enterTransition, revealVariants } from "@/lib/motion/presets";
 import {
+  historyHref,
+  sourceNames,
   parseHistory,
   parseFrequency,
   formatHistoryTime,
@@ -29,14 +29,44 @@ import {
 } from "./history-model";
 
 const eventName = eventTypeName;
-export function HistoricalDashboard() {
+export function HistoricalDashboard({
+  overview = false,
+  initialMonth,
+  initialType = "",
+  initialSource = "",
+}: {
+  overview?: boolean;
+  initialMonth?: string;
+  initialType?: string;
+  initialSource?: string;
+}) {
   const reduceMotion = useReducedMotion();
-  const [source, setSource] = useState<"demo" | "api">("demo");
-  const [month, setMonth] = useState("2026-10");
-  const [periodAnchor, setPeriodAnchor] = useState("2026-10");
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const [month, setMonth] = useState(initialMonth ?? currentMonth);
+  const anchor = new Date(`${currentMonth}-01T00:00:00Z`);
+  const periods = Array.from({ length: 12 }, (_, i) =>
+    new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() - i, 1))
+      .toISOString()
+      .slice(0, 7),
+  );
+  if (initialMonth && !periods.includes(initialMonth))
+    periods.push(initialMonth);
+  const [type, setType] = useState(initialType);
+  const [source, setSource] = useState(initialSource);
+  const applied = useMemo(() => {
+    const bounds = monthUtcBounds(month);
+    const params = new URLSearchParams({
+      occurred_after: bounds.start,
+      occurred_before: bounds.end,
+    });
+    if (type) params.set("event_type", type);
+    if (source) params.set("source_kind", source);
+    return params;
+  }, [month, type, source]);
+  const queryKey = applied.toString();
   const [records, setRecords] = useState<HistoryEvent[]>([]);
   const [frequencies, setFrequencies] = useState<{
-    month: string;
+    key: string;
     current: EventFrequency;
     previous: EventFrequency;
   } | null>(null);
@@ -44,7 +74,6 @@ export function HistoricalDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
-    if (source !== "api") return;
     let active = true;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
@@ -60,17 +89,15 @@ export function HistoricalDashboard() {
           );
         const base = environment.apiBaseUrl.replace(/\/$/, "");
         const bounds = monthUtcBounds(month);
-        const selected = new URLSearchParams({
-          occurred_after: bounds.start,
-          occurred_before: bounds.end,
-        });
-        const previous = new URLSearchParams({
-          occurred_after: bounds.previous,
-          occurred_before: monthUtcBounds(bounds.previous.slice(0, 7)).end,
-        });
+        const previous = new URLSearchParams(applied);
+        previous.set("occurred_after", bounds.previous);
+        previous.set(
+          "occurred_before",
+          monthUtcBounds(bounds.previous.slice(0, 7)).end,
+        );
         const endpoints = [
-          `${base}/events/?${selected}`,
-          `${base}/events/frequencies/?${selected}`,
+          `${base}/events/?${applied}`,
+          `${base}/events/frequencies/?${applied}`,
           `${base}/events/frequencies/?${previous}`,
         ];
         const responses = await Promise.all(
@@ -90,7 +117,11 @@ export function HistoricalDashboard() {
         summarizeApiHistory(data, month, current, previousFrequency);
         if (active) {
           setRecords(data);
-          setFrequencies({ month, current, previous: previousFrequency });
+          setFrequencies({
+            key: queryKey,
+            current,
+            previous: previousFrequency,
+          });
         }
       } catch (cause) {
         if (active) setError(historyError(cause));
@@ -105,18 +136,18 @@ export function HistoricalDashboard() {
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [source, month, revision]);
+  }, [applied, queryKey, month, revision]);
   const summary = useMemo(
     () =>
-      source === "api" && frequencies?.month === month
+      frequencies?.key === queryKey
         ? summarizeApiHistory(
             records,
             month,
             frequencies.current,
             frequencies.previous,
           )
-        : summarizeHistory(source === "demo" ? historyDemo : [], month),
-    [source, records, frequencies, month],
+        : summarizeHistory([], month),
+    [queryKey, records, frequencies, month],
   );
   const max = Math.max(1, ...summary.days.map((d) => d.count));
   const points = summary.days
@@ -135,51 +166,32 @@ export function HistoricalDashboard() {
     summary.hours[0],
   );
   return (
-    <div className="insights-page market-dashboard">
+    <div
+      className={`insights-page market-dashboard${overview ? " dashboard-overview" : ""}`}
+    >
       <header className="insights-heading">
         <div>
-          <h2>Histórico de eventos</h2>
+          <h2>{overview ? "Resumen de eventos" : "Indicadores de eventos"}</h2>
           <p>Actividad operacional · {currentLabel}</p>
         </div>
-        <Link href="/sources" className="button button-primary">
-          <Play size={16} aria-hidden="true" />
-          Nuevo análisis
+        <Link
+          href={
+            overview
+              ? `/indicators?${new URLSearchParams({ month, type, source })}`
+              : historyHref(applied)
+          }
+          className="button button-primary"
+        >
+          {overview ? "Ver indicadores" : "Ver historial filtrado"}{" "}
+          <ArrowRight size={16} />
         </Link>
       </header>
       <div className="history-controls">
-        <div className="segmented-control" aria-label="Fuente del histórico">
-          <Button
-            variant={source === "demo" ? "primary" : "ghost"}
-            aria-pressed={source === "demo"}
-            onClick={() => {
-              setSource("demo");
-              setMonth("2026-10");
-              setPeriodAnchor("2026-10");
-            }}
-          >
-            Ejemplo ilustrativo
-          </Button>
-          <Button
-            variant={source === "api" ? "primary" : "ghost"}
-            aria-pressed={source === "api"}
-            onClick={() => {
-              setSource("api");
-              setMonth(new Date().toISOString().slice(0, 7));
-              setPeriodAnchor(new Date().toISOString().slice(0, 7));
-            }}
-          >
-            Registros API
-          </Button>
-        </div>
         <label className="month-control">
           Período UTC
           <select value={month} onChange={(e) => setMonth(e.target.value)}>
-            {Array.from({ length: 12 }, (_, i) => {
-              const anchor = new Date(`${periodAnchor}-01T00:00:00Z`);
-              const d = new Date(
-                Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() - i, 1),
-              );
-              const value = d.toISOString().slice(0, 7);
+            {periods.map((value) => {
+              const d = new Date(`${value}-01T00:00:00Z`);
               return (
                 <option key={value} value={value}>
                   {d.toLocaleDateString("es-CL", {
@@ -192,30 +204,46 @@ export function HistoricalDashboard() {
             })}
           </select>
         </label>
-        {source === "api" && (
-          <Button
-            variant="outline"
-            loading={loading}
-            onClick={() => setRevision((r) => r + 1)}
-          >
-            <RefreshCw size={15} />
-            Actualizar
-          </Button>
-        )}
+        <label className="month-control">
+          Tipo de evento
+          <select value={type} onChange={(e) => setType(e.target.value)}>
+            <option value="">Todos</option>
+            <option value="zone_dwell">Permanencia en zona</option>
+            <option value="person_forklift_proximity">
+              Proximidad persona–montacargas
+            </option>
+          </select>
+        </label>
+        <label className="month-control">
+          Procedencia
+          <select value={source} onChange={(e) => setSource(e.target.value)}>
+            <option value="">Todas</option>
+            {Object.entries(sourceNames).map(([key, name]) => (
+              <option key={key} value={key}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Button
+          variant="outline"
+          loading={loading}
+          onClick={() => setRevision((r) => r + 1)}
+        >
+          <RefreshCw size={15} /> Actualizar
+        </Button>
       </div>
       <p className="history-source-caption">
-        {source === "demo" ? "Datos de ejemplo" : "Registros de la API"} · UTC.
-        Conteos de condiciones configuradas, no de incidentes confirmados.
+        Registros de PostgreSQL por hora del evento (UTC). Los eventos
+        representan condiciones configuradas satisfechas. Una carga manual puede
+        ser un ensayo.
       </p>
-      {source === "api" &&
-      (loading ||
-        (!frequencies && !error) ||
-        (frequencies?.month !== month && !error)) ? (
+      {loading || (!error && frequencies?.key !== queryKey) ? (
         <div className="dashboard-loading" role="status">
           <span className="spinner" />
           Consultando el histórico…
         </div>
-      ) : source === "api" && error ? (
+      ) : error ? (
         <div className="feedback-panel" role="alert">
           <h3>No se pudo cargar el histórico</h3>
           <p>{error}</p>
@@ -225,7 +253,7 @@ export function HistoricalDashboard() {
         </div>
       ) : (
         <>
-          {summary.total > 0 && (
+          {overview && (
             <motion.section
               className="kpi-strip"
               aria-label="Estadísticas del período"
@@ -276,243 +304,322 @@ export function HistoricalDashboard() {
                 variants={revealVariants}
                 transition={enterTransition}
               >
-                <span>Mayor recurrencia</span>
-                <strong className="kpi-word">
-                  {summary.zones[0]?.label ?? "Sin datos"}
-                </strong>
-                <small>
-                  {summary.zones[0]?.count ?? 0} registros · revisar contexto
-                </small>
+                <span>Runs con eventos</span>
+                <strong>{summary.runsWithEvents}</strong>
+                <small>Ejecuciones distintas entre estos registros</small>
               </motion.div>
             </motion.section>
           )}
           {summary.total === 0 ? (
             <div className="feedback-panel">
               <h3>No existen registros para este período</h3>
-              <p>
-                Pruebe otro mes o revise la fuente seleccionada. No se
-                reemplazan registros ausentes por ejemplos.
-              </p>
+              <p>Pruebe otro mes o amplíe los filtros.</p>
             </div>
           ) : (
             <>
-              <div className="analytics-grid">
-                <motion.section
-                  className="insight-panel trend-panel"
-                  initial={reduceMotion ? false : { opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={reduceMotion ? { duration: 0 } : enterTransition}
-                >
-                  <div className="panel-heading">
-                    <div>
-                      <h3>
-                        <Activity size={20} aria-hidden="true" /> Eventos
-                        registrados
-                      </h3>
-                      <div className="chart-headline">
-                        <strong>{summary.total}</strong>
-                        <span>{currentLabel}</span>
-                      </div>
-                      <p className="chart-comparison">
-                        {summary.change === null
-                          ? "Sin comparación anterior"
-                          : `${summary.change > 0 ? "+" : ""}${summary.change.toFixed(1)} % frente al mes anterior`}
-                      </p>
-                    </div>
-                    <span className="source-indicator">
-                      {summary.total} eventos
-                    </span>
-                  </div>
-                  <div className="trend-chart">
-                    <div className="chart-scale">
-                      <span>{max}</span>
-                      <span>{Math.round(max / 2)}</span>
-                      <span>0</span>
-                    </div>
-                    <svg
-                      viewBox="0 0 720 190"
-                      role="img"
-                      aria-label={`Frecuencia diaria, ${summary.total} eventos. Tabla diaria disponible debajo.`}
+              {!overview && (
+                <>
+                  <div className="analytics-grid">
+                    <motion.section
+                      className="insight-panel trend-panel"
+                      initial={reduceMotion ? false : { opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={
+                        reduceMotion ? { duration: 0 } : enterTransition
+                      }
                     >
-                      <defs>
-                        <linearGradient
-                          id="history-area"
-                          x1="0"
-                          y1="0"
-                          x2="0"
-                          y2="1"
-                        >
-                          <stop
-                            offset="0%"
-                            stopColor="var(--primary)"
-                            stopOpacity="0.23"
-                          />
-                          <stop
-                            offset="100%"
-                            stopColor="var(--primary)"
-                            stopOpacity="0.015"
-                          />
-                        </linearGradient>
-                        <pattern
-                          id="history-dots"
-                          width="36"
-                          height="35"
-                          patternUnits="userSpaceOnUse"
-                        >
-                          <circle
-                            cx="2"
-                            cy="2"
-                            r="0.6"
-                            fill="var(--border-strong)"
-                          />
-                        </pattern>
-                      </defs>
-                      <rect
-                        x="20"
-                        y="0"
-                        width="680"
-                        height="170"
-                        fill="url(#history-dots)"
-                        className="chart-dot-field"
-                      />
-                      <polygon
-                        points={`20,170 ${points} 700,170`}
-                        fill="url(#history-area)"
-                      />
-                      <line x1="20" y1="30" x2="700" y2="30" />
-                      <line x1="20" y1="100" x2="700" y2="100" />
-                      <line x1="20" y1="170" x2="700" y2="170" />
-                      <polyline points={points} />
-                      {summary.days.map((d, i) => (
-                        <circle
-                          key={d.day}
-                          cx={20 + (i * 680) / (summary.days.length - 1)}
-                          cy={170 - (d.count / max) * 140}
-                          r="3"
-                        >
-                          <title>{`Día ${d.day}: ${d.count} eventos`}</title>
-                        </circle>
-                      ))}
-                    </svg>
-                  </div>
-                  <div className="chart-days">
-                    <span>01</span>
-                    <span>08</span>
-                    <span>15</span>
-                    <span>22</span>
-                    <span>{summary.days.length}</span>
-                  </div>
-                  <details className="chart-data">
-                    <summary>Ver valores diarios</summary>
-                    <div className="daily-data">
-                      {summary.days.map((d) => (
-                        <span key={d.day}>
-                          Día {d.day}: <b>{d.count}</b>
-                        </span>
-                      ))}
-                    </div>
-                  </details>
-                </motion.section>
-                <section className="insight-panel">
-                  <div className="panel-heading">
-                    <div>
-                      <h3>Recurrencia por zona</h3>
-                      <p>Dónde concentrar la revisión</p>
-                    </div>
-                  </div>
-                  <ol className="zone-ranking">
-                    {summary.zones.map((z, i) => (
-                      <li key={z.label}>
+                      <div className="panel-heading">
                         <div>
-                          <span>{String(i + 1).padStart(2, "0")}</span>
-                          <strong>{z.label}</strong>
-                          <b>{z.count}</b>
+                          <h3>
+                            <Activity size={20} aria-hidden="true" /> Eventos
+                            registrados
+                          </h3>
+                          <div className="chart-headline">
+                            <strong>{summary.total}</strong>
+                            <span>{currentLabel}</span>
+                          </div>
+                          <p className="chart-comparison">
+                            {summary.change === null
+                              ? "Sin comparación anterior"
+                              : `${summary.change > 0 ? "+" : ""}${summary.change.toFixed(1)} % frente al mes anterior`}
+                          </p>
                         </div>
-                        <meter
-                          min={0}
-                          max={summary.total}
-                          value={z.count}
-                          aria-label={`${z.label}: ${z.count} de ${summary.total}`}
-                        />
-                      </li>
-                    ))}
-                  </ol>
-                </section>
-              </div>
-              <div className="analytics-grid lower-analytics">
-                <section className="insight-panel">
-                  <div className="panel-heading">
-                    <div>
-                      <h3>Distribución horaria</h3>
-                      <p>
-                        Frecuencia por hora UTC; no representa nivel de riesgo.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="hour-heatmap">
-                    {summary.hours.map((h) => (
-                      <div key={h.hour}>
-                        <span>{String(h.hour).padStart(2, "0")}</span>
-                        <span
-                          className="heat-cell"
-                          style={{
-                            backgroundColor: `color-mix(in srgb, var(--primary) ${h.count ? 25 + (65 * h.count) / Math.max(1, busiest.count) : 0}%, var(--surface-muted))`,
-                          }}
-                          title={`${h.hour}:00 UTC: ${h.count} eventos`}
-                          aria-label={`${h.hour}:00 UTC, ${h.count} eventos`}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <details className="chart-data">
-                    <summary>Ver valores horarios</summary>
-                    <div className="daily-data">
-                      {summary.hours.map((h) => (
-                        <span key={h.hour}>
-                          {String(h.hour).padStart(2, "0")}:00 UTC:{" "}
-                          <b>{h.count}</b>
+                        <span className="source-indicator">
+                          {summary.total} eventos
                         </span>
-                      ))}
-                    </div>
-                  </details>
-                  <p className="insight-caption">
-                    {busiest.count
-                      ? `Mayor frecuencia observada a las ${String(busiest.hour).padStart(2, "0")}:00 UTC (${busiest.count} registros).`
-                      : "No hay actividad en este período."}
-                  </p>
-                  <div className="type-breakdown">
-                    <h4>Por tipo de evento</h4>
-                    {summary.types.map((t) => (
-                      <p key={t.label}>
-                        <span>{eventName(t.label)}</span>
-                        <strong>
-                          {t.count}{" "}
-                          <small>
-                            ({((t.count / summary.total) * 100).toFixed(0)} %)
-                          </small>
-                        </strong>
-                      </p>
-                    ))}
+                      </div>
+                      <div className="trend-chart">
+                        <div className="chart-scale">
+                          <span>{max}</span>
+                          <span>{max / 2}</span>
+                          <span>0</span>
+                        </div>
+                        <svg
+                          viewBox="0 0 720 190"
+                          role="img"
+                          aria-label={`Frecuencia diaria, ${summary.total} eventos. Tabla diaria disponible debajo.`}
+                        >
+                          <defs>
+                            <linearGradient
+                              id="history-area"
+                              x1="0"
+                              y1="0"
+                              x2="0"
+                              y2="1"
+                            >
+                              <stop
+                                offset="0%"
+                                stopColor="var(--primary)"
+                                stopOpacity="0.23"
+                              />
+                              <stop
+                                offset="100%"
+                                stopColor="var(--primary)"
+                                stopOpacity="0.015"
+                              />
+                            </linearGradient>
+                            <pattern
+                              id="history-dots"
+                              width="36"
+                              height="35"
+                              patternUnits="userSpaceOnUse"
+                            >
+                              <circle
+                                cx="2"
+                                cy="2"
+                                r="0.6"
+                                fill="var(--border-strong)"
+                              />
+                            </pattern>
+                          </defs>
+                          <rect
+                            x="20"
+                            y="0"
+                            width="680"
+                            height="170"
+                            fill="url(#history-dots)"
+                            className="chart-dot-field"
+                          />
+                          <polygon
+                            points={`20,170 ${points} 700,170`}
+                            fill="url(#history-area)"
+                          />
+                          <line x1="20" y1="30" x2="700" y2="30" />
+                          <line x1="20" y1="100" x2="700" y2="100" />
+                          <line x1="20" y1="170" x2="700" y2="170" />
+                          <polyline points={points} />
+                          {summary.days.map((d, i) => (
+                            <circle
+                              key={d.day}
+                              cx={20 + (i * 680) / (summary.days.length - 1)}
+                              cy={170 - (d.count / max) * 140}
+                              r="3"
+                            >
+                              <title>{`Día ${d.day}: ${d.count} eventos`}</title>
+                            </circle>
+                          ))}
+                        </svg>
+                      </div>
+                      <div className="chart-days">
+                        <span>01</span>
+                        <span>08</span>
+                        <span>15</span>
+                        <span>22</span>
+                        <span>{summary.days.length}</span>
+                      </div>
+                      <details className="chart-data">
+                        <summary>Ver valores diarios</summary>
+                        <div className="daily-data">
+                          {summary.days.map((d) => (
+                            <span key={d.day}>
+                              {d.count > 0 ? (
+                                <Link
+                                  className="text-link"
+                                  href={historyHref(applied, {
+                                    occurred_after: `${month}-${String(d.day).padStart(2, "0")}T00:00:00Z`,
+                                    occurred_before: `${month}-${String(d.day).padStart(2, "0")}T23:59:59.999999Z`,
+                                  })}
+                                >
+                                  Día {d.day}: <b>{d.count}</b>
+                                </Link>
+                              ) : (
+                                <>
+                                  Día {d.day}: <b>0</b>
+                                </>
+                              )}
+                            </span>
+                          ))}
+                        </div>
+                      </details>
+                    </motion.section>
+                    <section className="insight-panel">
+                      <div className="panel-heading">
+                        <div>
+                          <h3>Recurrencia por zona</h3>
+                          <p>Dónde concentrar la revisión</p>
+                        </div>
+                      </div>
+                      <ol className="zone-ranking">
+                        {summary.zones.map((z, i) => (
+                          <li key={z.label}>
+                            <div>
+                              <span>{String(i + 1).padStart(2, "0")}</span>
+                              <strong>{z.label}</strong>
+                              <b>{z.count}</b>
+                            </div>
+                            <meter
+                              min={0}
+                              max={summary.total}
+                              value={z.count}
+                              aria-label={`${z.label}: ${z.count} de ${summary.total}`}
+                            />
+                          </li>
+                        ))}
+                      </ol>
+                    </section>
                   </div>
-                </section>
-                <section className="insight-panel">
+                  <div className="analytics-grid lower-analytics">
+                    <section className="insight-panel">
+                      <div className="panel-heading">
+                        <div>
+                          <h3>Distribución horaria</h3>
+                          <p>
+                            Frecuencia por hora UTC; no representa nivel de
+                            riesgo.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="hour-heatmap">
+                        {summary.hours.map((h) => (
+                          <div key={h.hour}>
+                            <span>{String(h.hour).padStart(2, "0")}</span>
+                            <span
+                              className="heat-cell"
+                              style={{
+                                backgroundColor: `color-mix(in srgb, var(--primary) ${h.count ? 25 + (65 * h.count) / Math.max(1, busiest.count) : 0}%, var(--surface-muted))`,
+                              }}
+                              title={`${h.hour}:00 UTC: ${h.count} eventos`}
+                              aria-label={`${h.hour}:00 UTC, ${h.count} eventos`}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      <details className="chart-data">
+                        <summary>Ver valores horarios</summary>
+                        <div className="daily-data">
+                          {summary.hours.map((h) => (
+                            <span key={h.hour}>
+                              {String(h.hour).padStart(2, "0")}:00 UTC:{" "}
+                              <b>{h.count}</b>
+                            </span>
+                          ))}
+                        </div>
+                      </details>
+                      <p className="insight-caption">
+                        {busiest.count
+                          ? `Mayor frecuencia observada a las ${String(busiest.hour).padStart(2, "0")}:00 UTC (${busiest.count} registros).`
+                          : "No hay actividad en este período."}
+                      </p>
+                      <div className="type-breakdown">
+                        <h4>Por tipo de evento</h4>
+                        {summary.types.map((t) => (
+                          <p key={t.label}>
+                            <Link
+                              className="text-link"
+                              href={historyHref(applied, {
+                                event_type: t.label,
+                              })}
+                            >
+                              {eventName(t.label)}
+                            </Link>
+                            <strong>
+                              {t.count}{" "}
+                              <small>
+                                ({((t.count / summary.total) * 100).toFixed(0)}{" "}
+                                %)
+                              </small>
+                            </strong>
+                          </p>
+                        ))}
+                      </div>
+                    </section>
+                    <section className="insight-panel">
+                      <div className="panel-heading">
+                        <div>
+                          <h3>Eventos por procedencia</h3>
+                          <p>
+                            Clasificación registrada en la fuente del evento.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="type-breakdown">
+                        {summary.sources.map(({ label, count }) => (
+                          <p key={label}>
+                            <Link
+                              className="text-link"
+                              href={historyHref(applied, {
+                                source_kind: label,
+                              })}
+                            >
+                              {sourceNames[label as keyof typeof sourceNames]}
+                            </Link>
+                            <strong>{count}</strong>
+                          </p>
+                        ))}
+                      </div>
+                      <div className="type-breakdown">
+                        <h4>Por video identificado</h4>
+                        {summary.videos.length === 0 && (
+                          <p>No hay videos con huella registrada.</p>
+                        )}
+                        {summary.videos.length > 10 && (
+                          <p>
+                            10 de {summary.videos.length} videos, ordenados por
+                            registros.
+                          </p>
+                        )}
+                        {summary.videos
+                          .slice(0, 10)
+                          .map(({ sha, name, count }) => (
+                            <p key={sha}>
+                              <Link
+                                className="text-link min-w-0 break-all"
+                                href={historyHref(applied, {
+                                  source_sha256: sha,
+                                })}
+                              >
+                                {name} <small>· {sha.slice(0, 8)}</small>
+                              </Link>
+                              <strong>{count}</strong>
+                            </p>
+                          ))}
+                      </div>
+                    </section>
+                  </div>
+                </>
+              )}
+              {overview && (
+                <section className="insight-panel dashboard-recent">
                   <div className="panel-heading">
                     <div>
-                      <h3>Actividad del período</h3>
-                      <p>Los registros más recientes</p>
+                      <h3>Actividad reciente</h3>
+                      <p>Últimos eventos del período</p>
                     </div>
-                    {source === "api" && (
-                      <Link href="/events" className="text-link">
-                        Ver eventos <ArrowRight size={14} />
-                      </Link>
-                    )}
+                    <Link href={historyHref(applied)} className="text-link">
+                      Ver historial filtrado <ArrowRight size={14} />
+                    </Link>
                   </div>
                   <ol className="activity-ledger">
                     {summary.recent.map((e) => (
                       <li key={e.id}>
                         <span className="activity-dot" />
                         <div>
-                          <strong>{eventName(e.event_type)}</strong>
+                          <Link
+                            href={`/events/${encodeURIComponent(e.id)}`}
+                            className="text-link"
+                          >
+                            {eventName(e.event_type)}
+                          </Link>
                           <span>{e.zone_id}</span>
                         </div>
                         <time dateTime={e.occurred_at}>
@@ -522,18 +629,7 @@ export function HistoricalDashboard() {
                     ))}
                   </ol>
                 </section>
-              </div>
-              <section className="decision-note">
-                <div>
-                  <h3>Del registro a la evidencia.</h3>
-                  <p>
-                    Revise el contexto de cada evento en su video de origen.
-                  </p>
-                </div>
-                <Link href="/events" className="button button-outline">
-                  Revisar eventos <ArrowRight size={16} />
-                </Link>
-              </section>
+              )}
             </>
           )}
         </>

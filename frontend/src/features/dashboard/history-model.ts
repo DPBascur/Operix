@@ -3,6 +3,27 @@ export interface HistoryEvent {
   occurred_at: string;
   event_type: string;
   zone_id: string;
+  analysis_run_id?: string;
+  source?: { kind?: unknown; video_sha256?: unknown; filename?: unknown };
+}
+
+export const sourceNames = {
+  demo: "Demo declarada",
+  manual: "Carga manual",
+  unknown: "Sin clasificación",
+} as const;
+
+export function sourceKind(kind: unknown): keyof typeof sourceNames {
+  return kind === "demo" || kind === "manual" ? kind : "unknown";
+}
+
+export function historyHref(
+  params: URLSearchParams,
+  overrides: Record<string, string> = {},
+) {
+  const query = new URLSearchParams(params);
+  for (const [name, value] of Object.entries(overrides)) query.set(name, value);
+  return `/events?${query}`;
 }
 
 export interface EventFrequency {
@@ -82,6 +103,20 @@ export function summarizeApiHistory(
   const byDay = new Map(
     current.by_period.map((row) => [Number(row.date.slice(8)), row.count]),
   );
+  const types = new Map(
+    current.by_type.map((row) => [row.event_type, row.count]),
+  );
+  if (
+    byDay.size !== current.by_period.length ||
+    types.size !== base.types.length ||
+    current.by_period.some((row) => !row.date.startsWith(`${month}-`)) ||
+    base.days.some((row) => row.count !== (byDay.get(row.day) ?? 0)) ||
+    base.types.some((row) => row.count !== types.get(row.label))
+  ) {
+    throw new Error(
+      "El histórico cambió durante la consulta. Actualice para reconciliar los indicadores.",
+    );
+  }
   return {
     ...base,
     total: current.total,
@@ -166,13 +201,40 @@ export function summarizeHistory(events: HistoryEvent[], month: string) {
     (_, i) => ({ day: i + 1, count: 0 }),
   );
   const hours = Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 }));
+  const videos = new Map<
+    string,
+    { sha: string; name: string; count: number }
+  >();
   selected.forEach((e) => {
     const d = new Date(e.occurred_at);
     days[d.getUTCDate() - 1].count++;
     hours[d.getUTCHours()].count++;
+    const sha = e.source?.video_sha256;
+    if (typeof sha === "string" && /^[a-f0-9]{64}$/.test(sha)) {
+      const existing = videos.get(sha);
+      if (existing) existing.count++;
+      else
+        videos.set(sha, {
+          sha,
+          name:
+            typeof e.source?.filename === "string" && e.source.filename
+              ? e.source.filename
+              : "Video sin nombre",
+          count: 1,
+        });
+    }
   });
   return {
     total: selected.length,
+    runsWithEvents: new Set(
+      selected
+        .map((event) => event.analysis_run_id)
+        .filter((id) => typeof id === "string" && id.length > 0),
+    ).size,
+    sources: countBy((event) => sourceKind(event.source?.kind)),
+    videos: [...videos.values()].sort(
+      (a, b) => b.count - a.count || a.sha.localeCompare(b.sha),
+    ),
     previousCount,
     change: previousCount
       ? ((selected.length - previousCount) / previousCount) * 100

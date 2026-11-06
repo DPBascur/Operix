@@ -138,7 +138,7 @@ real. Al terminar, detener ambos servidores y volver al entorno habitual.
 
 ## Vistas y procedencia
 
-`/` e `/indicators` muestran el dashboard histórico, con selector explícito de ejemplo ilustrativo o registros API. En modo API, el mes UTC seleccionado consulta `/events/frequencies/` para frecuencia diaria y por tipo, y `/events/` para desglose horario, zona y actividad reciente; la comparación usa el mes UTC anterior. Se reconcilian los totales y se informa si los registros cambian entre consultas. Un mes vacío muestra un estado sin registros, sin estadísticas inventadas. Estos conteos pueden incluir ensayos y no equivalen a tasas verificadas de incidentes. `/dashboard` redirige a `/`. `/login` abre una sesión de Django y `/users` informa cómo administrar cuentas. `/analysis` y `/events` conservan su integración real; `/rules` mantiene contexto de desarrollo y `/zones` dirige al editor de Análisis. El estado global consulta salud de API/base de datos, no certifica modelos ni GPU.
+Resumen (`/`), Indicadores e Historial consultan exclusivamente registros persistidos. Resumen muestra totales y actividad reciente. Indicadores desglosa por día, hora, tipo, zona y procedencia, y enlaza al historial con los mismos filtros UTC. Las cargas manuales pueden ser ensayos. Los conteos representan condiciones configuradas satisfechas. `/dashboard` redirige a `/`. `/login` abre una sesión de Django y `/users` informa cómo administrar cuentas. `/analysis` y `/events` conservan su integración real; `/rules` mantiene contexto de desarrollo y `/zones` dirige al editor de Análisis. El estado global consulta salud de API/base de datos, no certifica modelos ni GPU.
 
 ## Design tokens
 

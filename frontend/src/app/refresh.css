@@ -1478,6 +1478,17 @@
 .market-dashboard .month-control select {
   border: 0;
   border-radius: 9999px;
+  min-width: 0;
+  max-width: 100%;
+}
+.market-dashboard.dashboard-overview .history-controls,
+.market-dashboard.dashboard-overview .history-source-caption,
+.market-dashboard.dashboard-overview .dashboard-recent {
+  grid-column: 1 / -1;
+}
+.market-dashboard.dashboard-overview .dashboard-recent {
+  grid-row: 7;
+  order: 3;
 }
 .market-dashboard .history-source-caption {
   grid-column: 2;

@@ -1,6 +1,7 @@
 "use client";
 
 import { apiFetch } from "@/services/browser-session";
+import { sourceKind, sourceNames } from "@/features/dashboard/history-model";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -197,6 +198,8 @@ function EventContent({ event }: { event: OperationalEvent }) {
         <p className={styles.location}>
           {event.zone_id} <span aria-hidden="true">·</span>{" "}
           {text(source.filename, "Fuente no informada")}
+          <span aria-hidden="true"> · </span>
+          {sourceNames[sourceKind(source.kind)]}
         </p>
         <p className={styles.semantic}>
           Condición configurada satisfecha; requiere revisión humana, no
