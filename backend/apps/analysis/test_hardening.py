@@ -74,15 +74,13 @@ class SessionHardeningTests(SimpleTestCase):
         self.assertFalse(status["preview"]["pending"])
         self.assertIsNotNone(status["result"])
 
-    def test_disconnected_preview_finishes_via_status_clock(self):
+    def test_disconnected_preview_does_not_hold_completed_result(self):
         self.completed()
         self.session.preview_clock.started_at = 100
         with patch("apps.analysis.sessions.time.monotonic", return_value=105):
-            self.assertTrue(self.session.status()["preview"]["pending"])
-        with patch("apps.analysis.sessions.time.monotonic", return_value=110):
             status = self.session.status()
             self.assertFalse(status["preview"]["pending"])
-            self.assertEqual(status["preview"]["frame_index"], 299)
+            self.assertIsNotNone(status["result"])
 
     def test_live_other_worker_rejects_without_output_changes(self):
         self.other.process = Mock()

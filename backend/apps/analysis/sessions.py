@@ -188,19 +188,15 @@ class AnalysisSession:
                 payload["detail"] = self.failure_detail
             clock = self.preview_clock
             enabled = payload.get("preview_sample_fps") is not None
-            # El reloj sigue avanzando aunque el navegador cierre/reabra MJPEG.
-            # Sin consumidor inicial, el resultado completo no espera un stream inexistente.
-            if enabled and clock.started_at is not None and payload.get("preview_latest_frame") is not None:
+            preview_pending = enabled and self.state in {"preparing", "processing"}
+            if preview_pending and clock.started_at is not None and payload.get("preview_latest_frame") is not None:
                 clock.select(
                     now=time.monotonic(), source_fps=payload["source_fps"],
                     sample_fps=payload["preview_sample_fps"], latest=payload["preview_latest_frame"],
-                    total=payload.get("total") or payload["frame"], completed=self.state == "completed",
+                    total=payload.get("total") or payload["frame"], completed=False,
                 )
             payload["preview"] = {
-                "pending": enabled and not clock.finished and (
-                    self.state in {"preparing", "processing"} or
-                    (self.state == "completed" and clock.started_at is not None)
-                ),
+                "pending": preview_pending,
                 "frame_index": clock.frame_index,
                 "source_timestamp": (
                     clock.frame_index / payload["source_fps"]
@@ -658,16 +654,19 @@ def stream_frames(session: AnalysisSession):
         if session.run != run or status["state"] in {"cancelled", "error", "ready"}:
             break
         if status.get("preview_sample_fps") is not None:
+            if status["state"] == "completed":
+                break
             latest = status.get("preview_latest_frame")
             if latest is not None:
                 with session._guard:
+                    if session.run != run or session.state not in {"preparing", "processing"}:
+                        break
                     index = session.preview_clock.select(
                         now=time.monotonic(), source_fps=status["source_fps"],
                         sample_fps=status["preview_sample_fps"], latest=latest,
                         total=status.get("total") or status["frame"],
-                        completed=status["state"] == "completed",
+                        completed=False,
                     )
-                    finished = session.preview_clock.finished
                 if index != last_frame:
                     try:
                         frame = (session.directory / "preview" / f"{index:09d}.jpg").read_bytes()
@@ -682,8 +681,6 @@ def stream_frames(session: AnalysisSession):
                               f"\r\nX-Latest-Processed-Frame: {status['frame'] - 1}\r\n\r\n".encode()
                             + frame + b"\r\n"
                         )
-                if finished:
-                    break
             time.sleep(0.01)  # Solo el consumidor HTTP espera; nunca el Motor.
             continue
         frame_path = session.directory / "frame.jpg"

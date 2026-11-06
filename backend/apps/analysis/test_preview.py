@@ -92,20 +92,20 @@ class PreviewStreamTests(SimpleTestCase):
             self.assertIn(b"X-Frame-Index: 150\r\n", next(stream))
             stream.close()
 
-    def test_status_keeps_result_pending_until_visual_end_then_transitions(self):
+    def test_completed_result_does_not_wait_for_preview_clock(self):
         self.session.active_config = {"profile": "B", "zone": {}}
         (self.directory / "annotated.mp4").write_bytes(b"mp4")
-        self.status_file(state="completed")
+        self.status_file()
         for index in (0, 299):
             (self.directory / "preview" / f"{index:09d}.jpg").write_bytes(b"jpeg")
-        with patch("apps.analysis.sessions.time.monotonic", return_value=0) as clock:
+        with patch("apps.analysis.sessions.time.monotonic", return_value=0):
             stream = stream_frames(self.session)
             next(stream)
-            self.assertTrue(self.session.status()["preview"]["pending"])
-            self.assertEqual(self.session.status()["percent"], 100)
-            clock.return_value = 10
-            self.assertIn(b"X-Frame-Index: 299", next(stream))
-            self.assertFalse(self.session.status()["preview"]["pending"])
+            self.status_file(state="completed")
+            status = self.session.status()
+            self.assertEqual(status["percent"], 100)
+            self.assertIsNotNone(status["result"])
+            self.assertFalse(status["preview"]["pending"])
             with self.assertRaises(StopIteration):
                 next(stream)
 

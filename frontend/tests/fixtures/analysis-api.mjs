@@ -285,6 +285,8 @@ export async function startFixtureApi(port = 8000) {
             });
             if (!session.fail)
               Object.assign(session, {
+                // Un snapshot anterior puede conservar este indicador en true.
+                preview: { pending: true },
                 pending_changes: false,
                 persistence: {
                   state: "saved",

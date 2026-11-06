@@ -218,10 +218,7 @@ export function AnalysisWorkspace({
     const state = session?.state;
     if (!id || !state) return;
     const current = generation.current;
-    const active =
-      state === "preparing" ||
-      state === "processing" ||
-      session?.preview?.pending;
+    const active = state === "preparing" || state === "processing";
     let listening = true;
     let timer: number;
     const poll = () => {
@@ -268,7 +265,7 @@ export function AnalysisWorkspace({
       listening = false;
       window.clearTimeout(timer);
     };
-  }, [session?.id, session?.state, session?.preview?.pending]);
+  }, [session?.id, session?.state]);
 
   async function selectVideo(selected: File | undefined) {
     if (!selected) return;
@@ -536,20 +533,16 @@ export function AnalysisWorkspace({
     localUrl ??
     (session ? analysisService.getAnalysisSourceUrl(session.id) : null);
   const selectedProfile = profiles.find((item) => item.id === profile);
-  const previewPending = session?.preview?.pending === true;
   const canEdit =
     !!session &&
     ["ready", "completed", "cancelled", "error"].includes(session.state) &&
-    !busy &&
-    !previewPending;
+    !busy;
   const showStream =
-    !!session &&
-    (["preparing", "processing"].includes(session.state) || previewPending);
+    !!session && ["preparing", "processing"].includes(session.state);
   const showResult =
     !!session &&
     session.state === "completed" &&
     !!session.result &&
-    !previewPending &&
     !editing &&
     !suspendResult;
   const showReference = !!sourceName && !!referenceUrl && !showResult;
@@ -566,9 +559,7 @@ export function AnalysisWorkspace({
       : visibleError
         ? "No fue posible completar la operación"
         : session
-          ? session.state === "completed" && previewPending
-            ? "Análisis completado · terminando vista previa a velocidad 1×…"
-            : labels[session.state]
+          ? labels[session.state]
           : "Sin fuente preparada";
   const percent = session
     ? analysisPercent(session.state, session.percent)
@@ -730,7 +721,7 @@ export function AnalysisWorkspace({
                   <img
                     key={`${session.id}-${session.run}`}
                     src={analysisService.getAnalysisStreamUrl(session.id)}
-                    alt="Video procesado: personas, montacargas, IDs y zona"
+                    alt="Vista previa muestreada del análisis"
                     className="absolute inset-0 h-full w-full object-contain"
                   />
                 )}
@@ -853,15 +844,12 @@ export function AnalysisWorkspace({
 
             <div className="analysis-toolbar">
               {session &&
-                (["preparing", "processing"].includes(session.state) ||
-                  previewPending) && (
+                ["preparing", "processing"].includes(session.state) && (
                   <div className="analysis-toolbar-status">
                     <strong>
-                      {session.state === "completed"
-                        ? "Analizado"
-                        : session.state === "preparing"
-                          ? "Preparando"
-                          : "Procesando"}{" "}
+                      {session.state === "preparing"
+                        ? "Preparando"
+                        : "Procesando"}{" "}
                       ·{" "}
                       {percent == null
                         ? "En preparación"
@@ -1208,6 +1196,22 @@ export function AnalysisWorkspace({
               al resultado.
             </p>
           )}
+          {showStream && (
+            <p className="analysis-result-help">
+              Vista previa muestreada. Avanza cuando hay fotogramas procesados y
+              puede mostrar saltos. El MP4 estará disponible al confirmar el
+              resultado.
+            </p>
+          )}
+          {showResult && (
+            <p className="analysis-result-help">
+              MP4 listo para reproducir
+              {session.result?.video?.fps != null
+                ? ` · ${session.result.video.fps.toFixed(2)} FPS de reproducción`
+                : ""}
+              .
+            </p>
+          )}
           {(showStream || showResult) && (
             <p className="analysis-result-help">
               En las anotaciones de proximidad, P# identifica a la persona y F#
@@ -1235,7 +1239,7 @@ export function AnalysisWorkspace({
                 </strong>
               </div>
               <div>
-                <span>FPS Motor</span>
+                <span>FPS de procesamiento</span>
                 <strong>
                   {session.fps == null ? "—" : session.fps.toFixed(2)}
                 </strong>

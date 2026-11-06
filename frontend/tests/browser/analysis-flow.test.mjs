@@ -284,6 +284,7 @@ test(
         "Preparación no es error",
       );
       await wait(text("99.9 %"));
+      await wait(text("Vista previa muestreada."));
       const before = await control();
       await navigate("/events");
       await wait(text("Proximidad persona"));
@@ -306,6 +307,16 @@ test(
         "!!document.querySelector('video[aria-label=\"Resultado anotado de Operix\"]')",
       );
       await wait("document.querySelector('video').readyState>=1");
+      await wait(text("MP4 listo para reproducir"));
+      assert.equal(
+        await evaluate("document.querySelector('video').playbackRate"),
+        1,
+      );
+      assert.ok(
+        await evaluate(
+          "Math.abs(document.querySelector('video').duration-277/30)<.05",
+        ),
+      );
       await evaluate(
         "(async()=>{const video=document.querySelector('video');video.muted=true;await video.play();})()",
       );
