@@ -30,14 +30,16 @@ def clip_directory(event):
 def clip_info(event):
     directory = clip_directory(event)
     try:
-        if not (directory / "clip.mp4").is_file():
+        video = directory / "clip.mp4"
+        if not video.is_file():
             return None
         metadata = json.loads((directory / "metadata.json").read_text(encoding="utf-8"))
         if (metadata["event_id"] != str(event.pk) or metadata["analysis_run_id"] != str(event.analysis_run_id)
                 or metadata["source_sha256"] != event.source.get("video_sha256")
                 or metadata["config_sha256"] != event.source.get("config_sha256")
                 or metadata["event_frame"] != event.frame_index
-                or metadata["event_timestamp_s"] != str(event.video_timestamp_s)):
+                or metadata["event_timestamp_s"] != str(event.video_timestamp_s)
+                or not 0 < video.stat().st_size == metadata["bytes"]):
             return None
     except (OSError, ValueError, KeyError, TypeError):
         return None

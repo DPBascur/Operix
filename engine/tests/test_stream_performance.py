@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import sys
+import subprocess
 import json
 import tempfile
 import unittest
@@ -22,6 +23,21 @@ class PreviewScheduleTest(unittest.TestCase):
         due = self.worker._preview_due
         self.assertTrue(due(0, 300, 30.0, None, 10.0))
         self.assertTrue(due(299, 300, 30.0, 297, 10.0))
+
+    def test_worker_exits_when_backend_pipe_closes(self):
+        code = (
+            "import runpy,sys,time; "
+            "runpy.run_path(sys.argv[1])['watch_backend_lifetime'](); "
+            "time.sleep(30)"
+        )
+        with subprocess.Popen([sys.executable, "-B", "-c", code, self.worker.__file__],
+                              stdin=subprocess.PIPE) as child:
+            try:
+                child.stdin.close()
+                self.assertEqual(child.wait(timeout=15), 1)
+            finally:
+                if child.poll() is None:
+                    child.kill()
 
     def test_operational_cli_defaults_to_single_frame_batch(self):
         arguments = ["worker", "--session-dir", "fixture", "--video", "fixture.mp4",

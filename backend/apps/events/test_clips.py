@@ -68,6 +68,9 @@ class EvidenceClipTests(TestCase):
         self.assertEqual(response.status_code, 206)
         self.assertEqual(b"".join(response.streaming_content), b"fixture")
         directory = clip_directory(self.event)
+        (directory / "clip.mp4").write_bytes(b"truncated")
+        self.assertIsNone(self.admin.get(self.detail).json()["evidence_clip"])
+        self.assertEqual(self.admin.get(url, HTTP_RANGE="bytes=0-6").status_code, 404)
         with self.captureOnCommitCallbacks(execute=True):
             self.event.delete()
         self.assertFalse(directory.exists())

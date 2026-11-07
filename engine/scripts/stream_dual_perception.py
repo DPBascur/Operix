@@ -9,6 +9,7 @@ import json
 import math
 import os
 import sys
+import threading
 import time
 import traceback
 from datetime import datetime
@@ -370,6 +371,17 @@ def process(args: argparse.Namespace) -> None:
         )
 
 
+def watch_backend_lifetime() -> None:
+    def wait_for_backend():
+        try:
+            os.read(sys.stdin.fileno(), 1)
+        finally:
+            # EOF (including a crash of Django) invalidates this worker's session.
+            os._exit(1)
+
+    threading.Thread(target=wait_for_backend, name="backend-lifetime", daemon=True).start()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--session-dir", required=True, type=Path)
@@ -385,6 +397,8 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--event-context", type=Path)
     args = parser.parse_args()
+    if os.environ.get("OPERIX_WORKER_PARENT_PIPE") == "1":
+        watch_backend_lifetime()
     try:
         process(args)
     except Exception as error:

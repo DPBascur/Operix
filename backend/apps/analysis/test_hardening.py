@@ -58,6 +58,8 @@ class SessionHardeningTests(SimpleTestCase):
                 patch.object(sessions.threading, "Thread"):
             sessions.start_session(self.session)
         command = spawn.call_args.args[0]
+        self.assertEqual(spawn.call_args.kwargs["stdin"], subprocess.PIPE)
+        self.assertEqual(spawn.call_args.kwargs["env"]["OPERIX_WORKER_PARENT_PIPE"], "1")
         expected = "d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95"
         self.assertEqual(command[command.index("--person-sha256") + 1], expected)
         self.assertEqual(command[command.index("--person-weights") + 1], str(Path(__file__)))

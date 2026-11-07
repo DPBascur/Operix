@@ -601,12 +601,13 @@ def _start_session(session: AnalysisSession) -> None:
             json.dumps(session.active_config, ensure_ascii=False), encoding="utf-8")
         env = event_publisher_environment() if settings.EVENT_POST_ENABLED else os.environ.copy()
         env["YOLO_CONFIG_DIR"] = str(session.directory)
+        env["OPERIX_WORKER_PARENT_PIPE"] = "1"
         session.state = "preparing"
         session.touch()
         try:
             session.process = subprocess.Popen(
                 command, cwd=ROOT / "engine", env=env,
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
         except OSError:
             session.state = "error"
@@ -632,6 +633,8 @@ def _start_session(session: AnalysisSession) -> None:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=5)
+        if process.poll() is not None and getattr(process, "stdin", None) is not None:
+            process.stdin.close()
         with session._guard:
             if session.process is not process or session.run != run or session._closed:
                 return
