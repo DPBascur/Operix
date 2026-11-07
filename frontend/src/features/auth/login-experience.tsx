@@ -72,7 +72,7 @@ export function LoginExperience() {
                 ).get("next");
                 const next =
                   nextValue?.startsWith("/") && !nextValue.startsWith("//")
-                    ? new URL(nextValue, window.location.origin)
+                    ? URL.parse(nextValue, window.location.origin)
                     : null;
                 const fallback =
                   account.role === "operator" ? "/analysis" : "/";

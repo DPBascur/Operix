@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { LogOut, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { roleLabels, signOut } from "@/services/browser-session";
@@ -14,13 +15,18 @@ export function SessionAccount() {
   return (
     <div>
       <div className="demo-account">
-        <div className="account-link" title={user.username}>
+        <Link
+          href="/account"
+          className="account-link"
+          aria-label="Mi cuenta"
+          title={user.username}
+        >
           <UserRound size={17} aria-hidden="true" />
           <span>
             <strong>{user.username}</strong>
             <small>{roleLabels[user.role]}</small>
           </span>
-        </div>
+        </Link>
         <Button
           variant="ghost"
           size="icon"

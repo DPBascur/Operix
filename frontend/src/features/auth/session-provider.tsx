@@ -30,6 +30,7 @@ export function useSession() {
 export function canOpen(path: string, role: OperixUser["role"]) {
   if (role === "administrator") return true;
   const page = path.split(/[/?]/)[1];
+  if (page === "account") return true;
   if (page === "users") return false;
   if (role === "safety_lead")
     return !["analysis", "sources", "rules", "zones"].includes(page);

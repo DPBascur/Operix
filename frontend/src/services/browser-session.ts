@@ -15,10 +15,7 @@ let csrfRevision = 0;
 let sessionRequest: Promise<OperixUser | null> | undefined;
 export const sessionExpired = "operix:session-expired";
 
-async function auth(
-  action: string,
-  credentials?: { username: string; password: string },
-) {
+async function auth(action: string, credentials?: Record<string, string>) {
   const headers = new Headers();
   const mutates = action !== "session";
   if (mutates && !csrfToken) await getSession();
@@ -53,6 +50,16 @@ export function getSession() {
 export const signIn = (username: string, password: string) =>
   auth("login", { username, password });
 export const signOut = () => auth("logout");
+export const changePassword = (
+  old: string,
+  next: string,
+  confirmation: string,
+) =>
+  auth("password", {
+    old_password: old,
+    new_password1: next,
+    new_password2: confirmation,
+  });
 
 export async function apiFetch(url: string, init?: RequestInit) {
   const method = init?.method?.toUpperCase() ?? "GET";

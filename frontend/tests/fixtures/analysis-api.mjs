@@ -179,6 +179,16 @@ export async function startFixtureApi(port = 8000) {
         return send({ user: signedIn ? account : null, csrf_token: csrf });
       }
       if (!signedIn) return send({ detail: "Sesión requerida" }, 401);
+      if (url.pathname === "/api/v1/auth/password/") {
+        if (req.method !== "POST" || req.headers["x-csrftoken"] !== csrf)
+          return send({ detail: "CSRF inválido" }, 403);
+        if (
+          body.old_password !== "TEST_ONLY_PASSWORD" ||
+          body.new_password1 !== body.new_password2
+        )
+          return send({ detail: "Revise las contraseñas." }, 400);
+        return send({ user: account, csrf_token: csrf });
+      }
       if (url.pathname.endsWith("/profiles/"))
         return send(
           ["A", "B", "C"].map((id) => ({

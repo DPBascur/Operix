@@ -229,6 +229,17 @@ test(
         "[...document.querySelectorAll('main summary')].find(el=>el.textContent.includes('Habilitada')).parentElement.open=true",
       );
       await wait(text("Distancia normalizada máxima"));
+      await go("/account");
+      await wait(text("Mi cuenta"));
+      await click("Mostrar contraseñas");
+      await wait("document.querySelector('#current')?.type === 'text'");
+      await evaluate(`(() => {
+        document.querySelector('#current').value = 'TEST_ONLY_PASSWORD';
+        document.querySelector('#next').value = 'TEST_ONLY_LONG_PASSWORD';
+        document.querySelector('#confirmation').value = 'TEST_ONLY_LONG_PASSWORD';
+      })()`);
+      await click("Cambiar contraseña");
+      await wait(text("Contraseña actualizada."));
       await go("/analysis?source=manual");
       await click("Perfil B Demo B");
       await wait(text("TEST_DATA_B.mp4"));
@@ -579,6 +590,10 @@ test(
       await wait("location.pathname==='/login'");
       await go("/events");
       await wait("location.pathname==='/login'");
+      await go("/login?next=%2F%5Cexample.invalid%2F");
+      await credentials("TEST_ONLY_PASSWORD");
+      await wait("location.pathname==='/'");
+      assert.equal(await evaluate("location.origin"), new URL(base).origin);
       console.log(
         "PASS: navegación sin DELETE, recuperación, 99.9 antes de completed, MP4/seek, polígono por teclado, error/cancelación, histórico/evidencia, 18 combinaciones de viewport/ruta.",
       );
