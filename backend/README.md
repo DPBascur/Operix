@@ -39,7 +39,13 @@ set -a; source .env; set +a
 | Responsable de seguridad | Consultar historial, indicadores, detalle y PNG del despliegue. |
 | Usuario | Preparar, ejecutar y consultar sus propios análisis, incluyendo fuente, resultado y estado de publicación. |
 
-Esta política mínima sigue el [plan de cierre de Etapa 4](../engine/evidence/ETAPA4-AUTH-VERIFICATION.md). Las sesiones del navegador duran ocho horas y se guardan en PostgreSQL. El cierre de sesión invalida la sesión en el servidor. La salud de API/DB permanece pública. El alcance de revisión es el despliegue completo. La asignación por sitio y el control de intentos de login requieren una decisión antes de ampliar el acceso.
+Esta política mínima sigue la [verificación de acceso de Etapa 4](../engine/evidence/ETAPA4-AUTH-VERIFICATION.md). Las sesiones del navegador duran ocho horas y se guardan en PostgreSQL. Para conservarlas tras reiniciar Django, mantener la misma base y `DJANGO_SECRET_KEY`. El cierre de sesión invalida la sesión en el servidor. La salud de API/DB permanece pública. El alcance de revisión es el despliegue completo.
+
+El login de la API y el de Django Admin comparten presupuestos en PostgreSQL. Cada ventana de `OPERIX_LOGIN_WINDOW_SECONDS` (300 por defecto) admite hasta ocho intentos por origen y cuenta, 30 por cuenta entre todos los orígenes, 80 por origen y 400 en total. Se cuentan solicitudes de credenciales antes de verificar la contraseña y el 429 incluye `Retry-After`. El bloqueo vence al cambiar de ventana y los intentos rechazados no prolongan el plazo. El contador sobrevive al reinicio. Por defecto se usa la dirección TCP. Configurar `OPERIX_TRUSTED_LOGIN_PROXIES` solo con las IP exactas de proxies que agreguen o reemplacen de forma verificable la última IP de `X-Forwarded-For`, y que sean los únicos con acceso a ese tramo. Sin esa configuración, los visitantes detrás de Next pueden compartir el presupuesto del proxy.
+
+Los contadores almacenan HMAC y eliminan identidades de ventanas vencidas al recibir nuevos intentos. El presupuesto global limita cuántas filas se crean por ventana. Cambiar `DJANGO_SECRET_KEY` o la ventana también cambia los presupuestos efectivos. Una campaña sostenida todavía puede causar denegación de acceso temporal; los límites de red y la respuesta operativa siguen siendo necesarios.
+
+Ejecutar las migraciones antes de servir tráfico. Mantener Django Admin en una interfaz privada o deshabilitarlo con `OPERIX_ADMIN_ENABLED=0` en instancias que no lo necesiten. El formulario de seguridad aplica entre 15 y 256 caracteres a nuevas contraseñas, con los validadores de similitud y contraseñas comunes de Django. Las cuentas existentes pueden seguir iniciando sesión con sus contraseñas actuales. El cambio preserva y rota la sesión actual e invalida las demás al siguiente acceso.
 
 La publicación del Motor sigue usando `OPERIX_EVENT_PUBLISH_TOKEN` con `EVENT_POST_ENABLED=1`. En una sola instancia, el token automático dura lo mismo que el proceso Django. Tras un reinicio, un worker previo o un CLI externo necesita el token vigente para publicar. Para compartirlo entre procesos o mantenerlo entre reinicios, generar una vez con `secrets.token_urlsafe(32)` y configurar el mismo valor privado en las instancias autorizadas. Nunca usar una variable `NEXT_PUBLIC_*`. El registro de análisis temporal sigue en memoria y requiere una sola instancia operativa de análisis. Compartir el token no vuelve distribuido ese registro.
 
@@ -154,8 +160,9 @@ informa un error reintentable sin publicar el MP4 parcial. Al desconectarse
 MJPEG, las consultas de estado permiten terminar el reloj de preview; un
 resultado sin consumidor de preview no espera indefinidamente un stream.
 El preview puede mostrar menos FPS que la
-fuente. La API no incorpora autenticación: limitar su acceso
-a una red local controlada.
+fuente. Limitar el acceso de la API a una red controlada.
+
+Las sesiones de análisis y el MP4 de resultado temporal dependen del proceso Django. Si se interrumpe, el Motor se detiene al perder el canal con ese proceso. Tras reiniciar, crear una sesión nueva y volver a cargar o seleccionar la fuente. Los eventos ya persistidos y las evidencias confirmadas se conservan si se mantienen PostgreSQL y el volumen de medios. Un clip cuya generación quedó interrumpida puede seguir ausente.
 
 ## Validación
 
@@ -232,7 +239,7 @@ set -a; source .env; set +a
 .venv/bin/python manage.py test --noinput
 ```
 
-Las pruebas usan PostgreSQL y crean/destruyen `test_<POSTGRES_DB>`. El Admin registra `Event` solo para inspección: no permite crear, modificar ni borrar eventos desde la interfaz. No hay autenticación ni control de acceso empresarial; no exponer el POST fuera de un entorno de desarrollo controlado.
+Las pruebas usan PostgreSQL y crean/destruyen `test_<POSTGRES_DB>`. El Admin registra `Event` solo para inspección: no permite crear, modificar ni borrar eventos desde la interfaz. Los POST internos requieren la credencial del publicador y se deben mantener dentro del perímetro de despliegue acordado.
 
 ## PERSON operacional posterior a evaluación
 

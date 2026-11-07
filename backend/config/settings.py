@@ -33,10 +33,15 @@ SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = os.environ.get("OPERIX_SECURE_COOKI
 SESSION_COOKIE_HTTPONLY = CSRF_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = CSRF_COOKIE_SAMESITE = "Lax"
 AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 15}},
+    {"NAME": "config.passwords.MaximumPasswordLengthValidator"},
+] + [
     {"NAME": f"django.contrib.auth.password_validation.{name}"}
-    for name in ("UserAttributeSimilarityValidator", "MinimumLengthValidator",
-                 "CommonPasswordValidator", "NumericPasswordValidator")
+    for name in ("UserAttributeSimilarityValidator", "CommonPasswordValidator")
 ]
+OPERIX_LOGIN_WINDOW_SECONDS = max(1, int(os.environ.get("OPERIX_LOGIN_WINDOW_SECONDS", "300")))
+OPERIX_TRUSTED_LOGIN_PROXIES = csv_setting("OPERIX_TRUSTED_LOGIN_PROXIES")
+OPERIX_ADMIN_ENABLED = os.environ.get("OPERIX_ADMIN_ENABLED", "1") == "1"
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -49,11 +54,13 @@ INSTALLED_APPS = [
     "corsheaders",
     "apps.analysis",
     "apps.events",
+    "config",
 ]
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "config.access.private_api_responses",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
