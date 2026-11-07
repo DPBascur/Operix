@@ -2,11 +2,12 @@
 
 import argparse
 import base64
+import json
 from pathlib import Path
 import re
 import socket
 from struct import pack
-from time import monotonic, sleep
+from time import perf_counter as monotonic, sleep
 
 import cv2
 
@@ -40,7 +41,7 @@ def packets(nal):
         yield bytes(((header & 0xe0) | 28, (header & 31) | flags)) + nal[offset:stop]
 
 
-def serve(client, url, fixture, cutoff, damage_at):
+def serve(client, url, fixture, cutoff, damage_at, connection, trace):
     fps, units, sps, pps = fixture
     file = client.makefile("rb")
     try:
@@ -80,6 +81,9 @@ def serve(client, url, fixture, cutoff, damage_at):
                               seq % 65536, round(index * 90000 / fps) % 2**32, 1)
                 client.sendall(pack("!BBH", 36, 0, len(header) + len(chunk)) + header + chunk)
                 seq += 1
+            if trace:
+                trace.write(json.dumps({"connection": connection, "index": index, "pts_s": index / fps,
+                                        "sent_monotonic_s": monotonic()}) + "\n")
     finally:
         file.close()
 
@@ -90,22 +94,28 @@ def main():
     parser.add_argument("--port", type=int, default=18554)
     parser.add_argument("--cut-first", type=int, default=0)
     parser.add_argument("--damage-first-at", type=int)
+    parser.add_argument("--trace", type=Path)
     args = parser.parse_args()
     fixture = load_units(args.video)
-    with socket.create_server(("127.0.0.1", args.port)) as server:
+    from contextlib import ExitStack
+
+    with ExitStack() as stack:
+        trace = stack.enter_context(args.trace.open("x", encoding="utf-8", buffering=1)) if args.trace else None
+        server = stack.enter_context(socket.create_server(("127.0.0.1", args.port)))
         url = f"rtsp://127.0.0.1:{args.port}/fixture"
         print("Emisor RTSP local listo", flush=True)
-        first = True
+        connection = 0
         while True:
             client, _ = server.accept()
+            connection += 1
+            first = connection == 1
             with client:
                 client.settimeout(3)
                 try:
                     serve(client, url, fixture, args.cut_first if first else 0,
-                          args.damage_first_at if first else None)
+                          args.damage_first_at if first else None, connection, trace)
                 except (OSError, ValueError):
                     pass
-            first = False
 
 
 if __name__ == "__main__":

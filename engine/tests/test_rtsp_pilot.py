@@ -49,7 +49,7 @@ class CaptureTests(unittest.TestCase):
             def close(self):
                 closed.set()
 
-        capture = Capture(Reader, fps=12, capacity=3)
+        capture = Capture(Reader, fps=12, capacity=3, startup_seconds=0)
         with capture:
             self.assertTrue(filled.wait(2))
             self.assertEqual(capture.next().index, 7)
@@ -59,6 +59,54 @@ class CaptureTests(unittest.TestCase):
         self.assertTrue(closed.is_set())
         self.assertFalse(capture.thread.is_alive())
         self.assertEqual(capture.counts["decoded"], 10)
+        self.assertEqual(capture.counts["shutdown_drop"], 2)
+
+    def test_startup_backpressure_preserves_buffered_frames_and_stop_wakes_reader(self):
+        filled = threading.Event()
+
+        class Reader:
+            index = 0
+
+            def read(self):
+                self.index += 1
+                if self.index == 2:
+                    filled.set()
+                return object(), self.index / 12
+
+            def close(self):
+                pass
+
+        capture = Capture(Reader, fps=12, capacity=2)
+        with capture:
+            self.assertTrue(filled.wait(1))
+            frames = [capture.next() for _ in range(5)]
+            self.assertEqual([f.index for f in frames], list(range(5)))
+            self.assertEqual([f.pts for f in frames], [n / 12 for n in range(1, 6)])
+            self.assertEqual(capture.counts["queue_drop"], 0)
+        self.assertFalse(capture.thread.is_alive())
+
+    def test_persistent_saturation_falls_back_after_startup_window(self):
+        discarded = threading.Event()
+        capture = None
+
+        class Reader:
+            def read(self):
+                return object(), None
+
+            def close(self):
+                pass
+
+        def trace(kind, *_args, **_fields):
+            if kind == "queue_drop":
+                capture.stop.set()
+                discarded.set()
+
+        capture = Capture(Reader, fps=12, capacity=2, startup_seconds=.05, trace=trace)
+        with capture:
+            self.assertTrue(discarded.wait(2))
+        self.assertEqual(capture.depth, 2)
+        self.assertEqual(capture.counts["decoded"], 3)
+        self.assertEqual(capture.counts["queue_drop"], 1)
         self.assertEqual(capture.counts["shutdown_drop"], 2)
 
     def test_open_and_read_errors_reconnect_with_new_connection(self):

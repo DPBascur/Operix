@@ -2,7 +2,7 @@
 
 import argparse
 from collections import Counter, deque
-from contextlib import redirect_stderr
+from contextlib import nullcontext, redirect_stderr
 import hashlib
 import ipaddress
 import json
@@ -114,9 +114,17 @@ def run(args, url):
     processed = candidates = 0
     started = monotonic()
     termination = "duration"
-    capture = Capture(lambda: Reader(url, args.fps, (args.width, args.height)), fps=args.fps)
+    diagnostic = ((args.output / "capture.ndjson").open("w", encoding="utf-8")
+                  if args.trace_capture else nullcontext())
+
+    def trace(kind, connection, timestamp, **fields):
+        capture_log.write(json.dumps({"kind": kind, "connection": connection,
+                                      "monotonic_s": timestamp, **fields}) + "\n")
+
     with (args.output / "frames.ndjson").open("w", encoding="utf-8") as frames, (
-            args.output / "candidates.ndjson").open("w", encoding="utf-8") as events:
+            args.output / "candidates.ndjson").open("w", encoding="utf-8") as events, diagnostic as capture_log:
+        capture = Capture(lambda: Reader(url, args.fps, (args.width, args.height)),
+                          fps=args.fps, trace=trace if capture_log else None)
         try:
             with capture:
                 while monotonic() - started < args.seconds:
@@ -131,7 +139,9 @@ def run(args, url):
                         perception.forklift.tracker.reset()
                         analyzer.reset()
                         rules.reset()
+                    inference_started = monotonic()
                     observed, _ = perception.process(frame.image, synchronize=torch.cuda.synchronize)
+                    inference_ended = monotonic()
                     tracks, _, _ = _visible_tracks(observed.person_tracks + observed.forklift_tracks,
                                                    args.width, args.height)
                     result = rules.evaluate(analyzer.update(frame.index, tracks, timestamp_s=timestamp))
@@ -148,6 +158,9 @@ def run(args, url):
                               "time_basis": "source_pts" if epoch.uses_pts else "local_arrival",
                               "epoch_reason": reason, "queue_depth_at_arrival": frame.queue_depth,
                               "queue_age_ms": age, "arrival_to_result_ms": latency}
+                    if args.trace_capture:
+                        record.update(consume_monotonic_s=began, result_monotonic_s=ended,
+                                      perception_ms=(inference_ended - inference_started) * 1000)
                     frames.write(json.dumps(record) + "\n")
                     for candidate in candidate_payloads(result.candidates):
                         candidates += 1
@@ -180,6 +193,7 @@ def main():
     parser.add_argument("--width", type=int, default=960)
     parser.add_argument("--height", type=int, default=540)
     parser.add_argument("--seconds", type=float, default=60)
+    parser.add_argument("--trace-capture", action="store_true")
     args = parser.parse_args()
     try:
         url = authorized_url()
