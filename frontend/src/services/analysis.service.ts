@@ -23,6 +23,12 @@ export interface AnalysisProfileDefinition {
 }
 
 export interface AnalysisRuleSnapshot {
+  calibration?: {
+    status: string;
+    version: number;
+    sha256: string;
+    method: string;
+  } | null;
   config_sha256: string;
   rules: {
     rule_id: string;
@@ -64,6 +70,7 @@ export interface AnalysisSessionStatus {
   source_bytes: number;
   source_kind: AnalysisSourceKind;
   demo_source_id: string | null;
+  spatial_revision?: number;
   zone: { zone_id: string; name: string; polygon: NormalizedVertex[] };
   run: number;
   result: AnalysisResultConfig | null;

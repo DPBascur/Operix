@@ -262,6 +262,33 @@ export async function startFixtureApi(port = 8000) {
           deleted++;
           return send({});
         }
+        if (action === "configuration/") {
+          const document = session.spatialDocument ?? {
+            schema_version: 1,
+            view_id: "fixture",
+            coordinate_system: "normalized",
+            zones: [session.zone],
+            rules: session.configuration.rules,
+          };
+          if (req.method === "PUT") {
+            session.spatialDocument = body.document;
+            session.spatial_revision = (session.spatial_revision ?? 0) + 1;
+            session.zone = body.document.zones[0];
+            session.configuration = {
+              ...session.configuration,
+              rules: body.document.rules,
+            };
+            return send({
+              document: body.document,
+              revision: session.spatial_revision,
+            });
+          }
+          return send({
+            document,
+            saved: session.spatialDocument ?? null,
+            revision: session.spatial_revision ?? 0,
+          });
+        }
         if (action === "zone/") {
           session.profile = body.profile ?? session.profile;
           session.configuration = rulesFor(

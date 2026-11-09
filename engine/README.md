@@ -492,3 +492,47 @@ de pesos/hash para trazabilidad de otras corridas; eso no cambia el gate
 operacional de la Web ni reetiqueta checkpoints históricos.
 
 Consulte el [índice de arquitectura](../docs/architecture/README.md) para los artefactos vigentes.
+
+
+## Configuración espacial desde la web
+
+En Análisis, después de preparar una fuente, **Zonas, calibración y reglas** permite
+crear y editar polígonos, asignar finalidad, habilitarlos y configurar permanencia,
+ingreso observado, coexistencia y proximidad. Guarda revisiones en PostgreSQL por
+usuario y SHA-256 del video; al volver a cargar ese archivo se puede recuperar la
+configuración guardada. Un video diferente no hereda esas zonas. Las sesiones de
+análisis siguen siendo temporales; las revisiones espaciales son persistentes.
+
+El ingreso exige una zona restringida y una transición fuera → dentro en frames
+consecutivos. No equivale a aparecer inicialmente dentro. La coexistencia exige
+los dos roles dentro de la misma zona durante el tiempo configurado; no infiere
+peligro ni suprime personas por una supuesta asociación con un operador.
+La combinación disponible es espacial + temporal, sin lenguaje arbitrario de reglas
+ni condición de equipo móvil validada.
+
+Para metros aproximados, capture una imagen de una cámara fija, seleccione entre
+4 y 16 referencias distribuidas y escriba coordenadas del suelo **medidas externamente**.
+Confirme el encuadre y la revisión de zonas; guarde antes de analizar. El servidor
+calcula la homografía con OpenCV y rechaza referencias degeneradas, horizonte
+interior, mal condicionamiento y error de ajuste mayor a 0,05 m. Ese residual
+**no mide exactitud física**: con cuatro correspondencias el ajuste puede ser exacto
+aun cuando las referencias estén mal medidas.
+
+`ground_plane_contact_edges_v1` proyecta los segmentos inferiores de las cajas
+como aproximación del contacto con un suelo plano. Solo mide dentro de la envolvente
+de referencias, sin extrapolación. No reconstruye 3D ni garantiza distancia de
+seguridad. El método normalizado `person_equipment_nearest_ground_edges_v1` y sus
+umbrales históricos se conservan; ninguna conversión implícita a metros ocurre.
+
+La acción **El encuadre cambió** invalida la calibración y deshabilita zonas;
+el servidor impide iniciar hasta revisar/recalibrar. El control es manual y
+conservador: no hay detección automática fiable de movimiento. No usar metros en
+videos con cámara móvil. Esta persistencia se integra al análisis de archivos;
+no constituye aún un catálogo de calibración para cámaras RTSP físicas.
+
+Las reglas métricas requieren calibración válida. Evento, PNG y clip conservan
+el método, unidades, versión/huella de calibración y configuración efectiva del run.
+Modificar una revisión no cambia eventos anteriores. Se mantienen los permisos de
+análisis existentes y la publicación interna autenticada. Para desplegar, aplicar
+`python manage.py migrate` en Backend, con el entorno del Motor disponible para
+validar configuraciones. No se añaden dependencias.

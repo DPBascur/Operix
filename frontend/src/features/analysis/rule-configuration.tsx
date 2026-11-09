@@ -8,11 +8,14 @@ const labels: Record<string, string> = {
   forklift_class: "Clase de montacargas",
   min_duration_s: "Duración mínima (s)",
   minimum_duration_seconds: "Duración mínima (s)",
-  max_distance: "Distancia normalizada máxima",
+  max_distance: "Distancia máxima configurada",
+  distance_unit: "Unidad de distancia",
 };
 
 const kinds: Record<string, string> = {
   zone_dwell: "Permanencia",
+  zone_entry: "Ingreso observado",
+  zone_coexistence: "Presencia simultánea",
   person_forklift_proximity: "Proximidad persona ↔ montacargas",
 };
 
@@ -38,6 +41,16 @@ export function RuleConfiguration({
 
   return (
     <div className="grid gap-2">
+      {snapshot.calibration && (
+        <p className="text-sm">
+          Plano del suelo:{" "}
+          {snapshot.calibration.status === "valid"
+            ? "calibración declarada válida"
+            : "calibración inválida"}{" "}
+          · v{snapshot.calibration.version}. Metros aproximados solo dentro del
+          área referenciada.
+        </p>
+      )}
       {snapshot.rules.map((rule) => {
         const kind = String(rule.parameters.kind ?? "");
         return (
@@ -58,7 +71,12 @@ export function RuleConfiguration({
                   key={key}
                   className="flex flex-wrap justify-between gap-x-3 break-all"
                 >
-                  <dt className="text-text-secondary">{labels[key] ?? key}</dt>
+                  <dt className="text-text-secondary">
+                    {key === "max_distance" &&
+                    rule.parameters.distance_unit === "m"
+                      ? "Distancia máxima aproximada (m)"
+                      : (labels[key] ?? key)}
+                  </dt>
                   <dd>
                     {typeof value === "string" ? value : JSON.stringify(value)}
                   </dd>

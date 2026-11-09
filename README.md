@@ -67,7 +67,7 @@ https://github.com/user-attachments/assets/1271a029-4057-421e-a13b-72baf02d08e0
 - **FORKLIFT specialist v2**, detector especializado congelado, y ByteTrack por
   clase. Los IDs son temporales, no identidades personales.
 - Zonas normalizadas, pertenencia, permanencia y reglas `zone_dwell` /
-  `person_forklift_proximity`, con parámetros, versiones y episodios trazables.
+  `person_forklift_proximity`, ingreso observado y coexistencia, con parámetros, versiones y episodios trazables.
 - Eventos en PostgreSQL, evidencia PNG, snapshots, journal y reenvíos idempotentes
   acotados. El MP4 es temporal de sesión, no un video persistente por evento.
 - Histórico filtrable por período/tipo, frecuencias UTC, indicadores y detalle
@@ -143,8 +143,9 @@ Los eventos/PNG persisten; el registro RAM de sesiones no se restaura al reinici
 - Selección PERSON basada en desarrollo; validación externa/contextual experta y
   operacional final realista pendientes. El historial de modelos permanece en la
   [auditoría](engine/evidence/ETAPA4-TECHNICAL-AUDIT.md).
-- Distancias normalizadas de imagen y parámetros experimentales; sin metros,
-  prevención demostrada ni interpretación automática de incidentes.
+- Distancia normalizada conservada; opción de metros aproximados con calibración
+  explícita de suelo y cámara fija. Sin prevención demostrada ni interpretación
+  automática de incidentes. [Supuestos y configuración](engine/README.md#configuración-espacial-desde-la-web).
 - Pérdidas/cambios de ID pueden fragmentar episodios. Sin GT MOT no se afirman
   MOTA/IDF1/HOTA ni continuidad física universal.
 - No hay supresión automática de operadores dentro de vehículos; MOBILE_EQUIPMENT

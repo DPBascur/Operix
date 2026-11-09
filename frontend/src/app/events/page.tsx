@@ -24,7 +24,9 @@ export default async function EventsPage({
     occurredBefore: date("occurred_before"),
     eventType:
       params.event_type === "zone_dwell" ||
-      params.event_type === "person_forklift_proximity"
+      params.event_type === "person_forklift_proximity" ||
+      params.event_type === "zone_entry" ||
+      params.event_type === "zone_coexistence"
         ? params.event_type
         : undefined,
     sourceKind:

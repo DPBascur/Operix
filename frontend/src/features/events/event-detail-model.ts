@@ -18,7 +18,9 @@ export function operationalSubjects(event: OperationalEvent): string {
           : item.class_name;
     return `${name} · ID de seguimiento ${item.track_id}`;
   };
-  return event.event_type === "person_forklift_proximity" && event.interaction
+  return ["person_forklift_proximity", "zone_coexistence"].includes(
+    event.event_type,
+  ) && event.interaction
     ? `${label(event.interaction.person)} ↔ ${label(event.interaction.forklift)}`
     : label({
         class_name: event.class_name,
@@ -41,6 +43,15 @@ export function measurement(value: unknown, unit = "s"): string {
 }
 export function eventMeasurements(event: OperationalEvent) {
   const parameters = record(event.rule_parameters);
+  if (event.event_type === "zone_entry")
+    return [
+      {
+        label: "Ingreso observado",
+        observed: "Fuera → dentro",
+        configured: "Zona restringida",
+        criterion: "Transición consecutiva",
+      },
+    ];
   if (event.event_type === "zone_dwell")
     return [
       {
@@ -51,11 +62,28 @@ export function eventMeasurements(event: OperationalEvent) {
       },
     ];
   const observations = record(event.observations);
+  const ground = record(observations.ground);
+  const metric = parameters.distance_unit === "m";
+  const duration = {
+    label: "Duración de la condición",
+    observed: measurement(observations.duration_s),
+    configured: measurement(parameters.minimum_duration_seconds),
+    criterion: "Mínimo configurado",
+  };
+  if (event.event_type === "zone_coexistence") return [duration];
   return [
     {
-      label: "Distancia normalizada",
-      observed: measurement(observations.normalized_distance, ""),
-      configured: measurement(parameters.max_distance, ""),
+      label: metric
+        ? "Distancia aproximada sobre el suelo"
+        : "Distancia normalizada",
+      observed: measurement(
+        metric ? ground.distance : observations.normalized_distance,
+        metric ? "m aprox." : "",
+      ),
+      configured: measurement(
+        parameters.max_distance,
+        metric ? "m aprox." : "",
+      ),
       criterion: "Máximo configurado",
     },
     {
@@ -68,7 +96,12 @@ export function eventMeasurements(event: OperationalEvent) {
 }
 export function eventProximityGeometry(event: OperationalEvent) {
   if (event.event_type !== "person_forklift_proximity") return null;
-  const geometry = record(record(event.observations).proximity_geometry);
+  const observations = record(event.observations);
+  const ground = record(observations.ground);
+  const geometry =
+    record(event.rule_parameters).distance_unit === "m"
+      ? { ...ground, version: ground.method }
+      : record(observations.proximity_geometry);
   const point = (value: unknown) =>
     Array.isArray(value) &&
     value.length === 2 &&

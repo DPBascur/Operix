@@ -184,13 +184,12 @@ function EventContent({ event }: { event: OperationalEvent }) {
   const time = eventTime(event),
     source = record(event.source);
   const geometry = eventProximityGeometry(event);
-  const observations =
-    event.event_type === "zone_dwell"
-      ? {
-          inside: event.observed_inside,
-          dwell_time_s: event.observed_dwell_time_s,
-        }
-      : event.observations;
+  const observations = ["zone_dwell", "zone_entry"].includes(event.event_type)
+    ? {
+        inside: event.observed_inside,
+        dwell_time_s: event.observed_dwell_time_s,
+      }
+    : event.observations;
   return (
     <>
       <header className={styles.header}>
@@ -230,13 +229,16 @@ function EventContent({ event }: { event: OperationalEvent }) {
             ))}
             {event.event_type === "person_forklift_proximity" && (
               <p className={styles.measureNote}>
-                Distancia en espacio de imagen normalizado, sin unidad física.
+                {record(event.rule_parameters).distance_unit === "m"
+                  ? "Distancia aproximada en el plano calibrado; los contactos se estiman desde cajas. No garantiza distancia de seguridad."
+                  : "Distancia en espacio de imagen normalizado, sin unidad física."}
               </p>
             )}
           </div>
           <dl className={styles.context}>
-            {event.event_type === "person_forklift_proximity" &&
-            event.interaction ? (
+            {["person_forklift_proximity", "zone_coexistence"].includes(
+              event.event_type,
+            ) && event.interaction ? (
               <>
                 <Field label="Persona">
                   ID de seguimiento {event.interaction.person.track_id}
@@ -300,6 +302,24 @@ function EventContent({ event }: { event: OperationalEvent }) {
             {geometry && (
               <>
                 <Field label="Versión de geometría">{geometry.version}</Field>
+                {record(event.rule_parameters).distance_unit === "m" && (
+                  <>
+                    <Field label="Versión de calibración">
+                      {String(
+                        record(
+                          record(record(event.observations).ground).calibration,
+                        ).version ?? "No registrada",
+                      )}
+                    </Field>
+                    <Field label="SHA-256 de calibración">
+                      {String(
+                        record(
+                          record(record(event.observations).ground).calibration,
+                        ).sha256 ?? "No registrada",
+                      )}
+                    </Field>
+                  </>
+                )}
                 {geometry.personAnchor && (
                   <Field label="Punto de persona (x, y)">
                     {geometry.personAnchor}

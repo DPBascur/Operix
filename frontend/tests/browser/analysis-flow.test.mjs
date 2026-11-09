@@ -228,7 +228,7 @@ test(
       await evaluate(
         "[...document.querySelectorAll('main summary')].find(el=>el.textContent.includes('Habilitada')).parentElement.open=true",
       );
-      await wait(text("Distancia normalizada máxima"));
+      await wait(text("Distancia máxima configurada"));
       await go("/account");
       await wait(text("Mi cuenta"));
       await click("Mostrar contraseñas");
@@ -246,6 +246,85 @@ test(
       await click("Detalles");
       await wait(text("REGLAS DEL PRÓXIMO ANÁLISIS"));
       await click("Detalles");
+      await click("Zonas, calibración y reglas");
+      await wait(text("Configuración preparada de esta fuente"));
+      assert.equal(
+        await evaluate(
+          "[...document.querySelectorAll('button')].find(b=>b.innerText.includes('Iniciar análisis'))?.disabled",
+        ),
+        true,
+      );
+      await wait(
+        "document.querySelector('[aria-label=\"Zona seleccionada\"]') !== null",
+      );
+      await click("Guardar configuración");
+      await wait(text("Configuración guardada para el próximo análisis."));
+      await click("Calibrar / recalibrar");
+      await wait(
+        text(
+          "Confirmo cámara fija, referencias medidas y zonas revisadas para este encuadre",
+        ),
+      );
+      await wait(
+        "document.querySelector('video[aria-label=\"Referencia de configuración\"]')?.readyState >= 2",
+      );
+      await click("Capturar fotograma de referencia");
+      await wait(
+        "!!document.querySelector('img[alt=\"Fotograma de la fuente para configuración espacial\"]')",
+      );
+      await evaluate(
+        "document.querySelector('img[alt=\"Fotograma de la fuente para configuración espacial\"]').decode()",
+      );
+      assert.equal(
+        await evaluate(
+          `(() => {const img=document.querySelector('img[alt="Fotograma de la fuente para configuración espacial"]');const c=document.createElement('canvas');c.width=16;c.height=16;const ctx=c.getContext('2d');ctx.drawImage(img,0,0,16,16);return ctx.getImageData(0,0,16,16).data.some((v,i)=>i%4===3 && v>0);})()`,
+        ),
+        true,
+        "La referencia capturada debe contener imagen, no transparencia",
+      );
+      await evaluate(
+        `(() => {const select=[...document.querySelectorAll('select')].find(s=>[...s.options].some(o=>o.value==='calibration'));select.value='calibration';select.dispatchEvent(new Event('change',{bubbles:true}));})()`,
+      );
+      for (const [x, y] of [
+        [0.1, 0.1],
+        [0.9, 0.1],
+        [0.9, 0.9],
+        [0.1, 0.9],
+      ]) {
+        await evaluate(
+          `(() => {const svg=document.querySelector('svg[aria-label="Editor de puntos"]');const r=svg.getBoundingClientRect();svg.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,clientX:r.left+r.width*${x},clientY:r.top+r.height*${y}}));})()`,
+        );
+      }
+      await wait(text("Referencia 4"));
+      const previousTheme = await evaluate(
+        "document.documentElement.dataset.theme",
+      );
+      await evaluate("document.documentElement.dataset.theme='light'");
+      await viewport(390);
+      assert.equal(
+        await evaluate("document.documentElement.scrollWidth <= innerWidth"),
+        true,
+      );
+      for (const width of [390, 1440]) {
+        await viewport(width);
+        await evaluate(
+          "document.querySelector('[aria-label=\"Configuración espacial\"]').scrollIntoView({block:'start'})",
+        );
+        if (process.env.OPERIX_BROWSER_ARTIFACT_DIR) {
+          const shot = await call("Page.captureScreenshot", { format: "png" });
+          await writeFile(
+            path.join(
+              process.env.OPERIX_BROWSER_ARTIFACT_DIR,
+              `spatial-editor-${width}.png`,
+            ),
+            Buffer.from(shot.data, "base64"),
+          );
+        }
+      }
+      await evaluate(
+        `document.documentElement.dataset.theme=${JSON.stringify(previousTheme)}`,
+      );
+      await click("Cancelar edición");
       // Demo → archivo propio: la API entrega una zona vacía, sin polígonos ocultos.
       await evaluate(
         `(async()=>{const video=document.querySelector('video'); const blob=await (await fetch(video.src)).blob(); const dt=new DataTransfer();dt.items.add(new File([blob], 'TEST_DATA_custom.mp4', {type:'video/mp4'}));const input=document.querySelector('input[type=file]');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`,
@@ -389,7 +468,7 @@ test(
         3,
       );
       await click("Aplicar zona");
-      await wait(text("Hay cambios de zona pendientes"));
+      await wait(text("Hay cambios de configuración pendientes"));
       const currentIds = (await control()).ids;
       const applied = await (
         await fetch(
@@ -411,12 +490,12 @@ test(
       await navigate("/events");
       await wait(text("Proximidad persona"));
       await navigate("/analysis");
-      await wait(text("Hay cambios de zona pendientes"));
+      await wait(text("Hay cambios de configuración pendientes"));
       await control({ releaseZones: true });
       await pause(200);
       assert.equal((await control()).waitingZones, 0);
       assert.equal(
-        await evaluate(text("Hay cambios de zona pendientes")),
+        await evaluate(text("Hay cambios de configuración pendientes")),
         true,
       );
       assert.equal(await evaluate(text("No se pudo aplicar la zona.")), false);

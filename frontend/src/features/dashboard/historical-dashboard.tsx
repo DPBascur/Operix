@@ -208,6 +208,8 @@ export function HistoricalDashboard({
           Tipo de evento
           <select value={type} onChange={(e) => setType(e.target.value)}>
             <option value="">Todos</option>
+            <option value="zone_entry">Ingreso observado</option>
+            <option value="zone_coexistence">Presencia simultánea</option>
             <option value="zone_dwell">Permanencia en zona</option>
             <option value="person_forklift_proximity">
               Proximidad persona–montacargas

@@ -186,3 +186,62 @@ test("evidencia usa solo el endpoint del evento en la API configurada", () => {
     null,
   );
 });
+
+test("distancia de suelo usa observación métrica y conserva extremos del Motor", () => {
+  const event = {
+    ...single,
+    event_type: "person_forklift_proximity",
+    rule_parameters: {
+      distance_unit: "m",
+      max_distance: 2,
+      minimum_duration_seconds: 1,
+    },
+    observations: {
+      normalized_distance: 0.1,
+      duration_s: 1,
+      ground: {
+        units: "m",
+        distance: 1.5,
+        method: "ground_plane_contact_edges_v1",
+        person_anchor: [0.1, 0.2],
+        equipment_target: [0.3, 0.2],
+      },
+    },
+  };
+  assert.equal(eventMeasurements(event)[0].observed, "1,5 m aprox.");
+  assert.equal(eventMeasurements(event)[0].configured, "2 m aprox.");
+  assert.equal(
+    eventProximityGeometry(event).version,
+    "ground_plane_contact_edges_v1",
+  );
+  assert.equal(eventProximityGeometry(event).personAnchor, "[0.1,0.2]");
+});
+test("ingreso y coexistencia no se presentan como distancia ni accidente", () => {
+  assert.equal(
+    eventMeasurements({ ...single, event_type: "zone_entry" })[0].observed,
+    "Fuera → dentro",
+  );
+  const co = {
+    ...single,
+    event_type: "zone_coexistence",
+    rule_parameters: { minimum_duration_seconds: 1 },
+    observations: { duration_s: 2 },
+    interaction: {
+      person: { class_name: "person", track_id: 1 },
+      forklift: { class_name: "forklift", track_id: 1 },
+    },
+  };
+  assert.equal(eventMeasurements(co).length, 1);
+  assert.match(operationalSubjects(co), /Persona.*1.*Montacargas.*1/);
+});
+
+test("un snapshot métrico incompleto nunca se reinterpreta como normalizado", () => {
+  const event = {
+    ...single,
+    event_type: "person_forklift_proximity",
+    rule_parameters: { distance_unit: "m", max_distance: 2 },
+    observations: { normalized_distance: 0.1 },
+  };
+  assert.equal(eventMeasurements(event)[0].observed, "No registrada");
+  assert.equal(eventMeasurements(event)[0].configured, "2 m aprox.");
+});

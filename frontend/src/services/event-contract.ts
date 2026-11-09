@@ -1,4 +1,8 @@
-export type OperationalEventType = "zone_dwell" | "person_forklift_proximity";
+export type OperationalEventType =
+  | "zone_dwell"
+  | "person_forklift_proximity"
+  | "zone_entry"
+  | "zone_coexistence";
 
 type Subject = { class_name: string; track_id: number };
 export type OperationalEvent = {
@@ -44,9 +48,12 @@ export function isOperationalEvent(value: unknown): value is OperationalEvent {
     )
   )
     return false;
-  if (item.event_type === "zone_dwell") return subject(item);
+  if (["zone_dwell", "zone_entry"].includes(String(item.event_type)))
+    return subject(item);
   if (
-    item.event_type !== "person_forklift_proximity" ||
+    !["person_forklift_proximity", "zone_coexistence"].includes(
+      String(item.event_type),
+    ) ||
     !item.interaction ||
     typeof item.interaction !== "object"
   )
@@ -65,11 +72,17 @@ export const eventTypeName = (kind: string) =>
     ? "Permanencia en zona"
     : kind === "person_forklift_proximity"
       ? "Proximidad persona–montacargas"
-      : kind;
+      : kind === "zone_entry"
+        ? "Ingreso observado a zona"
+        : kind === "zone_coexistence"
+          ? "Presencia simultánea en zona"
+          : kind;
 
 export function eventSubjects(event: OperationalEvent): string {
   const label = (item: Subject) => `${item.class_name} · ID ${item.track_id}`;
-  return event.event_type === "person_forklift_proximity" && event.interaction
+  return ["person_forklift_proximity", "zone_coexistence"].includes(
+    event.event_type,
+  ) && event.interaction
     ? `${label(event.interaction.person)} ↔ ${label(event.interaction.forklift)}`
     : label(event as Subject);
 }

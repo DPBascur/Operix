@@ -2,6 +2,7 @@
 /* eslint-disable @next/next/no-img-element -- MJPEG multipart necesita img nativo. */
 
 import { RuleConfiguration } from "@/features/analysis/rule-configuration";
+import { SpatialEditor } from "@/features/analysis/spatial-editor";
 import {
   ChevronDown,
   Info,
@@ -122,6 +123,7 @@ export function AnalysisWorkspace({
   const resultVideoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const localUrlRef = useRef<string | null>(null);
+  const [spatialEditing, setSpatialEditing] = useState(false);
   const generation = useRef(0);
   const pollFailed = useRef(false);
   const initialProfileRef = useRef(initialProfile);
@@ -909,7 +911,12 @@ export function AnalysisWorkspace({
                 <Button
                   className="order-first"
                   onClick={() => void start()}
-                  disabled={!session || !validPolygon(session.zone.polygon)}
+                  disabled={
+                    !session ||
+                    !validPolygon(session.zone.polygon) ||
+                    spatialEditing ||
+                    session.configuration?.calibration?.status === "invalid"
+                  }
                   variant="primary"
                 >
                   {state === "ready" ? (
@@ -934,7 +941,7 @@ export function AnalysisWorkspace({
                     <Square size={16} aria-hidden="true" /> Detener
                   </Button>
                 )}
-              {canEdit && !editing && (
+              {canEdit && !editing && !session?.spatial_revision && (
                 <Button
                   onClick={() => {
                     videoRef.current?.pause();
@@ -969,6 +976,20 @@ export function AnalysisWorkspace({
                 </details>
               )}
             </div>
+            {session && canEdit && !editing && (
+              <SpatialEditor
+                key={session.id}
+                session={session}
+                onEditingChange={setSpatialEditing}
+                onSaved={(next) => {
+                  setSession((current) =>
+                    current?.id === next.id ? next : current,
+                  );
+                  setDraft(next.zone.polygon);
+                  setClosed(next.zone.polygon.length >= 3);
+                }}
+              />
+            )}
             {editing && (
               <div className="analysis-zone-toolbar">
                 <Button
@@ -1192,8 +1213,8 @@ export function AnalysisWorkspace({
             )}
           {session?.pending_changes && (
             <p className="rounded-control border border-warning/50 bg-warning/10 px-3 py-2 text-sm text-foreground">
-              Hay cambios de zona pendientes. Vuelva a analizar para aplicarlos
-              al resultado.
+              Hay cambios de configuración pendientes. Vuelva a analizar para
+              aplicarlos al resultado.
             </p>
           )}
           {showStream && (
@@ -1216,9 +1237,10 @@ export function AnalysisWorkspace({
             <p className="analysis-result-help">
               En las anotaciones de proximidad, P# identifica a la persona y F#
               al montacargas. «d» indica la distancia observada y «max» el
-              umbral configurado, ambos en espacio de imagen normalizado.
-              Condición configurada satisfecha; requiere revisión humana, no
-              confirma un incidente.
+              umbral configurado. «norm» corresponde a imagen normalizada; «m
+              approx» a metros aproximados de suelo, solo con calibración
+              válida. Condición configurada satisfecha; requiere revisión
+              humana, no confirma un incidente.
             </p>
           )}
           {session && (

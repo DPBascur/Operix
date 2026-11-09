@@ -14,7 +14,13 @@ export default async function IndicatorsPage({
         ? month
         : undefined,
     initialType:
-      type === "zone_dwell" || type === "person_forklift_proximity"
+      typeof type === "string" &&
+      [
+        "zone_dwell",
+        "person_forklift_proximity",
+        "zone_entry",
+        "zone_coexistence",
+      ].includes(type ?? "")
         ? type
         : undefined,
     initialSource:

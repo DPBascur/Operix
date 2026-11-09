@@ -53,7 +53,11 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
   const [from, setFrom] = useState(() => dateInput(initial.occurredAfter));
   const [to, setTo] = useState(() => dateInput(initial.occurredBefore));
   const [eventType, setEventType] = useState<
-    "" | "zone_dwell" | "person_forklift_proximity"
+    | ""
+    | "zone_dwell"
+    | "person_forklift_proximity"
+    | "zone_entry"
+    | "zone_coexistence"
   >(initial.eventType ?? "");
   const [source, setSource] = useState<
     NonNullable<EventQuery["sourceKind"]> | ""
@@ -177,12 +181,18 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
             onChange={(event) =>
               setEventType(
                 event.target.value as
-                  "" | "zone_dwell" | "person_forklift_proximity",
+                  | ""
+                  | "zone_dwell"
+                  | "person_forklift_proximity"
+                  | "zone_entry"
+                  | "zone_coexistence",
               )
             }
             value={eventType}
           >
             <option value="">Todos los tipos</option>
+            <option value="zone_entry">Ingreso observado</option>
+            <option value="zone_coexistence">Presencia simultánea</option>
             <option value="zone_dwell">Permanencia en zona</option>
             <option value="person_forklift_proximity">
               Proximidad persona–montacargas
