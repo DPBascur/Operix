@@ -248,6 +248,7 @@ test(
       await click("Detalles");
       await click("Zonas, calibración y reglas");
       await wait(text("Configuración preparada de esta fuente"));
+      await wait(text("En sesi\u00f3n: configuraci\u00f3n inicial"));
       assert.equal(
         await evaluate(
           "[...document.querySelectorAll('button')].find(b=>b.innerText.includes('Iniciar análisis'))?.disabled",
@@ -259,6 +260,7 @@ test(
       );
       await click("Guardar configuración");
       await wait(text("Configuración guardada para el próximo análisis."));
+      await wait(text("En sesi\u00f3n: revisi\u00f3n 1"));
       await click("Calibrar / recalibrar");
       await wait(
         text(

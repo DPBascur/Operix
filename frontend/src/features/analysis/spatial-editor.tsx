@@ -144,9 +144,17 @@ export function SpatialEditor({
         <div className="mt-4 grid gap-4">
           <h2>Configuración preparada de esta fuente</h2>
           <p className="text-sm">
-            Revisión {data.revision}. Guarde y cierre el editor antes de
-            iniciar. Solo los cambios guardados se aplican al próximo análisis.
-            Los resultados anteriores conservan su snapshot.
+            En sesión:{" "}
+            {session.spatial_revision
+              ? `revisión ${session.spatial_revision}`
+              : "configuración inicial"}
+            .
+            {data.saved
+              ? ` Última guardada para esta fuente: revisión ${data.revision}.`
+              : " No hay configuración guardada para esta fuente."}{" "}
+            Guarde y cierre el editor antes de iniciar. Solo los cambios
+            guardados se aplican al próximo análisis. Los resultados anteriores
+            conservan su snapshot.
           </p>
           <video
             ref={video}
@@ -915,7 +923,12 @@ export function SpatialEditor({
                 variant="outline"
                 disabled={!data.saved}
                 onClick={() => {
-                  if (data.saved) update(structuredClone(data.saved));
+                  if (data.saved) {
+                    update(structuredClone(data.saved));
+                    setMessage(
+                      "Revisión cargada en el borrador. Guarde para aplicarla a la sesión.",
+                    );
+                  }
                 }}
               >
                 Recuperar guardada

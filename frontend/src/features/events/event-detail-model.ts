@@ -27,7 +27,11 @@ export function operationalSubjects(event: OperationalEvent): string {
         track_id: event.track_id as number,
       });
 }
-export function measurement(value: unknown, unit = "s"): string {
+export function measurement(
+  value: unknown,
+  unit = "s",
+  significantDigits = 12,
+): string {
   if (
     !["string", "number"].includes(typeof value) ||
     (typeof value === "string" && !/^\d+(\.\d+)?$/.test(value))
@@ -36,7 +40,7 @@ export function measurement(value: unknown, unit = "s"): string {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) return "No registrada";
   const formatted = new Intl.NumberFormat("es-CL", {
-    maximumSignificantDigits: 12,
+    maximumSignificantDigits: significantDigits,
     useGrouping: false,
   }).format(number);
   return unit ? `${formatted} ${unit}` : formatted;
@@ -79,10 +83,12 @@ export function eventMeasurements(event: OperationalEvent) {
       observed: measurement(
         metric ? ground.distance : observations.normalized_distance,
         metric ? "m aprox." : "",
+        metric ? 4 : 12,
       ),
       configured: measurement(
         parameters.max_distance,
         metric ? "m aprox." : "",
+        metric ? 4 : 12,
       ),
       criterion: "Máximo configurado",
     },

@@ -245,3 +245,15 @@ test("un snapshot métrico incompleto nunca se reinterpreta como normalizado", (
   assert.equal(eventMeasurements(event)[0].observed, "No registrada");
   assert.equal(eventMeasurements(event)[0].configured, "2 m aprox.");
 });
+
+test("metros aproximados usan cuatro cifras visibles sin alterar el snapshot", () => {
+  const event = {
+    ...single,
+    event_type: "person_forklift_proximity",
+    rule_parameters: { distance_unit: "m", max_distance: 2.5 },
+    observations: { ground: { units: "m", distance: 1.58818615349 } },
+  };
+  const snapshot = JSON.stringify(event);
+  assert.equal(eventMeasurements(event)[0].observed, "1,588 m aprox.");
+  assert.equal(JSON.stringify(event), snapshot);
+});

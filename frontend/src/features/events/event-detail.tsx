@@ -230,7 +230,7 @@ function EventContent({ event }: { event: OperationalEvent }) {
             {event.event_type === "person_forklift_proximity" && (
               <p className={styles.measureNote}>
                 {record(event.rule_parameters).distance_unit === "m"
-                  ? "Distancia aproximada en el plano calibrado; los contactos se estiman desde cajas. No garantiza distancia de seguridad."
+                  ? "Distancia aproximada en el plano calibrado; los contactos se estiman desde cajas. El redondeo de pantalla no indica exactitud física; consulte los valores completos en trazabilidad. No garantiza distancia de seguridad."
                   : "Distancia en espacio de imagen normalizado, sin unidad física."}
               </p>
             )}
