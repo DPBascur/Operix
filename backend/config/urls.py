@@ -16,4 +16,5 @@ urlpatterns = [
 ]
 if settings.OPERIX_ADMIN_ENABLED:
     urlpatterns += [path("admin/login/", admin_login_view),
-                    path("admin/password_change/", admin_password_view), path("admin/", admin.site.urls)]
+                    path("admin/password_change/", admin.site.admin_view(admin_password_view)),
+                    path("admin/", admin.site.urls)]

@@ -148,6 +148,17 @@ class AccessTests(TestCase):
             self.assertEqual(response.status_code, 401)
             self.assertEqual(client.post("/admin/login/", {"username": "admin", "password": PASSWORD}).status_code, 429)
 
+    def test_admin_password_route_requires_staff(self):
+        client = APIClient(enforce_csrf_checks=True)
+        self.assertEqual(client.get("/admin/password_change/").status_code, 302)
+        token = self.sign_in(client, "operator").json()["csrf_token"]
+        self.assertEqual(client.get("/admin/password_change/").status_code, 302)
+        self.assertEqual(client.post("/admin/password_change/", {
+            "old_password": PASSWORD, "new_password1": PASSWORD, "new_password2": PASSWORD,
+        }, HTTP_X_CSRFTOKEN=token).status_code, 302)
+        self.sign_in(client, "admin")
+        self.assertEqual(client.get("/admin/password_change/").status_code, 200)
+
     def test_password_change_rotates_current_session_and_revokes_the_other(self):
         current = APIClient(enforce_csrf_checks=True)
         other = APIClient(enforce_csrf_checks=True)
