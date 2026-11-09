@@ -170,6 +170,8 @@ class SessionZoneView(AnalysisView):
         session = self.owned_session(request, pk)
         if session is None:
             return Response({"detail": "Sesión inexistente"}, status=404)
+        if session.spatial_revision:
+            return Response({"detail":"Edite las zonas desde la configuración espacial versionada."}, status=409)
         if session.status()["state"] not in {"ready", "completed", "cancelled", "error"}:
             return Response({"detail": "La zona no puede editarse mientras se procesa"}, status=409)
         profile = request.data.get("profile")

@@ -66,7 +66,7 @@ class EventListCreateView(PublisherWriteMixin, generics.ListCreateAPIView):
             "analysis_run_id", "view_id", "frame_index", "rule_id",
             "rule_version", "track_id", "class_name", "zone_id",
         )
-        if values["event_type"] == "person_forklift_proximity":
+        if values["event_type"] in {"person_forklift_proximity", "zone_coexistence"}:
             identity_fields = ("analysis_run_id", "view_id", "frame_index", "rule_id",
                                "rule_version", "pair_key", "zone_id")
         identity = {field: values[field] for field in identity_fields}

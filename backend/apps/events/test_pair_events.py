@@ -67,6 +67,33 @@ class PairEventApiTests(APITestCase):
         payload["rule_parameters"]["max_distance"] = math.nextafter(math.sqrt(2), math.inf)
         self.assertEqual(self.post(payload).status_code, 400)
 
+    def test_metric_snapshot_keeps_normalized_geometry_and_rejects_tampering(self):
+        import hashlib
+        payload=deepcopy(self.payload)
+        payload["source"]["video_sha256"]="a"*64
+        payload["rule_parameters"].update(distance_unit="m",max_distance=2.)
+        calibration={"status":"valid","source_sha256":"a"*64,"method":"ground_plane_contact_edges_v1","units":"m","zones_reviewed":True,"version":1,"homography":[[10,0,0],[0,10,0],[0,0,1]],"image_points":[[0,0],[1,0],[1,1],[0,1]],"ground_points_m":[[0,0],[10,0],[10,10],[0,10]],"calibrated_at":"2026-11-09T00:00:00Z"}
+        calibration["sha256"]=hashlib.sha256(json.dumps(calibration,sort_keys=True,allow_nan=False).encode()).hexdigest()
+        payload["observations"]["ground"]={"method":"ground_plane_contact_edges_v1","units":"m","distance":1.5,"person_anchor":[.1,.2],"equipment_target":[.25,.2],"calibration":calibration}
+        response=self.post(payload)
+        self.assertEqual(response.status_code,201,response.data)
+        self.assertEqual(self.client.get(f"/api/v1/events/{response.data['id']}/").data["observations"],payload["observations"])
+        payload["analysis_run_id"]=str(uuid4())
+        calibration["version"]=2
+        self.assertEqual(self.post(payload).status_code,400)
+        payload["observations"].pop("ground")
+        self.assertEqual(self.post(payload).status_code,400)
+
+    def test_coexistence_is_persisted_and_idempotent_without_metric_unit(self):
+        payload=deepcopy(self.payload)
+        payload["event_type"]=payload["rule_parameters"]["kind"]="zone_coexistence"
+        payload["rule_parameters"]["max_distance"]=math.sqrt(2)
+        response=self.post(payload)
+        self.assertEqual(response.status_code,201,response.data)
+        self.assertEqual(self.post(payload).status_code,200)
+        payload["rule_parameters"]["distance_unit"]="m"
+        self.assertEqual(self.post(payload).status_code,400)
+
     def test_pair_snapshot_survives_retrieval_without_fictitious_primary_object(self):
         result = self.post()
         self.assertEqual(result.status_code, 201, result.data)

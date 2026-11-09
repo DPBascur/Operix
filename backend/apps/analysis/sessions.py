@@ -90,9 +90,12 @@ class AnalysisSession:
     _cleanup_generation: int = field(default=0, repr=False)
     owner_id: int | None = None
     profile_config: dict | None = field(default=None, repr=False)
+    spatial_revision: int = 0
 
     def operational_config(self) -> dict:
         actual = deepcopy(self.profile_config) if self.profile_config is not None else read_profile(self.profile)
+        if self.spatial_revision:
+            return actual
         original_zone_id = actual["zones"][0]["zone_id"]
         actual["zones"] = [deepcopy(self.zone)]
         if self.source_kind == "manual":
@@ -114,6 +117,7 @@ class AnalysisSession:
                 "source_sha256": self.source_sha256, "source_bytes": self.source_bytes,
                 "source_kind": self.source_kind, "demo_source_id": self.demo_source_id,
                 "zone": self.zone, "frame": 0, "total": None,
+                "spatial_revision": self.spatial_revision,
                 "percent": None, "fps": None, "person_detections": 0,
                 "forklift_detections": 0, "person_tracks": 0, "forklift_tracks": 0,
                 "run": self.run, "result": None,
@@ -293,7 +297,8 @@ def read_profile(profile: str) -> dict:
 
 
 def rule_snapshot(config: dict) -> dict:
-    return {"rules": config["rules"], "config_sha256": hashlib.sha256(config_bytes(config)).hexdigest()}
+    return {"rules": config["rules"], "zones":config["zones"], "calibration":config.get("calibration"),
+            "config_sha256": hashlib.sha256(config_bytes(config)).hexdigest()}
 
 
 def config_bytes(config: dict) -> bytes:
@@ -542,6 +547,8 @@ def _start_session(session: AnalysisSession) -> None:
         if not python.is_file() or person is None or not person.is_file() or forklift is None or not forklift.is_file():
             raise RuntimeError("Configure OPERIX_ENGINE_PYTHON y los pesos person/forklift fuera de Git")
         actual = session.operational_config()
+        if (actual.get("calibration") or {}).get("status") == "invalid":
+            raise ValueError("Encuadre invalidado. Revise zonas y recalibre antes de analizar.")
         _clear_run_outputs(session)
         session._cleanup_generation += 1
         if session._cleanup_timer is not None:
@@ -575,6 +582,9 @@ def _start_session(session: AnalysisSession) -> None:
             "--forklift-weights", str(forklift), "--forklift-sha256", FORKLIFT_SHA256,
             "--batch-size", "1",
         ]
+        if session.spatial_revision:
+            index = command.index("--polygon")
+            del command[index:index+2]
         config_path = session.directory / "operational_config.json"
         config_path.write_bytes(config_bytes(actual))
         session.outbox_directory = None
@@ -590,6 +600,8 @@ def _start_session(session: AnalysisSession) -> None:
                       "perception": {name: dict(session.active_config[name]) for name in ("person", "forklift")},
                       "timestamp_basis": "ANALYSIS_START_PROXY_NOT_RECORDING_TIME",
                       "session_id": str(session.id), "session_run": session.run}
+            if session.spatial_revision:
+                source["spatial_configuration"] = deepcopy(actual)
             context_path = session.outbox_directory / "context.json"
             context_path.write_text(json.dumps({"analysis_run_id": session.analysis_run_id,
                 "analysis_started_at": datetime.now(timezone.utc).isoformat(), "source": source,

@@ -7,7 +7,7 @@ import math
 from rest_framework.exceptions import ValidationError
 
 
-EVENT_TYPES = ("zone_dwell", "person_forklift_proximity")
+EVENT_TYPES = ("zone_dwell", "person_forklift_proximity", "zone_entry", "zone_coexistence")
 
 
 def number(value, name):
@@ -25,7 +25,7 @@ def number(value, name):
 def validate_pair_parameters(parameters):
     expected = {"kind", "zone_id", "person_class", "forklift_class",
                 "max_distance", "minimum_duration_seconds"}
-    if set(parameters) != expected:
+    if set(parameters) not in (expected, expected | {"distance_unit"}):
         raise ValidationError({"rule_parameters": "Snapshot de parámetros por pares incompleto."})
     if not all(isinstance(parameters[k], str) and parameters[k].strip()
                for k in ("zone_id", "person_class", "forklift_class")):
@@ -34,9 +34,16 @@ def validate_pair_parameters(parameters):
         raise ValidationError({"rule_parameters": "Las clases de los roles deben ser distintas."})
     number(parameters["max_distance"], "max_distance")
     # hypot(dx/width, dy/height): ambos ejes en [0,1], diagonal máxima sqrt(2).
-    if parameters["max_distance"] > math.sqrt(2):
+    if parameters.get("distance_unit","normalized") not in {"normalized","m"}:
+        raise ValidationError("Unidad no soportada")
+    if parameters.get("distance_unit","normalized") == "normalized" and parameters["max_distance"] > math.sqrt(2):
         raise ValidationError({"max_distance": "Debe estar entre 0 y sqrt(2) normalizado en imagen."})
     number(parameters["minimum_duration_seconds"], "minimum_duration_seconds")
+    if parameters["kind"] == "zone_coexistence" and (
+        parameters.get("distance_unit","normalized") != "normalized"
+        or abs(parameters["max_distance"]-math.sqrt(2)) > 1e-12
+    ):
+        raise ValidationError("Coexistencia requiere presencia conjunta, sin umbral métrico")
 
 
 def validate_pair(attrs):
@@ -51,9 +58,8 @@ def validate_pair(attrs):
                 or type(subject["track_id"]) is not int or not 0 <= subject["track_id"] <= 2147483647):
             raise ValidationError({"interaction": "Identidad incompatible con el rol."})
     observations, episode = attrs.get("observations", {}), attrs.get("episode", {})
-    if (not isinstance(observations, dict) or set(observations) not in (
-            {"normalized_distance", "duration_s"},
-            {"normalized_distance", "duration_s", "proximity_geometry"})):
+    if (not isinstance(observations, dict) or set(observations) - {"normalized_distance","duration_s","proximity_geometry","ground"}
+            or not {"normalized_distance","duration_s"} <= observations.keys()):
         raise ValidationError({"observations": "Se requieren distancia y duración observadas."})
     if "proximity_geometry" in observations:
         geometry = observations["proximity_geometry"]
@@ -69,6 +75,30 @@ def validate_pair(attrs):
                     or any(type(v) not in (int, float) or not 0 <= v <= 1 for v in point)):
                 raise ValidationError({"observations": "Puntos geométricos normalizados inválidos."})
     distance = number(observations["normalized_distance"], "normalized_distance")
+    if parameters.get("distance_unit") == "m":
+        ground = observations.get("ground", {})
+        if (not isinstance(ground, dict) or ground.get("method") != "ground_plane_contact_edges_v1"
+                or ground.get("units") != "m" or not isinstance(ground.get("calibration"), dict)
+                or ground["calibration"].get("status") != "valid"
+                or ground["calibration"].get("source_sha256") != attrs.get("source",{}).get("video_sha256")):
+            raise ValidationError("Medición métrica sin calibración válida")
+        distance = number(ground.get("distance"), "ground.distance")
+        calibration = ground["calibration"]
+        if (set(ground) != {"method","units","distance","person_anchor","equipment_target","calibration"}
+                or calibration.get("units") != "m" or calibration.get("method") != ground["method"]
+                or calibration.get("zones_reviewed") is not True):
+            raise ValidationError("Snapshot de suelo incompleto")
+        expected_hash = hashlib.sha256(json.dumps({k:v for k,v in calibration.items() if k!="sha256"},
+            sort_keys=True, allow_nan=False).encode()).hexdigest()
+        if calibration.get("sha256") != expected_hash:
+            raise ValidationError("Huella de calibración incompatible")
+        for name in ("person_anchor","equipment_target"):
+            point = ground[name]
+            if (not isinstance(point,list) or len(point)!=2
+                    or any(type(v) not in (int,float) or not math.isfinite(v) or not 0<=v<=1 for v in point)):
+                raise ValidationError("Extremos de proximidad inválidos")
+    elif "ground" in observations:
+        raise ValidationError("La regla normalizada no admite observación métrica")
     duration = number(observations["duration_s"], "duration_s")
     if distance > parameters["max_distance"] or parameters["minimum_duration_seconds"] - duration > 1e-9:
         raise ValidationError({"observations": "No satisface los parámetros registrados."})

@@ -1,4 +1,5 @@
 from django.urls import path
+from .spatial import SpatialConfigurationView
 
 from .views import (
     DemoSourceView, ProfileListView, SessionDetailView, SessionListView,
@@ -8,6 +9,7 @@ from .views import (
 )
 
 urlpatterns = [
+    path("analysis/sessions/<uuid:pk>/configuration/", SpatialConfigurationView.as_view(), name="analysis-configuration"),
     path("analysis/profiles/", ProfileListView.as_view(), name="analysis-profile-list"),
     path(
         "analysis/profiles/<str:profile>/demo/<str:source_id>/",

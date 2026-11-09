@@ -67,13 +67,13 @@ class EventSerializer(serializers.ModelSerializer):
     def validate_rule_parameters(self, value):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Debe ser un objeto JSON.")
-        if value.get("kind") == "person_forklift_proximity":
+        if value.get("kind") in {"person_forklift_proximity", "zone_coexistence"}:
             validate_pair_parameters(value)
             return value
         expected = {"kind", "class_name", "zone_id", "min_duration_s"}
         if set(value) != expected:
             raise serializers.ValidationError("Claves requeridas: kind, class_name, zone_id, min_duration_s.")
-        if value["kind"] != "zone_dwell":
+        if value["kind"] not in {"zone_dwell", "zone_entry"}:
             raise serializers.ValidationError("Solo se admite kind=zone_dwell en esta versión.")
         if not all(isinstance(value[key], str) and value[key].strip() for key in ("class_name", "zone_id")):
             raise serializers.ValidationError("class_name y zone_id deben ser textos no vacíos.")
@@ -86,6 +86,8 @@ class EventSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("min_duration_s no es un número válido.") from error
         if not decimal_duration.is_finite() or not 0 <= decimal_duration <= Decimal("999999999.999"):
             raise serializers.ValidationError("min_duration_s debe ser numérico, finito y no negativo.")
+        if value["kind"] == "zone_entry" and duration != 0:
+            raise serializers.ValidationError("El ingreso observado usa duración cero.")
         return value
 
     def validate(self, attrs):
@@ -98,7 +100,7 @@ class EventSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"event_type": "No coincide con la regla."})
         if parameters["zone_id"] != attrs["zone_id"]:
             raise serializers.ValidationError({"zone_id": "No coincide con la regla."})
-        if attrs["event_type"] == "person_forklift_proximity":
+        if attrs["event_type"] in {"person_forklift_proximity", "zone_coexistence"}:
             return validate_pair(attrs)
         if any(attrs.get(field) for field in ("interaction", "observations", "episode")):
             raise serializers.ValidationError("zone_dwell no admite un snapshot por pares.")
@@ -119,11 +121,14 @@ class EventSerializer(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("source debe ser un objeto.")
         allowed = {"filename", "kind", "video_sha256", "config_sha256", "person_weights_sha256",
-                   "forklift_weights_sha256", "timestamp_basis", "session_id", "session_run", "perception"}
+                   "forklift_weights_sha256", "timestamp_basis", "session_id", "session_run", "perception", "spatial_configuration"}
         if set(value) - allowed:
             raise serializers.ValidationError("Metadata de fuente no admitida.")
         for key, item in value.items():
-            if key == "perception":
+            if key == "spatial_configuration":
+                if not isinstance(item, dict) or set(item) - {"schema_version","view_id","coordinate_system","zones","rules","calibration"}:
+                    raise serializers.ValidationError("Snapshot espacial inválido")
+            elif key == "perception":
                 if not isinstance(item, dict) or set(item) != {"person", "forklift"}:
                     raise serializers.ValidationError("Metadata de percepción inválida.")
                 for name, config in item.items():

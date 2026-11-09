@@ -207,6 +207,45 @@ class WebPersistenceTests(LiveServerTestCase):
         self.assertEqual(Event.objects.count(), 2)
 
 
+    def test_metric_web_configuration_worker_event_png_and_clip(self):
+        from django.contrib.auth import get_user_model
+        from apps.events.clips import clip_info, clip_slot
+        make = "import cv2,numpy as np,sys; w=cv2.VideoWriter(sys.argv[1],cv2.VideoWriter_fourcc(*\"MJPG\"),12,(640,360)); assert w.isOpened(); [w.write(np.full((360,640,3),80,np.uint8)) for _ in range(48)]; w.release()"
+        subprocess.run([str(self.python), "-B", "-c", make, str(self.video)], check=True, timeout=30)
+        self.client.force_authenticate(get_user_model().objects.create(username="metric_fixture", is_superuser=True))
+        identity = self.create()
+        session = sessions.get_session(identity)
+        document = session.operational_config()
+        document["rules"][0]["parameters"].update(distance_unit="m", max_distance=2.)
+        document["calibration"] = {"image_points":[[0,0],[1,0],[1,1],[0,1]],
+            "ground_points_m":[[0,0],[10,0],[10,10],[0,10]],"source_sha256":session.source_sha256,
+            "version":1,"status":"valid","units":"m","calibrated_at":"2026-11-09T00:00:00Z","zones_reviewed":True}
+        saved = self.client.put(f"/api/v1/analysis/sessions/{identity}/configuration/", {"document":document,"revision":0},format="json")
+        self.assertEqual(saved.status_code,200,saved.data)
+        with override_settings(OPERIX_CLIPS_ENABLED=True):
+            data = self.run_analysis(identity)
+        self.assertEqual(data["state"],"completed",data)
+        self.assertEqual(data["persistence"]["saved"],2,data)
+        self.assertTrue(clip_slot.acquire(timeout=45), "El generador de clips no finalizó")
+        clip_slot.release()
+        for event in Event.objects.all():
+            ground = event.observations["ground"]
+            self.assertEqual(ground["units"],"m")
+            self.assertEqual(ground["method"],"ground_plane_contact_edges_v1")
+            self.assertAlmostEqual(ground["distance"], {1:0.,2:.3125}[event.interaction["forklift"]["track_id"]])
+            self.assertEqual(event.source["spatial_configuration"],saved.data["document"])
+            self.assertEqual(event.interaction["person"]["track_id"],1)
+            evidence=self.client.get(f"/api/v1/events/{event.id}/evidence/")
+            self.assertEqual(evidence.status_code,200)
+            self.assertTrue(b"".join(evidence.streaming_content).startswith(b"\x89PNG"))
+            self.assertIsNotNone(clip_info(event))
+        invalid = self.client.put(f"/api/v1/analysis/sessions/{identity}/configuration/", {"document":{**saved.data["document"],"calibration":{**saved.data["document"]["calibration"],"status":"invalid"}},"revision":1},format="json")
+        self.assertEqual(invalid.status_code,200,invalid.data)
+        start=self.client.post(f"/api/v1/analysis/sessions/{identity}/start/")
+        self.assertIn(start.status_code,(400,409,503))
+        self.assertEqual(Event.objects.count(),2)
+
+
 class PersistenceFailureStatusTests(SimpleTestCase):
     def setUp(self):
         from uuid import uuid4

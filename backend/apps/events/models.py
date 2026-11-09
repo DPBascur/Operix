@@ -43,13 +43,13 @@ class Event(models.Model):
                     "rule_version", "track_id", "class_name", "zone_id",
                 ),
                 name="unique_event_per_analysis_candidate",
-                condition=models.Q(event_type="zone_dwell"),
+                condition=models.Q(event_type__in=("zone_dwell", "zone_entry")),
             ),
             models.UniqueConstraint(
                 fields=("analysis_run_id", "view_id", "frame_index", "rule_id",
                         "rule_version", "pair_key", "zone_id"),
                 name="unique_pair_per_analysis_candidate",
-                condition=models.Q(event_type="person_forklift_proximity"),
+                condition=models.Q(event_type__in=("person_forklift_proximity", "zone_coexistence")),
             ),
         ]
 
