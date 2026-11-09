@@ -81,3 +81,47 @@ class SpatialConfigurationTests(TestCase):
         self.assertEqual(second.status_code, 200, second.data)
         self.assertEqual(second.data["document"]["calibration"]["version"], 2)
         self.assertFalse(self.session.operational_config()["zones"][0]["enabled"])
+
+    def test_reintroduced_rule_keeps_monotonic_identity_version(self):
+        self.assertEqual(self.save().status_code, 200)
+        self.document["rules"][0]["enabled"] = False
+        self.assertEqual(self.save(revision=1).data["document"]["rules"][0]["version"], 2)
+        rule = deepcopy(self.document["rules"][0])
+        self.document["rules"] = []
+        self.assertEqual(self.save(revision=2).status_code, 200)
+        self.document["rules"] = [rule]
+        restored = self.save(revision=3)
+        self.assertEqual(restored.status_code, 200, restored.data)
+        self.assertEqual(restored.data["document"]["rules"][0]["version"], 3)
+
+    def test_reintroduced_calibration_does_not_reuse_pre_invalidation_version(self):
+        calibration = {"image_points": [[0,0],[1,0],[1,1],[0,1]],
+            "ground_points_m": [[0,0],[10,0],[10,10],[0,10]], "source_sha256": "a"*64,
+            "version": 1, "status": "valid", "units": "m",
+            "calibrated_at": "2026-11-09T00:00:00Z", "zones_reviewed": True}
+        self.document["calibration"] = calibration
+        self.assertEqual(self.save().status_code, 200)
+        calibration["status"] = "invalid"
+        self.assertEqual(self.save(revision=1).data["document"]["calibration"]["version"], 2)
+        self.document.pop("calibration")
+        self.assertEqual(self.save(revision=2).status_code, 200)
+        self.document["calibration"] = {**calibration, "status": "valid"}
+        restored = self.save(revision=3)
+        self.assertEqual(restored.status_code, 200, restored.data)
+        self.assertEqual(restored.data["document"]["calibration"]["version"], 3)
+        self.assertEqual(SpatialConfiguration.objects.get(revision=2).document["calibration"]["status"], "invalid")
+
+    def test_saved_configuration_is_bound_to_owner_and_video_hash(self):
+        self.assertEqual(self.save().status_code, 200)
+        other = sessions.AnalysisSession(id=uuid4(), directory=Path(self.directory.name),
+            filename="other.mp4", profile="A", video_path=Path(self.directory.name)/"other.mp4",
+            source_sha256="b"*64, source_bytes=0, source_kind="manual", demo_source_id=None,
+            zone={"zone_id":"other", "name":"Other", "polygon":[[0,0],[1,0],[1,1],[0,1]]}, owner_id=self.user.pk)
+        sessions._sessions[other.id] = other
+        self.addCleanup(lambda: sessions._sessions.pop(other.id,None))
+        url=f"/api/v1/analysis/sessions/{other.id}/configuration/"
+        response=self.client.get(url)
+        self.assertIsNone(response.data["saved"])
+        self.assertEqual(response.data["revision"],0)
+        self.assertEqual(response.data["document"]["zones"][0]["zone_id"],"other")
+        self.assertEqual(self.client.get(self.url).data["saved"]["zones"][0]["zone_id"],"z")

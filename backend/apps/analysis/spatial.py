@@ -47,7 +47,8 @@ class SpatialConfigurationView(AnalysisView):
                 return Response({"detail":"No se pudo validar con el Motor"}, status=400)
             with transaction.atomic():
                 get_user_model().objects.select_for_update().get(pk=request.user.pk)
-                saved = SpatialConfiguration.objects.filter(owner=request.user, source_sha256=session.source_sha256).order_by("-revision").first()
+                history = SpatialConfiguration.objects.filter(owner=request.user, source_sha256=session.source_sha256).order_by("-revision")
+                saved = history.first()
                 revision = saved.revision if saved else 0
                 if revision != data["revision"]:
                     return Response({"detail":"La configuración cambió. Recupere la revisión actual."}, status=409)
@@ -56,7 +57,8 @@ class SpatialConfigurationView(AnalysisView):
                 if calibration:
                     keys = ("image_points", "ground_points_m", "status", "zones_reviewed")
                     same = old_calibration and all(calibration[k] == old_calibration[k] for k in keys)
-                    calibration["version"] = old_calibration["version"] if same else (old_calibration["version"] + 1 if old_calibration else 1)
+                    highest = max((v or 0 for v in history.values_list("document__calibration__version", flat=True)), default=0)
+                    calibration["version"] = old_calibration["version"] if same else highest + 1
                     if same:
                         calibration["calibrated_at"] = old_calibration["calibrated_at"]
                     calibration["sha256"] = hashlib.sha256(json.dumps({k:v for k,v in calibration.items() if k != "sha256"}, sort_keys=True, allow_nan=False).encode()).hexdigest()
@@ -65,9 +67,15 @@ class SpatialConfigurationView(AnalysisView):
                     old = old_rules.get(rule["rule_id"])
                     if old:
                         changed = any(old[k] != rule[k] for k in ("parameters","enabled")) or saved.document["zones"] != document["zones"] or saved.document.get("calibration") != document.get("calibration")
-                        rule["version"] = old["version"] + int(changed)
                     else:
-                        rule["version"] = 1
+                        changed = True
+                    if changed:
+                        previous = history.filter(document__rules__contains=[{"rule_id": rule["rule_id"]}])
+                        highest = max((r["version"] for rules in previous.values_list("document__rules", flat=True)
+                                       for r in rules if r["rule_id"] == rule["rule_id"]), default=0)
+                        rule["version"] = highest + 1
+                    else:
+                        rule["version"] = old["version"]
                 SpatialConfiguration.objects.create(owner=request.user, source_sha256=session.source_sha256,
                     revision=revision+1, document=document)
             session.profile_config = deepcopy(document)
