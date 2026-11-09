@@ -111,6 +111,7 @@ def event_candidate_payload(candidate: EventCandidate | PairEventCandidate, cont
             "interaction": data["interaction"],
             "observations": {"normalized_distance": data["observed_normalized_distance"],
                              "duration_s": data["observed_duration_s"],
+                             **({"ground": data["ground"]} if "ground" in data else {}),
                              **({"proximity_geometry": data["proximity_geometry"]} if "proximity_geometry" in data else {})},
             "episode": {"started_frame_index": data["started_frame_index"],
                         "started_timestamp_s": data["started_timestamp_s"], "timestamp_s": data["timestamp_s"]},

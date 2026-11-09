@@ -76,6 +76,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             args.forklift_weights, args.expected_forklift_sha256, "forklift_weights"
         )
     config = load_operational_config(args.config)
+    if config.calibration and config.calibration["source_sha256"] != video_hash:
+        raise ValueError("La calibración no corresponde al video")
     tracker_config = ByteTrackConfig()
 
     def channel(name: str, weights: Path, confidence: float, iou: float) -> ClassPerceptionChannel:
@@ -115,6 +117,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             width=metadata.width, height=metadata.height,
             fps=metadata.declared_fps, zones=config.zones,
             proximity_roles=config.proximity_roles,
+            calibration=config.calibration,
         )
         rules = RuleEngine(config)
         writer = cv2.VideoWriter(
@@ -168,6 +171,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     render_start = time.perf_counter()
                     annotated = frame
                     for zone in config.zones:
+                        if not zone.enabled:
+                            continue
                         zone_candidate = next(
                             (item for item in frame_candidates if item["zone_id"] == zone.zone_id), None,
                         )

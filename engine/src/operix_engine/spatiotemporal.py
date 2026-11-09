@@ -82,6 +82,7 @@ class PairwiseProximity:
     geometry_version: str | None = None
     point_a: NormalizedPoint | None = None
     point_b: NormalizedPoint | None = None
+    ground: dict | None = None
     identity_a: ObjectIdentity = field(init=False)
     identity_b: ObjectIdentity = field(init=False)
 
@@ -112,6 +113,7 @@ class SpatiotemporalAnalyzer:
         zones: tuple[Zone, ...],
         max_trajectory_points: int = 60,
         proximity_roles: tuple[tuple[str, str], ...] = (("person", "forklift"),),
+        calibration: dict | None = None,
     ) -> None:
         if type(width) is not int or width <= 0 or type(height) is not int or height <= 0:
             raise ValueError("width y height deben ser enteros positivos")
@@ -127,7 +129,8 @@ class SpatiotemporalAnalyzer:
         self.width = width
         self.height = height
         self.fps = float(fps)
-        self.zones = zones
+        self.zones = tuple(zone for zone in zones if zone.enabled)
+        self.calibration = calibration
         self.max_trajectory_points = max_trajectory_points
         if (not isinstance(proximity_roles, tuple) or any(
                 not isinstance(pair, tuple) or len(pair) != 2 or pair[0] == pair[1]
@@ -145,11 +148,16 @@ class SpatiotemporalAnalyzer:
         if forward or roles[::-1] in self._proximity_roles:
             person, equipment = (left, right) if forward else (right, left)
             measured = nearest_ground_edges(person.bounding_box, equipment.bounding_box, self.width, self.height)
+            ground = None
+            if self.calibration:
+                from .calibration import ground_measurement
+                ground = ground_measurement(self.calibration, person.bounding_box, equipment.bounding_box,
+                                            self.width, self.height)
             points = (measured.person_anchor, measured.equipment_target)
             if not forward:
                 points = points[::-1]
             return PairwiseProximity(left.track_id, right.track_id, frame_index, timestamp_s,
-                measured.normalized_distance, *roles, PROXIMITY_GEOMETRY_VERSION, *points)
+                measured.normalized_distance, *roles, PROXIMITY_GEOMETRY_VERSION, *points, ground)
         # Observación genérica entre clases sin estos roles; no alimenta la regla de equipos.
         return PairwiseProximity(left.track_id, right.track_id, frame_index, timestamp_s,
             math.dist((left.position.x, left.position.y), (right.position.x, right.position.y)), *roles)

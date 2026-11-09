@@ -163,6 +163,12 @@ def process(args: argparse.Namespace) -> None:
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA no está disponible para ambos detectores")
     config = _validated_zone(load_operational_config(args.config), args.polygon)
+    if config.calibration:
+        import hashlib
+        with args.video.open("rb") as media:
+            digest = hashlib.file_digest(media, "sha256").hexdigest()
+        if config.calibration["source_sha256"] != digest:
+            raise ValueError("La calibración pertenece a otra fuente")
     outbox = None
     context = None
     persistence = {"state": "disabled", "candidates": 0, "saved": 0, "failed": 0}
@@ -203,8 +209,9 @@ def process(args: argparse.Namespace) -> None:
         output_backend = writer.getBackendName()
         analyzer = SpatiotemporalAnalyzer(
             width=metadata.width, height=metadata.height,
-            fps=metadata.declared_fps, zones=config.zones,
+            fps=metadata.declared_fps, zones=config.zones if not config.calibration or config.calibration["status"] == "valid" else (),
             proximity_roles=config.proximity_roles,
+            calibration=config.calibration,
         )
         rules = RuleEngine(config)
         started = time.perf_counter()
@@ -252,6 +259,8 @@ def process(args: argparse.Namespace) -> None:
                 tick = time.perf_counter_ns()
                 annotated = frame
                 for zone in config.zones:
+                    if not zone.enabled:
+                        continue
                     event = any(item.zone_id == zone.zone_id for item in result.candidates)
                     annotated = renderer.render_zone(annotated, zone, event=event)
                 for name in ("person", "forklift"):

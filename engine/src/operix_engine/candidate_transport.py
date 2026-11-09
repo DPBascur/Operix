@@ -62,7 +62,7 @@ def candidate_payload(candidate: EventCandidate | PairEventCandidate) -> dict[st
         raise ValueError("parameters debe ser un mapping")
 
     if isinstance(candidate, EventCandidate):
-        if candidate.parameters.get("kind") != "zone_dwell":
+        if candidate.parameters.get("kind") not in {"zone_dwell", "zone_entry"}:
             raise ValueError("EventCandidate requiere kind=zone_dwell")
         if type(candidate.observed_inside) is not bool:
             raise ValueError("observed_inside debe ser booleano")
@@ -75,10 +75,10 @@ def candidate_payload(candidate: EventCandidate | PairEventCandidate) -> dict[st
             "zone_id": candidate.zone_id, "parameters": candidate.parameters,
             "observed_inside": candidate.observed_inside,
             "observed_dwell_time_s": candidate.observed_dwell_time_s,
-            "candidate_kind": "zone_dwell", "subjects": [_subject("object", identity)],
+            "candidate_kind": candidate.parameters["kind"], "subjects": [_subject("object", identity)],
         }
     else:
-        if candidate.parameters.get("kind") != "person_forklift_proximity":
+        if candidate.parameters.get("kind") not in {"person_forklift_proximity", "zone_coexistence"}:
             raise ValueError("PairEventCandidate requiere kind=person_forklift_proximity")
         if not isinstance(candidate.interaction, InteractionIdentity):
             raise ValueError("El candidato por pares requiere InteractionIdentity")
@@ -102,7 +102,7 @@ def candidate_payload(candidate: EventCandidate | PairEventCandidate) -> dict[st
                 or candidate.started_timestamp_s > candidate.timestamp_s):
             raise ValueError("El inicio del episodio no puede ser posterior al disparo")
         payload = candidate.to_dict() | {
-            "candidate_kind": "person_forklift_proximity",
+            "candidate_kind": candidate.parameters["kind"],
             "subjects": [_subject("person", person), _subject("forklift", forklift)],
         }
     result = _json_value(payload)

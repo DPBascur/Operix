@@ -248,14 +248,23 @@ class OpenCvRenderer:
             endpoints = tuple((min(width - 1, max(0, round(point.x * width))),
                                min(height - 1, max(0, round(point.y * height))))
                               for point in (item.person_anchor, item.equipment_target))
+            if item.parameters.get("distance_unit") == "m" and item.ground is None:
+                self._draw_label(annotated, "Plano no aplicable: fuera del area calibrada", (8, 28 + index * 24), self._ZONE_NORMAL_COLOR, fit_width=True)
+                continue
             color = self._ZONE_EVENT_COLOR if item.satisfied else self._ZONE_NORMAL_COLOR
+            if item.ground:
+                endpoints = tuple((round(point[0]*width), round(point[1]*height))
+                                  for point in (item.ground["person_anchor"], item.ground["equipment_target"]))
             cv2.line(annotated, *endpoints, color, self.config.box_thickness, self._LINE_TYPE)
             for point in endpoints:
                 cv2.circle(annotated, point, 4, color, -1, self._LINE_TYPE)
             midpoint = tuple(round((a + b) / 2) for a, b in zip(*endpoints))
             pair = f"P#{left.track_id} / F#{right.track_id}"
+            distance = item.ground["distance"] if item.ground else item.observed_normalized_distance
+            unit = "m approx" if item.ground else "norm"
             self._draw_label(annotated,
-                f"{pair} | d {item.observed_normalized_distance:.4g} / max {item.parameters['max_distance']:.4g} norm",
+                (f"{pair} | Presencia conjunta en zona" if item.parameters.get("kind") == "zone_coexistence"
+                 else f"{pair} | d {distance:.4g} / max {item.parameters['max_distance']:.4g} {unit}"),
                 midpoint, color, fit_width=True)
             # OpenCV usa texto ASCII. La duración y el estado comparten un carril compacto.
             state = {

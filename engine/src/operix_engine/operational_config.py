@@ -47,10 +47,14 @@ class Zone:
     zone_id: str
     name: str
     polygon: tuple[tuple[float, float], ...]
+    purpose: str = "observation"
+    enabled: bool = True
 
     def __post_init__(self) -> None:
         _nonempty_text(self.zone_id, "zone_id")
         _nonempty_text(self.name, "name")
+        if self.purpose not in {"restricted", "equipment", "dwell", "proximity", "observation"} or type(self.enabled) is not bool:
+            raise OperationalConfigError("Finalidad o estado de zona inválido")
         if not isinstance(self.polygon, (list, tuple)) or len(self.polygon) < 3:
             raise OperationalConfigError("polygon debe contener al menos tres vértices")
         vertices = []
@@ -96,12 +100,13 @@ class OperationalConfig:
     view_id: str
     zones: tuple[Zone, ...]
     rules: tuple[RuleConfig, ...]
+    calibration: dict | None = None
 
     @property
     def proximity_roles(self) -> tuple[tuple[str, str], ...]:
         """Roles de clase para geometría, no una selección de algoritmos/umbrales."""
         pairs = ((rule.parameters.get("person_class", "person"), rule.parameters.get("forklift_class", "forklift"))
-                 for rule in self.rules if rule.parameters.get("kind") == "person_forklift_proximity")
+                 for rule in self.rules if rule.parameters.get("kind") in {"person_forklift_proximity", "zone_coexistence"})
         return tuple(dict.fromkeys(pairs)) or (("person", "forklift"),)
 
     def __post_init__(self) -> None:
@@ -173,6 +178,10 @@ def load_operational_config(path: str | Path) -> OperationalConfig:
     except (json.JSONDecodeError, OperationalConfigError) as error:
         raise OperationalConfigError(f"JSON de configuración inválido: {error}") from error
 
+    calibration = document.pop("calibration", None) if isinstance(document, dict) else None
+    if calibration is not None:
+        from .calibration import calibration_snapshot
+        calibration = calibration_snapshot(calibration)
     root = _object_fields(
         document,
         "raíz",
@@ -185,10 +194,14 @@ def load_operational_config(path: str | Path) -> OperationalConfig:
     if not isinstance(root["rules"], list):
         raise OperationalConfigError("rules debe ser una lista")
 
-    zones = tuple(
-        Zone(**_object_fields(item, "zone", {"zone_id", "name", "polygon"}))
-        for item in root["zones"]
-    )
+    zones = []
+    for item in root["zones"]:
+        if not isinstance(item, dict):
+            raise OperationalConfigError("Zona inválida")
+        extra = {key: item[key] for key in ("purpose", "enabled") if key in item}
+        base = {key: value for key, value in item.items() if key not in extra}
+        zones.append(Zone(**_object_fields(base, "zone", {"zone_id", "name", "polygon"}), **extra))
+    zones = tuple(zones)
     rules = tuple(
         RuleConfig(
             **_object_fields(
@@ -199,4 +212,4 @@ def load_operational_config(path: str | Path) -> OperationalConfig:
         )
         for item in root["rules"]
     )
-    return OperationalConfig(root["schema_version"], root["view_id"], zones, rules)
+    return OperationalConfig(root["schema_version"], root["view_id"], zones, rules, calibration)

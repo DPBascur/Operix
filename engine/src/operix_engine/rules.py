@@ -105,6 +105,7 @@ class PairRuleEvaluation:
     proximity_geometry_version: str | None = None
     person_anchor: NormalizedPoint | None = None
     equipment_target: NormalizedPoint | None = None
+    ground: dict | None = None
 
     @property
     def episode_key(self) -> tuple | None:
@@ -139,6 +140,7 @@ class PairEventCandidate:
     proximity_geometry_version: str | None = None
     person_anchor: NormalizedPoint | None = None
     equipment_target: NormalizedPoint | None = None
+    ground: dict | None = None
 
     @property
     def proximity_geometry(self) -> dict | None:
@@ -160,10 +162,12 @@ class PairEventCandidate:
 
     @property
     def candidate_type(self) -> str:
-        return "person_forklift_proximity"
+        return self.parameters.get("kind", "person_forklift_proximity")
 
     @property
     def reason(self) -> str:
+        if self.parameters.get("kind") == "zone_coexistence":
+            return "Presencia simultánea configurada en zona; requiere revisión humana"
         return "Interacción person-forklift con proximidad sostenida; requiere revisión humana"
 
     def to_dict(self) -> dict[str, object]:
@@ -184,6 +188,7 @@ class PairEventCandidate:
             "observed_duration_s": self.observed_duration_s,
             "reason": self.reason,
             **({"proximity_geometry": self.proximity_geometry} if self.proximity_geometry is not None else {}),
+            **({"ground": self.ground} if self.ground is not None else {}),
         }
 
 
@@ -225,7 +230,7 @@ class _PairEpisode:
 def _validate_pair_rule(rule: RuleConfig, zone_ids: set[str]) -> _PairProximityRule:
     # No hay distancia/duración industrial por defecto: la configuración debe declararlas.
     required = {"kind", "zone_id", "max_distance", "minimum_duration_seconds"}
-    optional = {"person_class", "forklift_class"}
+    optional = {"person_class", "forklift_class", "distance_unit"}
     values = dict(rule.parameters)
     if required - values.keys() or values.keys() - (required | optional):
         raise RuleEngineError(f"{rule.rule_id}: parámetros de proximidad faltantes o desconocidos")
@@ -240,8 +245,12 @@ def _validate_pair_rule(rule: RuleConfig, zone_ids: set[str]) -> _PairProximityR
         raise RuleEngineError(f"{rule.rule_id}: zone_id debe identificar una zona configurada")
     for name in ("max_distance", "minimum_duration_seconds"):
         _nonnegative_parameter(values[name], f"{rule.rule_id}: {name}")
-    if values["max_distance"] > math.sqrt(2):
+    if values.get("distance_unit", "normalized") not in {"normalized", "m"}:
+        raise RuleEngineError("Unidad de distancia no soportada")
+    if values.get("distance_unit", "normalized") == "normalized" and values["max_distance"] > math.sqrt(2):
         raise RuleEngineError(f"{rule.rule_id}: max_distance debe estar entre 0 y sqrt(2) normalizado")
+    if values["kind"] == "zone_coexistence" and (values.get("distance_unit", "normalized") != "normalized" or abs(values["max_distance"]-math.sqrt(2)) > 1e-12):
+        raise RuleEngineError("Coexistencia requiere presencia conjunta en zona")
     return _PairProximityRule(
         rule, values["person_class"], values["forklift_class"], values["zone_id"],
         float(values["max_distance"]), float(values["minimum_duration_seconds"]),
@@ -250,7 +259,7 @@ def _validate_pair_rule(rule: RuleConfig, zone_ids: set[str]) -> _PairProximityR
 
 
 def _validate_rule(rule: RuleConfig, zone_ids: set[str]) -> _ZoneDwellRule | _PairProximityRule:
-    if rule.parameters.get("kind") == "person_forklift_proximity":
+    if rule.parameters.get("kind") in {"person_forklift_proximity", "zone_coexistence"}:
         return _validate_pair_rule(rule, zone_ids)
     expected = {"kind", "class_name", "zone_id", "min_duration_s"}
     actual = set(rule.parameters)
@@ -260,7 +269,7 @@ def _validate_rule(rule: RuleConfig, zone_ids: set[str]) -> _ZoneDwellRule | _Pa
             f"desconocidos {sorted(actual - expected)}"
         )
     values = rule.parameters
-    if values["kind"] != "zone_dwell":
+    if values["kind"] not in {"zone_dwell", "zone_entry"}:
         raise RuleEngineError(f"{rule.rule_id}: kind no soportado")
     class_name = values["class_name"]
     zone_id = values["zone_id"]
@@ -286,7 +295,13 @@ class RuleEngine:
         if not isinstance(config, OperationalConfig):
             raise TypeError("config debe ser OperationalConfig")
         zone_ids = {zone.zone_id for zone in config.zones}
+        for rule in config.rules:
+            if rule.parameters.get("kind") == "zone_entry" and (rule.parameters.get("min_duration_s") != 0 or not any(z.zone_id == rule.parameters.get("zone_id") and z.purpose == "restricted" for z in config.zones)):
+                raise RuleEngineError("Ingreso requiere zona restringida y duración cero")
         self._rules = tuple(_validate_rule(rule, zone_ids) for rule in config.rules)
+        if any(rule.enabled and rule.parameters.get("distance_unit") == "m" for rule in config.rules):
+            if not config.calibration or config.calibration["status"] != "valid":
+                raise RuleEngineError("Las reglas métricas requieren calibración válida")
         self.reset()
 
     def reset(self) -> None:
@@ -295,6 +310,7 @@ class RuleEngine:
         self._active: set[tuple[str, int, ObjectIdentity, str]] = set()
         self._pair_episodes: dict[tuple[str, int, InteractionIdentity, str], _PairEpisode] = {}
         self._last_timestamp_s: float | None = None
+        self._memberships = {}
 
     def _evaluate_pair_rule(
         self,
@@ -328,13 +344,16 @@ class RuleEngine:
                 next((zone for zone in obj.zones if zone.zone_id == rule.zone_id), None)
                 if obj is not None else None for obj in members
             )
-            distance = proximity.normalized_distance
+            metric = rule.parameters.get("distance_unit") == "m"
+            distance = (proximity.ground["distance"] if proximity.ground else math.inf) if metric else proximity.normalized_distance
             if any(obj is None for obj in members):
                 reason = "object_missing"
             elif any(zone is None for zone in memberships):
                 reason = "zone_missing"
             elif not all(zone.inside for zone in memberships):
                 reason = "outside_zone"
+            elif metric and proximity.ground is None:
+                reason = "calibration_unavailable"
             elif not math.isfinite(distance) or distance < 0 or distance > rule.max_distance:
                 reason = "outside_distance"
             else:
@@ -350,8 +369,9 @@ class RuleEngine:
                     candidates.append(PairEventCandidate(
                         rule.config.rule_id, rule.config.version, frame.frame_index, frame.timestamp_s,
                         interaction, rule.zone_id, rule.parameters, episode.started_frame_index,
-                        episode.started_timestamp_s, distance, duration,
+                        episode.started_timestamp_s, proximity.normalized_distance, duration,
                         proximity.geometry_version, person_anchor, equipment_target,
+                        proximity.ground if metric else None,
                     ))
                 episodes[key] = _PairEpisode(
                     episode.started_frame_index, episode.started_timestamp_s,
@@ -361,10 +381,11 @@ class RuleEngine:
                     reason = "insufficient_duration"
             evaluations.append(PairRuleEvaluation(
                 rule.config.rule_id, rule.config.version, frame.frame_index, frame.timestamp_s,
-                interaction, rule.zone_id, rule.parameters, distance, duration, satisfied, reason,
+                interaction, rule.zone_id, rule.parameters, proximity.normalized_distance, duration, satisfied, reason,
                 episode.started_frame_index if episode else None,
                 episode.started_timestamp_s if episode else None,
                 proximity.geometry_version, person_anchor, equipment_target,
+                proximity.ground if metric else None,
             ))
         return evaluations, candidates
 
@@ -393,6 +414,8 @@ class RuleEngine:
             self._pair_episodes if self._last_frame_index is not None
             and frame.frame_index == self._last_frame_index + 1 else {}
         )
+        previous_memberships = self._memberships if self._last_frame_index is not None and frame.frame_index == self._last_frame_index + 1 else {}
+        memberships_now = {(obj.identity, z.zone_id): z.inside for obj in frame.objects for z in obj.zones}
         episodes: dict[tuple[str, int, InteractionIdentity, str], _PairEpisode] = {}
         evaluations: list[RuleEvaluation | PairRuleEvaluation] = []
         candidates: list[EventCandidate | PairEventCandidate] = []
@@ -422,6 +445,9 @@ class RuleEngine:
                     evaluated, satisfied, reason = True, False, "insufficient_dwell"
                 else:
                     evaluated, satisfied, reason = True, True, None
+                if rule.config.parameters.get("kind") == "zone_entry":
+                    satisfied = bool(evaluated and inside and previous_memberships.get((obj.identity, rule.zone_id)) is False)
+                    reason = None if satisfied else "no_observed_entry"
                 evaluations.append(
                     RuleEvaluation(
                         rule.config.rule_id, rule.config.version, frame.frame_index,
@@ -441,6 +467,7 @@ class RuleEngine:
                             )
                         )
         self._active = active
+        self._memberships = memberships_now
         self._pair_episodes = episodes
         self._last_frame_index = frame.frame_index
         self._last_timestamp_s = frame.timestamp_s

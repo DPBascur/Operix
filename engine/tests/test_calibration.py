@@ -1,0 +1,93 @@
+import unittest
+from dataclasses import replace
+
+from operix_engine.calibration import calibration_snapshot, ground_measurement
+from operix_engine.detection import BoundingBox
+from operix_engine.operational_config import OperationalConfig, RuleConfig, Zone
+from operix_engine.spatiotemporal import SpatiotemporalAnalyzer
+from operix_engine.rules import RuleEngine
+from operix_engine.tracking import Track
+
+
+def calibration():
+    return calibration_snapshot({"image_points":[[0,0],[1,0],[1,1],[0,1]],
+        "ground_points_m":[[0,0],[10,0],[10,10],[0,10]], "source_sha256":"a"*64,
+        "version":1,"status":"valid","units":"m","calibrated_at":"2026-11-09T00:00:00Z","zones_reviewed":True})
+
+
+class CalibrationTests(unittest.TestCase):
+    def test_no_extrapolation_and_no_disabled_zone_membership(self):
+        c = calibration_snapshot({**calibration(), "image_points":[[.2,.2],[.8,.2],[.8,.8],[.2,.8]]})
+        self.assertIsNone(ground_measurement(c,BoundingBox(0,0,10,10),BoundingBox(40,30,50,40),100,100))
+        with self.assertRaises(ValueError):
+            calibration_snapshot({**c,"source_sha256":"x"*64})
+        zone=Zone("z","Zone",((0,0),(1,0),(1,1),(0,1)),enabled=False)
+        analyzer=SpatiotemporalAnalyzer(width=100,height=100,fps=10,zones=(zone,))
+        state=analyzer.update(0,(Track(1,0,"person",.9,BoundingBox(10,10,20,20)),))
+        self.assertEqual(state.objects[0].zones,())
+
+    def test_coexistence_requires_both_roles_and_resets(self):
+        zone=Zone("z","Zone",((0,0),(1,0),(1,1),(0,1)))
+        rule=RuleConfig("r",1,True,{"kind":"zone_coexistence","zone_id":"z","person_class":"person",
+            "forklift_class":"forklift","max_distance":2**.5,"minimum_duration_seconds":.1})
+        engine=RuleEngine(OperationalConfig(1,"camera",(zone,),(rule,)))
+        analyzer=SpatiotemporalAnalyzer(width=100,height=100,fps=10,zones=(zone,))
+        tracks=(Track(1,0,"person",.9,BoundingBox(10,10,20,20)),Track(1,1,"forklift",.9,BoundingBox(60,10,70,20)))
+        self.assertFalse(engine.evaluate(analyzer.update(0,tracks)).candidates)
+        result=engine.evaluate(analyzer.update(1,tracks))
+        self.assertEqual(len(result.candidates),1)
+        self.assertEqual(result.candidates[0].candidate_type,"zone_coexistence")
+        self.assertFalse(engine.evaluate(analyzer.update(2,tracks)).candidates)
+        self.assertFalse(engine.evaluate(analyzer.update(3,tracks[:1])).candidates)
+        self.assertFalse(engine.evaluate(analyzer.update(4,tracks)).candidates)
+        self.assertEqual(len(engine.evaluate(analyzer.update(5,tracks)).candidates),1)
+
+    def test_known_distance_and_reproducible_snapshot(self):
+        snapshot = calibration()
+        self.assertEqual(snapshot, calibration_snapshot(snapshot))
+        m = ground_measurement(snapshot, BoundingBox(0,10,10,20), BoundingBox(40,10,50,20), 100,100)
+        self.assertAlmostEqual(m["distance"],3, places=7)
+        self.assertAlmostEqual(m["person_anchor"][0],.1)
+
+    def test_invalid_and_unreferenced_ground_never_returns_metres(self):
+        c = calibration()
+        bad = {**c,"image_points":[[0,0],[.1,.1],[.2,.2],[.3,.3]]}
+        with self.assertRaises(ValueError): calibration_snapshot(bad)
+        with self.assertRaises(ValueError): calibration_snapshot({**c,"ground_points_m":[[0,0]]*4})
+        self.assertIsNone(ground_measurement({**c,"status":"invalid"},BoundingBox(0,0,10,10),BoundingBox(20,0,30,10),100,100))
+
+    def test_metric_rules_require_calibration(self):
+        zone=Zone("z","Zone",((0,0),(1,0),(1,1),(0,1)))
+        rule=RuleConfig("r",1,True,{"kind":"person_forklift_proximity","zone_id":"z","person_class":"person",
+            "forklift_class":"forklift","max_distance":3.1,"minimum_duration_seconds":0,"distance_unit":"m"})
+        config=OperationalConfig(1,"camera",(zone,),(rule,))
+        with self.assertRaises(ValueError): RuleEngine(config)
+        engine=RuleEngine(replace(config,calibration=calibration()))
+        analyzer=SpatiotemporalAnalyzer(width=100,height=100,fps=10,zones=(zone,),calibration=calibration())
+        tracks=(Track(1,0,"person",.9,BoundingBox(0,10,10,20)),Track(1,1,"forklift",.9,BoundingBox(40,10,50,20)))
+        state=analyzer.update(0,tracks)
+        result=engine.evaluate(state)
+        self.assertEqual(len(result.candidates),1)
+        self.assertAlmostEqual(result.candidates[0].ground["distance"],3)
+        import cv2
+        import numpy as np
+        from unittest.mock import patch
+        from operix_engine.visualization import OpenCvRenderer
+        with patch("operix_engine.visualization.cv2.line", wraps=cv2.line) as line:
+            OpenCvRenderer().render_proximity(np.zeros((100,100,3),dtype=np.uint8),state,result)
+        self.assertTrue(any(call.args[1:3] == ((10,20),(40,20)) for call in line.call_args_list))
+
+    def test_entry_requires_observed_outside_then_inside_and_breaks_at_gap(self):
+        zone=Zone("z","Zone",((.4,.4),(1,.4),(1,1),(.4,1)),purpose="restricted")
+        rule=RuleConfig("r",1,True,{"kind":"zone_entry","zone_id":"z","class_name":"person","min_duration_s":0})
+        engine=RuleEngine(OperationalConfig(1,"camera",(zone,),(rule,)))
+        analyzer=SpatiotemporalAnalyzer(width=100,height=100,fps=10,zones=(zone,))
+        def step(i,inside):
+            box=BoundingBox(50,50,60,60) if inside else BoundingBox(0,0,10,10)
+            return engine.evaluate(analyzer.update(i,(Track(1,0,"person",.9,box),)))
+        self.assertFalse(step(0,True).candidates)
+        self.assertFalse(step(1,False).candidates)
+        self.assertEqual(len(step(2,True).candidates),1)
+        self.assertFalse(step(3,True).candidates)
+        self.assertFalse(step(4,False).candidates)
+        self.assertFalse(step(6,True).candidates)
