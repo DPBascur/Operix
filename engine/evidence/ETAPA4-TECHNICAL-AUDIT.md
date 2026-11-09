@@ -1154,3 +1154,95 @@ UX, parámetros, arquitectura, main ni tags. Recibos y salidas QA quedan externo
 ejecuta. El commit posterior contiene únicamente esta nota: las suites se
 atribuyen al HEAD evaluado arriba, no a una ejecución sobre el nuevo SHA.
 La revisión del diff confirma contenido ejecutable/build/config idéntico.
+
+
+## 25. Integración real del núcleo espacial — 09-11-2026
+
+Base: `7f259c8137340adf33529630c7786674279064b5`, `dev`. Pruebas aisladas en
+PostgreSQL y almacenamiento QA, sin mezclar registros con el entorno habitual.
+No hay referencias físicas medidas del almacén: separar el ensayo geométrico
+virtual de la comprobación con percepción real. No se entrenan modelos ni se
+utilizan conjuntos protegidos.
+
+**Plano proyectivo controlado.** Imagen 1920x1080; homografía conocida
+`[[14,0,-1],[0,12,-1],[0,0.8,1]]`, aplicada a coordenadas normalizadas. Referencias
+`(0.1,0.1), (0.9,0.1), (0.9,0.9), (0.1,0.9)` con coordenadas de suelo obtenidas
+de esa transformación virtual. Nueve pares de segmentos inferiores: x inicial
+0.15/0.35/0.55; y 0.2/0.5/0.8; extremos x y x+0.04 frente a x+0.16 y x+0.20.
+Distancia analítica `1.68/(1+0.8*y)` metros virtuales. Error absoluto máximo con
+referencias exactas: **4.43e-8 m**; es error numérico, no exactitud de una cámara.
+
+Perturbación uniforme independiente de ambos ejes de las cuatro referencias,
+`numpy.random.default_rng(seed)`, semillas 0..19, amplitud expresada en pixeles
+sobre 1920x1080; 180 comparaciones por nivel. Sin cambiar los puntos de suelo:
+
+| Error de referencia | Error absoluto medio (m virtuales) | Máximo | Error relativo máximo |
+|---|---:|---:|---:|
+| +/-1 px | 0.000848 | 0.003656 | 0.2800% |
+| +/-3 px | 0.002545 | 0.011019 | 0.8417% |
+| +/-5 px | 0.004241 | 0.018453 | 1.4056% |
+
+El residual de ajuste siguió por debajo de 4.36e-7 m aunque la distancia fuese
+errónea: cuatro correspondencias pueden ajustar casi exactamente una referencia
+mal ubicada. El residual no certifica precisión operacional. Con referencias
+exactas, desplazar solo el borde inferior estimado del equipo +3/+10 px produjo
+errores máximos de 0.014493/0.046167 m virtuales. Esto caracteriza sensibilidad
+del proxy de contacto, no el error real de YOLO. Fuera del área referenciada no
+se entregaron metros; referencias colineales, repetidas y cruzadas se rechazaron.
+No se establece un umbral universal de aceptacion ni se cambia la geometría.
+
+**Percepción e integración reales.** PERSON YOLO11m-COCO (conf 0.10, NMS 0.70),
+FORKLIFT specialist v2 (conf 0.45, NMS 0.55), imgsz 640, ByteTrack sin cambios.
+Hashes de pesos conservados respecto del gate histórico. Recibos verificaron
+ambos modelos y tensores FP32 en `cuda:0`, RTX 3070. Las zonas y reglas siguientes
+son fixtures de integración, no perfiles operacionales promovidos.
+
+| Muestra | Frames | Permanencia | Ingreso observado | Coexistencia | Proximidad |
+|---|---:|---:|---:|---:|---:|
+| A | 277 | 3 | 1 | 3 | 4 |
+| B | 300 | 1 | 1 | 1 | 2 |
+| C | 418 | 1 | 1 | 1 | 2 |
+
+Las reglas de proximidad paralelas usan 0.25 normalizado y 2.5 sobre un plano
+**afín virtual 10x10**, respectivamente, con duración mínima 1 s y zona completa.
+Se verificó `d_virtual = 10*d_normalizada` y coincidencia de los frames/pares
+emitidos. Esta escala NO mide el almacén ni sirve como validación física.
+El plano afín del E2E es distinto del plano proyectivo del estudio numérico.
+
+En B la persona aparece dentro del poligono original: cero ingresos para esa
+regla, correctamente. Una zona restringida de prueba `[(0.1,0.5),(0.44,0.5),
+(0.44,1),(0.1,1)]` permite verificar su transición observada en frame 93; en C,
+frame 92. Cada ingreso se contrasto con el mismo ID de clase observado fuera
+en el frame inmediatamente anterior. No se utiliza ese resultado como tuning
+de modelos. Hubo al menos una detección de cada clase en cada frame de estas
+corridas; no demuestra detección de todos los objetos ni recall/MOT.
+
+Se comprobaron los 21 PNG contra los pixeles del renderer y los 21 clips contra
+su identidad, configuración y SHA-256. Un recorrido adicional iniciado desde el
+navegador procesó B 300/300, publicó cinco eventos y verificó otros cinco PNG y
+clips, dossier métrico/normalizado, historial filtrado, escritorio y movil.
+La invalidación desde la web rechazó el nuevo inicio con 409 y preservo el
+snapshot del evento anterior. Cambiar B a A no heredó calibración ni zonas.
+Ambos POST anónimos (evento y PNG) continuaron rechazados con 403.
+
+**Defectos reproducidos y corregidos.** Retirar/reincorporar una regla o
+calibración reiniciaba su versión en 1: ahora continúa desde el máximo histórico
+por propietario/fuente, sin reescribir filas previas. En el video, reglas sobre
+una misma pareja sobrescribian sus etiquetas; ahora las mediciones/unidades van
+en carriles identificados por regla. La ausencia de calibración aplicable no
+mostraba explicación: ahora se indica sin dibujar una distancia ficticia. El
+editor confundia revisión guardada con configuración de la sesión: las distingue.
+Los metros aproximados del resumen usan hasta cuatro cifras significativas, como el
+overlay; el valor completo se conserva en trazabilidad. El redondeo no expresa
+exactitud física ni altera comparaciones o parámetros.
+
+Pruebas negativas previas conservadas en QA local y regresiones versionadas.
+Geometria exacta, modelos, thresholds, tracking, snapshots históricos y esquema
+DB no se alteraron. Pendientes: referencias físicas medidas, error de contacto
+con GT, validación contextual, movimiento automático de cámara y validación
+industrial. Los resultados no constituyen precisión física ni validación final.
+
+Regresiones: Motor 444 aprobadas y 2 omitidas (446 descubiertas); Backend
+161/161 y 29 focalizadas posteriores; Frontend 47/47, lint, typecheck y build
+aprobados. Navegador versionado y recorrido real aprobados, sin excepciones
+JavaScript en el recorrido real. No hay cambios de migraciones pendientes.

@@ -16,6 +16,62 @@ def calibration():
 
 
 class CalibrationTests(unittest.TestCase):
+    def test_parallel_metric_and_normalized_rules_keep_visible_units(self):
+        import numpy as np
+        from unittest.mock import patch
+        from operix_engine.visualization import OpenCvRenderer
+        zone = Zone("z","Zone",((0,0),(1,0),(1,1),(0,1)))
+        common = {"kind":"person_forklift_proximity","zone_id":"z","person_class":"person",
+                  "forklift_class":"forklift","minimum_duration_seconds":0}
+        rules = tuple(RuleConfig(name,1,True,{**common,"distance_unit":unit,"max_distance":maximum})
+                      for name,unit,maximum in (("metric","m",3.1),("normal","normalized",.31)))
+        engine = RuleEngine(OperationalConfig(1,"camera",(zone,),rules,calibration()))
+        analyzer = SpatiotemporalAnalyzer(width=100,height=100,fps=10,zones=(zone,),calibration=calibration())
+        state = analyzer.update(0,(Track(1,0,"person",.9,BoundingBox(0,10,10,20)),
+                                  Track(1,1,"forklift",.9,BoundingBox(40,10,50,20))))
+        renderer = OpenCvRenderer()
+        with patch.object(renderer,"_draw_label") as label:
+            renderer.render_proximity(np.zeros((100,100,3),dtype=np.uint8),state,engine.evaluate(state))
+        banners = {name:next(call.args for call in label.call_args_list if name in call.args[1])
+                   for name in ("metric","normal")}
+        self.assertIn("m approx",banners["metric"][1])
+        self.assertIn("norm",banners["normal"][1])
+        self.assertNotEqual(banners["metric"][2],banners["normal"][2])
+
+    def test_metric_outside_calibration_explains_absence_without_drawing_distance(self):
+        import numpy as np
+        from unittest.mock import patch
+        from operix_engine.visualization import OpenCvRenderer
+        c = calibration_snapshot({**calibration(),"image_points":[[.2,.2],[.8,.2],[.8,.8],[.2,.8]]})
+        zone = Zone("z","Zone",((0,0),(1,0),(1,1),(0,1)))
+        rule = RuleConfig("metric",1,True,{"kind":"person_forklift_proximity","zone_id":"z",
+            "person_class":"person","forklift_class":"forklift","max_distance":3.1,
+            "minimum_duration_seconds":0,"distance_unit":"m"})
+        analyzer = SpatiotemporalAnalyzer(width=100,height=100,fps=10,zones=(zone,),calibration=c)
+        state = analyzer.update(0,(Track(1,0,"person",.9,BoundingBox(0,10,10,20)),
+                                  Track(1,1,"forklift",.9,BoundingBox(40,10,50,20))))
+        result = RuleEngine(OperationalConfig(1,"camera",(zone,),(rule,),c)).evaluate(state)
+        self.assertFalse(result.candidates)
+        self.assertEqual(result.evaluations[0].reason,"calibration_unavailable")
+        renderer = OpenCvRenderer()
+        with patch.object(renderer,"_draw_label") as label, patch("operix_engine.visualization.cv2.line") as line:
+            renderer.render_proximity(np.zeros((100,100,3),dtype=np.uint8),state,result)
+        line.assert_not_called()
+        self.assertTrue(any("Plano no aplicable" in call.args[1] for call in label.call_args_list))
+
+    def test_projective_plane_known_distances_in_three_image_regions(self):
+        # Plano virtual conocido, no GT físico de una cámara industrial.
+        refs = [[.1,.1],[.9,.1],[.9,.9],[.1,.9]]
+        ground = [[(14*x-1)/(1+.8*y), (12*y-1)/(1+.8*y)] for x,y in refs]
+        snapshot = calibration_snapshot({**calibration(), "image_points":refs, "ground_points_m":ground})
+        for y in (.2,.5,.8):
+            for x in (.15,.35,.55):
+                person = BoundingBox(x*1920,(y-.08)*1080,(x+.04)*1920,y*1080)
+                equipment = BoundingBox((x+.16)*1920,(y-.08)*1080,(x+.20)*1920,y*1080)
+                expected = 14*.12/(1+.8*y)
+                measured = ground_measurement(snapshot,person,equipment,1920,1080)
+                self.assertAlmostEqual(measured["distance"],expected,places=6)
+
     def test_no_extrapolation_and_no_disabled_zone_membership(self):
         c = calibration_snapshot({**calibration(), "image_points":[[.2,.2],[.8,.2],[.8,.8],[.2,.8]]})
         self.assertIsNone(ground_measurement(c,BoundingBox(0,0,10,10),BoundingBox(40,30,50,40),100,100))

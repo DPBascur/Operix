@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import math
 import unicodedata
-from collections import deque
+from collections import Counter, deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -218,7 +218,8 @@ class OpenCvRenderer:
         objects = {obj.identity: obj for obj in spatial.objects}
         emitted = {candidate.episode_key for candidate in result.candidates if isinstance(candidate, PairEventCandidate)}
         relevant = [evaluation for evaluation in result.evaluations
-                    if isinstance(evaluation, PairRuleEvaluation) and evaluation.episode_key is not None]
+                    if isinstance(evaluation, PairRuleEvaluation)
+                    and (evaluation.episode_key is not None or evaluation.reason == "calibration_unavailable")]
         if any((item.frame_index, item.timestamp_s) != (result.frame_index, result.timestamp_s) for item in relevant):
             raise ValueError("La evaluación de proximidad pertenece a otro frame/tiempo")
         relevant.sort(key=lambda item: (
@@ -237,6 +238,8 @@ class OpenCvRenderer:
                 selected = [min(observed, key=lambda item: item.observed_normalized_distance)]
         annotated = frame.copy()
         height, width = frame.shape[:2]
+        per_pair = Counter(item.interaction for item in selected)
+        labelled_pairs = set()
         for index, item in enumerate(selected):
             left, right = (objects.get(identity) for identity in (item.interaction.person, item.interaction.forklift))
             if left is None or right is None:
@@ -249,7 +252,7 @@ class OpenCvRenderer:
                                min(height - 1, max(0, round(point.y * height))))
                               for point in (item.person_anchor, item.equipment_target))
             if item.parameters.get("distance_unit") == "m" and item.ground is None:
-                self._draw_label(annotated, "Plano no aplicable: fuera del area calibrada", (8, 28 + index * 24), self._ZONE_NORMAL_COLOR, fit_width=True)
+                self._draw_label(annotated, f"P#{left.track_id} / F#{right.track_id} | {item.rule_id} | Plano no aplicable: fuera del area calibrada", (8, 28 + index * 24), self._ZONE_NORMAL_COLOR, fit_width=True)
                 continue
             color = self._ZONE_EVENT_COLOR if item.satisfied else self._ZONE_NORMAL_COLOR
             if item.ground:
@@ -262,10 +265,15 @@ class OpenCvRenderer:
             pair = f"P#{left.track_id} / F#{right.track_id}"
             distance = item.ground["distance"] if item.ground else item.observed_normalized_distance
             unit = "m approx" if item.ground else "norm"
-            self._draw_label(annotated,
-                (f"{pair} | Presencia conjunta en zona" if item.parameters.get("kind") == "zone_coexistence"
-                 else f"{pair} | d {distance:.4g} / max {item.parameters['max_distance']:.4g} {unit}"),
-                midpoint, color, fit_width=True)
+            measure = ("Presencia conjunta en zona" if item.parameters.get("kind") == "zone_coexistence"
+                       else f"d {distance:.4g} / max {item.parameters['max_distance']:.4g} {unit}")
+            multiple = per_pair[item.interaction] > 1
+            # Una etiqueta sobre la pareja; cada regla conserva sus propias unidades
+            # y mediciones en su carril, sin sobrescribir otra en el mismo midpoint.
+            if not multiple or item.interaction not in labelled_pairs:
+                self._draw_label(annotated, pair if multiple else f"{pair} | {measure}",
+                                 midpoint, color, fit_width=True)
+                labelled_pairs.add(item.interaction)
             # OpenCV usa texto ASCII. La duración y el estado comparten un carril compacto.
             state = {
                 "outside_distance": "Fuera del umbral",
@@ -273,7 +281,8 @@ class OpenCvRenderer:
                 "insufficient_duration": "Acumulando duracion",
             }.get(item.reason, "Condicion satisfecha" if item.satisfied else "En evaluacion")
             self._draw_label(annotated,
-                f"{pair} | {state} | {item.observed_duration_s:.4g} s"
+                f"{pair} | " + (f"{measure} | " if multiple else "")
+                + f"{state} | {item.observed_duration_s:.4g} s"
                 f" / min {item.parameters['minimum_duration_seconds']:.4g} s"
                 f" | {item.rule_id} v{item.rule_version}",
                 (8, 28 + index * 24), color, fit_width=True)
