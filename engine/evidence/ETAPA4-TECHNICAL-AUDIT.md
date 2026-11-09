@@ -1246,3 +1246,47 @@ Regresiones: Motor 444 aprobadas y 2 omitidas (446 descubiertas); Backend
 161/161 y 29 focalizadas posteriores; Frontend 47/47, lint, typecheck y build
 aprobados. Navegador versionado y recorrido real aprobados, sin excepciones
 JavaScript en el recorrido real. No hay cambios de migraciones pendientes.
+
+
+## 26. Relaciones múltiples y movimiento observable — 2026-11-09
+
+El producto cartesiano PERSON–FORKLIFT y sus temporizadores por pareja ya existían.
+Se comprobaron 1×2, 3×1, 2×2, cruces, pérdidas parciales, emisiones simultáneas e IDs
+numéricos iguales. Se añadió época explícita a episodios y a la identidad persistida
+cuando no es cero; se conserva la identidad histórica de época cero.
+Las estrategias geométricas versionadas y los perfiles de percepción no cambiaron.
+
+`bottom_center_window_motion_v1` estima velocidad del centro inferior mediante
+ajuste lineal temporal y residual de posición. La configuración es explícita por
+fuente, opcional y conservada en snapshots. `any` mantiene proximidad independiente
+del movimiento; `moving` requiere observación MOVING durante la condición completa.
+Falta de datos, discontinuidad, encuadre no confirmado o ruido producen UNKNOWN.
+No se interpreta UNKNOWN como estacionariedad ni imagen/s como m/s.
+
+Ensayo aislado con los pesos congelados y RTX 3070/CUDA: A, 277 frames, hasta tres
+personas y un montacargas (272 frames con varias personas); B, 300 frames, una pareja.
+Se conservaron los polígonos de cada demo. Parámetros de prueba de movimiento en
+imagen: ventana 1 s, cinco observaciones, hueco máximo 0,2 s, máximo estacionario
+0,005/s, mínimo móvil 0,02/s y residual máximo 0,01. No se promueven como umbrales
+operacionales. A produjo 223 observaciones STATIONARY y 54 UNKNOWN; B, 128 MOVING,
+74 STATIONARY y 98 UNKNOWN. Son estados del estimador, no anotaciones físicas.
+La calibración adicional usada en QA es un plano virtual 10×10, no un suelo medido.
+
+B persistió tres eventos (proximidad independiente, condicionada y métrica virtual).
+Se verificaron PNG contra outbox, SHA de clips y snapshots. El recorrido web real
+completó 300 frames, salida 0, dossier y controles a 1440/390 px, aislamiento de
+fuente y ausencia de excepciones JavaScript. Los dos POST anónimos devolvieron 403.
+Los clips se revisaron tras recargar el dossier, según su generación asíncrona.
+Hubo salidas nativas 0xC0000005 en corridas con observador diagnóstico; la causa
+exacta no quedó confirmada. La corrida final sin ese observador terminó en 0;
+no se ocultaron las salidas fallidas ni se modificó el códec para este ensayo.
+Los artefactos diagnósticos permanecen fuera del repositorio.
+
+Regresión: Motor 458 aprobadas y 2 omitidas (460 descubiertas), Backend 169/169
+más seis focalizadas posteriores, Frontend 49/49, lint, typecheck y build aprobados.
+Sin migraciones nuevas. El responsable puede analizar/configurar sus fuentes;
+no administra usuarios ni accede a sesiones de análisis ajenas.
+Pendientes: precisión física y velocidad con GT, oclusión/ruido, cámara móvil y
+prueba RTSP métrica con asociación de fuente validada. No se usaron conjuntos
+protegidos ni se entrenaron modelos. Evento sigue significando condición
+configurada satisfecha que requiere revisión humana.

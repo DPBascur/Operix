@@ -6,8 +6,12 @@ import { apiFetch } from "@/services/browser-session";
 import {
   analysisService,
   type AnalysisSessionStatus,
+  type MotionSettings,
+  type RelationSettings,
 } from "@/services/analysis.service";
 import { environment } from "@/config/environment";
+
+import { MotionConfiguration } from "./motion-configuration";
 
 type Point = [number, number];
 type Zone = {
@@ -40,6 +44,8 @@ type Document = {
   zones: Zone[];
   rules: Rule[];
   calibration?: Calibration;
+  motion?: MotionSettings;
+  relations?: RelationSettings;
 };
 type Loaded = { document: Document; saved: Document | null; revision: number };
 const purposes = {
@@ -112,6 +118,19 @@ export function SpatialEditor({
           ...next,
           calibration: { ...next.calibration, zones_reviewed: false },
         };
+      if (
+        next.motion &&
+        (next.calibration?.status === "invalid" ||
+          JSON.stringify(next.calibration?.image_points) !==
+            JSON.stringify(data.document.calibration?.image_points) ||
+          JSON.stringify(next.calibration?.ground_points_m) !==
+            JSON.stringify(data.document.calibration?.ground_points_m))
+      ) {
+        next = {
+          ...next,
+          motion: { ...next.motion, camera_fixed_confirmed: false },
+        };
+      }
       setData({ ...data, document: next });
     }
   }
@@ -615,6 +634,27 @@ export function SpatialEditor({
                 </Button>
               </>
             )}
+            <MotionConfiguration
+              motion={doc.motion}
+              relations={doc.relations}
+              metricAvailable={doc.calibration?.status === "valid"}
+              onMotion={(motion) => {
+                if (
+                  !motion &&
+                  doc.rules.some(
+                    (r) =>
+                      r.enabled && r.parameters.motion_condition === "moving",
+                  )
+                ) {
+                  setMessage(
+                    "Deshabilite o cambie primero las reglas que requieren movimiento.",
+                  );
+                  return;
+                }
+                update({ ...doc, motion });
+              }}
+              onRelations={(relations) => update({ ...doc, relations })}
+            />
             <h3>Reglas</h3>
             {doc.rules.map((rule, i) => (
               <div
@@ -753,6 +793,41 @@ export function SpatialEditor({
                 )}
                 {rule.parameters.kind === "person_forklift_proximity" && (
                   <>
+                    <label>
+                      Condición de movimiento
+                      <select
+                        className="input"
+                        value={String(
+                          rule.parameters.motion_condition ?? "any",
+                        )}
+                        onChange={(e) =>
+                          update({
+                            ...doc,
+                            rules: doc.rules.map((r, j) =>
+                              j === i
+                                ? {
+                                    ...r,
+                                    parameters: {
+                                      ...r.parameters,
+                                      motion_condition: e.target.value,
+                                    },
+                                  }
+                                : r,
+                            ),
+                          })
+                        }
+                      >
+                        <option value="any">
+                          Independiente del movimiento
+                        </option>
+                        <option
+                          value="moving"
+                          disabled={!doc.motion?.camera_fixed_confirmed}
+                        >
+                          Solo con movimiento confirmado
+                        </option>
+                      </select>
+                    </label>
                     <label>
                       Unidad
                       <select
@@ -924,7 +999,8 @@ export function SpatialEditor({
                 disabled={!data.saved}
                 onClick={() => {
                   if (data.saved) {
-                    update(structuredClone(data.saved));
+                    // Revisión inmutable de esta misma fuente, no una edición geométrica.
+                    setData({ ...data, document: structuredClone(data.saved) });
                     setMessage(
                       "Revisión cargada en el borrador. Guarde para aplicarla a la sesión.",
                     );

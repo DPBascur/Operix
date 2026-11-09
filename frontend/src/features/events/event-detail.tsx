@@ -23,6 +23,7 @@ import {
   evidenceHref,
   evidenceClip,
   eventMeasurements,
+  eventMotion,
   eventProximityGeometry,
   eventTime,
   measurement,
@@ -213,6 +214,28 @@ function EventContent({ event }: { event: OperationalEvent }) {
         />
         <section className={styles.summary} aria-labelledby="summary-title">
           <h3 id="summary-title">Resumen operacional</h3>
+          {eventMotion(event) && (
+            <section
+              className="my-3 grid gap-2"
+              aria-label="Movimiento observado del montacargas"
+            >
+              <h3 className="font-semibold">
+                Movimiento observado del montacargas
+              </h3>
+              <dl className="grid gap-2 sm:grid-cols-2">
+                <Field label="Estado">{eventMotion(event)!.state}</Field>
+                <Field label="Velocidad estimada">
+                  {eventMotion(event)!.speed}
+                </Field>
+                <Field label="Ventana configurada">
+                  {eventMotion(event)!.window}
+                </Field>
+                <Field label="Condición de movimiento">
+                  {eventMotion(event)!.condition}
+                </Field>
+              </dl>
+            </section>
+          )}
           <div className={styles.measurements}>
             {eventMeasurements(event).map((item) => (
               <section

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   eventMeasurements,
+  eventMotion,
   eventProximityGeometry,
   eventTime,
   evidenceHref,
@@ -256,4 +257,45 @@ test("metros aproximados usan cuatro cifras visibles sin alterar el snapshot", (
   const snapshot = JSON.stringify(event);
   assert.equal(eventMeasurements(event)[0].observed, "1,588 m aprox.");
   assert.equal(JSON.stringify(event), snapshot);
+});
+
+test("movimiento histórico opcional y unidades de imagen no se presentan como m/s", () => {
+  assert.equal(eventMotion(single), null);
+  const event = {
+    ...single,
+    observations: {
+      equipment_motion: {
+        state: "MOVING",
+        speed: 0.023456,
+        unit: "normalized_image_per_s",
+        duration_s: 1,
+        configuration: { window_seconds: 1 },
+      },
+    },
+  };
+  assert.match(eventMotion(event).speed, /unidades de imagen/);
+  assert.doesNotMatch(eventMotion(event).speed, /m\/s/);
+  event.observations.equipment_motion.state = "UNKNOWN";
+  assert.equal(eventMotion(event).speed, "No determinada");
+  event.observations.equipment_motion.state = "STATIONARY";
+  event.observations.equipment_motion.speed = 0;
+  assert.match(eventMotion(event).speed, /^0 /);
+});
+test("movimiento métrico conserva datos observados y condición opcional", () => {
+  const event = {
+    ...single,
+    rule_parameters: { motion_condition: "moving" },
+    observations: {
+      equipment_motion: {
+        state: "MOVING",
+        speed: 1.123456,
+        unit: "m_per_s",
+        duration_s: 1,
+        configuration: { window_seconds: 1 },
+      },
+    },
+  };
+  assert.equal(eventMotion(event).speed, "1,123 m/s aprox.");
+  assert.equal(eventMotion(event).condition, "Solo con movimiento confirmado");
+  assert.equal(event.observations.equipment_motion.speed, 1.123456);
 });

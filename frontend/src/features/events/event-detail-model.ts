@@ -187,3 +187,33 @@ function evidencePath(path: string, apiBaseUrl: string | undefined) {
     return null;
   }
 }
+
+export function eventMotion(event: OperationalEvent) {
+  const motion = record(record(event.observations).equipment_motion);
+  const state = {
+    MOVING: "En movimiento",
+    STATIONARY: "Estacionario",
+    UNKNOWN: "Indeterminado",
+  }[String(motion.state)];
+  if (!state) return null;
+  const cfg = record(motion.configuration);
+  const physical = motion.unit === "m_per_s";
+  return {
+    state,
+    speed:
+      motion.state === "UNKNOWN"
+        ? "No determinada"
+        : measurement(
+            motion.speed,
+            physical ? "m/s aprox." : "unidades de imagen/s",
+            4,
+          ),
+    duration: measurement(motion.duration_s),
+    condition:
+      record(event.rule_parameters).motion_condition === "moving"
+        ? "Solo con movimiento confirmado"
+        : "Independiente del movimiento",
+    window: measurement(cfg.window_seconds),
+    method: text(motion.version),
+  };
+}

@@ -22,7 +22,34 @@ export interface AnalysisProfileDefinition {
   configuration?: AnalysisRuleSnapshot | null;
 }
 
+export interface MotionSettings {
+  unit: "normalized" | "m";
+  window_seconds: number;
+  min_observations: number;
+  max_gap_seconds: number;
+  stationary_speed: number;
+  moving_speed: number;
+  max_position_residual: number;
+  camera_fixed_confirmed: boolean;
+}
+export interface RelationSettings {
+  max_pairs: number;
+  policy: "active" | "near_threshold" | "all";
+  near_margin: number;
+}
+export interface EquipmentMotion {
+  class_name: "forklift";
+  track_id: number;
+  state: "MOVING" | "STATIONARY" | "UNKNOWN";
+  speed: number | null;
+  unit: "m_per_s" | "normalized_image_per_s";
+  frame_index: number;
+  epoch: number;
+  reason: string | null;
+}
 export interface AnalysisRuleSnapshot {
+  motion?: MotionSettings | null;
+  relations?: RelationSettings | null;
   calibration?: {
     status: string;
     version: number;
@@ -39,6 +66,8 @@ export interface AnalysisRuleSnapshot {
 }
 
 export interface AnalysisResultConfig {
+  motion?: MotionSettings | null;
+  relations?: RelationSettings | null;
   profile: AnalysisProfile;
   zone: { zone_id: string; name: string; polygon: NormalizedVertex[] };
   source_video: string;
@@ -89,6 +118,7 @@ export interface AnalysisSessionStatus {
   source_fps?: number;
   result_video?: AnalysisResultConfig["video"];
   timing_ms?: Record<string, number>;
+  equipment_motion?: EquipmentMotion[];
   preview?: {
     pending: boolean;
     frame_index: number | null;

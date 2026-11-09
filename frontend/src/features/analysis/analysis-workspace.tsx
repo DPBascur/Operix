@@ -1405,6 +1405,35 @@ export function AnalysisWorkspace({
                     : "—"}
                 </dd>
               </dl>
+              {!!session.equipment_motion?.length && (
+                <section
+                  className="mt-4 grid gap-2"
+                  aria-label="Movimiento observado"
+                >
+                  <h3 className="section-heading">
+                    Movimiento · último fotograma procesado
+                  </h3>
+                  {session.equipment_motion.map((item) => (
+                    <p
+                      key={`${item.epoch}-${item.track_id}`}
+                      className="text-sm"
+                    >
+                      Montacargas · ID {item.track_id}:{" "}
+                      {
+                        {
+                          MOVING: "En movimiento",
+                          STATIONARY: "Estacionario",
+                          UNKNOWN: "Indeterminado",
+                        }[item.state]
+                      }
+                      {item.state !== "UNKNOWN" && item.speed != null
+                        ? ` · ${item.speed.toLocaleString("es-CL", { maximumSignificantDigits: 4 })} ${item.unit === "m_per_s" ? "m/s aprox." : "unidades de imagen/s"}`
+                        : ""}
+                      {` · frame ${item.frame_index}`}
+                    </p>
+                  ))}
+                </section>
+              )}
               <div className="mt-4 grid gap-2">
                 <p className="section-heading">
                   {showResult

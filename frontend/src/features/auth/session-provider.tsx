@@ -32,8 +32,7 @@ export function canOpen(path: string, role: OperixUser["role"]) {
   const page = path.split(/[/?]/)[1];
   if (page === "account") return true;
   if (page === "users") return false;
-  if (role === "safety_lead")
-    return !["analysis", "sources", "rules", "zones"].includes(page);
+  if (role === "safety_lead") return true;
   return ["analysis", "sources", "rules", "zones"].includes(page);
 }
 

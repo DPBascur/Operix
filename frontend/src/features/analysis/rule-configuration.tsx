@@ -9,6 +9,7 @@ const labels: Record<string, string> = {
   min_duration_s: "Duración mínima (s)",
   minimum_duration_seconds: "Duración mínima (s)",
   max_distance: "Distancia máxima configurada",
+  motion_condition: "Condición de movimiento",
   distance_unit: "Unidad de distancia",
 };
 
@@ -51,6 +52,19 @@ export function RuleConfiguration({
           área referenciada.
         </p>
       )}
+      {snapshot.motion && (
+        <p className="text-sm">
+          Movimiento configurado en{" "}
+          {snapshot.motion.unit === "m"
+            ? "m/s aproximados"
+            : "unidades de imagen/s"}{" "}
+          · ventana {snapshot.motion.window_seconds} s · cámara{" "}
+          {snapshot.motion.camera_fixed_confirmed
+            ? "declarada fija"
+            : "sin confirmar"}
+          .
+        </p>
+      )}
       {snapshot.rules.map((rule) => {
         const kind = String(rule.parameters.kind ?? "");
         return (
@@ -78,7 +92,13 @@ export function RuleConfiguration({
                       : (labels[key] ?? key)}
                   </dt>
                   <dd>
-                    {typeof value === "string" ? value : JSON.stringify(value)}
+                    {key === "motion_condition"
+                      ? value === "moving"
+                        ? "Solo con movimiento confirmado"
+                        : "Independiente del movimiento"
+                      : typeof value === "string"
+                        ? value
+                        : JSON.stringify(value)}
                   </dd>
                 </div>
               ))}
