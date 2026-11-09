@@ -297,7 +297,7 @@ def read_profile(profile: str) -> dict:
 
 
 def rule_snapshot(config: dict) -> dict:
-    return {"rules": config["rules"], "zones":config["zones"], "calibration":config.get("calibration"),
+    return {"rules": config["rules"], "zones":config["zones"], "calibration":config.get("calibration"), "motion":config.get("motion"), "relations":config.get("relations"),
             "config_sha256": hashlib.sha256(config_bytes(config)).hexdigest()}
 
 

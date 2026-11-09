@@ -121,12 +121,12 @@ class EventSerializer(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("source debe ser un objeto.")
         allowed = {"filename", "kind", "video_sha256", "config_sha256", "person_weights_sha256",
-                   "forklift_weights_sha256", "timestamp_basis", "session_id", "session_run", "perception", "spatial_configuration"}
+                   "forklift_weights_sha256", "timestamp_basis", "session_id", "session_run", "perception", "spatial_configuration", "epoch"}
         if set(value) - allowed:
             raise serializers.ValidationError("Metadata de fuente no admitida.")
         for key, item in value.items():
             if key == "spatial_configuration":
-                if not isinstance(item, dict) or set(item) - {"schema_version","view_id","coordinate_system","zones","rules","calibration"}:
+                if not isinstance(item, dict) or set(item) - {"schema_version","view_id","coordinate_system","zones","rules","calibration","motion","relations"}:
                     raise serializers.ValidationError("Snapshot espacial inválido")
             elif key == "perception":
                 if not isinstance(item, dict) or set(item) != {"person", "forklift"}:
@@ -145,6 +145,9 @@ class EventSerializer(serializers.ModelSerializer):
                             or any(type(config[k]) not in (int, float) or not 0 <= config[k] <= 1
                                    for k in ("confidence", "nms_iou"))):
                         raise serializers.ValidationError("Configuración de percepción inválida.")
+            elif key == "epoch":
+                if type(item) is not int or item < 0:
+                    raise serializers.ValidationError("Epoca inv\u00e1lida")
             elif key == "session_run":
                 if type(item) is not int or item < 1:
                     raise serializers.ValidationError("session_run inválido.")

@@ -209,7 +209,18 @@ class AccessTests(TestCase):
         self.assertEqual(other.delete(url).status_code, 404)
         reviewer = APIClient()
         self.sign_in(reviewer, "reviewer")
-        self.assertEqual(reviewer.get(url + "source/").status_code, 403)
+        self.assertEqual(reviewer.get(url + "source/").status_code, 404)
+        own = reviewer.post(collection, {
+            "profile": "B", "video": SimpleUploadedFile("reviewer.mp4", b"\x00\x00\x00\x10ftypisomvideo"),
+        }, format="multipart")
+        self.assertEqual(own.status_code, 201, own.data)
+        self.addCleanup(remove_session, UUID(own.data["id"]))
+        own_url = collection + own.data["id"] + "/"
+        self.assertEqual(reviewer.get(own_url + "configuration/").status_code, 200)
+        with patch("apps.analysis.views.start_session") as start:
+            self.assertEqual(reviewer.post(own_url + "start/", {}, format="json").status_code, 202)
+            start.assert_called_once()
+        self.assertEqual(reviewer.get("/admin/auth/user/").status_code, 302)
         self.assertEqual(owner.get(url + "status/").status_code, 200)
 
 

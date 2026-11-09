@@ -36,7 +36,7 @@ set -a; source .env; set +a
 | Rol | Permisos |
 | --- | --- |
 | Administrador | Gestionar cuentas en Django, ejecutar y consultar análisis, revisar historial, indicadores y PNG. |
-| Responsable de seguridad | Consultar historial, indicadores, detalle y PNG del despliegue. |
+| Responsable de seguridad | Preparar, configurar y ejecutar sus propios análisis; consultar historial, indicadores, detalle, PNG y clips del despliegue. No administrar usuarios. |
 | Usuario | Preparar, ejecutar y consultar sus propios análisis, incluyendo fuente, resultado y estado de publicación. |
 
 Esta política mínima sigue la [verificación de acceso de Etapa 4](../engine/evidence/ETAPA4-AUTH-VERIFICATION.md). Las sesiones del navegador duran ocho horas y se guardan en PostgreSQL. Para conservarlas tras reiniciar Django, mantener la misma base y `DJANGO_SECRET_KEY`. El cierre de sesión invalida la sesión en el servidor. La salud de API/DB permanece pública. El alcance de revisión es el despliegue completo.

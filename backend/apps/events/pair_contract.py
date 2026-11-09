@@ -5,6 +5,7 @@ import json
 import math
 
 from rest_framework.exceptions import ValidationError
+from .motion_contract import validate_motion
 
 
 EVENT_TYPES = ("zone_dwell", "person_forklift_proximity", "zone_entry", "zone_coexistence")
@@ -25,13 +26,17 @@ def number(value, name):
 def validate_pair_parameters(parameters):
     expected = {"kind", "zone_id", "person_class", "forklift_class",
                 "max_distance", "minimum_duration_seconds"}
-    if set(parameters) not in (expected, expected | {"distance_unit"}):
+    if expected-set(parameters) or set(parameters)-(expected|{"distance_unit","motion_condition"}):
         raise ValidationError({"rule_parameters": "Snapshot de parámetros por pares incompleto."})
     if not all(isinstance(parameters[k], str) and parameters[k].strip()
                for k in ("zone_id", "person_class", "forklift_class")):
         raise ValidationError({"rule_parameters": "Roles y zona requieren texto."})
     if parameters["person_class"] == parameters["forklift_class"]:
         raise ValidationError({"rule_parameters": "Las clases de los roles deben ser distintas."})
+    if not isinstance(parameters.get("motion_condition","any"), str) or parameters.get("motion_condition","any") not in {"any","moving"}:
+        raise ValidationError("Condici\u00f3n de movimiento no soportada")
+    if parameters["kind"]=="zone_coexistence" and parameters.get("motion_condition","any")!="any":
+        raise ValidationError("Coexistencia no requiere movimiento")
     number(parameters["max_distance"], "max_distance")
     # hypot(dx/width, dy/height): ambos ejes en [0,1], diagonal máxima sqrt(2).
     if parameters.get("distance_unit","normalized") not in {"normalized","m"}:
@@ -58,7 +63,7 @@ def validate_pair(attrs):
                 or type(subject["track_id"]) is not int or not 0 <= subject["track_id"] <= 2147483647):
             raise ValidationError({"interaction": "Identidad incompatible con el rol."})
     observations, episode = attrs.get("observations", {}), attrs.get("episode", {})
-    if (not isinstance(observations, dict) or set(observations) - {"normalized_distance","duration_s","proximity_geometry","ground"}
+    if (not isinstance(observations, dict) or set(observations) - {"normalized_distance","duration_s","proximity_geometry","ground","equipment_motion"}
             or not {"normalized_distance","duration_s"} <= observations.keys()):
         raise ValidationError({"observations": "Se requieren distancia y duración observadas."})
     if "proximity_geometry" in observations:
@@ -99,6 +104,7 @@ def validate_pair(attrs):
                 raise ValidationError("Extremos de proximidad inválidos")
     elif "ground" in observations:
         raise ValidationError("La regla normalizada no admite observación métrica")
+    validate_motion(attrs)
     duration = number(observations["duration_s"], "duration_s")
     if distance > parameters["max_distance"] or parameters["minimum_duration_seconds"] - duration > 1e-9:
         raise ValidationError({"observations": "No satisface los parámetros registrados."})
@@ -115,6 +121,10 @@ def validate_pair(attrs):
     if any(attrs.get(key) is not None for key in ("track_id", "observed_inside", "observed_dwell_time_s")) or attrs.get("class_name"):
         raise ValidationError({"interaction": "Un par no tiene un objeto primario ficticio."})
     attrs.update(track_id=None, class_name="", observed_inside=None, observed_dwell_time_s=None)
-    canonical = json.dumps(interaction, sort_keys=True, separators=(",", ":"))
+    identity = interaction
+    epoch = attrs.get("source", {}).get("epoch", 0)
+    if epoch:
+        identity = {"interaction": interaction, "epoch": epoch}
+    canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"))
     attrs["pair_key"] = hashlib.sha256(canonical.encode()).hexdigest()
     return attrs

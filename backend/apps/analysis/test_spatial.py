@@ -125,3 +125,41 @@ class SpatialConfigurationTests(TestCase):
         self.assertEqual(response.data["revision"],0)
         self.assertEqual(response.data["document"]["zones"][0]["zone_id"],"other")
         self.assertEqual(self.client.get(self.url).data["saved"]["zones"][0]["zone_id"],"z")
+
+    def test_safety_lead_configures_motion_while_user_administration_stays_denied(self):
+        from django.contrib.auth.models import Group
+        from config.access import SAFETY_GROUP
+        self.user.is_superuser=False
+        self.user.groups.add(Group.objects.get_or_create(name=SAFETY_GROUP)[0])
+        self.user.save()
+        self.document["motion"]={"unit":"normalized","window_seconds":1.,"min_observations":3,
+            "max_gap_seconds":.2,"stationary_speed":.01,"moving_speed":.05,
+            "max_position_residual":.01,"camera_fixed_confirmed":True}
+        self.document["relations"]={"max_pairs":2,"policy":"near_threshold","near_margin":.2}
+        self.document["rules"][0]["parameters"]={"kind":"person_forklift_proximity","zone_id":"z",
+            "max_distance":.2,"minimum_duration_seconds":1.,"motion_condition":"moving"}
+        response=self.save()
+        self.assertEqual(response.status_code,200,response.data)
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get("/admin/auth/user/").status_code,302)
+        self.assertFalse(self.user.is_staff)
+        old=deepcopy(response.data["document"])
+        self.document=deepcopy(old)
+        self.document["motion"]["moving_speed"] = .06
+        next_revision=self.save(revision=1)
+        self.assertEqual(next_revision.status_code,200,next_revision.data)
+        self.assertEqual(next_revision.data["document"]["rules"][0]["version"],2)
+        self.assertEqual(SpatialConfiguration.objects.get(revision=1).document,old)
+        self.document["motion"]["camera_fixed_confirmed"]=False
+        self.assertEqual(self.save(revision=2).status_code,200)
+
+    def test_rejects_invalid_motion_and_visual_settings_without_saving(self):
+        motion={"unit":"normalized","window_seconds":1.,"min_observations":3,
+            "max_gap_seconds":.2,"stationary_speed":.01,"moving_speed":.05,
+            "max_position_residual":.01,"camera_fixed_confirmed":True}
+        for changes in ({"moving_speed":0},{"unit":"m"},{"max_gap_seconds":2},{"min_observations":2}):
+            doc=deepcopy(self.document);doc["motion"]={**motion,**changes}
+            self.assertEqual(self.save(doc).status_code,400)
+        doc=deepcopy(self.document);doc["relations"]={"max_pairs":0}
+        self.assertEqual(self.save(doc).status_code,400)
+        self.assertFalse(SpatialConfiguration.objects.exists())

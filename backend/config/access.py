@@ -137,7 +137,7 @@ class CanReviewEvents(BasePermission):
 
 class CanAnalyze(BasePermission):
     def has_permission(self, request, view):
-        return request_role(request) in {"administrator", "operator"}
+        return request_role(request) in {"administrator", "operator", "safety_lead"}
 
 
 def session_response(request, *, error=None, status=200):
