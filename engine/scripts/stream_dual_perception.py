@@ -178,7 +178,7 @@ def process(args: argparse.Namespace) -> None:
                                datetime.fromisoformat(document["analysis_started_at"]), document["source"])
         outbox = EventOutbox(args.event_context.parent, HttpEventSink(document["api_url"], local_only=True))
         persistence = {"state": "pending", "candidates": 0, "saved": 0, "failed": 0}
-    visual = VisualizationConfig(max_trajectory_points=60, inactive_retention_frames=30)
+    visual = VisualizationConfig(max_trajectory_points=60, inactive_retention_frames=30, relations=config.relations)
     renderer = OpenCvRenderer(visual)
     histories = {name: TrajectoryAccumulator(visual) for name in ("person", "forklift")}
 
@@ -211,7 +211,7 @@ def process(args: argparse.Namespace) -> None:
             width=metadata.width, height=metadata.height,
             fps=metadata.declared_fps, zones=config.zones if not config.calibration or config.calibration["status"] == "valid" else (),
             proximity_roles=config.proximity_roles,
-            calibration=config.calibration,
+            calibration=config.calibration, motion=config.motion,
         )
         rules = RuleEngine(config)
         started = time.perf_counter()
@@ -319,6 +319,8 @@ def process(args: argparse.Namespace) -> None:
                     person_tracks=len(observed.person_tracks),
                     forklift_tracks=len(observed.forklift_tracks),
                     candidates=frame_candidates, persistence=persistence,
+            equipment_motion=[dict(track_id=o.track_id, class_name=o.class_name, **o.motion.to_dict())
+                              for o in spatial.objects if o.motion is not None],
                     declared_frame_count=metadata.declared_frame_count,
                     timestamp_source=inspection.timestamp_source, warnings=inspection.warnings,
                 )
@@ -367,6 +369,8 @@ def process(args: argparse.Namespace) -> None:
             person_tracks=len(observed.person_tracks),
             forklift_tracks=len(observed.forklift_tracks),
             candidates=frame_candidates, persistence=persistence,
+            equipment_motion=[dict(track_id=o.track_id, class_name=o.class_name, **o.motion.to_dict())
+                              for o in spatial.objects if o.motion is not None],
             result_video={"codec": "H.264/avc1", "encoder_backend": output_backend,
                           "fps": encoded_fps, "frames": encoded_frames,
                           "width": encoded_width, "height": encoded_height},

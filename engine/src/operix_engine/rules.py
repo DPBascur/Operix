@@ -106,13 +106,15 @@ class PairRuleEvaluation:
     person_anchor: NormalizedPoint | None = None
     equipment_target: NormalizedPoint | None = None
     ground: dict | None = None
+    equipment_motion: dict | None = None
+    epoch: int = 0
 
     @property
     def episode_key(self) -> tuple | None:
         """Identidad local al run; no sustituye la identidad persistida del evento."""
         if self.started_frame_index is None:
             return None
-        return (self.rule_id, self.rule_version, self.interaction, self.zone_id, self.started_frame_index)
+        return (self.rule_id, self.rule_version, self.interaction, self.zone_id, self.started_frame_index, self.epoch)
 
     @property
     def rule_state(self) -> str:
@@ -141,6 +143,8 @@ class PairEventCandidate:
     person_anchor: NormalizedPoint | None = None
     equipment_target: NormalizedPoint | None = None
     ground: dict | None = None
+    equipment_motion: dict | None = None
+    epoch: int = 0
 
     @property
     def proximity_geometry(self) -> dict | None:
@@ -158,7 +162,7 @@ class PairEventCandidate:
 
     @property
     def episode_key(self) -> tuple:
-        return (self.rule_id, self.rule_version, self.interaction, self.zone_id, self.started_frame_index)
+        return (self.rule_id, self.rule_version, self.interaction, self.zone_id, self.started_frame_index, self.epoch)
 
     @property
     def candidate_type(self) -> str:
@@ -189,6 +193,8 @@ class PairEventCandidate:
             "reason": self.reason,
             **({"proximity_geometry": self.proximity_geometry} if self.proximity_geometry is not None else {}),
             **({"ground": self.ground} if self.ground is not None else {}),
+            **({"equipment_motion": self.equipment_motion} if self.equipment_motion is not None else {}),
+            **({"epoch": self.epoch} if self.epoch else {}),
         }
 
 
@@ -198,6 +204,7 @@ class RuleFrameResult:
     timestamp_s: float
     evaluations: tuple[RuleEvaluation | PairRuleEvaluation, ...]
     candidates: tuple[EventCandidate | PairEventCandidate, ...]
+    epoch: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,7 +237,7 @@ class _PairEpisode:
 def _validate_pair_rule(rule: RuleConfig, zone_ids: set[str]) -> _PairProximityRule:
     # No hay distancia/duración industrial por defecto: la configuración debe declararlas.
     required = {"kind", "zone_id", "max_distance", "minimum_duration_seconds"}
-    optional = {"person_class", "forklift_class", "distance_unit"}
+    optional = {"person_class", "forklift_class", "distance_unit", "motion_condition"}
     values = dict(rule.parameters)
     if required - values.keys() or values.keys() - (required | optional):
         raise RuleEngineError(f"{rule.rule_id}: parámetros de proximidad faltantes o desconocidos")
@@ -251,6 +258,10 @@ def _validate_pair_rule(rule: RuleConfig, zone_ids: set[str]) -> _PairProximityR
         raise RuleEngineError(f"{rule.rule_id}: max_distance debe estar entre 0 y sqrt(2) normalizado")
     if values["kind"] == "zone_coexistence" and (values.get("distance_unit", "normalized") != "normalized" or abs(values["max_distance"]-math.sqrt(2)) > 1e-12):
         raise RuleEngineError("Coexistencia requiere presencia conjunta en zona")
+    if values.get("motion_condition", "any") not in {"any", "moving"}:
+        raise RuleEngineError("Condici\u00f3n de movimiento no soportada")
+    if values["kind"] == "zone_coexistence" and values.get("motion_condition", "any") != "any":
+        raise RuleEngineError("Coexistencia no implica movimiento")
     return _PairProximityRule(
         rule, values["person_class"], values["forklift_class"], values["zone_id"],
         float(values["max_distance"]), float(values["minimum_duration_seconds"]),
@@ -299,6 +310,9 @@ class RuleEngine:
             if rule.parameters.get("kind") == "zone_entry" and (rule.parameters.get("min_duration_s") != 0 or not any(z.zone_id == rule.parameters.get("zone_id") and z.purpose == "restricted" for z in config.zones)):
                 raise RuleEngineError("Ingreso requiere zona restringida y duración cero")
         self._rules = tuple(_validate_rule(rule, zone_ids) for rule in config.rules)
+        if any(r.enabled and r.parameters.get("motion_condition") == "moving" for r in config.rules):
+            if config.motion is None:
+                raise RuleEngineError("Movimiento condicionado requiere configuración explícita")
         if any(rule.enabled and rule.parameters.get("distance_unit") == "m" for rule in config.rules):
             if not config.calibration or config.calibration["status"] != "valid":
                 raise RuleEngineError("Las reglas métricas requieren calibración válida")
@@ -306,6 +320,7 @@ class RuleEngine:
 
     def reset(self) -> None:
         """Olvida activaciones y orden temporal al comenzar una sesión nueva."""
+        self._last_epoch: int | None = None
         self._last_frame_index: int | None = None
         self._active: set[tuple[str, int, ObjectIdentity, str]] = set()
         self._pair_episodes: dict[tuple[str, int, InteractionIdentity, str], _PairEpisode] = {}
@@ -344,6 +359,11 @@ class RuleEngine:
                 next((zone for zone in obj.zones if zone.zone_id == rule.zone_id), None)
                 if obj is not None else None for obj in members
             )
+            motion = members[1].motion if members[1] is not None else None
+            if motion is not None and (motion.frame_index != frame.frame_index or motion.epoch != frame.epoch
+                                       or motion.timestamp_s != frame.timestamp_s):
+                raise RuleEngineError("Movimiento de otro frame o \u00e9poca")
+            motion_snapshot = motion.to_dict() if motion is not None else None
             metric = rule.parameters.get("distance_unit") == "m"
             distance = (proximity.ground["distance"] if proximity.ground else math.inf) if metric else proximity.normalized_distance
             if any(obj is None for obj in members):
@@ -356,6 +376,8 @@ class RuleEngine:
                 reason = "calibration_unavailable"
             elif not math.isfinite(distance) or distance < 0 or distance > rule.max_distance:
                 reason = "outside_distance"
+            elif rule.parameters.get("motion_condition", "any") == "moving" and (motion is None or motion.state != "MOVING"):
+                reason = "equipment_stationary" if motion is not None and motion.state == "STATIONARY" else "motion_unknown"
             else:
                 reason = None
             duration, satisfied = 0.0, False
@@ -371,7 +393,7 @@ class RuleEngine:
                         interaction, rule.zone_id, rule.parameters, episode.started_frame_index,
                         episode.started_timestamp_s, proximity.normalized_distance, duration,
                         proximity.geometry_version, person_anchor, equipment_target,
-                        proximity.ground if metric else None,
+                        proximity.ground if metric else None, motion_snapshot, frame.epoch,
                     ))
                 episodes[key] = _PairEpisode(
                     episode.started_frame_index, episode.started_timestamp_s,
@@ -385,7 +407,7 @@ class RuleEngine:
                 episode.started_frame_index if episode else None,
                 episode.started_timestamp_s if episode else None,
                 proximity.geometry_version, person_anchor, equipment_target,
-                proximity.ground if metric else None,
+                proximity.ground if metric else None, motion_snapshot, frame.epoch,
             ))
         return evaluations, candidates
 
@@ -393,6 +415,10 @@ class RuleEngine:
         """Evalúa OP-37 sin recalcular sus variables ni modificar el frame."""
         if not isinstance(frame, FrameSpatialState):
             raise TypeError("frame debe ser FrameSpatialState")
+        if type(frame.epoch) is not int or frame.epoch < 0 or (self._last_epoch is not None and frame.epoch < self._last_epoch):
+            raise RuleEngineError("Epoca inv\u00e1lida o atrasada")
+        if self._last_epoch is not None and frame.epoch != self._last_epoch:
+            self.reset()
         if type(frame.frame_index) is not int or frame.frame_index < 0:
             raise RuleEngineError("frame_index debe ser entero no negativo")
         if self._last_frame_index is not None and frame.frame_index <= self._last_frame_index:
@@ -469,8 +495,9 @@ class RuleEngine:
         self._active = active
         self._memberships = memberships_now
         self._pair_episodes = episodes
+        self._last_epoch = frame.epoch
         self._last_frame_index = frame.frame_index
         self._last_timestamp_s = frame.timestamp_s
         return RuleFrameResult(
-            frame.frame_index, frame.timestamp_s, tuple(evaluations), tuple(candidates)
+            frame.frame_index, frame.timestamp_s, tuple(evaluations), tuple(candidates), frame.epoch
         )

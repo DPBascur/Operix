@@ -36,6 +36,8 @@ def validate(document, source_sha256):
             or abs(rule.parameters.get("max_distance",0)-2**.5) > 1e-12
         ):
             raise ValueError("Coexistencia usa presencia conjunta en zona")
+    if config.motion and config.motion.unit == "m" and not config.calibration:
+        raise ValueError("Movimiento m\u00e9trico requiere calibraci\u00f3n de esta fuente")
     checked_config = config
     if config.calibration and config.calibration["status"] == "invalid":
         checked_config = replace(config, rules=tuple(replace(r, enabled=False) for r in config.rules))

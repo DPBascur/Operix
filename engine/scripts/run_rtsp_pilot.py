@@ -104,10 +104,12 @@ def run(args, url):
     args.output.mkdir()
     (args.output / "config.json").write_bytes(snapshot)
     config = load_operational_config(args.output / "config.json")
+    if config.calibration or (config.motion and config.motion.unit == "m"):
+        raise ValueError("El piloto RTSP no admite calibraciones ligadas a archivos; requiere asociación de fuente validada")
     run_id = str(uuid4())
     config_hash = hashlib.sha256(snapshot).hexdigest()
     analyzer = SpatiotemporalAnalyzer(width=args.width, height=args.height, fps=args.fps,
-                                      zones=config.zones, proximity_roles=config.proximity_roles)
+                                      zones=config.zones, proximity_roles=config.proximity_roles, motion=config.motion)
     rules, epoch = RuleEngine(config), Epoch(args.fps)
     epochs = Counter()
     samples, ages, services = (deque(maxlen=8192) for _ in range(3))
@@ -137,7 +139,7 @@ def run(args, url):
                         epochs[reason] += 1
                         perception.person.tracker.reset()
                         perception.forklift.tracker.reset()
-                        analyzer.reset()
+                        analyzer.reset(epoch=epoch.number)
                         rules.reset()
                     inference_started = monotonic()
                     observed, _ = perception.process(frame.image, synchronize=torch.cuda.synchronize)

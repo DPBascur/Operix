@@ -15,7 +15,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from operix_engine.detection import BoundingBox, Detection
-from operix_engine.operational_config import Zone
+from operix_engine.operational_config import Zone, RelationDisplayConfig
 from operix_engine.tracking import Track
 from operix_engine.rules import PairEventCandidate, PairRuleEvaluation, RuleFrameResult
 from operix_engine.spatiotemporal import FrameSpatialState
@@ -49,8 +49,13 @@ class VisualizationConfig:
     trajectory_thickness: int = 2
     max_trajectory_points: int = 60
     inactive_retention_frames: int = 30
+    relations: RelationDisplayConfig | None = None
 
     def __post_init__(self) -> None:
+        if self.relations is None:
+            object.__setattr__(self, "relations", RelationDisplayConfig())
+        elif not isinstance(self.relations, RelationDisplayConfig):
+            raise TypeError("relations debe ser RelationDisplayConfig")
         integer_values = (
             self.box_thickness,
             self.text_thickness,
@@ -203,7 +208,7 @@ class OpenCvRenderer:
 
     def render_proximity(
         self, frame: NDArray[np.uint8], spatial: FrameSpatialState,
-        result: RuleFrameResult, *, max_pairs: int = 4,
+        result: RuleFrameResult, *, max_pairs: int | None = None,
     ) -> NDArray[np.uint8]:
         """Muestra episodios evaluados, sin geometría/distancia/estado alternativos.
 
@@ -211,10 +216,14 @@ class OpenCvRenderer:
         visibles. El conjunto visual no limita evaluaciones ni candidatos.
         """
         self._validate_frame(frame)
+        display = self.config.relations
+        max_pairs = display.max_pairs if max_pairs is None else max_pairs
         if type(max_pairs) is not int or max_pairs <= 0:
             raise ValueError("max_pairs debe ser entero positivo")
         if (spatial.frame_index, spatial.timestamp_s) != (result.frame_index, result.timestamp_s):
             raise ValueError("El overlay y las reglas deben pertenecer al mismo frame/tiempo")
+        if spatial.epoch != result.epoch:
+            raise ValueError("El overlay y las reglas deben pertenecer a la misma época")
         objects = {obj.identity: obj for obj in spatial.objects}
         emitted = {candidate.episode_key for candidate in result.candidates if isinstance(candidate, PairEventCandidate)}
         relevant = [evaluation for evaluation in result.evaluations
@@ -222,24 +231,38 @@ class OpenCvRenderer:
                     and (evaluation.episode_key is not None or evaluation.reason == "calibration_unavailable")]
         if any((item.frame_index, item.timestamp_s) != (result.frame_index, result.timestamp_s) for item in relevant):
             raise ValueError("La evaluación de proximidad pertenece a otro frame/tiempo")
+        if any((item.frame_index, item.timestamp_s, item.epoch) !=
+               (spatial.frame_index, spatial.timestamp_s, spatial.epoch)
+               for item in result.evaluations if isinstance(item, PairRuleEvaluation)):
+            raise ValueError("La evaluación pertenece a otro frame, tiempo o época")
         relevant.sort(key=lambda item: (
             item.episode_key not in emitted, not item.satisfied, item.observed_normalized_distance,
             item.rule_id, item.rule_version, item.interaction.person, item.interaction.forklift,
         ))
-        selected = [item for index, item in enumerate(relevant)
-                    if index < max_pairs or item.episode_key in emitted]
-        if not selected:
-            # Una sola referencia cuando todavía no hay un episodio activo.
+        if display.policy != "active":
+            relevant = [item for item in result.evaluations
+                        if isinstance(item, PairRuleEvaluation)
+                        and item.reason != "outside_zone"
+                        and (display.policy == "all" or item.satisfied
+                             or (item.ground["distance"] if item.ground else item.observed_normalized_distance)
+                             <= item.parameters["max_distance"] * (1 + display.near_margin))]
+            relevant.sort(key=lambda item: (not item.satisfied, item.observed_normalized_distance))
+        visible_pairs = []
+        for item in relevant:
+            if item.interaction not in visible_pairs and len(visible_pairs) < max_pairs:
+                visible_pairs.append(item.interaction)
+        selected = [item for item in relevant if item.interaction in visible_pairs
+                    or (display.policy == "active" and item.episode_key in emitted)]
+        if not selected and display.policy == "active":
             observed = [item for item in result.evaluations
                         if isinstance(item, PairRuleEvaluation)
-                        and item.reason in {"outside_distance", "outside_zone"}
-                        and (item.frame_index, item.timestamp_s) == (result.frame_index, result.timestamp_s)]
+                        and item.reason in {"outside_distance", "outside_zone", "motion_unknown", "equipment_stationary"}]
             if observed:
                 selected = [min(observed, key=lambda item: item.observed_normalized_distance)]
         annotated = frame.copy()
         height, width = frame.shape[:2]
         per_pair = Counter(item.interaction for item in selected)
-        labelled_pairs = set()
+        label_rows = Counter()
         for index, item in enumerate(selected):
             left, right = (objects.get(identity) for identity in (item.interaction.person, item.interaction.forklift))
             if left is None or right is None:
@@ -267,27 +290,34 @@ class OpenCvRenderer:
             unit = "m approx" if item.ground else "norm"
             measure = ("Presencia conjunta en zona" if item.parameters.get("kind") == "zone_coexistence"
                        else f"d {distance:.4g} / max {item.parameters['max_distance']:.4g} {unit}")
+            # Distancia junto a sus endpoints canónicos; identidad técnica en carril secundario.
+            row = label_rows[midpoint]
+            label_rows[midpoint] += 1
+            self._draw_label(annotated, measure,
+                             (midpoint[0], midpoint[1] + row * 24), color, fit_width=True)
             multiple = per_pair[item.interaction] > 1
-            # Una etiqueta sobre la pareja; cada regla conserva sus propias unidades
-            # y mediciones en su carril, sin sobrescribir otra en el mismo midpoint.
-            if not multiple or item.interaction not in labelled_pairs:
-                self._draw_label(annotated, pair if multiple else f"{pair} | {measure}",
-                                 midpoint, color, fit_width=True)
-                labelled_pairs.add(item.interaction)
             # OpenCV usa texto ASCII. La duración y el estado comparten un carril compacto.
             state = {
                 "outside_distance": "Fuera del umbral",
                 "outside_zone": "Fuera de zona",
                 "insufficient_duration": "Acumulando duracion",
+                "motion_unknown": "Movimiento indeterminado",
+                "equipment_stationary": "Equipo estacionario",
             }.get(item.reason, "Condicion satisfecha" if item.satisfied else "En evaluacion")
+            motion = item.equipment_motion
+            motion_label = ""
+            if motion:
+                motion_label = " | " + {"MOVING": "En movimiento", "STATIONARY": "Estacionario", "UNKNOWN": "Movimiento indeterminado"}[motion["state"]]
+                if motion["speed"] is not None:
+                    motion_label += f" {motion['speed']:.4g} " + ("m/s approx" if motion["unit"] == "m_per_s" else "norm/s")
             self._draw_label(annotated,
                 f"{pair} | " + (f"{measure} | " if multiple else "")
                 + f"{state} | {item.observed_duration_s:.4g} s"
                 f" / min {item.parameters['minimum_duration_seconds']:.4g} s"
-                f" | {item.rule_id} v{item.rule_version}",
+                f" | {item.rule_id} v{item.rule_version}" + motion_label,
                 (8, 28 + index * 24), color, fit_width=True)
         if len(selected) < len(relevant):
-            self._draw_label(annotated, f"Relaciones visibles: {len(selected)}/{len(relevant)}",
+            self._draw_label(annotated, f"Relaciones visibles: {len({item.interaction for item in selected})}/{len({item.interaction for item in relevant})}",
                              (8, 28 + len(selected) * 24), self._ZONE_NORMAL_COLOR, fit_width=True)
         return annotated
 

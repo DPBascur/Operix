@@ -44,7 +44,7 @@ class ProximityVisualizationTests(unittest.TestCase):
                 patch.object(self.renderer, "_draw_label", wraps=self.renderer._draw_label) as labels:
             annotated = self.renderer.render_proximity(self.frame, spatial, result)
         self.assertEqual(line.call_args.args[1:3], ((25, 20), (45, 60)))
-        self.assertTrue(any("P#1 / F#1 | d 0.4472 / max 0.5 norm" in call.args[1] for call in labels.call_args_list))
+        self.assertTrue(any("d 0.4472 / max 0.5 norm" in call.args[1] for call in labels.call_args_list))
         self.assertTrue(any("Acumulando duracion | 0 s / min 1 s" in call.args[1] for call in labels.call_args_list))
         self.assertTrue(np.any(annotated))
         self.assertFalse(np.any(self.frame))

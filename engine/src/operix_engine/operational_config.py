@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 
+from .motion import MotionConfig
+
 
 class OperationalConfigError(ValueError):
     """Indica que el archivo o un valor de configuración no es válido."""
@@ -93,6 +95,21 @@ class RuleConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class RelationDisplayConfig:
+    max_pairs: int = 4
+    policy: str = "active"
+    near_margin: float = .2
+
+    def __post_init__(self):
+        if type(self.max_pairs) is not int or not 1 <= self.max_pairs <= 16:
+            raise OperationalConfigError("Visualizaci\u00f3n: entre 1 y 16 parejas")
+        if self.policy not in {"active", "near_threshold", "all"}:
+            raise OperationalConfigError("Pol\u00edtica visual no soportada")
+        if type(self.near_margin) not in (int,float) or not math.isfinite(self.near_margin) or not 0 <= self.near_margin <= 1:
+            raise OperationalConfigError("Margen visual entre 0 y 1")
+
+
+@dataclass(frozen=True, slots=True)
 class OperationalConfig:
     """Configuración validada de una única vista de video."""
 
@@ -101,6 +118,8 @@ class OperationalConfig:
     zones: tuple[Zone, ...]
     rules: tuple[RuleConfig, ...]
     calibration: dict | None = None
+    motion: MotionConfig | None = None
+    relations: RelationDisplayConfig | None = None
 
     @property
     def proximity_roles(self) -> tuple[tuple[str, str], ...]:
@@ -124,6 +143,10 @@ class OperationalConfig:
         object.__setattr__(self, "zones", tuple(self.zones))
         object.__setattr__(self, "rules", tuple(self.rules))
 
+        if self.motion is not None and not isinstance(self.motion, MotionConfig):
+            raise OperationalConfigError("motion debe ser MotionConfig")
+        if self.relations is not None and not isinstance(self.relations, RelationDisplayConfig):
+            raise OperationalConfigError("relations debe ser RelationDisplayConfig")
         zone_ids = {zone.zone_id for zone in self.zones}
         if len(zone_ids) != len(self.zones):
             raise OperationalConfigError("zone_id duplicado")
@@ -178,6 +201,12 @@ def load_operational_config(path: str | Path) -> OperationalConfig:
     except (json.JSONDecodeError, OperationalConfigError) as error:
         raise OperationalConfigError(f"JSON de configuración inválido: {error}") from error
 
+    motion = document.pop("motion", None) if isinstance(document, dict) else None
+    if motion is not None:
+        motion = MotionConfig(**motion)
+    relations = document.pop("relations", None) if isinstance(document, dict) else None
+    if relations is not None:
+        relations = RelationDisplayConfig(**relations)
     calibration = document.pop("calibration", None) if isinstance(document, dict) else None
     if calibration is not None:
         from .calibration import calibration_snapshot
@@ -212,4 +241,4 @@ def load_operational_config(path: str | Path) -> OperationalConfig:
         )
         for item in root["rules"]
     )
-    return OperationalConfig(root["schema_version"], root["view_id"], zones, rules, calibration)
+    return OperationalConfig(root["schema_version"], root["view_id"], zones, rules, calibration, motion, relations)

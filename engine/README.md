@@ -508,7 +508,7 @@ consecutivos. No equivale a aparecer inicialmente dentro. La coexistencia exige
 los dos roles dentro de la misma zona durante el tiempo configurado; no infiere
 peligro ni suprime personas por una supuesta asociación con un operador.
 La combinación disponible es espacial + temporal, sin lenguaje arbitrario de reglas
-ni condición de equipo móvil validada.
+y admite proximidad opcional condicionada al movimiento observable descrito abajo.
 
 Para metros aproximados, capture una imagen de una cámara fija, seleccione entre
 4 y 16 referencias distribuidas y escriba coordenadas del suelo **medidas externamente**.
@@ -536,3 +536,36 @@ Modificar una revisión no cambia eventos anteriores. Se mantienen los permisos 
 análisis existentes y la publicación interna autenticada. Para desplegar, aplicar
 `python manage.py migrate` en Backend, con el entorno del Motor disponible para
 validar configuraciones. No se añaden dependencias.
+
+### Relaciones múltiples y movimiento observable
+
+El analizador evalúa cada pareja PERSON–FORKLIFT; las épocas separan continuidad,
+tracks y episodios, incluso si coinciden los IDs numéricos. El editor **Movimiento y
+relaciones visibles** permite limitar las parejas dibujadas (activas, próximas al
+umbral o todas en zona). Ese límite no filtra cálculos ni eventos. Las emisiones
+siempre se muestran en la política activa. Las líneas usan los endpoints canónicos;
+la distancia queda junto a la línea y los IDs/reglas en anotación secundaria.
+
+La estimación opcional `bottom_center_window_motion_v1` ajusta velocidad a las
+posiciones del centro inferior de la caja en una ventana temporal completa. Requiere
+configurar ventana, observaciones mínimas, separación máxima, máximo estacionario,
+mínimo en movimiento y residual máximo de posición; no se activan valores nuevos
+en los perfiles existentes. Sin calibración, la unidad es imagen normalizada/s;
+con plano válido y contacto dentro del área referenciada, m/s **aproximados**.
+No equivale a velocidad física validada del vehículo.
+
+`MOVING`, `STATIONARY` y `UNKNOWN` distinguen movimiento observado, estacionariedad
+y datos insuficientes, ruido o velocidad entre umbrales. La ventana se reinicia ante
+pérdidas, discontinuidades, nuevas épocas o revisión de calibración. Una cámara
+no confirmada fija o invalidada produce `UNKNOWN`; no hay detección automática del
+movimiento de cámara. La oclusión y la variación de caja pueden alterar el contacto.
+Los parámetros son experimentales y requieren validación contextual.
+
+La proximidad conserva por defecto `motion_condition: "any"`; `"moving"` exige
+movimiento confirmado durante toda la condición temporal. No suprime por defecto
+los eventos de equipos estacionarios. Los eventos conservan observación, método,
+época y configuración; los históricos sin esos campos siguen consultándose.
+El responsable de seguridad puede configurar y ejecutar sus propios análisis;
+la administración de cuentas sigue reservada al administrador. El piloto RTSP
+rechaza calibraciones vinculadas a archivos: su asociación métrica a una cámara
+real continúa pendiente de validación.

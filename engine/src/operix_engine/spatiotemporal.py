@@ -8,6 +8,7 @@ import math
 from collections import deque
 from dataclasses import dataclass, field
 
+from operix_engine.motion import MotionConfig, MotionEstimator, MotionObservation
 from operix_engine.detection import BoundingBox
 from operix_engine.operational_config import Zone
 from operix_engine.tracking import Track
@@ -62,6 +63,7 @@ class ObjectSpatialState:
     trajectory: tuple[TrajectorySample, ...]
     bounding_box: BoundingBox
     confidence: float
+    motion: MotionObservation | None = None
     identity: ObjectIdentity = field(init=False)
 
     def __post_init__(self) -> None:
@@ -99,6 +101,7 @@ class FrameSpatialState:
     timestamp_s: float
     objects: tuple[ObjectSpatialState, ...]
     proximities: tuple[PairwiseProximity, ...]
+    epoch: int = 0
 
 
 class SpatiotemporalAnalyzer:
@@ -114,6 +117,7 @@ class SpatiotemporalAnalyzer:
         max_trajectory_points: int = 60,
         proximity_roles: tuple[tuple[str, str], ...] = (("person", "forklift"),),
         calibration: dict | None = None,
+        motion: MotionConfig | None = None,
     ) -> None:
         if type(width) is not int or width <= 0 or type(height) is not int or height <= 0:
             raise ValueError("width y height deben ser enteros positivos")
@@ -131,6 +135,7 @@ class SpatiotemporalAnalyzer:
         self.fps = float(fps)
         self.zones = tuple(zone for zone in zones if zone.enabled)
         self.calibration = calibration
+        self.motion = MotionEstimator(motion) if motion is not None else None
         self.max_trajectory_points = max_trajectory_points
         if (not isinstance(proximity_roles, tuple) or any(
                 not isinstance(pair, tuple) or len(pair) != 2 or pair[0] == pair[1]
@@ -162,8 +167,14 @@ class SpatiotemporalAnalyzer:
         return PairwiseProximity(left.track_id, right.track_id, frame_index, timestamp_s,
             math.dist((left.position.x, left.position.y), (right.position.x, right.position.y)), *roles)
 
-    def reset(self) -> None:
+    def reset(self, *, epoch: int | None = None) -> None:
         """Inicia una nueva secuencia sin historial ni permanencia previa."""
+        next_epoch = getattr(self,"epoch",-1)+1 if epoch is None else epoch
+        if type(next_epoch) is not int or next_epoch < 0 or next_epoch < getattr(self,"epoch",0):
+            raise ValueError("Epoca inv\u00e1lida o anterior")
+        self.epoch = next_epoch
+        if self.motion is not None:
+            self.motion.reset()
         self._last_frame_index: int | None = None
         self._last_timestamp_s: float | None = None
         self._last_seen: dict[ObjectIdentity, int] = {}
@@ -202,6 +213,8 @@ class SpatiotemporalAnalyzer:
             self._dwell_starts.clear()
 
         present = set(ids)
+        if self.motion is not None:
+            self.motion.retain(present)
         for identity in tuple(self._last_seen):
             if identity not in present:
                 del self._last_seen[identity]
@@ -244,6 +257,9 @@ class SpatiotemporalAnalyzer:
                 ObjectSpatialState(
                     track_id, track.class_name, frame_index, timestamp_s,
                     position, tuple(zone_states), tuple(history), track.bounding_box, track.confidence,
+                    self.motion.update(identity,frame_index,timestamp_s,(position.x,position.y),
+                        epoch=self.epoch,calibration=self.calibration)
+                    if self.motion is not None and track.class_name == "forklift" else None,
                 )
             )
 
@@ -254,4 +270,4 @@ class SpatiotemporalAnalyzer:
         )
         self._last_frame_index = frame_index
         self._last_timestamp_s = timestamp_s
-        return FrameSpatialState(frame_index, timestamp_s, tuple(objects), proximities)
+        return FrameSpatialState(frame_index, timestamp_s, tuple(objects), proximities, self.epoch)

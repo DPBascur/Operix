@@ -90,7 +90,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     person = None if args.disable_person else channel("person", args.person_weights, args.person_conf, args.person_iou)
     forklift = None if args.disable_forklift else channel("forklift", args.forklift_weights, args.forklift_conf, args.forklift_iou)
     perception = DualPerception(person=person, forklift=forklift)
-    visual_config = VisualizationConfig(max_trajectory_points=60, inactive_retention_frames=30)
+    visual_config = VisualizationConfig(max_trajectory_points=60, inactive_retention_frames=30, relations=config.relations)
     renderer = OpenCvRenderer(visual_config)
     histories = {"person": TrajectoryAccumulator(visual_config), "forklift": TrajectoryAccumulator(visual_config)}
     detections = {"person": 0, "forklift": 0}
@@ -117,7 +117,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             width=metadata.width, height=metadata.height,
             fps=metadata.declared_fps, zones=config.zones,
             proximity_roles=config.proximity_roles,
-            calibration=config.calibration,
+            calibration=config.calibration, motion=config.motion,
         )
         rules = RuleEngine(config)
         writer = cv2.VideoWriter(
