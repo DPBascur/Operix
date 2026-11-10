@@ -105,9 +105,9 @@ def event_candidate_payload(candidate: EventCandidate | PairEventCandidate, cont
     }
     if context.source:
         common["source"] = dict(context.source)
+    if candidate.epoch:
+        common["source"] = {**common.get("source", {}), "epoch": candidate.epoch}
     if isinstance(candidate, PairEventCandidate):
-        if candidate.epoch:
-            common["source"] = {**common.get("source",{}), "epoch":candidate.epoch}
         data = candidate_payload(candidate)
         return common | {
             "interaction": data["interaction"],

@@ -57,6 +57,7 @@ def candidate_payload(candidate: EventCandidate | PairEventCandidate) -> dict[st
     _text(candidate.zone_id, "zone_id")
     _integer(candidate.rule_version, "rule_version", 1)
     _integer(candidate.frame_index, "frame_index")
+    _integer(candidate.epoch, "epoch")
     _number(candidate.timestamp_s, "timestamp_s")
     if not isinstance(candidate.parameters, Mapping):
         raise ValueError("parameters debe ser un mapping")
@@ -76,6 +77,7 @@ def candidate_payload(candidate: EventCandidate | PairEventCandidate) -> dict[st
             "observed_inside": candidate.observed_inside,
             "observed_dwell_time_s": candidate.observed_dwell_time_s,
             "candidate_kind": candidate.parameters["kind"], "subjects": [_subject("object", identity)],
+            **({"epoch": candidate.epoch} if candidate.epoch else {}),
         }
     else:
         if candidate.parameters.get("kind") not in {"person_forklift_proximity", "zone_coexistence"}:

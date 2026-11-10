@@ -7,9 +7,13 @@ from __future__ import annotations
 import math
 import unittest
 from dataclasses import FrozenInstanceError, replace
+from datetime import datetime, timezone
 from pathlib import Path
+from uuid import UUID
 
+from operix_engine.candidate_transport import candidate_payload
 from operix_engine.detection import BoundingBox
+from operix_engine.event_publishing import EventContext, event_candidate_payload
 from operix_engine.operational_config import OperationalConfig, RuleConfig, Zone, load_operational_config
 from operix_engine.rules import RuleEngine, RuleEngineError
 from operix_engine.spatiotemporal import SpatiotemporalAnalyzer
@@ -49,6 +53,21 @@ class RuleEngineTest(unittest.TestCase):
         result = self.step(4, make_track())
         self.assertEqual(len(result.candidates), 1)
         self.assertTrue(result.evaluations[0].satisfied)
+
+    def test_zone_dwell_after_spatial_suspension_keeps_new_epoch_in_transport(self) -> None:
+        self.configure(min_duration_s=1.0)
+        for frame in (0, 1):
+            self.assertFalse(self.step(frame, make_track()).candidates)
+
+        self.analyzer.reset()
+        self.engine.reset()
+        for frame in (5, 6):
+            self.assertFalse(self.step(frame, make_track()).candidates)
+        candidate, = self.step(7, make_track()).candidates
+        self.assertEqual(candidate.observed_dwell_time_s, 1.0)
+        context = EventContext(UUID(int=1), self.config.view_id, datetime(2026, 1, 1, tzinfo=timezone.utc))
+        self.assertEqual(candidate_payload(candidate).get("epoch"), 1)
+        self.assertEqual(event_candidate_payload(candidate, context).get("source", {}).get("epoch"), 1)
 
     def test_zone_dwell_consumes_decoder_time_through_analyzer(self):
         for frame, timestamp in enumerate((0., .9, 1.999)):

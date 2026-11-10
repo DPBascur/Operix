@@ -77,6 +77,7 @@ class EventCandidate:
     parameters: Mapping[str, object]
     observed_inside: bool
     observed_dwell_time_s: float
+    epoch: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -489,7 +490,7 @@ class RuleEngine:
                             EventCandidate(
                                 rule.config.rule_id, rule.config.version, frame.frame_index,
                                 frame.timestamp_s, obj.track_id, obj.class_name, rule.zone_id,
-                                rule.parameters, True, dwell,
+                                rule.parameters, True, dwell, epoch=frame.epoch,
                             )
                         )
         self._active = active
