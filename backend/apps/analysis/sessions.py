@@ -651,6 +651,12 @@ def _start_session(session: AnalysisSession) -> None:
             if session.process is not process or session.run != run or session._closed:
                 return
             session.status()
+            returncode = process.poll()
+            if type(returncode) is int and returncode != 0 and session.state != "cancelled":
+                logger.error(
+                    "El Motor terminó con error: session=%s run=%s returncode=%s (0x%08X)",
+                    session.id, run, returncode, returncode & 0xFFFFFFFF,
+                )
             if session.state not in TERMINAL:
                 session.state = "error"
             if session.state != "completed":

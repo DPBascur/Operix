@@ -440,3 +440,53 @@ class SessionHardeningTests(SimpleTestCase):
         response = administrator_client().post("/api/v1/analysis/sessions/",
                                     {"profile": "A", "video_path": "../preserve.mp4"}, format="json")
         self.assertEqual(response.status_code, 400)
+
+    @override_settings(EVENT_POST_ENABLED=False)
+    def test_native_exit_is_logged_and_never_accepts_a_completed_receipt(self):
+        for code in (3221225477, -1073741819):
+            with self.subTest(code=code):
+                self.session.state = "ready"
+                process = Mock()
+                process.poll.return_value = None
+                callbacks = []
+                with patch.object(sessions.subprocess, "Popen", return_value=process), \
+                        patch.object(sessions.threading, "Thread") as factory:
+                    factory.side_effect = lambda **kw: callbacks.append(kw["target"]) or Mock()
+                    sessions.start_session(self.session)
+                self.completed()
+                process.poll.return_value = code
+                with self.assertLogs("apps.analysis.sessions", level="ERROR") as captured:
+                    callbacks[0]()
+                self.assertEqual(len(captured.records), 1)
+                self.assertIn(str(code), captured.output[0])
+                self.assertIn("0xC0000005", captured.output[0])
+                self.assertIn(str(self.session.id), captured.output[0])
+                self.assertNotIn(str(self.session.directory), captured.output[0])
+                status = self.session.status()
+                self.assertEqual(status["state"], "error")
+                self.assertIsNone(status["result"])
+                self.assertNotIn("C0000005", status.get("detail", ""))
+                self.assertFalse((self.session.directory / "annotated.mp4").exists())
+                self.assertIsNone(self.session.process)
+                process.stdin.close.assert_called_once()
+
+    @override_settings(EVENT_POST_ENABLED=False)
+    def test_normal_exit_and_requested_cancel_do_not_log_a_native_failure(self):
+        for code, state, expected in ((0, "processing", "completed"), (1, "cancelled", "cancelled")):
+            with self.subTest(code=code, state=state):
+                self.session.state = "ready"
+                process = Mock()
+                process.poll.return_value = None
+                callbacks = []
+                with patch.object(sessions.subprocess, "Popen", return_value=process), \
+                        patch.object(sessions.threading, "Thread") as factory:
+                    factory.side_effect = lambda **kw: callbacks.append(kw["target"]) or Mock()
+                    sessions.start_session(self.session)
+                self.completed()
+                self.session.state = state
+                process.poll.return_value = code
+                with self.assertNoLogs("apps.analysis.sessions", level="ERROR"), \
+                        patch.object(sessions, "reserve_result", return_value=None):
+                    callbacks[0]()
+                self.assertEqual(self.session.state, expected)
+                self.assertIsNone(self.session.process)
