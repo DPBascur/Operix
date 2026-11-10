@@ -119,6 +119,12 @@ export interface AnalysisSessionStatus {
   result_video?: AnalysisResultConfig["video"];
   timing_ms?: Record<string, number>;
   equipment_motion?: EquipmentMotion[];
+  framing?: {
+    state: "VALID" | "SUSPECT" | "INVALID" | "UNAVAILABLE";
+    reason: string;
+    first_suspended_frame?: number | null;
+    invalidated_frame?: number | null;
+  } | null;
   preview?: {
     pending: boolean;
     frame_index: number | null;

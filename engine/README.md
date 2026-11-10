@@ -518,7 +518,7 @@ peligro ni suprime personas por una supuesta asociación con un operador.
 La combinación disponible es espacial + temporal, sin lenguaje arbitrario de reglas
 y admite proximidad opcional condicionada al movimiento observable descrito abajo.
 
-Para metros aproximados, capture una imagen de una cámara fija, seleccione entre
+Para metros aproximados, capture el primer fotograma de una cámara fija, seleccione entre
 4 y 16 referencias distribuidas y escriba coordenadas del suelo **medidas externamente**.
 Confirme el encuadre y la revisión de zonas; guarde antes de analizar. El servidor
 calcula la homografía con OpenCV y rechaza referencias degeneradas, horizonte
@@ -532,11 +532,25 @@ de referencias, sin extrapolación. No reconstruye 3D ni garantiza distancia de
 seguridad. El método normalizado `person_equipment_nearest_ground_edges_v1` y sus
 umbrales históricos se conservan; ninguna conversión implícita a metros ocurre.
 
-La acción **El encuadre cambió** invalida la calibración y deshabilita zonas;
-el servidor impide iniciar hasta revisar/recalibrar. El control es manual y
-conservador: no hay detección automática fiable de movimiento. No usar metros en
-videos con cámara móvil. Esta persistencia se integra al análisis de archivos;
-no constituye aún un catálogo de calibración para cámaras RTSP físicas.
+La comprobación automática experimental se habilita en el editor después de
+capturar el primer fotograma. `first_frame_orb_affine_v1` compara el fondo del
+primer fotograma con muestras cada 0,25 s, enmascarando personas y montacargas
+detectados. Exige al menos 24 correspondencias coherentes y distribuidas. La
+geometría se suspende cuando no hay soporte suficiente o el desplazamiento
+supera 0,8 % de la diagonal. Dos muestras compatibles permiten reanudar desde
+un episodio nuevo. Tres muestras consecutivas con desplazamiento de al menos
+1,5 % bloquean la geometría por el resto del análisis. El estado queda en el
+resultado de la sesión. Las revisiones guardadas conservan su historial.
+
+Para declarar un cambio de encuadre, marque la calibración inválida en el editor
+y guarde. El servidor impide iniciar hasta revisar y recalibrar. Las revisiones
+anteriores sin referencia automática conservan este control manual. El guardia
+puede perder movimientos entre muestras o quedar sin referencias ante una
+oclusión o un fondo sin textura. En el clip B sin preparar, el fondo visible
+tras enmascarar los objetos no ofreció correspondencias suficientes. La
+invalidación manual es el modo inicial. La comprobación automática se aplica
+al análisis de archivos calibrados.
+Las fuentes RTSP quedan fuera de este mecanismo.
 
 Las reglas métricas requieren calibración válida. Evento, PNG y clip conservan
 el método, unidades, versión/huella de calibración y configuración efectiva del run.

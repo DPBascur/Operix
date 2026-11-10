@@ -36,6 +36,9 @@ type Calibration = {
   calibrated_at: string;
   units: string;
   zones_reviewed: boolean;
+  framing_reference?: "first_frame_orb_affine_v1";
+  homography?: number[][];
+  max_reference_error_m?: number;
 };
 type Document = {
   schema_version: number;
@@ -62,6 +65,49 @@ const kinds = {
   zone_coexistence: "Presencia simultánea",
 };
 
+function GroundPreview({ calibration }: { calibration: Calibration }) {
+  const h = calibration.homography;
+  if (!h || calibration.status !== "valid") return null;
+  const projected = calibration.image_points.map(([x, y]) => {
+    const [px, py, w] = h.map((row) => row[0] * x + row[1] * y + row[2]);
+    return [px / w, py / w];
+  });
+  if (projected.length < 4 || projected.some((p) => !p.every(Number.isFinite)))
+    return null;
+  const xs = projected.map(([x]) => x);
+  const ys = projected.map(([, y]) => -y);
+  const left = Math.min(...xs);
+  const top = Math.min(...ys);
+  const width = Math.max(...xs) - left;
+  const height = Math.max(...ys) - top;
+  const marker = Math.max(width, height) / 40;
+  if (!(marker > 0)) return null;
+  return (
+    <figure className="m-0 grid gap-2 text-sm">
+      <figcaption>
+        Vista en planta de las referencias guardadas (m)
+        {calibration.max_reference_error_m != null &&
+          ` · Residuo máximo del ajuste: ${calibration.max_reference_error_m.toFixed(3)} m`}
+      </figcaption>
+      <svg
+        role="img"
+        aria-label="Proyección de las referencias numeradas sobre el plano del suelo"
+        className="h-40 w-full max-w-md rounded-control border border-border text-primary"
+        viewBox={`${left - marker * 3} ${top - marker * 3} ${width + marker * 6} ${height + marker * 6}`}
+      >
+        {projected.map((_, i) => (
+          <g key={i} fill="currentColor">
+            <circle cx={xs[i]} cy={ys[i]} r={marker * 0.5} />
+            <text x={xs[i] + marker} y={ys[i]} fontSize={marker * 1.6}>
+              {i + 1}
+            </text>
+          </g>
+        ))}
+      </svg>
+    </figure>
+  );
+}
+
 export function SpatialEditor({
   session,
   onSaved,
@@ -80,6 +126,7 @@ export function SpatialEditor({
   }, [open, onEditingChange]);
   const [message, setMessage] = useState("");
   const [frame, setFrame] = useState("");
+  const [firstFrame, setFirstFrame] = useState(false);
   const [selected, setSelected] = useState(0);
   const [mode, setMode] = useState("zone");
   const video = useRef<HTMLVideoElement>(null);
@@ -108,11 +155,12 @@ export function SpatialEditor({
     if (data) {
       if (
         next.calibration &&
-        data.document.calibration &&
+        next.calibration.status === "valid" &&
         (JSON.stringify(next.calibration.image_points) !==
-          JSON.stringify(data.document.calibration.image_points) ||
+          JSON.stringify(data.document.calibration?.image_points) ||
           JSON.stringify(next.calibration.ground_points_m) !==
-            JSON.stringify(data.document.calibration.ground_points_m))
+            JSON.stringify(data.document.calibration?.ground_points_m) ||
+          JSON.stringify(next.zones) !== JSON.stringify(data.document.zones))
       )
         next = {
           ...next,
@@ -212,7 +260,7 @@ export function SpatialEditor({
                     reject(new Error("No se pudo decodificar el fotograma."));
                   }, 5000);
                   v.addEventListener("seeked", done, { once: true });
-                  v.currentTime = v.currentTime;
+                  v.currentTime = mode === "calibration" ? 0 : v.currentTime;
                 });
                 if (!mounted.current) return;
                 const canvas = document.createElement("canvas");
@@ -227,6 +275,7 @@ export function SpatialEditor({
                     "El fotograma no está disponible. Cambie de posición y vuelva a capturar.",
                   );
                 setFrame(canvas.toDataURL());
+                setFirstFrame(mode === "calibration");
               } catch (error) {
                 if (mounted.current)
                   setMessage(
@@ -239,7 +288,9 @@ export function SpatialEditor({
               }
             }}
           >
-            Capturar fotograma de referencia
+            {mode === "calibration"
+              ? "Capturar primer fotograma"
+              : "Capturar fotograma de referencia"}
           </Button>
           <label>
             Editar sobre imagen
@@ -284,6 +335,7 @@ export function SpatialEditor({
                   if (
                     mode === "calibration" &&
                     doc.calibration &&
+                    firstFrame &&
                     doc.calibration.image_points.length < 16
                   )
                     update({
@@ -524,7 +576,10 @@ export function SpatialEditor({
             </p>
             <Button
               variant="outline"
-              onClick={() =>
+              onClick={() => {
+                setMode("calibration");
+                setFrame("");
+                setFirstFrame(false);
                 update({
                   ...doc,
                   calibration: {
@@ -537,18 +592,62 @@ export function SpatialEditor({
                     units: "m",
                     zones_reviewed: false,
                   },
-                })
-              }
+                });
+              }}
             >
               Calibrar / recalibrar
             </Button>
+            {data.saved?.calibration && (
+              <GroundPreview calibration={data.saved.calibration} />
+            )}
             {doc.calibration && (
               <>
                 <p>
-                  Estado: {doc.calibration.status}. Seleccione al menos cuatro
-                  referencias distribuidas y escriba sus coordenadas medidas
-                  sobre el suelo.
+                  {doc.calibration.status === "invalid"
+                    ? "Calibración invalidada."
+                    : doc.calibration.zones_reviewed
+                      ? "Referencias y zonas confirmadas."
+                      : "Borrador pendiente de revisión."}{" "}
+                  Seleccione al menos cuatro referencias distribuidas y escriba
+                  sus coordenadas medidas sobre el suelo.
                 </p>
+                {doc.calibration.framing_reference ? (
+                  <p className="text-sm">
+                    Capture el primer fotograma en «Referencias del suelo». El
+                    Motor comprobará el fondo durante el análisis y suspenderá
+                    la geometría si pierde la referencia.
+                  </p>
+                ) : (
+                  <p className="text-sm">
+                    Esta revisión usa invalidación manual del encuadre. Si
+                    cambió la cámara, revise las zonas y vuelva a calibrar.
+                  </p>
+                )}
+                {doc.calibration.status === "valid" && (
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(doc.calibration.framing_reference)}
+                      disabled={
+                        !doc.calibration.framing_reference && !firstFrame
+                      }
+                      onChange={(event) => {
+                        const calibration = doc.calibration!;
+                        update({
+                          ...doc,
+                          calibration: {
+                            ...calibration,
+                            framing_reference: event.target.checked
+                              ? "first_frame_orb_affine_v1"
+                              : undefined,
+                            zones_reviewed: false,
+                          },
+                        });
+                      }}
+                    />{" "}
+                    Comprobar el encuadre automáticamente (experimental)
+                  </label>
+                )}
                 {doc.calibration.ground_points_m.map((p, i) => (
                   <div key={i} className="flex flex-wrap gap-2">
                     {p.map((v, a) => (
@@ -630,7 +729,7 @@ export function SpatialEditor({
                     })
                   }
                 >
-                  El encuadre cambió: marcar inválido y guardar
+                  Marcar encuadre inválido en el borrador
                 </Button>
               </>
             )}
@@ -1015,6 +1114,7 @@ export function SpatialEditor({
                   setOpen(false);
                   setData(null);
                   setFrame("");
+                  setFirstFrame(false);
                   setSelected(0);
                 }}
               >

@@ -1217,6 +1217,24 @@ export function AnalysisWorkspace({
               aplicarlos al resultado.
             </p>
           )}
+          {session?.framing && (
+            <p role="status" className="analysis-result-help">
+              {session.framing.reason === "legacy_manual_only"
+                ? "Encuadre sin referencia automática. Si cambió la cámara, invalide la calibración y revise las zonas."
+                : {
+                    VALID:
+                      "Encuadre compatible con la referencia en la última comprobación.",
+                    SUSPECT:
+                      "Posible cambio de encuadre. Zonas, mediciones y reglas espaciales suspendidas.",
+                    INVALID:
+                      "Encuadre invalidado. Zonas, mediciones y reglas espaciales suspendidas. Revise y recalibre la fuente.",
+                    UNAVAILABLE:
+                      "No hay suficientes referencias estáticas. Zonas, mediciones y reglas espaciales suspendidas.",
+                  }[session.framing.state]}
+              {session.framing.first_suspended_frame != null &&
+                ` Primera suspensión en el fotograma ${session.framing.first_suspended_frame}.`}
+            </p>
+          )}
           {showStream && (
             <p className="analysis-result-help">
               Vista previa muestreada. Avanza cuando hay fotogramas procesados y
