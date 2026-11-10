@@ -15,7 +15,26 @@ def calibration():
         "version":1,"status":"valid","units":"m","calibrated_at":"2026-11-09T00:00:00Z","zones_reviewed":True})
 
 
+def skewed_calibration():
+    image = [[.123, .214], [.811, .237], [.902, .879], [.198, .842]]
+    return calibration_snapshot({
+        **calibration(),
+        "image_points": image,
+        "ground_points_m": [[10 * x, 10 * y] for x, y in image],
+    })
+
+
 class CalibrationTests(unittest.TestCase):
+    def test_metric_contact_on_skewed_boundary_and_just_outside(self):
+        snapshot = skewed_calibration()
+        equipment = BoundingBox(400, 300, 450, 371)
+        contact_on_edge = BoundingBox(141.75, 300, 190, 371)
+        measured = ground_measurement(snapshot, contact_on_edge, equipment, 1000, 1000)
+        self.assertIsNotNone(measured)
+        self.assertAlmostEqual(measured["distance"], 2.1, places=6)
+        outside = BoundingBox(141.75 - 1e-6, 300, 190, 371)
+        self.assertIsNone(ground_measurement(snapshot, outside, equipment, 1000, 1000))
+
     def test_parallel_metric_and_normalized_rules_keep_visible_units(self):
         import numpy as np
         from unittest.mock import patch

@@ -3,6 +3,8 @@ import hashlib
 import json
 import re
 from datetime import datetime
+from functools import lru_cache
+from sys import float_info
 
 import cv2
 import numpy as np
@@ -69,14 +71,46 @@ def project(snapshot, point):
     return result
 
 
+def _cross(start, end, point):
+    return ((end[0] - start[0]) * (point[1] - start[1])
+            - (end[1] - start[1]) * (point[0] - start[0]))
+
+
+@lru_cache(maxsize=64)
+def _reference_hull(references):
+    """Return the counterclockwise convex hull without downcasting references."""
+    def half(points):
+        chain = []
+        for point in points:
+            while len(chain) >= 2 and _cross(chain[-2], chain[-1], point) <= 0:
+                chain.pop()
+            chain.append(point)
+        return chain[:-1]
+
+    ordered = sorted(references)
+    hull = half(ordered) + half(reversed(ordered))
+    return tuple(zip(hull, hull[1:] + hull[:1]))
+
+
+def contacts_in_calibrated_area(snapshot, points):
+    edges = _reference_hull(tuple(map(tuple, snapshot["image_points"])))
+    # Allow roundoff in normalized coordinates without expanding the region
+    # by an operational tolerance.
+    return len(edges) >= 3 and all(
+        _cross(start, end, point) >= -4 * float_info.epsilon * (
+            abs(end[0] - start[0]) + abs(end[1] - start[1]))
+        for point in points
+        for start, end in edges
+    )
+
+
 def ground_measurement(snapshot, person, equipment, width, height):
     """Distancia entre segmentos inferiores proyectados dentro del área referenciada."""
     if snapshot["status"] != "valid":
         return None
-    hull = cv2.convexHull(np.asarray(snapshot["image_points"], np.float32))
     image = [[box.x_min/width, box.y_max/height] for box in (person, equipment)]
     image += [[box.x_max/width, box.y_max/height] for box in (person, equipment)]
-    if any(cv2.pointPolygonTest(hull, tuple(p), False) < 0 for p in image):
+    if not contacts_in_calibrated_area(snapshot, image):
         return None  # No extrapolar fuera de la región calibrada.
     a, c, b, d = [project(snapshot, p) for p in image]
     candidates = []

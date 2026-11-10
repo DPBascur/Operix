@@ -3,10 +3,9 @@ from collections import deque
 from dataclasses import asdict, dataclass
 import math
 
-import cv2
 import numpy as np
 
-from .calibration import project
+from .calibration import contacts_in_calibrated_area, project
 
 VERSION = "bottom_center_window_motion_v1"
 
@@ -94,8 +93,7 @@ class MotionEstimator:
             if not calibration or calibration["status"] != "valid":
                 self._history.pop(identity, None)
                 return observation(reason="calibration_unavailable")
-            hull = cv2.convexHull(np.asarray(calibration["image_points"], np.float32))
-            if cv2.pointPolygonTest(hull, tuple(point), False) < 0:
+            if not contacts_in_calibrated_area(calibration, (point,)):
                 self._history.pop(identity, None)
                 return observation(reason="outside_calibrated_area")
             try:

@@ -7,7 +7,7 @@ from operix_engine.spatiotemporal import SpatiotemporalAnalyzer
 from operix_engine.rules import RuleEngine
 from operix_engine.detection import BoundingBox
 from operix_engine.tracking import Track
-from test_calibration import calibration
+from test_calibration import calibration, skewed_calibration
 
 
 def config(**kw):
@@ -22,6 +22,21 @@ def track(role, identity, x=.2):
 
 
 class MotionTests(unittest.TestCase):
+    def test_metric_motion_on_skewed_boundary_then_outside(self):
+        cfg = config(unit="m", stationary_speed=.1, moving_speed=.5, max_position_residual=.1)
+        estimator = MotionEstimator(cfg)
+        snapshot = skewed_calibration()
+        for frame in range(3):
+            fraction = (frame + 1) / 4
+            point = (.123 + .075 * fraction, .214 + .628 * fraction)
+            measured = estimator.update(1, frame, frame * .5, point, calibration=snapshot)
+        self.assertEqual(measured.state, "MOVING")
+        self.assertAlmostEqual(measured.speed, 5 * (.075**2 + .628**2)**.5, places=6)
+        outside = (.198 - 1e-9, .842)
+        rejected = estimator.update(1, 3, 1.5, outside, calibration=snapshot)
+        self.assertEqual(rejected.state, "UNKNOWN")
+        self.assertEqual(rejected.reason, "outside_calibrated_area")
+
     def series(self, positions, cfg=None, **kw):
         estimator=MotionEstimator(cfg or config())
         return [estimator.update(("forklift",1),i,i*.5,(x,.5),**kw) for i,x in enumerate(positions)]
