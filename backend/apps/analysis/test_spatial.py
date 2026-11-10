@@ -1,7 +1,9 @@
 """Configuración espacial persistida y aislada; validación real del Motor."""
 from copy import deepcopy
+import os
 from pathlib import Path
 import tempfile
+from unittest.mock import patch
 from uuid import uuid4
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -51,6 +53,14 @@ class SpatialConfigurationTests(TestCase):
             if change == "duration": doc["rules"][0]["parameters"]["min_duration_s"] = 2
             self.assertEqual(self.save(doc).status_code, 400, change)
         self.assertEqual(SpatialConfiguration.objects.count(), 0)
+
+    @patch.dict(os.environ, {"PYTHONIOENCODING": "cp1252"})
+    def test_validator_returns_localized_error_with_legacy_parent_encoding(self):
+        self.document["calibration"] = {"source_sha256": "b" * 64}
+        response = self.save()
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("calibración", response.data["detail"].lower())
+        self.assertFalse(SpatialConfiguration.objects.exists())
 
     def test_auth_ownership_and_busy_sessions(self):
         self.client.force_authenticate(None)

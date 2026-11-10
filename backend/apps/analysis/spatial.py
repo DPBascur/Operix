@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import subprocess
 from copy import deepcopy
 
@@ -39,7 +40,7 @@ class SpatialConfigurationView(AnalysisView):
                 checked = subprocess.run([settings.OPERIX_ENGINE_PYTHON, "-B",
                     str(ROOT/"engine/scripts/validate_spatial_config.py"), session.source_sha256],
                     input=json.dumps(data["document"], allow_nan=False), capture_output=True, text=True,
-                    encoding="utf8", timeout=20)
+                    encoding="utf8", env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=20)
                 if checked.returncode:
                     return Response({"detail":checked.stderr.strip()[-400:] or "Configuración inválida"}, status=400)
                 document = json.loads(checked.stdout)
