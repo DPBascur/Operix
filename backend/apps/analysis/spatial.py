@@ -56,8 +56,8 @@ class SpatialConfigurationView(AnalysisView):
                 calibration = document.get("calibration")
                 old_calibration = saved.document.get("calibration") if saved else None
                 if calibration:
-                    keys = ("image_points", "ground_points_m", "status", "zones_reviewed")
-                    same = old_calibration and all(calibration[k] == old_calibration[k] for k in keys)
+                    keys = ("image_points", "ground_points_m", "status", "zones_reviewed", "framing_reference")
+                    same = old_calibration and all(calibration.get(k) == old_calibration.get(k) for k in keys)
                     highest = max((v or 0 for v in history.values_list("document__calibration__version", flat=True)), default=0)
                     calibration["version"] = old_calibration["version"] if same else highest + 1
                     if same:

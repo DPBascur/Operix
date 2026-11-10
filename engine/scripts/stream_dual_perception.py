@@ -25,6 +25,7 @@ from operix_engine.byte_tracker import ByteTrackConfig, ByteTracker
 from operix_engine.candidate_transport import candidate_payloads
 from operix_engine.event_outbox import EventOutbox
 from operix_engine.event_publishing import EventContext, HttpEventSink
+from operix_engine.framing import FramingGuard, REFERENCE
 from operix_engine.dual_perception import ClassPerceptionChannel, DualPerception
 from operix_engine.operational_config import load_operational_config
 from operix_engine.rules import RuleEngine
@@ -226,7 +227,15 @@ def process(args: argparse.Namespace) -> None:
             proximity_roles=config.proximity_roles,
             calibration=config.calibration, motion=config.motion,
         )
-        rules = RuleEngine(config)
+        manual_invalid = bool(config.calibration and config.calibration["status"] == "invalid")
+        rules = None if manual_invalid else RuleEngine(config)
+        guard = FramingGuard() if (
+            not manual_invalid and config.calibration and config.calibration.get("framing_reference") == REFERENCE
+        ) else None
+        framing = {"state": "INVALID", "reason": "operator_invalidated"} if manual_invalid else None
+        if config.calibration and not manual_invalid and guard is None:
+            framing = {"state": "UNAVAILABLE", "reason": "legacy_manual_only"}
+        spatial_allowed = not manual_invalid
         started = time.perf_counter()
         total = inspection.frame_count
         processed = 0
@@ -263,15 +272,24 @@ def process(args: argparse.Namespace) -> None:
                     observed.person_tracks + observed.forklift_tracks,
                     metadata.width, metadata.height,
                 )
-                spatial = analyzer.update(
-                    frame_index, visible_tracks, timestamp_s=inspection.timestamps[frame_index],
-                )
-                result = rules.evaluate(spatial)
-                frame_candidates = candidate_payloads(result.candidates)
+                timestamp = inspection.timestamps[frame_index]
+                if guard is not None:
+                    detections = observed.person_detections + observed.forklift_detections
+                    allowed = guard.update(
+                        frame, frame_index, timestamp, (item.bounding_box for item in detections)
+                    ) == "VALID"
+                    if spatial_allowed and not allowed:
+                        analyzer.reset()
+                        rules.reset()
+                    spatial_allowed = allowed
+                    framing = guard.status()
+                spatial = analyzer.update(frame_index, visible_tracks, timestamp_s=timestamp) if spatial_allowed else None
+                result = rules.evaluate(spatial) if spatial is not None else None
+                frame_candidates = candidate_payloads(result.candidates) if result is not None else []
                 rules_ms = (time.perf_counter_ns() - tick) / 1e6
                 tick = time.perf_counter_ns()
                 annotated = frame
-                for zone in config.zones:
+                for zone in config.zones if result is not None else ():
                     if not zone.enabled:
                         continue
                     event = any(item.zone_id == zone.zone_id for item in result.candidates)
@@ -281,9 +299,13 @@ def process(args: argparse.Namespace) -> None:
                     annotated = renderer.render_tracks(
                         annotated, tracks, histories[name].update(frame_index, tracks),
                     )
-                annotated = renderer.render_proximity(annotated, spatial, result)
+                if result is not None:
+                    annotated = renderer.render_proximity(annotated, spatial, result)
+                elif framing is not None:
+                    cv2.putText(annotated, "Geometria suspendida", (12, 32), cv2.FONT_HERSHEY_SIMPLEX,
+                                .7, (0, 220, 255), 2, cv2.LINE_AA)
                 renderer_ms = (time.perf_counter_ns() - tick) / 1e6
-                if outbox is not None and result.candidates:
+                if outbox is not None and result is not None and result.candidates:
                     image = annotated
                     height, width = image.shape[:2]
                     if max(width, height) > 960:
@@ -332,8 +354,9 @@ def process(args: argparse.Namespace) -> None:
                     person_tracks=len(observed.person_tracks),
                     forklift_tracks=len(observed.forklift_tracks),
                     candidates=frame_candidates, persistence=persistence,
-            equipment_motion=[dict(track_id=o.track_id, class_name=o.class_name, **o.motion.to_dict())
-                              for o in spatial.objects if o.motion is not None],
+                    framing=framing,
+                    equipment_motion=[dict(track_id=o.track_id, class_name=o.class_name, **o.motion.to_dict())
+                                      for o in spatial.objects if o.motion is not None] if spatial else [],
                     declared_frame_count=metadata.declared_frame_count,
                     timestamp_source=inspection.timestamp_source, warnings=inspection.warnings,
                 )
@@ -382,8 +405,9 @@ def process(args: argparse.Namespace) -> None:
             person_tracks=len(observed.person_tracks),
             forklift_tracks=len(observed.forklift_tracks),
             candidates=frame_candidates, persistence=persistence,
+            framing=framing,
             equipment_motion=[dict(track_id=o.track_id, class_name=o.class_name, **o.motion.to_dict())
-                              for o in spatial.objects if o.motion is not None],
+                              for o in spatial.objects if o.motion is not None] if spatial else [],
             result_video={"codec": "H.264/avc1", "encoder_backend": output_backend,
                           "fps": encoded_fps, "frames": encoded_frames,
                           "width": encoded_width, "height": encoded_height},

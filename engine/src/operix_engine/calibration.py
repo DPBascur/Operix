@@ -9,6 +9,8 @@ from sys import float_info
 import cv2
 import numpy as np
 
+from .framing import REFERENCE
+
 METHOD = "ground_plane_contact_edges_v1"
 
 
@@ -56,6 +58,10 @@ def calibration_snapshot(data):
     result.update(method=METHOD, image_points=image.tolist(), ground_points_m=ground.tolist(),
                   homography=matrix.tolist(), max_reference_error_m=residual,
                   validity_policy="STATIC_VIEW_HUMAN_CONFIRMED")
+    if "framing_reference" in data:
+        if data["framing_reference"] != REFERENCE:
+            raise ValueError("Referencia de encuadre no soportada")
+        result["framing_reference"] = REFERENCE
     result["sha256"] = hashlib.sha256(json.dumps(result, sort_keys=True, allow_nan=False).encode()).hexdigest()
     return result
 

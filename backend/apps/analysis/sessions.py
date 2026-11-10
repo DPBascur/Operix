@@ -161,6 +161,7 @@ class AnalysisSession:
                         "height": payload.get("height"),
                         "video": payload.get("result_video"),
                         "timestamp_source": payload.get("timestamp_source"),
+                        "framing": payload.get("framing"),
                         "warnings": payload.get("warnings", []),
                     }
                 else:

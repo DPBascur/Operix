@@ -92,6 +92,24 @@ class SpatialConfigurationTests(TestCase):
         self.assertEqual(second.data["document"]["calibration"]["version"], 2)
         self.assertFalse(self.session.operational_config()["zones"][0]["enabled"])
 
+    def test_enabling_framing_reference_versions_calibration_without_editing_history(self):
+        self.document["calibration"] = {
+            "image_points": [[0, 0], [1, 0], [1, 1], [0, 1]],
+            "ground_points_m": [[0, 0], [10, 0], [10, 10], [0, 10]],
+            "source_sha256": self.session.source_sha256,
+            "version": 1, "status": "valid", "units": "m",
+            "calibrated_at": "2026-11-09T00:00:00Z", "zones_reviewed": True,
+        }
+        legacy = self.save().data["document"]
+        self.document["calibration"]["framing_reference"] = "first_frame_orb_affine_v1"
+        updated = self.save(revision=1)
+        self.assertEqual(updated.status_code, 200, updated.data)
+        current = updated.data["document"]
+        self.assertEqual(current["calibration"]["version"], 2)
+        self.assertNotEqual(current["calibration"]["sha256"], legacy["calibration"]["sha256"])
+        self.assertEqual(SpatialConfiguration.objects.get(revision=1).document, legacy)
+        self.assertEqual(current["rules"][0]["version"], 2)
+
     def test_reintroduced_rule_keeps_monotonic_identity_version(self):
         self.assertEqual(self.save().status_code, 200)
         self.document["rules"][0]["enabled"] = False
