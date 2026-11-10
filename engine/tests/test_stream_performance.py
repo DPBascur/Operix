@@ -202,3 +202,26 @@ class PreviewScheduleTest(unittest.TestCase):
                 with self.assertRaises(VideoContractError):
                     self.worker.process(args)
             detector.assert_not_called()
+
+    def test_result_writer_uses_explicit_windows_backend_without_failed_probe(self):
+        import cv2
+        for platform, backend in (("win32", cv2.CAP_MSMF), ("linux", cv2.CAP_ANY)):
+            with self.subTest(platform=platform):
+                writer = Mock()
+                writer.isOpened.return_value = True
+                with patch.object(self.worker, "sys", SimpleNamespace(platform=platform)), \
+                        patch.object(cv2, "VideoWriter", return_value=writer) as factory:
+                    result = self.worker._open_result_writer(Path("result.mp4"), 29.97, (1920, 1080))
+                self.assertIs(result, writer)
+                factory.assert_called_once_with("result.mp4", backend, cv2.VideoWriter_fourcc(*"avc1"), 29.97, (1920, 1080))
+
+    def test_unavailable_windows_encoder_fails_closed_without_ffmpeg_retry(self):
+        import cv2
+        writer = Mock()
+        writer.isOpened.return_value = False
+        with patch.object(self.worker, "sys", SimpleNamespace(platform="win32")), \
+                patch.object(cv2, "VideoWriter", return_value=writer) as factory:
+            with self.assertRaisesRegex(RuntimeError, "H.264"):
+                self.worker._open_result_writer(Path("result.mp4"), 30, (1920, 1080))
+        factory.assert_called_once()
+        writer.release.assert_called_once_with()

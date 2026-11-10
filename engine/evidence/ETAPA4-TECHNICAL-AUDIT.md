@@ -1290,3 +1290,54 @@ Pendientes: precisión física y velocidad con GT, oclusión/ruido, cámara móv
 prueba RTSP métrica con asociación de fuente validada. No se usaron conjuntos
 protegidos ni se entrenaron modelos. Evento sigue significando condición
 configurada satisfecha que requiere revisión humana.
+
+
+## 27. Salida nativa de video en Windows — 2026-11-10
+
+Se reprodujo `0xC0000005` en B **sin observador**, con 300 frames y tres eventos
+persistidos, después del receipt final. Windows Application Error 1000 señaló
+`opencv_videoio_ffmpeg500_64.dll`, offset `0x13790ef`. La instrumentación no es una
+condición necesaria. El fallo histórico con código confirmado usaba el observador;
+otro intento histórico terminó por IndentationError y no debe contarse como fallo nativo.
+
+Entorno: Python 3.12.10, opencv-python 5.0.0.93, PyTorch 2.14.0+cu130,
+NumPy 2.5.2, Ultralytics 8.4.146, lap 0.5.12, RTX 3070 y driver 616.92.
+El DLL coincide con el RECORD del paquete; SHA-256:
+`7aabff029d1fa47cf56ede4dbbe05dc62da3208f07cd16471d4c966a33f9aa31`.
+
+La firma coincide con [OpenCV #30017](https://github.com/opencv/opencv/issues/30017).
+El mecanismo descrito upstream relaciona la destrucción TLS y el cierre de streams
+nativos tras errores del plugin. La [propuesta #112](https://github.com/opencv/opencv_3rdparty/pull/112)
+seguía abierta al revisar. Sin símbolos/pila local, no se afirma haber demostrado
+cada instrucción de ese mecanismo ni haber reparado el binario.
+
+El worker intentaba FFmpeg/H.264 sin OpenH264 y luego abría MSMF. Se selecciona
+MSMF directamente en Windows, conservando H.264, resolución, FPS, todos los frames
+y la decodificación de verificación. Si no abre, falla explícitamente sin repetir
+el sondeo afectado. Otras plataformas conservan CAP_ANY. No se silencian logs,
+no se sustituyen DLL ni se cambian dependencias. El Backend registra sesión, run,
+código decimal y hexadecimal; no acepta un receipt completo con salida no exitosa.
+La prueba negativa del log falló antes del cambio y pasó después, incluyendo las
+representaciones firmada/no firmada del acceso inválido y cancelaciones esperadas.
+
+Comparación controlada con A/B y sus snapshots: 12 ejecuciones con selección
+automática (variantes de observador, decoder y composición), un fallo nativo;
+12 con MSMF explícito (cuatro comparativas y ocho con la mitigación integrada),
+cero fallos. No son una estimación de tasa universal ni un benchmark de FPS.
+Ocho pruebas aisladas de etapas, diez ciclos completos de códec, 60 aperturas de
+writer y 40 pruebas sintéticas PNG no reprodujeron el fallo: es intermitente.
+
+Tras el cambio: A/B con y sin observador, composición controlada 2×2 de B y recorrido
+web con CUDA terminaron en cero. La composición emitió cuatro parejas en frame 15;
+no equivale a una muestra industrial independiente. Se verificaron 19 PNG contra
+outbox y hashes de clips en ocho corridas. Eventos, medidas, IDs y episodios de A/B
+coinciden con los controles previos correctos. Navegador 1440/390 px sin excepciones;
+POST anónimos 403/403. La pérdida de observaciones y las épocas se cubrieron en
+regresiones sintéticas; no se ensayó aquí una reconexión de cámara física.
+
+Regresión: Motor 460 aprobadas y dos omitidas (462 descubiertas), Backend 171/171,
+Frontend 49/49. Sin cambios de modelos, tracking, reglas ni geometrías. La mitigación
+elimina el sondeo observado en la ruta web validada; el defecto binario upstream
+permanece como limitación ante otras rutas de error. No se garantiza ausencia
+universal de accesos inválidos. Trazas, scripts y medios del ensayo quedan locales,
+fuera de Git; no se utilizaron conjuntos protegidos.

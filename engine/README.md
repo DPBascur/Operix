@@ -407,6 +407,14 @@ conversión VFR automática. Los scripts diagnósticos anteriores conservan su
 contrato nominal CFR; no reciben por extensión esta validación web. El analizador
 acepta `timestamp_s` explícito sin cambiar parámetros ni tolerancias de reglas.
 Véase el [contrato de sesiones/video](../backend/README.md#integridad-de-sesiones-y-tiempo-de-video).
+El resultado web conserva H.264 y sus verificaciones de frames, FPS y resolución.
+En Windows se abre directamente MSMF, evitando el intento FFmpeg/OpenH264 fallido
+asociado a un acceso inválido al cerrar OpenCV 5. Si ese codificador no está
+disponible, el análisis falla explícitamente; no reintenta el sondeo afectado.
+En otras plataformas se mantiene la selección automática. No se silencian logs.
+Los códigos de salida fallidos se registran en Backend con sesión y run, sin
+rutas ni credenciales; un receipt completo no sustituye una salida correcta.
+
 Esta integración es experimental en A/B/C; no acredita
 validación industrial, rendimiento sostenido ni cobertura general.
 

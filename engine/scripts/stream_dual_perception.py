@@ -135,6 +135,23 @@ def _analyzed_frames(frames, perception, batch_size, synchronize):
             future.cancel()
 
 
+def _open_result_writer(path: Path, fps: float, dimensions: tuple[int, int]):
+    """H.264 sin sondear el codificador FFmpeg incompatible en Windows.
+
+    MSMF ya era el backend efectivo en este entorno. CAP_ANY intentaba antes
+    FFmpeg sin OpenH264, entrando en la ruta de error asociada a OpenCV #30017.
+    No se silencian logs ni se cambia a un códec menos compatible.
+    """
+    backend = cv2.CAP_MSMF if sys.platform == "win32" else cv2.CAP_ANY
+    writer = cv2.VideoWriter(
+        str(path), backend, cv2.VideoWriter_fourcc(*"avc1"), fps, dimensions,
+    )
+    if not writer.isOpened():
+        writer.release()
+        raise RuntimeError("Este equipo no dispone del codificador H.264 requerido para el resultado")
+    return writer
+
+
 def _release_analysis_resources(frames, writer) -> None:
     """Intenta ambos cierres y conserva todos los errores, incluido el de análisis."""
     original = sys.exception()
@@ -199,13 +216,9 @@ def process(args: argparse.Namespace) -> None:
             raise VideoContractError("INVALID_METADATA", "La fuente cambió después de la verificación")
         partial_result = args.session_dir / "annotated.partial.mp4"
         final_result = args.session_dir / "annotated.mp4"
-        writer = cv2.VideoWriter(
-            str(partial_result), cv2.VideoWriter_fourcc(*"avc1"),
-            metadata.declared_fps, (metadata.width, metadata.height),
+        writer = _open_result_writer(
+            partial_result, metadata.declared_fps, (metadata.width, metadata.height),
         )
-        if not writer.isOpened():
-            writer.release()
-            raise RuntimeError("Este equipo no dispone de un codificador H.264 para el resultado")
         output_backend = writer.getBackendName()
         analyzer = SpatiotemporalAnalyzer(
             width=metadata.width, height=metadata.height,
