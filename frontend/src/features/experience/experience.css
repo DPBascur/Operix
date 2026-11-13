@@ -1,0 +1,487 @@
+.experience {
+  width: min(100% - 3rem, 86rem);
+  margin: clamp(1.5rem, 5vh, 4rem) auto 4rem;
+}
+.experience-header {
+  margin-bottom: clamp(1.4rem, 3vw, 2.5rem);
+}
+.experience-header h2 {
+  font-size: clamp(2rem, 4vw, 3.7rem);
+  font-weight: 680;
+  line-height: 1.07;
+  letter-spacing: -0.038em;
+  margin: 0 0 0.65rem;
+}
+.experience-header p,
+.experience-chapter p,
+.experience-transcript p {
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+.experience-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2.35fr) minmax(14rem, 1fr);
+  gap: clamp(1.2rem, 3vw, 3rem);
+  align-items: center;
+}
+.experience-stage {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: color-mix(in srgb, var(--primary) 5%, var(--surface-muted));
+  isolation: isolate;
+}
+.experience-stage-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.3rem 0.75rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.81rem;
+  color: var(--text-secondary);
+}
+.experience-stage-header span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--foreground);
+  font-weight: 650;
+}
+.warehouse-scene {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.scene-foundation {
+  fill: color-mix(in srgb, var(--primary) 12%, var(--border-strong));
+}
+.scene-floor {
+  fill: color-mix(in srgb, var(--primary) 13%, var(--surface));
+}
+.scene-grid {
+  stroke: color-mix(in srgb, var(--primary) 24%, var(--border));
+  stroke-width: 0.8;
+}
+.scene-walls {
+  fill: color-mix(in srgb, var(--primary) 10%, var(--surface));
+  stroke: var(--border-strong);
+}
+.scene-structure,
+.scene-aisle {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.4;
+}
+.scene-aisle {
+  stroke-dasharray: 9 5;
+}
+.scene-rack-top {
+  fill: color-mix(in srgb, var(--primary) 20%, var(--surface));
+}
+.scene-rack-side {
+  fill: color-mix(in srgb, var(--analysis-surface) 83%, var(--primary));
+}
+.scene-rack-front {
+  fill: color-mix(in srgb, var(--analysis-surface) 63%, var(--primary));
+}
+.scene-rack-lines {
+  fill: none;
+  stroke: color-mix(in srgb, var(--primary) 34%, var(--border-strong));
+  stroke-width: 1.7;
+}
+.scene-parcels {
+  fill: color-mix(in srgb, var(--primary) 12%, var(--sidebar-muted));
+}
+.scene-package-lines {
+  stroke: var(--sidebar);
+  stroke-width: 1;
+}
+.scene-camera {
+  fill: var(--analysis-surface);
+  stroke: color-mix(in srgb, var(--primary) 50%, var(--border-strong));
+  stroke-width: 2;
+}
+.scene-camera-light {
+  fill: var(--primary);
+}
+.scene-camera-cone {
+  fill: var(--primary);
+  opacity: 0.13;
+}
+.scene-signal,
+.scene-trail,
+.scene-measure,
+.scene-detection {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 2.6;
+  stroke-linejoin: round;
+}
+.scene-trail {
+  stroke-dasharray: 3 4;
+}
+.scene-equipment-trail {
+  stroke: color-mix(in srgb, var(--foreground) 64%, var(--primary));
+}
+.scene-label {
+  fill: var(--foreground);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.055em;
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 3px;
+}
+.scene-zone,
+.scene-zone-outline {
+  stroke: var(--primary);
+  stroke-width: 1.5;
+}
+.scene-zone {
+  fill: color-mix(in srgb, var(--primary) 24%, transparent);
+}
+.scene-zone-outline {
+  opacity: 0.27;
+  fill: none;
+  stroke-dasharray: 6 5;
+}
+.scene-object-shadow {
+  fill: var(--analysis-surface);
+  opacity: 0.26;
+}
+.scene-person-limbs,
+.scene-forklift-frame {
+  fill: none;
+  stroke: var(--analysis-background);
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.scene-person-vest,
+.scene-forklift-top {
+  fill: var(--primary);
+}
+.scene-person-face {
+  fill: var(--sidebar-muted);
+}
+.scene-person-helmet {
+  fill: var(--surface-elevated);
+  stroke: var(--primary);
+}
+.scene-vest-line {
+  stroke: var(--primary-foreground);
+  stroke-width: 2;
+}
+.scene-forklift-body {
+  fill: color-mix(in srgb, var(--primary) 70%, var(--analysis-surface));
+}
+.scene-wheel {
+  fill: var(--analysis-background);
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+.scene-event-dot {
+  fill: var(--primary);
+  stroke: var(--surface);
+  stroke-width: 3;
+}
+.experience-chapter h3 {
+  font-size: clamp(1.5rem, 2.65vw, 2.65rem);
+  font-weight: 670;
+  line-height: 1.08;
+  letter-spacing: -0.028em;
+  margin: 0.55rem 0 1rem;
+}
+.experience-chapter .experience-chapter-index {
+  font-variant-numeric: tabular-nums;
+  font-size: 1rem;
+  margin-bottom: 1rem;
+}
+.experience-chapter .experience-chapter-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--foreground);
+}
+.experience-detail {
+  margin: 1.3rem 0;
+  border-top: 1px solid var(--border);
+  padding-top: 0.7rem;
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+.experience-glass {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 70%, transparent),
+    0 14px 26px -20px
+      color-mix(in srgb, var(--surface-inverse) 58%, transparent);
+}
+@supports (backdrop-filter: blur(1px)) {
+  .experience-glass {
+    background: color-mix(in srgb, var(--surface-elevated) 92%, transparent);
+    backdrop-filter: blur(14px);
+  }
+}
+.experience-checks,
+.experience-dossier {
+  position: absolute;
+  inset: auto 0.85rem 0.85rem auto;
+  width: min(14.25rem, calc(100% - 1.7rem));
+  padding: 0.7rem 0.8rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.experience-checks li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0;
+}
+.experience-checks li svg {
+  color: var(--success);
+}
+.experience-dossier {
+  display: grid;
+  gap: 0.25rem;
+}
+.experience-dossier span {
+  color: var(--text-secondary);
+}
+.experience-dossier li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.experience-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  margin-top: 1rem;
+  padding: 0.35rem;
+}
+.experience-toolbar nav,
+.experience-playback {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+}
+.experience-toolbar button,
+.experience-help,
+.experience-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 0.75rem;
+  color: var(--foreground);
+  font-size: 0.82rem;
+  border-radius: var(--radius-button);
+}
+.experience-toolbar button[aria-current="step"],
+.experience-toolbar button:hover:enabled,
+.experience-icon-button:hover {
+  background: var(--surface-muted);
+}
+.experience-toolbar button[aria-current="step"] {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  font-weight: 700;
+}
+.experience-toolbar button:disabled {
+  opacity: 0.42;
+}
+.experience-transcript {
+  margin-top: 1.25rem;
+  font-size: 0.9rem;
+}
+.experience-transcript summary {
+  cursor: pointer;
+  font-weight: 650;
+  width: fit-content;
+}
+.experience-transcript ol {
+  list-style: decimal;
+  margin: 0.8rem 0 0 1.2rem;
+}
+.experience-transcript li {
+  padding: 0.3rem 0;
+}
+.experience-help {
+  position: fixed;
+  z-index: 44;
+  right: 1.1rem;
+  bottom: 1rem;
+  width: 44px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-elevated);
+  box-shadow: 0 8px 14px -11px var(--foreground);
+  transition: background-color 180ms ease-out;
+}
+.experience-help:hover {
+  background: var(--surface-muted);
+}
+.experience-invite,
+.experience-guide {
+  position: fixed;
+  right: 1rem;
+  bottom: 4.4rem;
+  width: min(23rem, calc(100% - 2rem));
+  padding: 0.95rem 1rem;
+  color: var(--foreground);
+  z-index: 53;
+}
+.experience-invite {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+}
+.experience-invite > svg {
+  color: var(--primary);
+  flex: none;
+  margin-top: 0.15rem;
+}
+.experience-invite-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.8rem;
+  font-size: 0.85rem;
+}
+.experience-invite-actions button {
+  min-height: 44px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.experience-guide-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 52;
+  pointer-events: none;
+}
+.experience-guide {
+  pointer-events: auto;
+  max-height: calc(100dvh - 5.5rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.experience-guide[data-position="top"] {
+  top: 5.25rem;
+  bottom: auto;
+  max-height: calc(100dvh - 6.25rem);
+}
+.experience-guide-meta,
+.experience-guide-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.experience-guide-meta {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+.experience-icon-button {
+  min-width: 44px;
+}
+.experience-guide h2 {
+  font-size: 1.3rem;
+  font-weight: 675;
+  line-height: 1.2;
+  margin: 0.55rem 0 0.45rem;
+}
+.experience-guide p {
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+  line-height: 1.47;
+  margin: 0 0 0.6rem;
+}
+.experience-guide progress {
+  display: block;
+  width: 100%;
+  height: 0.35rem;
+  accent-color: var(--primary);
+}
+.experience-guide-options {
+  display: grid;
+  gap: 0.42rem;
+  margin-top: 0.8rem;
+}
+.experience-guide-actions .button,
+.experience-guide-options .button {
+  min-height: 44px;
+}
+.experience-target-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 44px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-size: 0.85rem;
+}
+.experience-focus {
+  position: fixed;
+  border: 2px solid var(--primary);
+  border-radius: 0.8rem;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 17%, transparent);
+  transition:
+    inset 230ms ease-out,
+    width 230ms ease-out,
+    height 230ms ease-out;
+}
+@media (max-width: 70rem) {
+  .experience-grid {
+    grid-template-columns: minmax(0, 1.8fr) minmax(12rem, 1fr);
+    gap: 1rem;
+  }
+  .experience-toolbar {
+    align-items: flex-start;
+  }
+  .experience-playback {
+    flex-wrap: nowrap;
+  }
+}
+@media (max-width: 48rem) {
+  .experience {
+    width: calc(100% - 1.5rem);
+    margin-top: 1rem;
+  }
+  .experience-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .experience-chapter .experience-chapter-index {
+    margin-bottom: 0.3rem;
+  }
+  .experience-chapter h3 {
+    margin: 0.25rem 0 0.5rem;
+  }
+  .experience-detail {
+    margin: 0.65rem 0;
+  }
+  .experience-toolbar {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .experience-playback {
+    align-self: flex-end;
+  }
+  .experience-dossier,
+  .experience-checks {
+    position: relative;
+    inset: auto;
+    width: auto;
+    margin: 0 0.5rem 0.5rem;
+    padding: 0.45rem 0.65rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .experience-focus,
+  .experience-help {
+    transition: none;
+  }
+}

@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { OperixMotionProvider } from "@/components/motion/motion-provider";
 import { SessionProvider } from "@/features/auth/session-provider";
+import { GuideLauncher } from "@/features/experience/guide-launcher";
 import "./globals.css";
+import "@/features/experience/experience.css";
 
 export const metadata: Metadata = {
   title: "Operix Frontend",
@@ -21,7 +23,10 @@ export default function RootLayout({
       </head>
       <body>
         <OperixMotionProvider>
-          <SessionProvider>{children}</SessionProvider>
+          <SessionProvider>
+            {children}
+            <GuideLauncher />
+          </SessionProvider>
         </OperixMotionProvider>
       </body>
     </html>

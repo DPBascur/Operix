@@ -33,7 +33,7 @@ export function canOpen(path: string, role: OperixUser["role"]) {
   if (page === "account") return true;
   if (page === "users") return false;
   if (role === "safety_lead") return true;
-  return ["analysis", "sources", "rules", "zones"].includes(page);
+  return ["analysis", "sources", "rules", "zones", "experience"].includes(page);
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {

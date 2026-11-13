@@ -571,7 +571,7 @@ export function SpatialEditor({
             >
               Crear zona
             </Button>
-            <h3>Plano del suelo</h3>
+            <h3 data-guide="calibration">Plano del suelo</h3>
             <p className="text-sm">
               Metros aproximados, válidos solo para cámara fija, suelo plano y
               referencias medidas. Los bordes de las cajas aproximan el
@@ -757,7 +757,7 @@ export function SpatialEditor({
               }}
               onRelations={(relations) => update({ ...doc, relations })}
             />
-            <h3>Reglas</h3>
+            <h3 data-guide="rules">Reglas</h3>
             {doc.rules.map((rule, i) => (
               <div
                 key={i}

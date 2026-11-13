@@ -666,6 +666,7 @@ export function AnalysisWorkspace({
           <button
             type="button"
             className="analysis-context-button"
+            id="analysis-inspector-trigger"
             aria-expanded={inspectorOpen}
             onClick={() => setInspectorOpen((current) => !current)}
           >
@@ -910,6 +911,7 @@ export function AnalysisWorkspace({
               {canEdit && !editing && (
                 <Button
                   className="order-first"
+                  data-guide="start"
                   onClick={() => void start()}
                   disabled={
                     !session ||
