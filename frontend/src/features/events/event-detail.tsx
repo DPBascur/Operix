@@ -321,6 +321,11 @@ function EventContent({ event }: { event: OperationalEvent }) {
                 ? "No registrado"
                 : String(event.frame_index)}
             </Field>
+            <Field label="Revisión espacial">
+              {typeof source.spatial_revision === "number"
+                ? String(source.spatial_revision)
+                : "No registrada"}
+            </Field>
             <Field label="Tipo canónico">{event.event_type}</Field>
             {geometry && (
               <>

@@ -66,6 +66,7 @@ export interface AnalysisRuleSnapshot {
 }
 
 export interface AnalysisResultConfig {
+  spatial_revision?: number | null;
   motion?: MotionSettings | null;
   relations?: RelationSettings | null;
   profile: AnalysisProfile;
@@ -106,7 +107,7 @@ export interface AnalysisSessionStatus {
   configuration?: (AnalysisRuleSnapshot & { profile: AnalysisProfile }) | null;
   active_configuration?: Pick<
     AnalysisResultConfig,
-    "profile" | "run" | "rules" | "config_sha256"
+    "profile" | "run" | "rules" | "config_sha256" | "spatial_revision"
   > | null;
   pending_changes: boolean;
   frame: number;

@@ -118,6 +118,7 @@ export function SpatialEditor({
   onEditingChange: (editing: boolean) => void;
 }) {
   const [data, setData] = useState<Loaded | null>(null);
+  const [dirty, setDirty] = useState(false);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -180,6 +181,7 @@ export function SpatialEditor({
         };
       }
       setData({ ...data, document: next });
+      setDirty(true);
     }
   }
   const doc = data?.document;
@@ -192,6 +194,7 @@ export function SpatialEditor({
       const loaded = await request("GET");
       if (!mounted.current) return;
       setData(loaded);
+      setDirty(false);
       setOpen(true);
     } catch (e) {
       setMessage(String(e instanceof Error ? e.message : e));
@@ -1073,6 +1076,7 @@ export function SpatialEditor({
                       revision: data.revision,
                     });
                     setData({ ...data, ...result, saved: result.document });
+                    setDirty(false);
                     const response = await apiFetch(
                       `${base}/analysis/sessions/${session.id}/status/`,
                     );
@@ -1100,6 +1104,7 @@ export function SpatialEditor({
                   if (data.saved) {
                     // Revisión inmutable de esta misma fuente, no una edición geométrica.
                     setData({ ...data, document: structuredClone(data.saved) });
+                    setDirty(true);
                     setMessage(
                       "Revisión cargada en el borrador. Guarde para aplicarla a la sesión.",
                     );
@@ -1111,6 +1116,13 @@ export function SpatialEditor({
               <Button
                 variant="ghost"
                 onClick={() => {
+                  if (
+                    dirty &&
+                    !window.confirm(
+                      "¿Descartar los cambios espaciales sin guardar?",
+                    )
+                  )
+                    return;
                   setOpen(false);
                   setData(null);
                   setFrame("");
@@ -1118,7 +1130,7 @@ export function SpatialEditor({
                   setSelected(0);
                 }}
               >
-                Cancelar edición
+                {dirty ? "Cancelar edición" : "Cerrar configuración"}
               </Button>
             </div>
           </fieldset>

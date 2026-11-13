@@ -1138,6 +1138,14 @@ export function AnalysisWorkspace({
             {session && !editing && session.zone.polygon.length < 3 && (
               <span> Cree y aplique una zona para iniciar el análisis.</span>
             )}
+            {canEdit &&
+              session?.configuration?.calibration?.status === "invalid" && (
+                <span>
+                  {" "}
+                  Encuadre invalidado. Abra Zonas, calibración y reglas para
+                  revisar, recalibrar y guardar antes de analizar.
+                </span>
+              )}
             {visibleError && (
               <span className="analysis-error-message">{visibleError}</span>
             )}
@@ -1460,6 +1468,20 @@ export function AnalysisWorkspace({
                         session.state === "preparing"
                       ? "Reglas de la ejecución"
                       : "Reglas del próximo análisis"}
+                </p>
+                <p className="analysis-inspector-note">
+                  {showResult
+                    ? session.result?.spatial_revision
+                      ? `Revisión espacial del resultado: ${session.result.spatial_revision}`
+                      : "Revisión espacial del resultado sin número registrado."
+                    : session.state === "processing" ||
+                        session.state === "preparing"
+                      ? session.active_configuration?.spatial_revision
+                        ? `Revisión espacial en ejecución: ${session.active_configuration.spatial_revision}`
+                        : "Configuración inicial en ejecución."
+                      : session.spatial_revision
+                        ? `Revisión espacial preparada: ${session.spatial_revision}`
+                        : "Configuración inicial preparada."}
                 </p>
                 <RuleConfiguration
                   snapshot={

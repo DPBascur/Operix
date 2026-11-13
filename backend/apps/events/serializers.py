@@ -121,7 +121,8 @@ class EventSerializer(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("source debe ser un objeto.")
         allowed = {"filename", "kind", "video_sha256", "config_sha256", "person_weights_sha256",
-                   "forklift_weights_sha256", "timestamp_basis", "session_id", "session_run", "perception", "spatial_configuration", "epoch"}
+                   "forklift_weights_sha256", "timestamp_basis", "session_id", "session_run", "perception",
+                   "spatial_configuration", "spatial_revision", "epoch"}
         if set(value) - allowed:
             raise serializers.ValidationError("Metadata de fuente no admitida.")
         for key, item in value.items():
@@ -148,9 +149,9 @@ class EventSerializer(serializers.ModelSerializer):
             elif key == "epoch":
                 if type(item) is not int or item < 0:
                     raise serializers.ValidationError("Epoca inv\u00e1lida")
-            elif key == "session_run":
+            elif key in {"session_run", "spatial_revision"}:
                 if type(item) is not int or item < 1:
-                    raise serializers.ValidationError("session_run inválido.")
+                    raise serializers.ValidationError(f"{key} debe ser un entero positivo.")
             elif not isinstance(item, str) or not item or len(item) > 160 or any(c in item for c in ("/", "\\", "\r", "\n")):
                 raise serializers.ValidationError("Solo metadata breve, sin rutas locales.")
             if key.endswith("sha256") and not re.fullmatch(r"[0-9a-fA-F]{64}", str(item)):

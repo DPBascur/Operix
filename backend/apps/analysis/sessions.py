@@ -571,6 +571,7 @@ def _start_session(session: AnalysisSession) -> None:
                          "class_filter": "forklift", "imgsz": 640, "confidence": 0.45, "nms_iou": 0.55},
             "tracker": "ByteTrack independiente por clase",
             "run": session.run,
+            "spatial_revision": session.spatial_revision or None,
             **rule_snapshot(actual),
         }
         polygon_path = session.directory / "polygon.json"
@@ -602,6 +603,7 @@ def _start_session(session: AnalysisSession) -> None:
                       "timestamp_basis": "ANALYSIS_START_PROXY_NOT_RECORDING_TIME",
                       "session_id": str(session.id), "session_run": session.run}
             if session.spatial_revision:
+                source["spatial_revision"] = session.spatial_revision
                 source["spatial_configuration"] = deepcopy(actual)
             context_path = session.outbox_directory / "context.json"
             context_path.write_text(json.dumps({"analysis_run_id": session.analysis_run_id,

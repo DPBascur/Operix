@@ -226,6 +226,7 @@ class WebPersistenceTests(LiveServerTestCase):
             data = self.run_analysis(identity)
         self.assertEqual(data["state"],"completed",data)
         self.assertEqual(data["persistence"]["saved"],2,data)
+        self.assertEqual(data["result"]["spatial_revision"], saved.data["revision"])
         self.assertTrue(clip_slot.acquire(timeout=45), "El generador de clips no finalizó")
         clip_slot.release()
         for event in Event.objects.all():
@@ -234,6 +235,7 @@ class WebPersistenceTests(LiveServerTestCase):
             self.assertEqual(ground["method"],"ground_plane_contact_edges_v1")
             self.assertAlmostEqual(ground["distance"], {1:0.,2:.3125}[event.interaction["forklift"]["track_id"]])
             self.assertEqual(event.source["spatial_configuration"],saved.data["document"])
+            self.assertEqual(event.source["spatial_revision"], saved.data["revision"])
             self.assertEqual(event.interaction["person"]["track_id"],1)
             evidence=self.client.get(f"/api/v1/events/{event.id}/evidence/")
             self.assertEqual(evidence.status_code,200)
@@ -244,6 +246,8 @@ class WebPersistenceTests(LiveServerTestCase):
         start=self.client.post(f"/api/v1/analysis/sessions/{identity}/start/")
         self.assertIn(start.status_code,(400,409,503))
         self.assertEqual(Event.objects.count(),2)
+        for event in Event.objects.all():
+            self.assertEqual(event.source["spatial_revision"], 1)
 
 
 class PersistenceFailureStatusTests(SimpleTestCase):
