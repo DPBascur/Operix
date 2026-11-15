@@ -43,7 +43,7 @@
   font-size: 0.81rem;
   color: var(--text-secondary);
 }
-.experience-stage-header span:first-child {
+.experience-stage-header > span:first-child {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
@@ -574,5 +574,144 @@
   .experience-dossier {
     inset: auto;
     width: auto;
+  }
+}
+
+.experience-view-options {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.experience-view-options button {
+  color: var(--foreground);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  min-height: 44px;
+  padding: 0 0.8rem;
+}
+
+.experience-view-options button:hover {
+  background: var(--surface-muted);
+}
+
+.warehouse-3d {
+  position: relative;
+  aspect-ratio: 3 / 2;
+}
+
+.warehouse-renderer,
+.warehouse-overlay,
+.warehouse-poster {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.warehouse-poster[hidden] {
+  display: none;
+}
+
+.warehouse-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.warehouse-overlay {
+  z-index: 1;
+  pointer-events: none;
+}
+
+.warehouse-detection {
+  overflow: visible;
+  opacity: 0;
+}
+
+.warehouse-detection-box {
+  height: calc(100% - 27px);
+  width: calc(100% - 2px);
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 2.5;
+}
+
+.warehouse-detection-label {
+  fill: var(--primary);
+}
+
+.warehouse-detection text {
+  fill: var(--primary-foreground);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.warehouse-zone {
+  stroke: var(--primary);
+  stroke-width: 2.5;
+  fill: color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
+.warehouse-signal,
+.warehouse-distance,
+.warehouse-trails line {
+  stroke: var(--primary);
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-dasharray: 6 5;
+}
+
+.warehouse-distance {
+  stroke-dasharray: none;
+}
+
+.warehouse-event {
+  fill: var(--primary);
+  stroke: var(--primary-foreground);
+  stroke-width: 3;
+}
+
+.warehouse-capture {
+  position: absolute;
+  z-index: 2;
+  right: 4%;
+  bottom: 4%;
+  width: min(37%, 16rem);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.8rem;
+  background: var(--surface);
+  box-shadow: 0 12px 20px -12px var(--surface-inverse);
+  overflow: hidden;
+}
+
+.warehouse-capture img {
+  width: 100%;
+  aspect-ratio: 13 / 8;
+  object-fit: cover;
+  display: block;
+  background: var(--surface-muted);
+}
+
+.warehouse-capture span,
+.warehouse-fallback {
+  display: block;
+  padding: 0.45rem 0.65rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+@media (max-width: 48rem) {
+  .experience-view-options {
+    gap: 0.4rem;
+  }
+  .warehouse-detection text {
+    font-size: 15px;
+  }
+  .warehouse-capture span {
+    padding: 0.2rem 0.35rem;
+    font-size: 0.68rem;
   }
 }

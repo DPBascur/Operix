@@ -16,10 +16,13 @@ import { useEffect, useRef, useState } from "react";
 import { canOpen, useSession } from "@/features/auth/session-provider";
 import { chapters } from "./chapters";
 import { WarehouseScene } from "./warehouse-scene";
+import { Warehouse3D } from "./warehouse-3d";
 
 export function ObservationStory() {
   const [chapter, setChapter] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [illustrated, setIllustrated] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
   const stage = useRef<HTMLElement>(null);
   const reduced = useReducedMotion();
   const { user } = useSession();
@@ -71,9 +74,33 @@ export function ObservationStory() {
             <span>
               <ScanLine size={16} aria-hidden="true" /> Vista de bodega
             </span>
-            <span>Simulación ilustrativa</span>
+            <div className="experience-view-options">
+              <span>Simulación ilustrativa</span>
+              {!unavailable && (
+                <button
+                  type="button"
+                  aria-pressed={illustrated}
+                  onClick={() => setIllustrated(!illustrated)}
+                >
+                  {illustrated ? "Volver a 3D" : "Comparar con SVG"}
+                </button>
+              )}
+            </div>
           </div>
-          <WarehouseScene chapter={chapter} />
+          {illustrated || unavailable ? (
+            <WarehouseScene chapter={chapter} />
+          ) : (
+            <Warehouse3D
+              chapter={chapter}
+              reduced={Boolean(reduced)}
+              onUnavailable={() => setUnavailable(true)}
+            />
+          )}
+          {unavailable && (
+            <p className="warehouse-fallback">
+              Vista ilustrada · 3D no disponible en este navegador.
+            </p>
+          )}
           <AnimatePresence initial={false}>
             {chapter === 4 && (
               <motion.ol

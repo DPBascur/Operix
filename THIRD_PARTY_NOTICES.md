@@ -52,3 +52,38 @@ declara **AGPL-3.0**; se instala como paquete externo, no como código
 vendorizado de Operix. Las demás dependencias se instalan externamente según
 el [proyecto Python](engine/pyproject.toml) y el lock; sus licencias no se
 sustituyen por la licencia del código propio de Operix.
+
+## Escena 3D de «Cómo funciona Operix»
+
+La bodega, las estanterías, la persona, el montacargas y la cámara son modelos
+originales de Operix. Se distribuyen junto con su fuente de generación
+[`build_warehouse.py`](frontend/tools/build_warehouse.py) y el GLB de la
+aplicación bajo la licencia del repositorio. Blender se usa como herramienta
+de autoría y exportación. El visor servido por Operix no incluye Blender.
+
+El visor utiliza [React Three Fiber](https://github.com/pmndrs/react-three-fiber/blob/master/LICENSE)
+9.8.0, [Three.js](https://github.com/mrdoob/three.js/blob/dev/LICENSE) 0.183.2
+y el decodificador [meshoptimizer](https://github.com/zeux/meshoptimizer/blob/master/LICENSE)
+1.0 distribuido por Three.js. Los tres usan MIT.
+
+- Copyright (c) 2019-2025 Poimandres
+- Copyright © 2010-2026 three.js authors
+- Copyright (C) 2016-2025 Arseny Kapoulkine
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
