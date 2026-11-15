@@ -11,12 +11,19 @@ import { enterTransition } from "@/lib/motion/presets";
 import type { OperixUser } from "@/services/browser-session";
 import { guideSteps, type GuideKind, type GuideStep } from "./guide-steps";
 
-type Position = { top: number; left: number; width: number; height: number };
+import {
+  focusRect,
+  positionGuide,
+  visibleControl,
+  type FocusRect,
+} from "./guide-position";
+
 const GUIDE_VERSION = 1;
-const withoutTarget: { position: Position | null; atTop: boolean } = {
-  position: null,
-  atTop: false,
+type GuideView = {
+  position: FocusRect | null;
+  panel: { left: number; top: number } | null;
 };
+const withoutTarget: GuideView = { position: null, panel: null };
 
 export function ExperienceGuide({
   user,
@@ -75,89 +82,110 @@ export function ExperienceGuide({
   }, [open, step]);
 
   useEffect(() => {
+    if (!open) return;
+    function escape(event: KeyboardEvent) {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      setKind(null);
+      onOpenChange(false);
+      document
+        .getElementById("operix-guide-launcher")
+        ?.focus({ preventScroll: true });
+    }
+    document.addEventListener("keydown", escape);
+    return () => document.removeEventListener("keydown", escape);
+  }, [open, onOpenChange]);
+
+  useEffect(() => {
     if (!open || !step || !onRoute) return;
     let frame = 0;
     let previous: HTMLElement | null = null;
-    let didReveal = false;
+    let revealed: HTMLElement | null = null;
     const resize = new ResizeObserver(schedule);
     if (panel.current) resize.observe(panel.current);
+
     function measure() {
-      const viewportWidth = document.documentElement.clientWidth;
-      const viewportHeight = window.innerHeight;
-      const active =
-        step &&
-        [...document.querySelectorAll<HTMLElement>(step.target)].find(
-          (element) => element.getClientRects().length > 0,
-        );
+      if (!step || !panel.current) return;
+      const active = visibleControl(step.target);
       if (active !== previous) {
         if (previous) resize.unobserve(previous);
-        previous = active ?? null;
+        previous = active;
         if (active) resize.observe(active);
       }
-      target.current = active ?? null;
+      target.current = active;
       if (!active) {
-        setView((value) => (value.position ? withoutTarget : value));
+        setView(withoutTarget);
         return;
       }
-      let rect = active.getBoundingClientRect();
-      const panelHeight = panel.current?.offsetHeight ?? 230;
-      if (!didReveal) {
-        didReveal = true;
-        if (rect.top < 80 || rect.bottom > viewportHeight - panelHeight - 82) {
-          window.scrollBy({
-            top: rect.top - Math.min(170, viewportHeight * 0.23),
+
+      const width = document.documentElement.clientWidth;
+      const height = window.innerHeight;
+      const space = () => {
+        const position = focusRect(active);
+        return position
+          ? {
+              position,
+              panel: positionGuide(
+                position,
+                panel.current!.offsetWidth,
+                panel.current!.offsetHeight,
+                width,
+                height,
+              ),
+            }
+          : withoutTarget;
+      };
+      let next = space();
+      if (revealed !== active) {
+        if (!next.position || !next.panel) {
+          active.scrollIntoView({
+            block: "center",
+            inline: "nearest",
             behavior: "instant",
           });
-          rect = active.getBoundingClientRect();
+          next = space();
         }
+        if (next.position) revealed = active;
       }
-      const left = Math.max(0, rect.left - 5);
-      const top = Math.max(0, rect.top - 5);
-      const width = Math.min(viewportWidth, rect.right + 5) - left;
-      const height = Math.min(viewportHeight, rect.bottom + 5) - top;
-      const position =
-        width > 0 && height > 0 ? { top, left, width, height } : null;
-      const atTop =
-        rect.bottom > viewportHeight - panelHeight - 82 &&
-        rect.top >= panelHeight + 90;
-      setView((value) => {
-        const old = value.position;
-        if (
-          value.atTop === atTop &&
-          ((!old && !position) ||
-            (old &&
-              position &&
-              Object.keys(position).every(
-                (k) =>
-                  Math.abs(
-                    old[k as keyof Position] - position[k as keyof Position],
-                  ) < 0.5,
-              )))
-        )
-          return value;
-        return { position, atTop };
-      });
+      setView((old) =>
+        JSON.stringify(old) === JSON.stringify(next) ? old : next,
+      );
     }
+
     function schedule() {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(measure);
     }
     const mutations = new MutationObserver(schedule);
     const main = document.querySelector("main");
-    if (main)
+    if (main) {
+      resize.observe(main);
       mutations.observe(main, {
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ["open", "hidden", "aria-expanded"],
+        attributeFilter: [
+          "open",
+          "hidden",
+          "disabled",
+          "aria-pressed",
+          "aria-expanded",
+        ],
       });
+    }
     window.addEventListener("scroll", schedule, {
       passive: true,
       capture: true,
     });
     window.addEventListener("resize", schedule);
+    window.visualViewport?.addEventListener("resize", schedule);
     schedule();
-    const timeout = window.setTimeout(() => setWaiting(false), 1300);
+    const timeout = window.setTimeout(() => {
+      setWaiting(false);
+      // A disclosure can move a control after its first measurable layout.
+      if (previous && !focusRect(previous)) revealed = null;
+      schedule();
+    }, 950);
     return () => {
       cancelAnimationFrame(frame);
       clearTimeout(timeout);
@@ -165,9 +193,10 @@ export function ExperienceGuide({
       resize.disconnect();
       window.removeEventListener("scroll", schedule, true);
       window.removeEventListener("resize", schedule);
+      window.visualViewport?.removeEventListener("resize", schedule);
       target.current = null;
     };
-  }, [open, onRoute, step]);
+  }, [open, onRoute, pathname, step]);
 
   function remember() {
     setUnseen(false);
@@ -231,31 +260,41 @@ export function ExperienceGuide({
   const spotlight = onRoute && view.position;
 
   return createPortal(
-    <div
-      className="experience-guide-layer"
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          close();
-        }
-      }}
-    >
-      {spotlight && (
-        <div
-          className="experience-focus"
-          style={{
-            top: spotlight.top,
-            left: spotlight.left,
-            width: spotlight.width,
-            height: spotlight.height,
-          }}
+    <div className="experience-guide-layer">
+      {step && (
+        <svg
+          className="experience-veil"
           aria-hidden="true"
-        />
+          data-focused={!!spotlight}
+        >
+          <defs>
+            <mask id="experience-spotlight">
+              <rect width="100%" height="100%" fill="white" />
+              <rect
+                className="experience-aperture"
+                fill="black"
+                style={
+                  spotlight
+                    ? {
+                        x: spotlight.left + "px",
+                        y: spotlight.top + "px",
+                        width: spotlight.width,
+                        height: spotlight.height,
+                        rx: spotlight.radius + "px",
+                      }
+                    : { width: 0, height: 0 }
+                }
+              />
+            </mask>
+          </defs>
+          <rect width="100%" height="100%" mask="url(#experience-spotlight)" />
+        </svg>
       )}
       <motion.aside
         ref={panel}
         className="experience-guide experience-glass"
-        data-position={onRoute && view.atTop ? "top" : "bottom"}
+        data-position={onRoute && view.panel ? "anchored" : "fallback"}
+        style={onRoute && view.panel ? view.panel : undefined}
         aria-labelledby="experience-guide-title"
         initial={reduced ? false : { opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -276,11 +315,16 @@ export function ExperienceGuide({
           </button>
         </div>
         {step && (
-          <progress
-            value={index + 1}
-            max={steps.length}
+          <div
+            className="experience-guide-progress"
+            role="progressbar"
             aria-label="Progreso de la guía"
-          />
+            aria-valuenow={index + 1}
+            aria-valuemin={0}
+            aria-valuemax={steps.length}
+          >
+            <span style={{ transform: `scaleX(${(index + 1) / steps.length})` }} />
+          </div>
         )}
         <h2 ref={title} id="experience-guide-title" tabIndex={-1}>
           {step?.title ?? "Descubre cómo funciona Operix"}
@@ -297,7 +341,7 @@ export function ExperienceGuide({
             {onRoute && !spotlight && (
               <p role="status">
                 {waiting
-                  ? "Buscando el control…"
+                  ? "Esperando que cargue la vista…"
                   : (step.optional ??
                     "El control no está disponible ahora. Puedes continuar con la guía.")}
               </p>

@@ -12,21 +12,23 @@ export type GuideStep = {
 
 const sources: GuideStep = {
   route: "/sources",
-  target: ".source-catalog",
+  target:
+    '.source-card a[href*="profile="], .source-card a[href*="source=manual"]',
   title: "Selecciona una fuente",
   description:
     "Abre una demo o elige un archivo propio. Puedes usar los controles de esta página y retomar la guía desde el panel.",
 };
 const analysis: GuideStep = {
   route: "/analysis",
-  target: ".analysis-contextbar",
+  target:
+    ".analysis-context-button:has(input[type=file]:enabled), .analysis-profile[aria-pressed=true]",
   title: "Comprueba el escenario",
   description:
     "Confirma que el video y el perfil coincidan con el escenario que quieres revisar. El perfil determina la demo y su configuración inicial.",
 };
 const events: GuideStep = {
   route: "/events",
-  target: ".event-ledger",
+  target: ".event-ledger select",
   title: "Revisa los eventos",
   description:
     "Consulta los registros y usa los filtros para acotar la revisión. Abre un evento disponible para continuar en su dossier.",
@@ -34,7 +36,8 @@ const events: GuideStep = {
 const evidence: GuideStep = {
   route: "/events",
   matchPrefix: true,
-  target: "#evidence-title",
+  target:
+    'figure[aria-labelledby="evidence-title"] a, figure[aria-labelledby="evidence-title"] video, .event-ledger a[href^="/events/"]',
   title: "Abre la evidencia",
   description:
     "El dossier reúne PNG, clip cuando existe, regla y contexto. Un evento indica una condición configurada satisfecha y requiere revisión humana.",
@@ -63,7 +66,7 @@ export function guideSteps(
         ? [
             {
               route: "/",
-              target: "main h2",
+              target: 'main a[href^="/indicators"]',
               title: "Resumen de Operix",
               description:
                 "Consulta la actividad registrada y abre los indicadores o el historial desde esta vista.",
@@ -74,7 +77,7 @@ export function guideSteps(
       analysis,
       {
         route: "/zones",
-        target: ".zones-guide, #zone-workbench-title",
+        target: 'main a[href="/analysis"]',
         title: "Encuentra las zonas",
         description:
           "Las zonas se trazan sobre la fuente que se va a analizar. Desde esta página puedes volver al editor de Análisis.",
@@ -82,7 +85,7 @@ export function guideSteps(
       calibration,
       {
         route: "/rules",
-        target: "main h2",
+        target: 'main a[href="/analysis"]',
         title: "Consulta las reglas",
         description:
           "Revisa qué reglas están habilitadas por perfil. Para cambiar la configuración de una fuente, usa el editor de Análisis.",
@@ -93,7 +96,7 @@ export function guideSteps(
             evidence,
             {
               route: "/indicators",
-              target: "main h2",
+              target: ".history-controls select",
               title: "Consulta indicadores",
               description:
                 "Compara la evolución y recurrencia de los eventos registrados por período y procedencia.",
@@ -102,7 +105,7 @@ export function guideSteps(
         : []),
       {
         route: "/account",
-        target: "main h1",
+        target: "#current",
         title: "Cuenta y seguridad",
         description:
           "Puedes cambiar tu contraseña desde Mi cuenta. Usa el menú de tu cuenta para volver al trabajo o cerrar sesión.",
@@ -115,7 +118,8 @@ export function guideSteps(
     analysis,
     {
       route: "/analysis",
-      target: '[aria-label="Configuración espacial"] > button',
+      target:
+        '[aria-label="Zona seleccionada"], [aria-label="Configuración espacial"] > button',
       title: "Delimita una zona",
       description:
         "Abre Zonas, calibración y reglas. Traza un polígono sobre el suelo de la fuente actual y revisa sus vértices.",
@@ -144,11 +148,11 @@ export function guideSteps(
       description:
         "Pulsa Iniciar análisis si quieres procesar el video. La guía deja esa decisión en tus manos.",
       optional:
-        "Prepara una fuente y aplica la configuración necesaria para habilitar la acción.",
+        "Si la fuente expiró, elige otra demo o un archivo. Si el editor está abierto, revisa los cambios y ciérralo antes de iniciar.",
     },
     {
       route: "/analysis",
-      target: ".analysis-summary",
+      target: "#analysis-inspector-trigger",
       title: "Interpreta el progreso",
       description:
         "El panel muestra fotogramas procesados y FPS del Motor. El resultado final se habilita cuando termina el procesamiento.",

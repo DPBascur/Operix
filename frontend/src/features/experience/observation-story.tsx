@@ -73,14 +73,7 @@ export function ObservationStory() {
             </span>
             <span>Simulación ilustrativa</span>
           </div>
-          <motion.div
-            className="experience-drawing"
-            initial={false}
-            animate={{ scale: last && !reduced ? 0.94 : 1 }}
-            transition={{ duration: reduced ? 0 : 0.55 }}
-          >
-            <WarehouseScene chapter={chapter} />
-          </motion.div>
+          <WarehouseScene chapter={chapter} />
           <AnimatePresence initial={false}>
             {chapter === 4 && (
               <motion.ol
@@ -111,7 +104,10 @@ export function ObservationStory() {
                 initial={reduced ? false : { opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: reduced ? 0 : 0.32 }}
+                transition={{
+                  duration: reduced ? 0 : 0.32,
+                  delay: reduced ? 0 : 0.63,
+                }}
               >
                 <strong>Expediente ilustrativo</strong>
                 <span>Proximidad · Regla de ejemplo · 00:12</span>
