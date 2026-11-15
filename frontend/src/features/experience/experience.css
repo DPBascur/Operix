@@ -632,7 +632,7 @@
 }
 
 .warehouse-detection-box {
-  height: calc(100% - 27px);
+  height: calc(100% - 31px);
   width: calc(100% - 2px);
   fill: none;
   stroke: var(--primary);
@@ -645,19 +645,25 @@
 
 .warehouse-detection text {
   fill: var(--primary-foreground);
-  font-size: 13px;
+  font-size: 17px;
   font-weight: 700;
 }
 
-.warehouse-zone {
-  stroke: var(--primary);
+.warehouse-cone {
+  fill: color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+.warehouse-frame {
+  fill: none;
+  stroke: var(--primary-foreground);
   stroke-width: 2.5;
-  fill: color-mix(in srgb, var(--primary) 14%, transparent);
+  stroke-dasharray: 8 5;
 }
 
 .warehouse-signal,
 .warehouse-distance,
-.warehouse-trails line {
+.warehouse-trails polyline {
+  fill: none;
   stroke: var(--primary);
   stroke-width: 3.5;
   stroke-linecap: round;
@@ -677,9 +683,7 @@
 .warehouse-capture {
   position: absolute;
   z-index: 2;
-  right: 4%;
-  bottom: 4%;
-  width: min(37%, 16rem);
+  pointer-events: none;
   border: 1px solid var(--border-strong);
   border-radius: 0.8rem;
   background: var(--surface);
@@ -689,13 +693,11 @@
 
 .warehouse-capture img {
   width: 100%;
-  aspect-ratio: 13 / 8;
   object-fit: cover;
   display: block;
   background: var(--surface-muted);
 }
 
-.warehouse-capture span,
 .warehouse-fallback {
   display: block;
   padding: 0.45rem 0.65rem;
@@ -708,10 +710,28 @@
     gap: 0.4rem;
   }
   .warehouse-detection text {
-    font-size: 15px;
+    font-size: 21px;
   }
-  .warehouse-capture span {
-    padding: 0.2rem 0.35rem;
-    font-size: 0.68rem;
-  }
+}
+
+.experience-rule-icon {
+  position: relative;
+  display: inline-grid;
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.experience-rule-icon > span {
+  position: absolute;
+  inset: 0;
+  background: var(--surface);
+  border-radius: 50%;
+}
+
+.warehouse-departure {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: #131e36;
+  pointer-events: none;
 }

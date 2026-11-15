@@ -1,10 +1,11 @@
 "use client";
 
 import { Canvas, useFrame, useLoader, useThree } from "@react-three/fiber";
-import { animate, useMotionValue, type MotionValue } from "motion/react";
+import type { MotionValue } from "motion/react";
 import { Suspense, useEffect, useMemo, useRef, type RefObject } from "react";
 import {
   Mesh,
+  type MeshBasicMaterial,
   CanvasTexture,
   Vector3,
   type Object3D,
@@ -13,20 +14,34 @@ import {
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 
+import { captureBeat, storyPaths, storyPose, unit } from "./warehouse-timeline";
+
 const WIDTH = 900;
 const HEIGHT = 600;
-const cameraPosition = [10, 11.2, 14.8] as const;
-const personStart = [-1.9, 1.27] as const;
-const personEnd = [-0.7, 0.69] as const;
-const liftStart = [2.35, 0.68] as const;
-const liftEnd = [0.95, 0.32] as const;
-const zone = [
-  [-2.6, -0.75],
-  [2.55, -0.75],
-  [2.55, 1.65],
-  [-2.6, 1.65],
-] as const;
-const clamp = (v: number) => Math.min(1, Math.max(0, v));
+const halfWidth = 7.6;
+
+export type WarehouseCapture = {
+  url: string;
+  bounds: readonly [left: number, top: number, width: number, height: number];
+};
+
+function frameCamera(
+  camera: OrthographicCamera,
+  shot: ReturnType<typeof storyPose>["shot"],
+) {
+  const [x, y, z, width, yaw, pitch] = shot;
+  const radius = 20;
+  const horizontal = radius * Math.cos(pitch);
+  camera.position.set(
+    x + Math.sin(yaw) * horizontal,
+    y + Math.sin(pitch) * radius,
+    z + Math.cos(yaw) * horizontal,
+  );
+  camera.lookAt(x, y, z);
+  camera.zoom = (halfWidth * 2) / width;
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld();
+}
 
 function makeShadow() {
   const image = document.createElement("canvas");
@@ -47,19 +62,20 @@ type Marks = {
   worker: SVGSVGElement;
   lift: SVGSVGElement;
   trails: SVGGElement;
-  workerTrack: SVGLineElement;
-  liftTrack: SVGLineElement;
+  workerTrack: SVGPolylineElement;
+  liftTrack: SVGPolylineElement;
   cameraSignal: SVGGElement;
   cameraLine: SVGLineElement;
   spatial: SVGGElement;
-  zone: SVGPolygonElement;
+  captureFrame: SVGRectElement;
+  cameraCone: SVGPolygonElement;
   distance: SVGLineElement;
   event: SVGGElement;
   eventPoint: SVGCircleElement;
 };
 
 function opacity(node: SVGElement, value: number) {
-  node.style.opacity = String(clamp(value));
+  node.style.opacity = String(unit(value));
 }
 
 function line(node: SVGLineElement, start: Vector3, end: Vector3) {
@@ -97,21 +113,30 @@ function drawBox(
         }
   });
   svg.setAttribute("x", String(minX - 3));
-  svg.setAttribute("y", String(minY - 29));
+  svg.setAttribute("y", String(minY - 33));
   svg.setAttribute("width", String(maxX - minX + 6));
-  svg.setAttribute("height", String(maxY - minY + 32));
+  svg.setAttribute("height", String(maxY - minY + 36));
+  return { minX, maxX, minY, maxY };
 }
 
 function Warehouse({
   clock,
+  chapter,
+  reduced,
+  suspended,
+  onContextChange,
   overlay,
   onReady,
   onCapture,
 }: {
   clock: MotionValue<number>;
+  chapter: number;
+  reduced: boolean;
+  suspended: boolean;
+  onContextChange: (lost: boolean) => void;
   overlay: RefObject<SVGSVGElement | null>;
   onReady: () => void;
-  onCapture: (image: string) => void;
+  onCapture: (image: WarehouseCapture) => void;
 }) {
   const { scene } = useLoader(
     GLTFLoader,
@@ -120,6 +145,8 @@ function Warehouse({
   );
   const { camera, invalidate, gl, scene: renderScene } = useThree();
   const captured = useRef(false);
+  const zone = useRef<MeshBasicMaterial>(null);
+  const point = useMemo(() => new Vector3(), []);
   const shadow = useMemo(() => makeShadow(), []);
   const workerShadow = useRef<Mesh>(null);
   const liftShadow = useRef<Mesh>(null);
@@ -134,38 +161,46 @@ function Warehouse({
 
   useEffect(() => {
     invalidate();
-    return clock.on("change", invalidate);
-  }, [clock, invalidate]);
+    if (!reduced && !suspended) return clock.on("change", invalidate);
+  }, [chapter, clock, invalidate, reduced, suspended]);
 
   useEffect(() => () => shadow.dispose(), [shadow]);
+
+  useEffect(() => {
+    const canvas = gl.domElement;
+    const lost = (event: Event) => {
+      event.preventDefault();
+      onContextChange(true);
+    };
+    const restored = () => {
+      onContextChange(false);
+      invalidate();
+    };
+    canvas.addEventListener("webglcontextlost", lost);
+    canvas.addEventListener("webglcontextrestored", restored);
+    return () => {
+      canvas.removeEventListener("webglcontextlost", lost);
+      canvas.removeEventListener("webglcontextrestored", restored);
+    };
+  }, [gl, invalidate, onContextChange]);
 
   useEffect(() => {
     onReady();
   }, [onReady]);
 
-  useFrame(() => {
+  function draw(beat: number, takeCapture = false) {
     const root = overlay.current;
-    if (!root || !worker || !lift) return;
+    if (!root || !worker || !lift || !(camera instanceof OrthographicCamera))
+      return;
     const find = <T extends SVGElement>(name: keyof Marks) =>
       root.querySelector<T>(`[data-mark="${name}"]`)!;
-    const chapter = clock.get();
-    if (chapter < 5.95) captured.current = false;
-    const t = clamp((chapter - 1.02) / 0.94);
-    const turning = Math.sin(Math.PI * t);
-    const gait =
-      Math.sin(t * Math.PI * 8) * 0.36 * Math.sin(Math.PI * t) ** 0.33;
-    worker.position.set(
-      personStart[0] + (personEnd[0] - personStart[0]) * t,
-      Math.abs(gait) * 0.04,
-      personStart[1] + (personEnd[1] - personStart[1]) * t,
-    );
-    lift.position.set(
-      liftStart[0] + (liftEnd[0] - liftStart[0]) * t,
-      0,
-      liftStart[1] + (liftEnd[1] - liftStart[1]) * t,
-    );
-    worker.rotation.set(0, 0.59 + turning * 1.36, 0);
-    lift.rotation.set(0, -0.61 - turning * 0.91, 0);
+    const pose = storyPose(beat);
+    frameCamera(camera, pose.shot);
+    const gait = pose.worker.gait * 0.38;
+    worker.position.set(pose.worker.x, 0, pose.worker.z);
+    lift.position.set(pose.equipment.x, 0, pose.equipment.z);
+    worker.rotation.set(0, pose.worker.yaw, 0);
+    lift.rotation.set(0, pose.equipment.yaw, 0);
     workerShadow.current?.position.set(
       worker.position.x,
       0.012,
@@ -174,10 +209,23 @@ function Warehouse({
     liftShadow.current?.position.set(lift.position.x, 0.012, lift.position.z);
     liftShadow.current?.rotation.set(-Math.PI / 2, lift.rotation.y, 0, "YXZ");
     legs.forEach((part, index) => {
-      if (part) part.rotation.x = gait * (index % 2 ? -1 : 1);
+      if (part)
+        part.rotation.x = gait * (index % 2 ? -1 : 1) * (index < 2 ? 1 : -0.62);
     });
-    wheels.forEach((wheel) => {
-      if (wheel) wheel.rotation.x = -t * 5.3;
+    const soleHeight = Math.min(
+      ...legs
+        .slice(0, 2)
+        .map((leg) => leg?.localToWorld(point.set(0, -0.912, 0.06)).y ?? 0),
+    );
+    worker.position.setY(Math.max(-0.025, Math.min(0.09, -soleHeight)));
+    wheels.forEach((wheel, index) => {
+      if (wheel)
+        wheel.rotation.set(
+          pose.equipment.travel / (index < 2 ? 0.34 : 0.266),
+          index < 2 ? 0 : pose.equipment.steering,
+          0,
+          "YXZ",
+        );
     });
     const project = (point: Vector3) => {
       point.project(camera);
@@ -191,74 +239,121 @@ function Warehouse({
       project(new Vector3(object.position.x, 0.025, object.position.z));
     const person = feet(worker);
     const equipment = feet(lift);
-    const detection = clamp(chapter * 1.3) * (1 - clamp(chapter - 5));
     const workerMark = find<SVGSVGElement>("worker");
     const liftMark = find<SVGSVGElement>("lift");
-    if (detection > 0) {
+    opacity(workerMark, pose.detection);
+    opacity(liftMark, pose.detection);
+    if (pose.detection > 0) {
       drawBox(workerMark, worker, project);
       drawBox(liftMark, lift, project);
     }
-    opacity(workerMark, detection);
-    opacity(liftMark, detection);
-    opacity(find("trails"), t * clamp((3 - chapter) * 3));
-    line(
-      find("workerTrack"),
-      project(new Vector3(personStart[0], 0.025, personStart[1])),
-      person,
-    );
-    line(
-      find("liftTrack"),
-      project(new Vector3(liftStart[0], 0.025, liftStart[1])),
-      equipment,
-    );
-    opacity(find("cameraSignal"), 1 - chapter);
-    line(
-      find("cameraLine"),
-      project(new Vector3(-4.9, 2.94, -1.93)),
-      project(new Vector3(-3.85, 2.43, -0.43)),
-    );
-    opacity(find("spatial"), (chapter - 2) * 1.4);
-    find("zone").setAttribute(
-      "points",
-      zone
-        .map(([x, z]) => {
-          const v = project(new Vector3(x, 0.025, z));
-          return `${v.x},${v.y}`;
-        })
-        .join(" "),
-    );
-    line(find("distance"), person, equipment);
-    opacity(find("event"), (chapter - 4) * 1.28);
-    find("eventPoint").setAttribute("cx", String((person.x + equipment.x) / 2));
-    find("eventPoint").setAttribute("cy", String((person.y + equipment.y) / 2));
-    if (chapter >= 5.99 && !captured.current) {
-      captured.current = true;
-      gl.render(renderScene, camera);
-      const source = gl.domElement;
-      const image = document.createElement("canvas");
-      image.width = 520;
-      image.height = 320;
-      const center = (person.x + equipment.x) / (2 * WIDTH);
-      image
-        .getContext("2d")
-        ?.drawImage(
-          source,
-          (center - 0.205) * source.width,
-          0.29 * source.height,
-          0.41 * source.width,
-          0.38 * source.height,
-          0,
-          0,
-          image.width,
-          image.height,
+
+    opacity(find("trails"), pose.tracks);
+    if (pose.tracks > 0) {
+      const paths = storyPaths(pose.person, pose.forklift);
+      (["workerTrack", "liftTrack"] as const).forEach((name, index) => {
+        find(name).setAttribute(
+          "points",
+          paths[index]
+            .map(({ x, z }) => {
+              const p = project(point.set(x, 0.025, z));
+              return `${p.x},${p.y}`;
+            })
+            .join(" "),
         );
-      onCapture(image.toDataURL("image/webp", 0.86));
+      });
     }
+
+    opacity(find("cameraSignal"), pose.cameraSignal);
+    if (pose.cameraSignal > 0) {
+      const lens = [-4.9, 2.94, -1.93] as const;
+      line(
+        find("cameraLine"),
+        project(new Vector3(...lens)),
+        project(new Vector3(-2.1, 0.08, 0.85)),
+      );
+      find("cameraCone").setAttribute(
+        "points",
+        [lens, [-2.25, 0.02, 1.7], [-0.95, 0.02, -0.04]]
+          .map(([x, y, z]) => {
+            const p = project(point.set(x, y, z));
+            return `${p.x},${p.y}`;
+          })
+          .join(" "),
+      );
+    }
+
+    if (zone.current)
+      Object.assign(zone.current, { opacity: pose.spatial * 0.25 });
+    opacity(find("spatial"), pose.spatial);
+    line(find("distance"), person, equipment);
+    opacity(find("event"), pose.event);
+    const marker = find("eventPoint");
+    marker.setAttribute("cx", String((person.x + equipment.x) / 2));
+    marker.setAttribute("cy", String((person.y + equipment.y) / 2));
+
+    const frameOpacity = pose.event * unit((beat - 4.84) / 0.22);
+    const frame = find("captureFrame");
+    opacity(frame, frameOpacity);
+    if (frameOpacity > 0 || takeCapture) {
+      const a = drawBox(workerMark, worker, project);
+      const b = drawBox(liftMark, lift, project);
+      const left = Math.max(0, Math.min(a.minX, b.minX) - 22);
+      const top = Math.max(0, Math.min(a.minY, b.minY) - 22);
+      const width = Math.min(WIDTH, Math.max(a.maxX, b.maxX) + 22) - left;
+      const height = Math.min(HEIGHT, Math.max(a.maxY, b.maxY) + 22) - top;
+      frame.setAttribute("x", String(left));
+      frame.setAttribute("y", String(top));
+      frame.setAttribute("width", String(width));
+      frame.setAttribute("height", String(height));
+      if (takeCapture) {
+        gl.render(renderScene, camera);
+        const source = gl.domElement;
+        const image = document.createElement("canvas");
+        image.width = 560;
+        image.height = Math.round((image.width * height) / width);
+        image
+          .getContext("2d")
+          ?.drawImage(
+            source,
+            (left / WIDTH) * source.width,
+            (top / HEIGHT) * source.height,
+            (width / WIDTH) * source.width,
+            (height / HEIGHT) * source.height,
+            0,
+            0,
+            image.width,
+            image.height,
+          );
+        captured.current = true;
+        onCapture({
+          url: image.toDataURL("image/webp", 0.86),
+          bounds: [left / WIDTH, top / HEIGHT, width / WIDTH, height / HEIGHT],
+        });
+      }
+    }
+  }
+
+  useFrame(() => {
+    if (suspended) return;
+    const beat = reduced ? chapter : clock.get();
+    if (!captured.current && beat >= captureBeat) draw(captureBeat, true);
+    draw(beat);
   });
 
   return (
     <>
       <primitive object={scene} />
+      <mesh position={[-0.025, 0.009, 0.45]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[5.15, 2.4]} />
+        <meshBasicMaterial
+          ref={zone}
+          color="#2a78db"
+          transparent
+          depthWrite={false}
+          opacity={0}
+        />
+      </mesh>
       <mesh ref={workerShadow} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[0.9, 0.68]} />
         <meshBasicMaterial
@@ -302,20 +397,24 @@ function Warehouse({
 
 export default function WarehouseCanvas({
   chapter,
+  clock,
   reduced,
+  suspended,
+  onContextChange,
   overlay,
   onReady,
   onCapture,
 }: {
   chapter: number;
+  clock: MotionValue<number>;
   reduced: boolean;
+  suspended: boolean;
+  onContextChange: (lost: boolean) => void;
   overlay: RefObject<SVGSVGElement | null>;
   onReady: () => void;
-  onCapture: (image: string) => void;
+  onCapture: (image: WarehouseCapture) => void;
 }) {
-  const clock = useMotionValue(chapter);
   const camera = useMemo(() => {
-    const halfWidth = 7.6;
     const halfHeight = (halfWidth * HEIGHT) / WIDTH;
     const view = new OrthographicCamera(
       -halfWidth,
@@ -325,22 +424,9 @@ export default function WarehouseCanvas({
       0.1,
       70,
     );
-    view.position.set(...cameraPosition);
-    view.lookAt(0, 0.82, 0);
-    view.updateMatrixWorld();
+    frameCamera(view, storyPose(0).shot);
     return Object.assign(view, { manual: true });
   }, []);
-  useEffect(() => {
-    if (reduced) {
-      clock.jump(chapter);
-      return;
-    }
-    const transition = animate(clock, chapter, {
-      duration: Math.min(1.5, 0.48 + Math.abs(chapter - clock.get()) * 0.37),
-      ease: [0.42, 0, 0.22, 1],
-    });
-    return () => transition.stop();
-  }, [chapter, clock, reduced]);
 
   return (
     <Canvas
@@ -364,7 +450,11 @@ export default function WarehouseCanvas({
       />
       <Suspense fallback={null}>
         <Warehouse
+          chapter={chapter}
           clock={clock}
+          reduced={reduced}
+          suspended={suspended}
+          onContextChange={onContextChange}
           overlay={overlay}
           onReady={onReady}
           onCapture={onCapture}

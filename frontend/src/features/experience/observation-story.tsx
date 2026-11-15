@@ -4,19 +4,56 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  Circle,
   Film,
   ImageIcon,
   Pause,
   Play,
   ScanLine,
 } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import {
+  animate,
+  motion,
+  useMotionValue,
+  useMotionValueEvent,
+  useReducedMotion,
+  useTransform,
+} from "motion/react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { canOpen, useSession } from "@/features/auth/session-provider";
 import { chapters } from "./chapters";
 import { WarehouseScene } from "./warehouse-scene";
 import { Warehouse3D } from "./warehouse-3d";
+import {
+  dossierBeat,
+  lastBeat,
+  secondsPerBeat,
+  storyPose,
+} from "./warehouse-timeline";
+
+function RuleCheck({
+  clock,
+  index,
+  label,
+}: {
+  clock: ReturnType<typeof useMotionValue<number>>;
+  index: number;
+  label: string;
+}) {
+  const opacity = useTransform(clock, (beat) => storyPose(beat).rules[index]);
+  return (
+    <li>
+      <span className="experience-rule-icon" aria-hidden="true">
+        <Circle size={15} />
+        <motion.span style={{ opacity }}>
+          <Check size={15} />
+        </motion.span>
+      </span>
+      {label}
+    </li>
+  );
+}
 
 export function ObservationStory() {
   const [chapter, setChapter] = useState(0);
@@ -24,38 +61,73 @@ export function ObservationStory() {
   const [illustrated, setIllustrated] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const stage = useRef<HTMLElement>(null);
+  const clock = useMotionValue(0);
+  const [target, setTarget] = useState<{ chapter: number } | null>(null);
+  const [visible, setVisible] = useState(false);
+  const [evidenceVisible, setEvidenceVisible] = useState(false);
+  const [rulesVisible, setRulesVisible] = useState(false);
+  const dossierOpacity = useTransform(
+    clock,
+    [dossierBeat - 0.22, dossierBeat],
+    [0, 1],
+  );
   const reduced = useReducedMotion();
   const { user } = useSession();
   const current = chapters[chapter];
   const last = chapter === chapters.length - 1;
 
+  useMotionValueEvent(clock, "change", (beat) => {
+    setEvidenceVisible(beat >= dossierBeat - 0.22);
+    setRulesVisible(beat >= 3.31 && beat < 4.48);
+    if (playing) setChapter(Math.min(lastBeat, Math.floor(beat + 0.0001)));
+  });
+
   useEffect(() => {
     const element = stage.current;
-    if (!playing || last || !element) return;
-    let timer = 0;
-    let visible = false;
-    function schedule() {
-      window.clearTimeout(timer);
-      if (visible && !document.hidden) {
-        timer = window.setTimeout(() => setChapter((index) => index + 1), 4800);
-      }
-    }
+    if (!element) return;
+    let intersects = false;
+    const sync = () => setVisible(intersects && !document.hidden);
     const observer = new IntersectionObserver(([entry]) => {
-      visible = entry.isIntersecting;
-      schedule();
+      intersects = entry.isIntersecting;
+      sync();
     });
     observer.observe(element);
-    document.addEventListener("visibilitychange", schedule);
+    document.addEventListener("visibilitychange", sync);
     return () => {
-      window.clearTimeout(timer);
       observer.disconnect();
-      document.removeEventListener("visibilitychange", schedule);
+      document.removeEventListener("visibilitychange", sync);
     };
-  }, [chapter, playing, last]);
+  }, []);
+
+  useEffect(() => {
+    if (playing) {
+      if (!visible) return;
+      const playback = animate(clock, lastBeat, {
+        duration: Math.max(0.001, (lastBeat - clock.get()) * secondsPerBeat),
+        ease: "linear",
+        onComplete: () => setPlaying(false),
+      });
+      return () => playback.stop();
+    }
+    if (!target) return;
+    if (reduced) {
+      clock.jump(target.chapter);
+      return;
+    }
+    const transition = animate(clock, target.chapter, {
+      duration: Math.min(
+        1.45,
+        0.55 + Math.abs(target.chapter - clock.get()) * 0.21,
+      ),
+      ease: [0.42, 0, 0.22, 1],
+    });
+    return () => transition.stop();
+  }, [clock, playing, reduced, target, visible]);
 
   function select(index: number) {
     setPlaying(false);
     setChapter(index);
+    setTarget({ chapter: index });
   }
 
   return (
@@ -76,7 +148,7 @@ export function ObservationStory() {
             </span>
             <div className="experience-view-options">
               <span>Simulación ilustrativa</span>
-              {!unavailable && (
+              {process.env.NODE_ENV === "development" && !unavailable && (
                 <button
                   type="button"
                   aria-pressed={illustrated}
@@ -92,6 +164,7 @@ export function ObservationStory() {
           ) : (
             <Warehouse3D
               chapter={chapter}
+              clock={clock}
               reduced={Boolean(reduced)}
               onUnavailable={() => setUnavailable(true)}
             />
@@ -101,54 +174,37 @@ export function ObservationStory() {
               Vista ilustrada · 3D no disponible en este navegador.
             </p>
           )}
-          <AnimatePresence initial={false}>
-            {chapter === 4 && (
-              <motion.ol
-                key="checks"
-                className="experience-checks experience-glass"
-                initial={reduced ? false : { opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-              >
-                {["Proximidad", "Movimiento confirmado", "Duración"].map(
-                  (label, index) => (
-                    <motion.li
-                      key={label}
-                      initial={reduced ? false : { opacity: 0, x: 8 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: reduced ? 0 : index * 0.2 }}
-                    >
-                      <Check size={15} aria-hidden="true" /> {label}
-                    </motion.li>
-                  ),
-                )}
-              </motion.ol>
-            )}
-            {last && (
-              <motion.div
-                key="dossier"
-                className="experience-dossier experience-glass"
-                initial={reduced ? false : { opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{
-                  duration: reduced ? 0 : 0.32,
-                  delay: reduced ? 0 : 0.63,
-                }}
-              >
-                <strong>Expediente ilustrativo</strong>
-                <span>Proximidad · Regla de ejemplo · 00:12</span>
-                <ul>
-                  <li>
-                    <ImageIcon size={15} aria-hidden="true" /> Fotograma PNG
-                  </li>
-                  <li>
-                    <Film size={15} aria-hidden="true" /> Clip del evento
-                  </li>
-                </ul>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {(reduced ? chapter === 4 : rulesVisible) && (
+            <ol className="experience-checks experience-glass">
+              {["Proximidad", "Movimiento confirmado", "Duración"].map(
+                (label, index) => (
+                  <RuleCheck
+                    key={label}
+                    clock={clock}
+                    index={index}
+                    label={label}
+                  />
+                ),
+              )}
+            </ol>
+          )}
+          {(reduced ? last : evidenceVisible) && (
+            <motion.div
+              className="experience-dossier experience-glass"
+              style={{ opacity: reduced ? 1 : dossierOpacity }}
+            >
+              <strong>Expediente ilustrativo</strong>
+              <span>Proximidad · Regla de ejemplo</span>
+              <ul>
+                <li>
+                  <ImageIcon size={15} aria-hidden="true" /> Fotograma PNG
+                </li>
+                <li>
+                  <Film size={15} aria-hidden="true" /> Clip del evento
+                </li>
+              </ul>
+            </motion.div>
+          )}
         </section>
         <div className="experience-chapter">
           <p className="experience-chapter-index">
@@ -209,14 +265,16 @@ export function ObservationStory() {
           <button
             type="button"
             onClick={() => {
-              if (last) setChapter(0);
-              setPlaying(last || !playing);
+              setTarget(null);
+              if (last && clock.get() >= lastBeat) {
+                clock.jump(0);
+                setChapter(0);
+              }
+              setPlaying(!playing);
             }}
-            aria-label={
-              playing && !last ? "Pausar historia" : "Reproducir historia"
-            }
+            aria-label={playing ? "Pausar historia" : "Reproducir historia"}
           >
-            {playing && !last ? <Pause size={18} /> : <Play size={18} />}
+            {playing ? <Pause size={18} /> : <Play size={18} />}
           </button>
           <button
             type="button"

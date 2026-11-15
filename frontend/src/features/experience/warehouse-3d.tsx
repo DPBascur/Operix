@@ -2,7 +2,15 @@
 
 import dynamic from "next/dynamic";
 import Image from "next/image";
-import { motion } from "motion/react";
+import { motion, useTransform, type MotionValue } from "motion/react";
+import { WarehouseScene } from "./warehouse-scene";
+import type { WarehouseCapture } from "./warehouse-canvas";
+import {
+  captureBeat,
+  dossierBeat,
+  ramp,
+  storyPose,
+} from "./warehouse-timeline";
 import {
   Component,
   useCallback,
@@ -44,28 +52,80 @@ function DetectionLabel({
 }) {
   return (
     <svg data-mark={name} className="warehouse-detection">
-      <rect x="1" y="26" width="100%" className="warehouse-detection-box" />
+      <rect x="1" y="30" width="100%" className="warehouse-detection-box" />
       <rect
         x="1"
         y="1"
-        width={role === "PERSONA" ? 117 : 167}
-        height="25"
+        width={role === "Persona" ? 149 : 185}
+        height="29"
         rx="4"
         className="warehouse-detection-label"
       />
-      <text x="9" y="18">
+      <text x="9" y="21">
         {role} · {id}
       </text>
     </svg>
   );
 }
 
+function Evidence({
+  frame,
+  clock,
+  reduced,
+  chapter,
+}: {
+  frame: WarehouseCapture;
+  clock: MotionValue<number>;
+  reduced: boolean;
+  chapter: number;
+}) {
+  const [x, y, w, h] = frame.bounds;
+  const position = (from: number, to: number) => (beat: number) => {
+    const t = storyPose(beat).evidence;
+    return `${(from + (to - from) * t) * 100}%`;
+  };
+  const finalWidth = 0.35;
+  const finalHeight = (finalWidth * h) / w;
+  const finalTop = Math.min(0.49, 0.94 - finalHeight);
+  const left = useTransform(clock, position(x, 0.6));
+  const top = useTransform(clock, position(y, finalTop));
+  const width = useTransform(clock, position(w, finalWidth));
+  const height = useTransform(clock, position(h, finalHeight));
+  const opacity = useTransform(clock, (beat) =>
+    ramp(beat, captureBeat, captureBeat + 0.02),
+  );
+  const radius = useTransform(
+    clock,
+    (beat) => `${2 + 8 * ramp(beat, captureBeat, dossierBeat)}px`,
+  );
+  return (
+    <motion.div
+      className="warehouse-capture"
+      style={
+        reduced
+          ? {
+              left: "60%",
+              top: position(y, finalTop)(6),
+              width: "35%",
+              height: position(h, finalHeight)(6),
+              opacity: chapter === 6 ? 1 : 0,
+            }
+          : { left, top, width, height, opacity, borderRadius: radius }
+      }
+    >
+      <Image src={frame.url} alt="" fill unoptimized />
+    </motion.div>
+  );
+}
+
 export function Warehouse3D({
   chapter,
+  clock,
   reduced,
   onUnavailable,
 }: {
   chapter: number;
+  clock: MotionValue<number>;
   reduced: boolean;
   onUnavailable: () => void;
 }) {
@@ -74,8 +134,10 @@ export function Warehouse3D({
   const [visible, setVisible] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [ready, setReady] = useState(false);
-  const [capture, setCapture] = useState<string | null>(null);
+  const [capture, setCapture] = useState<WarehouseCapture | null>(null);
+  const [contextLost, setContextLost] = useState(false);
   const handleReady = useCallback(() => setReady(true), []);
+  const tint = useTransform(clock, [captureBeat, dossierBeat], [0, 0.19]);
 
   useEffect(() => {
     if (!surface.current) return;
@@ -91,11 +153,11 @@ export function Warehouse3D({
     <div
       className="warehouse-3d"
       ref={surface}
-      data-rendered={ready}
+      data-rendered={ready && !contextLost}
       data-chapter={chapter}
       aria-hidden="true"
     >
-      <div className="warehouse-poster" hidden={ready}>
+      <div className="warehouse-poster" hidden={ready || contextLost}>
         <Image
           src="/experience/warehouse-reference.webp"
           alt=""
@@ -109,31 +171,38 @@ export function Warehouse3D({
         ref={overlay}
         viewBox="0 0 900 600"
         className="warehouse-overlay"
-        style={{ visibility: ready ? "visible" : "hidden" }}
+        style={{ visibility: ready && !contextLost ? "visible" : "hidden" }}
       >
         <g data-mark="cameraSignal">
+          <polygon data-mark="cameraCone" className="warehouse-cone" />
           <line data-mark="cameraLine" className="warehouse-signal" />
         </g>
         <g data-mark="spatial">
-          <polygon data-mark="zone" className="warehouse-zone" />
           <line data-mark="distance" className="warehouse-distance" />
         </g>
         <g data-mark="trails" className="warehouse-trails">
-          <line data-mark="workerTrack" />
-          <line data-mark="liftTrack" />
+          <polyline data-mark="workerTrack" />
+          <polyline data-mark="liftTrack" />
         </g>
-        <DetectionLabel name="worker" role="PERSONA" id="P01" />
-        <DetectionLabel name="lift" role="MONTACARGAS" id="F01" />
+        <DetectionLabel name="worker" role="Persona" id="P01" />
+        <DetectionLabel name="lift" role="Montacargas" id="F01" />
         <g data-mark="event">
+          <rect data-mark="captureFrame" rx="3" className="warehouse-frame" />
           <circle data-mark="eventPoint" r="11" className="warehouse-event" />
         </g>
       </svg>
       {mounted && (
-        <div className="warehouse-renderer">
+        <div
+          className="warehouse-renderer"
+          style={{ visibility: contextLost ? "hidden" : "visible" }}
+        >
           <WarehouseBoundary onUnavailable={onUnavailable}>
             <WarehouseCanvas
               chapter={chapter}
-              reduced={reduced || !visible}
+              clock={clock}
+              reduced={reduced}
+              suspended={!visible || contextLost}
+              onContextChange={setContextLost}
               overlay={overlay}
               onReady={handleReady}
               onCapture={setCapture}
@@ -141,16 +210,20 @@ export function Warehouse3D({
           </WarehouseBoundary>
         </div>
       )}
-      {ready && chapter === 6 && capture && (
+      {contextLost && <WarehouseScene chapter={chapter} />}
+      {ready && !contextLost && capture && (
         <motion.div
-          className="warehouse-capture"
-          initial={reduced ? false : { scale: 0.78, x: 18, opacity: 0.65 }}
-          animate={{ scale: 1, x: 0, opacity: 1 }}
-          transition={{ duration: reduced ? 0 : 0.5 }}
-        >
-          <Image src={capture} alt="" width={520} height={320} unoptimized />
-          <span>Fotograma ilustrativo del evento</span>
-        </motion.div>
+          className="warehouse-departure"
+          style={{ opacity: reduced ? (chapter === 6 ? 0.19 : 0) : tint }}
+        />
+      )}
+      {ready && !contextLost && capture && (
+        <Evidence
+          frame={capture}
+          clock={clock}
+          reduced={reduced}
+          chapter={chapter}
+        />
       )}
     </div>
   );
