@@ -623,10 +623,16 @@ test(
       );
       await wait(text("1 evento registrado"));
       await wait(text("Video filtrado"));
+      await click("Ver evidencia");
+      await wait("document.querySelector('.event-preview video')?.preload==='none'");
+      await wait("[...document.querySelectorAll('.event-preview img')].some(img=>img.naturalWidth>0)");
       await evaluate(
-        `document.querySelector('main a[href="/events/${eventId}"]').click()`,
+        "document.querySelector('.event-preview a').click()",
       );
       await wait(text("Resumen operacional"));
+      assert.ok(await evaluate(
+        "document.querySelector('main a[href*=\"source_kind=demo\"]')?.href.includes('source_sha256=')",
+      ));
       for (const width of [1440, 1280, 390]) {
         await viewport(width);
         for (const route of [
