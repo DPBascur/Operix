@@ -1,6 +1,8 @@
 import { AnalysisWorkspace } from "@/features/analysis/analysis-workspace";
 import { PageTitle } from "@/components/layout/page-title";
 
+export const metadata = { title: "Análisis de video" };
+
 export default async function AnalysisPage({
   searchParams,
 }: {

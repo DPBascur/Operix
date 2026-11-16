@@ -2,6 +2,8 @@ import { PageTitle } from "@/components/layout/page-title";
 import { EventsTable } from "@/features/events/events-table";
 import type { EventQuery } from "@/services/adapters/frontend-data.adapter";
 
+export const metadata = { title: "Eventos" };
+
 export default async function EventsPage({
   searchParams,
 }: {

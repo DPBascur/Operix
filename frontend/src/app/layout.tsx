@@ -9,7 +9,7 @@ import "@/features/experience/experience.css";
 import "./app-design.css";
 
 export const metadata: Metadata = {
-  title: "Operix Frontend",
+  title: { default: "Operix", template: "%s · Operix" },
   description: "Espacio operacional de análisis de video de Operix",
 };
 

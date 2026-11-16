@@ -70,7 +70,10 @@ function Evidence({
   const [clipError, setClipError] = useState(false);
   const clip = evidenceClip(event, environment.apiBaseUrl);
   return (
-    <figure className={styles.evidence} aria-labelledby="evidence-title">
+    <figure
+      className={`surface-card event-dossier-panel ${styles.evidence}`}
+      aria-labelledby="evidence-title"
+    >
       <div className={styles.sectionHeading}>
         <h3 id="evidence-title">Evidencia del evento</h3>
         {url && (
@@ -144,6 +147,11 @@ function Evidence({
           </>
         )}
       </div>
+      {!clip && (
+        <p className={`mt-3 ${styles.muted}`}>
+          Clip anotado no disponible para este evento.
+        </p>
+      )}
       {clip && (
         <section
           aria-label="Clip anotado del evento"
@@ -390,7 +398,13 @@ function EventContent({ event }: { event: OperationalEvent }) {
     </>
   );
 }
-export function EventDetail({ id }: { id: string }) {
+export function EventDetail({
+  id,
+  returnUrl = "/events",
+}: {
+  id: string;
+  returnUrl?: string;
+}) {
   const [event, setEvent] = useState<OperationalEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -428,7 +442,7 @@ export function EventDetail({ id }: { id: string }) {
   }, [id, attempt]);
   return (
     <div className={`page-wrap ${styles.root}`}>
-      <Link className={styles.back} href="/events">
+      <Link className={`button button-outline ${styles.back}`} href={returnUrl}>
         <ArrowLeft size={16} aria-hidden="true" /> Volver al histórico
       </Link>
       {error ? (

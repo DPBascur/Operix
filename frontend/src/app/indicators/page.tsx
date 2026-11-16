@@ -1,4 +1,6 @@
 import { IndicatorsAccess } from "@/features/dashboard/indicators-access";
+export const metadata = { title: "Indicadores" };
+
 export default async function IndicatorsPage({
   searchParams,
 }: {

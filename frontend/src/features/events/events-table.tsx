@@ -2,7 +2,9 @@
 
 import { Activity } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState, useSyncExternalStore } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { EventPreview, EventThumbnail } from "./event-preview";
 import type { FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -45,7 +47,24 @@ function dateInput(value?: string) {
   return value ? formatLocalMinute(new Date(value)) : "";
 }
 
+function wideEvents() {
+  return window.matchMedia("(min-width: 80rem)");
+}
+function watchEventWidth(callback: () => void) {
+  const query = wideEvents();
+  query.addEventListener("change", callback);
+  return () => query.removeEventListener("change", callback);
+}
+
 export function EventsTable({ initial }: { initial: EventQuery }) {
+  const desktop = useSyncExternalStore(
+    watchEventWidth,
+    () => wideEvents().matches,
+    () => false,
+  );
+  const reduced = useReducedMotion();
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const animation = { duration: reduced ? 0 : 0.18 };
   const [events, setEvents] = useState<EventListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -78,6 +97,44 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
       params.size ? `/events?${params}` : "/events",
     );
     setFilters(values);
+    setExpanded(null);
+  }
+  function dossier(url: string) {
+    const params = new URLSearchParams();
+    if (filters.occurredAfter)
+      params.set("occurred_after", filters.occurredAfter);
+    if (filters.occurredBefore)
+      params.set("occurred_before", filters.occurredBefore);
+    if (filters.eventType) params.set("event_type", filters.eventType);
+    if (filters.sourceKind) params.set("source_kind", filters.sourceKind);
+    if (filters.sourceSha256) params.set("source_sha256", filters.sourceSha256);
+    return params.size
+      ? `${url}?${new URLSearchParams({ back: `/events?${params}` })}`
+      : url;
+  }
+
+  function evidenceButton(row: EventListItem) {
+    return (
+      <div className="event-preview-trigger">
+        <EventThumbnail
+          key={row.evidenceUrl}
+          url={row.evidenceUrl}
+          title={row.title}
+        />
+        {row.detailUrl && (
+          <Button
+            variant="outline"
+            size="small"
+            aria-expanded={expanded === row.id}
+            onClick={() =>
+              setExpanded((current) => (current === row.id ? null : row.id))
+            }
+          >
+            {expanded === row.id ? "Cerrar evidencia" : "Ver evidencia"}
+          </Button>
+        )}
+      </div>
+    );
   }
   const [filterError, setFilterError] = useState<string | null>(null);
   useEffect(() => {
@@ -280,7 +337,7 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
                       {event.detailUrl ? (
                         <Link
                           className="underline underline-offset-2"
-                          href={event.detailUrl}
+                          href={dossier(event.detailUrl)}
                         >
                           {event.title}
                         </Link>
@@ -319,21 +376,26 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
                   <div>
                     <dt className="text-text-secondary">Evidencia</dt>
                     <dd className="mt-0.5 font-medium text-foreground">
-                      {event.evidenceUrl ? (
-                        <a
-                          href={event.evidenceUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="underline underline-offset-2"
-                        >
-                          Ver evidencia
-                        </a>
-                      ) : (
-                        "Sin evidencia"
-                      )}
+                      {!desktop && evidenceButton(event)}
                     </dd>
                   </div>
                 </dl>
+                <AnimatePresence initial={false}>
+                  {!desktop && expanded === event.id && event.detailUrl && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={animation}
+                      key={event.id}
+                    >
+                      <EventPreview
+                        row={event}
+                        detailUrl={dossier(event.detailUrl)}
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </li>
             ))}
           </ul>
@@ -366,71 +428,77 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filteredEvents.map(
-                  ({
+                {filteredEvents.map((row) => {
+                  const {
                     id,
                     title,
                     zone: eventZone,
                     objects,
                     time,
-                    evidenceUrl,
                     source,
                     sourceKindLabel,
                     detailUrl,
-                  }) => (
-                    <tr
-                      className="transition-colors hover:bg-surface-muted"
-                      key={id}
-                    >
-                      <td className="px-3 py-4 tabular-nums text-text-secondary">
-                        {time}
-                      </td>
-                      <td className="px-3 py-4">
-                        <div className="flex items-center gap-3">
-                          <span className="flex size-9 items-center justify-center rounded-control bg-surface-muted text-accent">
-                            <Activity aria-hidden="true" size={17} />
-                          </span>
-                          <span className="font-semibold text-foreground">
-                            {detailUrl ? (
-                              <Link
-                                className="underline underline-offset-2"
-                                href={detailUrl}
-                              >
-                                {title}
-                              </Link>
-                            ) : (
-                              title
-                            )}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-3 py-4 text-text-secondary">
-                        {source ?? "No informada"}
-                        <small className="block">{sourceKindLabel}</small>
-                      </td>
-                      <td className="px-3 py-4 text-text-secondary">
-                        {eventZone}
-                      </td>
-                      <td className="px-3 py-4 text-xs text-text-secondary">
-                        {objects}
-                      </td>
-                      <td className="px-3 py-4 text-xs text-text-secondary">
-                        {evidenceUrl ? (
-                          <a
-                            href={evidenceUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="underline underline-offset-2"
+                  } = row;
+                  return (
+                    <Fragment key={id}>
+                      <tr className="transition-colors hover:bg-surface-muted">
+                        <td className="px-3 py-4 tabular-nums text-text-secondary">
+                          {time}
+                        </td>
+                        <td className="px-3 py-4">
+                          <div className="flex items-center gap-3">
+                            <span className="flex size-9 items-center justify-center rounded-control bg-surface-muted text-accent">
+                              <Activity aria-hidden="true" size={17} />
+                            </span>
+                            <span className="font-semibold text-foreground">
+                              {detailUrl ? (
+                                <Link
+                                  className="underline underline-offset-2"
+                                  href={dossier(detailUrl)}
+                                >
+                                  {title}
+                                </Link>
+                              ) : (
+                                title
+                              )}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-4 text-text-secondary">
+                          {source ?? "No informada"}
+                          <small className="block">{sourceKindLabel}</small>
+                        </td>
+                        <td className="px-3 py-4 text-text-secondary">
+                          {eventZone}
+                        </td>
+                        <td className="px-3 py-4 text-xs text-text-secondary">
+                          {objects}
+                        </td>
+                        <td className="px-3 py-4 text-xs text-text-secondary">
+                          {desktop && evidenceButton(row)}
+                        </td>
+                      </tr>
+                      <AnimatePresence initial={false}>
+                        {desktop && expanded === id && detailUrl && (
+                          <motion.tr
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={animation}
+                            key={id}
                           >
-                            Ver evidencia
-                          </a>
-                        ) : (
-                          "Sin evidencia"
+                            <td colSpan={6} className="p-3">
+                              <EventPreview
+                                row={row}
+                                detailUrl={dossier(detailUrl)}
+                              />
+                            </td>
+                          </motion.tr>
                         )}
-                      </td>
-                    </tr>
-                  ),
-                )}
+                      </AnimatePresence>
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -1,6 +1,7 @@
 import { apiFetch } from "@/services/browser-session";
 import { environment } from "@/config/environment";
 import { sourceKind, sourceNames } from "@/features/dashboard/history-model";
+import { evidenceHref } from "@/features/events/event-detail-model";
 import type {
   AnalysisOverview,
   DashboardSummary,
@@ -64,11 +65,7 @@ export class ApiAdapter implements FrontendDataAdapter {
       }),
       status: "Registrado",
       tone: "accent" as const,
-      evidenceUrl: event.evidence_url?.startsWith("/api/v1/events/")
-        ? environment.apiBaseUrl === "/api/v1"
-          ? event.evidence_url
-          : new URL(event.evidence_url, environment.apiBaseUrl).toString()
-        : null,
+      evidenceUrl: evidenceHref(event, environment.apiBaseUrl),
     }));
   }
 

@@ -2,6 +2,8 @@ import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { PageTitle } from "@/components/layout/page-title";
 
+export const metadata = { title: "Zonas" };
+
 export default function ZonesPage() {
   return (
     <div className="page-wrap operational-page">

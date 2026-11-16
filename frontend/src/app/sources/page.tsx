@@ -1,6 +1,8 @@
 import { PageTitle } from "@/components/layout/page-title";
 import { SourceCatalog } from "@/features/sources/source-catalog";
 
+export const metadata = { title: "Fuentes" };
+
 export default function SourcesPage() {
   return (
     <div className="sources-page page-v1">
