@@ -11,7 +11,8 @@ import {
   ImageOff,
   RefreshCw,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { environment } from "@/config/environment";
 import {
@@ -58,6 +59,11 @@ function Snapshot({ title, value }: { title: string; value: unknown }) {
     </section>
   );
 }
+const evidenceViews = [
+  { id: "frame", label: "Fotograma" },
+  { id: "clip", label: "Clip" },
+] as const;
+
 function Evidence({
   url,
   event,
@@ -65,18 +71,67 @@ function Evidence({
   url: string | null;
   event: OperationalEvent;
 }) {
+  const id = useId();
+  const reducedMotion = useReducedMotion();
+  const tabs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [view, setView] = useState(0);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [attempt, setAttempt] = useState(0);
   const [clipError, setClipError] = useState(false);
+  const [duration, setDuration] = useState<number | null>(null);
   const clip = evidenceClip(event, environment.apiBaseUrl);
+  const transition = { duration: reducedMotion ? 0 : 0.16 };
+  const showClip = view === 1;
+
+  function selectView(index: number) {
+    setView(index);
+    setClipError(false);
+    setDuration(null);
+  }
+
   return (
-    <figure
-      className={`surface-card event-dossier-panel ${styles.evidence}`}
-      aria-labelledby="evidence-title"
-    >
+    <figure className={styles.evidence} aria-label="Evidencia del evento">
       <div className={styles.sectionHeading}>
-        <h3 id="evidence-title">Evidencia del evento</h3>
-        {url && (
+        <div
+          className={styles.tabs}
+          role="tablist"
+          aria-label="Medio de evidencia"
+        >
+          {evidenceViews.map((item, index) => (
+            <button
+              key={item.id}
+              ref={(node) => {
+                tabs.current[index] = node;
+              }}
+              type="button"
+              role="tab"
+              id={`${id}-tab-${item.id}`}
+              aria-controls={`${id}-panel-${item.id}`}
+              aria-selected={view === index}
+              tabIndex={view === index ? 0 : -1}
+              onClick={() => {
+                if (view !== index) selectView(index);
+              }}
+              onKeyDown={(event) => {
+                const next =
+                  event.key === "Home"
+                    ? 0
+                    : event.key === "End"
+                      ? 1
+                      : ["ArrowLeft", "ArrowRight"].includes(event.key)
+                        ? 1 - index
+                        : null;
+                if (next === null) return;
+                event.preventDefault();
+                tabs.current[next]?.focus();
+                if (next !== view) selectView(next);
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        {!showClip && url && state === "ready" && (
           <a
             className={styles.action}
             href={url}
@@ -89,102 +144,142 @@ function Evidence({
         )}
       </div>
       <div
-        className={styles.imageStage}
-        aria-busy={Boolean(url && state === "loading")}
+        role="tabpanel"
+        id={`${id}-panel-frame`}
+        aria-labelledby={`${id}-tab-frame`}
+        tabIndex={0}
+        hidden={showClip}
       >
-        {!url || state === "error" ? (
-          <div className={styles.imageEmpty} role="status">
-            <ImageOff size={28} aria-hidden="true" />
-            <p>
-              {url
-                ? "No se pudo cargar la evidencia."
-                : "Sin evidencia visual adjunta."}
-            </p>
-            <span>
-              {url
-                ? "El registro sigue disponible. Puede volver a cargar el PNG."
-                : "Este evento no incluye una referencia PNG disponible."}
-            </span>
-            {url && (
-              <Button
-                className={styles.action}
-                variant="outline"
-                onClick={() => {
-                  setState("loading");
-                  setAttempt(attempt + 1);
-                }}
+        <motion.div
+          className={styles.imageStage}
+          initial={false}
+          animate={{ opacity: showClip && !reducedMotion ? 0.86 : 1 }}
+          transition={transition}
+          aria-busy={Boolean(url && state === "loading")}
+        >
+          {!url || state === "error" ? (
+            <div className={styles.imageEmpty} role="status">
+              <ImageOff size={28} aria-hidden="true" />
+              <p>
+                {url
+                  ? "No se pudo cargar el fotograma."
+                  : "Sin evidencia visual adjunta."}
+              </p>
+              {url && (
+                <Button
+                  className={styles.action}
+                  variant="outline"
+                  onClick={() => {
+                    setState("loading");
+                    setAttempt(attempt + 1);
+                  }}
+                >
+                  <RefreshCw size={16} aria-hidden="true" /> Reintentar imagen
+                </Button>
+              )}
+            </div>
+          ) : (
+            <>
+              {state === "loading" && (
+                <span className={styles.imageLoading} role="status">
+                  Cargando fotograma…
+                </span>
+              )}
+              <a
+                className={styles.imageLink}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Ampliar evidencia PNG original (nueva pestaña)"
               >
-                <RefreshCw size={16} aria-hidden="true" /> Reintentar imagen
-              </Button>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  key={attempt}
+                  src={url}
+                  alt={`Fotograma anotado de ${eventTypeName(event.event_type).toLowerCase()} en ${event.zone_id}`}
+                  onLoad={() => setState("ready")}
+                  onError={() => setState("error")}
+                />
+              </a>
+            </>
+          )}
+        </motion.div>
+      </div>
+      <div
+        role="tabpanel"
+        id={`${id}-panel-clip`}
+        aria-labelledby={`${id}-tab-clip`}
+        tabIndex={0}
+        hidden={!showClip}
+      >
+        {showClip && (
+          <motion.div
+            initial={reducedMotion ? false : { opacity: 0.86 }}
+            animate={{ opacity: 1 }}
+            transition={transition}
+          >
+            {clip && !clipError ? (
+              <>
+                <div className={styles.imageStage}>
+                  <video
+                    aria-label="Clip anotado del evento"
+                    controls
+                    playsInline
+                    preload="metadata"
+                    src={clip.url}
+                    onLoadedMetadata={({ currentTarget }) => {
+                      if (
+                        Number.isFinite(currentTarget.duration) &&
+                        currentTarget.duration > 0
+                      )
+                        setDuration(currentTarget.duration);
+                    }}
+                    onError={() => setClipError(true)}
+                  />
+                </div>
+                <div className={styles.clipTiming}>
+                  <span>
+                    Evento en el clip · {measurement(clip.offset, "s", 6)}
+                  </span>
+                  {duration !== null && (
+                    <span>Duración · {measurement(duration, "s", 6)}</span>
+                  )}
+                  {duration !== null && clip.offset <= duration && (
+                    <meter
+                      min={0}
+                      max={duration}
+                      value={clip.offset}
+                      aria-label="Posición del evento dentro del clip"
+                    />
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className={styles.imageEmpty} role="status">
+                <ImageOff size={28} aria-hidden="true" />
+                <p>
+                  {clipError
+                    ? "No se pudo reproducir el clip."
+                    : "Clip anotado no disponible para este evento."}
+                </p>
+                {clipError && (
+                  <Button
+                    className={styles.action}
+                    variant="outline"
+                    onClick={() => setClipError(false)}
+                  >
+                    <RefreshCw size={16} aria-hidden="true" /> Reintentar clip
+                  </Button>
+                )}
+              </div>
             )}
-          </div>
-        ) : (
-          <>
-            {state === "loading" && (
-              <span className={styles.imageLoading} role="status">
-                Cargando evidencia…
-              </span>
-            )}
-            <a
-              className={styles.imageLink}
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Ampliar evidencia PNG original (nueva pestaña)"
-            >
-              {/* Se conserva el PNG original de la API, sin optimización ni recorte. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                key={attempt}
-                src={url}
-                alt={`Frame de evidencia de ${eventTypeName(event.event_type).toLowerCase()} en ${event.zone_id}`}
-                width={960}
-                height={540}
-                onLoad={() => setState("ready")}
-                onError={() => setState("error")}
-              />
-            </a>
-          </>
+          </motion.div>
         )}
       </div>
-      {!clip && (
-        <p className={`mt-3 ${styles.muted}`}>
-          Clip anotado no disponible para este evento.
-        </p>
-      )}
-      {clip && (
-        <section
-          aria-label="Clip anotado del evento"
-          className="my-3 grid gap-2"
-        >
-          <h4 className="text-sm font-semibold">Clip anotado</h4>
-          <p className={styles.muted}>
-            Extracto del resultado de Operix, sin audio. La condición se
-            registró en el segundo{" "}
-            {clip.offset.toLocaleString("es-CL", { maximumFractionDigits: 3 })}{" "}
-            del clip.
-          </p>
-          <video
-            className="w-full rounded-md bg-black"
-            aria-label="Clip anotado del evento"
-            controls
-            playsInline
-            preload="metadata"
-            src={clip.url}
-            onError={() => setClipError(true)}
-          />
-          {clipError && (
-            <p role="status">
-              No se pudo reproducir el clip. El PNG sigue disponible si está
-              adjunto.
-            </p>
-          )}
-        </section>
-      )}
       <figcaption>
-        Frame {text(String(event.frame_index ?? ""), "no registrado")} ·{" "}
-        {measurement(event.video_timestamp_s)} de video.
-        {url && " La ampliación abre el PNG original."}
+        {showClip
+          ? "Clip anotado del resultado de Operix."
+          : `Fotograma del evento${event.frame_index == null ? "" : ` · Frame ${event.frame_index}`}`}
       </figcaption>
     </figure>
   );
@@ -199,111 +294,110 @@ function EventContent({ event }: { event: OperationalEvent }) {
         dwell_time_s: event.observed_dwell_time_s,
       }
     : event.observations;
+  const reducedMotion = useReducedMotion();
+  const equipmentMotion = eventMotion(event);
+  const isPair =
+    event.interaction &&
+    ["person_forklift_proximity", "zone_coexistence"].includes(
+      event.event_type,
+    );
   return (
-    <>
+    <motion.article
+      className={styles.dossier}
+      initial={reducedMotion ? false : { opacity: 0.92 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: reducedMotion ? 0 : 0.2 }}
+    >
       <header className={styles.header}>
         <PageTitle>{eventTypeName(event.event_type)}</PageTitle>
         <p className={styles.location}>
           {event.zone_id} <span aria-hidden="true">·</span>{" "}
           {text(source.filename, "Fuente no informada")}
-          <span aria-hidden="true"> · </span>
-          {sourceNames[sourceKind(source.kind)]}
         </p>
         <p className={styles.semantic}>
           Condición configurada satisfecha; requiere revisión humana, no
           confirma un incidente.
         </p>
       </header>
-      <div className={styles.inspection}>
-        <Evidence
-          key={event.id}
-          event={event}
-          url={evidenceHref(event, environment.apiBaseUrl)}
-        />
-        <section className={styles.summary} aria-labelledby="summary-title">
-          <h3 id="summary-title">Resumen operacional</h3>
-          {eventMotion(event) && (
-            <section
-              className="my-3 grid gap-2"
-              aria-label="Movimiento observado del montacargas"
-            >
-              <h3 className="font-semibold">
-                Movimiento observado del montacargas
-              </h3>
-              <dl className="grid gap-2 sm:grid-cols-2">
-                <Field label="Estado">{eventMotion(event)!.state}</Field>
-                <Field label="Velocidad estimada">
-                  {eventMotion(event)!.speed}
-                </Field>
-                <Field label="Ventana configurada">
-                  {eventMotion(event)!.window}
-                </Field>
-                <Field label="Condición de movimiento">
-                  {eventMotion(event)!.condition}
-                </Field>
-              </dl>
-            </section>
-          )}
-          <div className={styles.measurements}>
-            {eventMeasurements(event).map((item) => (
-              <section
-                key={item.label}
-                className={styles.measurement}
-                aria-label={item.label}
-              >
-                <h4>{item.label}</h4>
-                <dl>
-                  <Field label="Observada">{item.observed}</Field>
-                  <Field label={item.criterion}>{item.configured}</Field>
-                </dl>
-              </section>
-            ))}
-            {event.event_type === "person_forklift_proximity" && (
-              <p className={styles.measureNote}>
-                {record(event.rule_parameters).distance_unit === "m"
-                  ? "Distancia aproximada en el plano calibrado; los contactos se estiman desde cajas. El redondeo de pantalla no indica exactitud física; consulte los valores completos en trazabilidad. No garantiza distancia de seguridad."
-                  : "Distancia en espacio de imagen normalizado, sin unidad física."}
-              </p>
-            )}
-          </div>
-          <dl className={styles.context}>
-            {["person_forklift_proximity", "zone_coexistence"].includes(
-              event.event_type,
-            ) && event.interaction ? (
-              <>
-                <Field label="Persona">
-                  ID de seguimiento {event.interaction.person.track_id}
-                </Field>
-                <Field label="Montacargas">
-                  ID de seguimiento {event.interaction.forklift.track_id}
-                </Field>
-              </>
-            ) : (
-              <Field label="Objeto involucrado">
-                {operationalSubjects(event)}
-              </Field>
-            )}
-            <Field label="Zona">{event.zone_id}</Field>
-            <Field label="Regla y versión">
-              {event.rule_id}{" "}
-              <span className={styles.version}>v{event.rule_version}</span>
+      <section aria-labelledby="summary-title">
+        <h2 id="summary-title" className="sr-only">
+          Resumen operacional
+        </h2>
+        <dl className={styles.metrics}>
+          {eventMeasurements(event).map((item) => (
+            <Field key={item.label} label={item.label}>
+              {item.observed}
+              <span className={styles.criterion}>
+                {item.criterion} · {item.configured}
+              </span>
             </Field>
-          </dl>
-          <div className={styles.time}>
-            <dl>
-              <Field label="Tiempo del video">
-                <span className={styles.videoTime}>
-                  {measurement(event.video_timestamp_s)}
-                </span>
+          ))}
+          <Field label="Tiempo del video">
+            {measurement(event.video_timestamp_s)}
+          </Field>
+          {!isPair && (
+            <Field label="Objeto involucrado">
+              {operationalSubjects(event)}
+            </Field>
+          )}
+        </dl>
+      </section>
+      <Evidence
+        key={event.id}
+        event={event}
+        url={evidenceHref(event, environment.apiBaseUrl)}
+      />
+      <section className={styles.summary} aria-labelledby="context-title">
+        <h2 id="context-title">Contexto del evento</h2>
+        <dl className={styles.context}>
+          <Field label="Zona">{event.zone_id}</Field>
+          <Field label="Regla y versión">
+            {event.rule_id}{" "}
+            <span className={styles.version}>v{event.rule_version}</span>
+          </Field>
+          <Field label="Procedencia">
+            {sourceNames[sourceKind(source.kind)]}
+          </Field>
+          <Field label={time.label}>
+            <time dateTime={time.iso}>{time.formatted}</time>
+          </Field>
+          {isPair && event.interaction && (
+            <>
+              <Field label="Persona">
+                ID de seguimiento {event.interaction.person.track_id}
               </Field>
-              <Field label={time.label}>
-                <time dateTime={time.iso}>{time.formatted}</time>
+              <Field label="Montacargas">
+                ID de seguimiento {event.interaction.forklift.track_id}
               </Field>
-            </dl>
-            <p>{time.explanation}</p>
-          </div>
-        </section>
-      </div>
+            </>
+          )}
+          {geometry && (
+            <Field label="Método geométrico">{geometry.version}</Field>
+          )}
+          {equipmentMotion && (
+            <>
+              <Field label="Movimiento del montacargas">
+                {equipmentMotion.state}
+              </Field>
+              <Field label="Velocidad estimada">{equipmentMotion.speed}</Field>
+              <Field label="Ventana configurada">
+                {equipmentMotion.window}
+              </Field>
+              <Field label="Condición de movimiento">
+                {equipmentMotion.condition}
+              </Field>
+            </>
+          )}
+        </dl>
+        <p className={styles.muted}>{time.explanation}</p>
+        {geometry && (
+          <p className={styles.muted}>
+            {record(event.rule_parameters).distance_unit === "m"
+              ? "Distancia aproximada en el plano calibrado, con contactos estimados desde cajas. Consulte los valores completos en trazabilidad."
+              : "Distancia en espacio de imagen normalizado, sin unidad física."}
+          </p>
+        )}
+      </section>
       <details className={styles.trace}>
         <summary>
           <span>
@@ -395,7 +489,7 @@ function EventContent({ event }: { event: OperationalEvent }) {
           </details>
         </div>
       </details>
-    </>
+    </motion.article>
   );
 }
 export function EventDetail({
@@ -441,10 +535,14 @@ export function EventDetail({
     return () => controller.abort();
   }, [id, attempt]);
   return (
-    <div className={`page-wrap ${styles.root}`}>
-      <Link className={`button button-outline ${styles.back}`} href={returnUrl}>
-        <ArrowLeft size={16} aria-hidden="true" /> Volver al histórico
-      </Link>
+    <div className={styles.root}>
+      <nav aria-label="Ubicación del expediente" className={styles.breadcrumb}>
+        <Link className={styles.back} href={returnUrl}>
+          <ArrowLeft size={16} aria-hidden="true" /> Eventos
+        </Link>
+        <span aria-hidden="true">/</span>
+        <span aria-current="page">Expediente</span>
+      </nav>
       {error ? (
         <section className={styles.loadState} role="alert">
           <PageTitle>No se pudo abrir el evento</PageTitle>

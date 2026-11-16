@@ -554,6 +554,13 @@ test(
         `document.querySelector('a[href="/events/${eventId}"]').click()`,
       );
       await wait(text("Resumen operacional"));
+      await wait("document.querySelector('[role=tab][aria-selected=true]')?.innerText === 'Fotograma'");
+      assert.equal(
+        await evaluate("!!document.querySelector('figure video')"),
+        false,
+        "El expediente difiere la carga del clip hasta que se selecciona",
+      );
+      await click("Clip");
       await wait(
         "document.querySelector('video[aria-label=\"Clip anotado del evento\"]')?.readyState >= 1",
       );
@@ -566,6 +573,11 @@ test(
       await evaluate(
         "document.querySelector('video[aria-label=\"Clip anotado del evento\"]').pause()",
       );
+      await evaluate("document.querySelector('figure video').currentTime = 0.1");
+      await wait("document.querySelector('figure video').currentTime >= 0.09");
+      await wait("!!document.querySelector('figure meter')");
+      await click("Fotograma");
+      await wait("!document.querySelector('figure video')");
       for (const value of [
         "Persona",
         "Montacargas",
