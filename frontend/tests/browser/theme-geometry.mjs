@@ -27,7 +27,7 @@ export async function checkButtonThemes(evaluate, call) {
     assert.deepEqual(results[0], results[1], `Geometría light/dark: ${label}`);
   };
   try {
-    await compare(".button", "controles de la ruta");
+    await compare(".button,button[role='tab'],#operix-sidebar button", "controles de la ruta");
     if (!call) return;
     await evaluate(`(() => {
       const host = document.createElement('section');

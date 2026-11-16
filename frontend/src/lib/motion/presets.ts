@@ -38,3 +38,13 @@ export const exitTransition = {
   duration: motionTiming.fast,
   ease: motionEase.exit,
 } as const satisfies Transition;
+
+export const controlTransition = {
+  duration: 0.24,
+  ease: motionEase.enter,
+} as const satisfies Transition;
+
+export const sectionTransition = {
+  duration: 0.36,
+  ease: motionEase.enter,
+} as const satisfies Transition;

@@ -1,0 +1,164 @@
+@media (min-width: 1200px) {
+  .shell {
+    --live-sidebar-width: 15rem;
+  }
+
+  :global(:root[data-sidebar-preference="compact"]) .shell:not([data-sidebar]) {
+    --live-sidebar-width: 4.625rem;
+  }
+
+  .shell > .sidebar {
+    width: var(--live-sidebar-width);
+    overflow: visible;
+  }
+
+  .shell > :global(.app-content) {
+    margin-inline-start: calc(var(--live-sidebar-width) + 1.5rem);
+  }
+
+  .sidebar :global(.brand-lockup) {
+    height: 4.7rem;
+  }
+
+  .sidebar :global(.brand) {
+    overflow: hidden;
+  }
+
+  .sidebar :global(.brand-copy) {
+    white-space: nowrap;
+  }
+
+  .sidebar :global(.brand-descriptor) {
+    white-space: normal;
+  }
+
+  .collapse {
+    display: grid;
+    place-items: center;
+    align-self: flex-end;
+    flex: none;
+    width: 44px;
+    height: 44px;
+    color: #bcc8d6;
+    margin-inline-end: 0.17rem;
+    transition:
+      background-color var(--interaction-duration) var(--interaction-ease),
+      color var(--interaction-duration) var(--interaction-ease);
+  }
+
+  .collapse:hover {
+    background: rgb(143 175 222 / 13%);
+    color: #f0f5fc;
+  }
+
+  .navigationViewport {
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    padding-block: 0.4rem;
+    padding-inline: 0.23rem;
+    margin-inline: -0.23rem;
+  }
+
+  .collapse:focus-visible,
+  .sidebar :global(.navigation-item):focus-visible {
+    outline: 2px solid #a6beff;
+    outline-offset: -2px;
+  }
+
+  :is(
+      .shell[data-sidebar="compact"],
+      :global(:root[data-sidebar-preference="compact"])
+        .shell:not([data-sidebar])
+    )
+    .sidebar
+    :global(
+      :is(
+        .brand-copy,
+        .navigation-group-label,
+        .navigation-label,
+        .sidebar-appearance
+      )
+    ) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  :is(
+      .shell[data-sidebar="compact"],
+      :global(:root[data-sidebar-preference="compact"])
+        .shell:not([data-sidebar])
+    )
+    .sidebar
+    :global(.sidebar-appearance) {
+    display: none;
+  }
+
+  :is(
+      .shell[data-sidebar="compact"],
+      :global(:root[data-sidebar-preference="compact"])
+        .shell:not([data-sidebar])
+    )
+    .sidebar
+    :global(.brand-lockup) {
+    padding-inline: 0;
+  }
+
+  :is(
+      .shell[data-sidebar="compact"],
+      :global(:root[data-sidebar-preference="compact"])
+        .shell:not([data-sidebar])
+    )
+    .sidebar
+    :global(.brand-symbol) {
+    width: 3.15rem;
+    margin-inline: 0.04rem;
+  }
+
+  :is(
+      .shell[data-sidebar="compact"],
+      :global(:root[data-sidebar-preference="compact"])
+        .shell:not([data-sidebar])
+    )
+    .sidebar
+    :global(.navigation-item) {
+    width: 44px;
+    padding-inline: 0;
+    margin-inline: 0.2rem;
+    justify-content: center;
+  }
+}
+
+.tooltip {
+  z-index: 60;
+  position: fixed;
+  translate: 0 -50%;
+  padding: 0.4rem 0.65rem;
+  color: #eef2f8;
+  background: #252c35;
+  border: 1px solid #49566a;
+  border-radius: 0.55rem;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  pointer-events: none;
+}
+
+@media (max-width: 1199px) {
+  .collapse,
+  .tooltip {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collapse {
+    transition: none;
+  }
+}

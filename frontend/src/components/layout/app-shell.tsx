@@ -7,6 +7,8 @@ import {
   Clapperboard,
   House,
   Map,
+  PanelLeftClose,
+  PanelLeftOpen,
   ShieldCheck,
   Users,
   type LucideIcon,
@@ -15,13 +17,47 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
-import type { ReactNode } from "react";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { ThemeSelector } from "@/components/ui/theme-selector";
 import { MobileNavigation } from "./mobile-navigation";
 import { ApiStatus } from "@/components/ui/api-status";
 import { SessionAccount } from "./session-account";
 import { canOpen, useSession } from "@/features/auth/session-provider";
-import { calmSpring, enterTransition } from "@/lib/motion/presets";
+import { calmSpring, enterTransition, sectionTransition } from "@/lib/motion/presets";
+
+import styles from "./desktop-sidebar.module.css";
+
+const sidebarKey = "operix-sidebar";
+const sidebarPreferenceEvent = "operix:sidebar-preference";
+let temporaryPreference: boolean | undefined;
+
+function getSidebarPreference() {
+  try {
+    return localStorage.getItem(sidebarKey) === "compact";
+  } catch {
+    return temporaryPreference ?? false;
+  }
+}
+
+function subscribeToSidebarPreference(update: () => void) {
+  window.addEventListener(sidebarPreferenceEvent, update);
+  window.addEventListener("storage", update);
+  return () => {
+    window.removeEventListener(sidebarPreferenceEvent, update);
+    window.removeEventListener("storage", update);
+  };
+}
+
+function changeSidebarPreference(compact: boolean) {
+  temporaryPreference = compact;
+  try {
+    localStorage.setItem(sidebarKey, compact ? "compact" : "expanded");
+  } catch {
+    // The current session still supports collapsing when storage is unavailable.
+  }
+  window.dispatchEvent(new Event(sidebarPreferenceEvent));
+}
 
 const navigationGroups: {
   label: string;
@@ -98,12 +134,20 @@ function Brand({
 function Navigation({
   activePath,
   scope,
+  compact = false,
 }: {
   activePath: string;
   scope: string;
+  compact?: boolean;
 }) {
   const { user } = useSession();
   const reduceMotion = useReducedMotion();
+  const [hint, setHint] = useState<{ label: string; left: number; top: number } | null>(null);
+  function showHint(target: HTMLElement, label: string) {
+    if (!compact) return;
+    const bounds = target.getBoundingClientRect();
+    setHint({ label, left: bounds.right + 12, top: bounds.top + bounds.height / 2 });
+  }
   const groups = navigationGroups
     .map((group) => ({
       ...group,
@@ -112,7 +156,13 @@ function Navigation({
     .filter((group) => group.items.length);
   return (
     <LayoutGroup id={scope}>
-      <nav aria-label="Navegación principal" className="navigation-groups">
+      <nav
+        aria-label="Navegación principal"
+        className="navigation-groups"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") setHint(null);
+        }}
+      >
         {groups.map((group) => (
           <section className="navigation-group" key={group.label}>
             <h2 className="navigation-group-label">{group.label}</h2>
@@ -123,6 +173,11 @@ function Navigation({
                     aria-current={activePath === href ? "page" : undefined}
                     className="navigation-item"
                     href={href}
+                    onMouseEnter={(event) => showHint(event.currentTarget, label)}
+                    onFocus={(event) => showHint(event.currentTarget, label)}
+                    onMouseLeave={(event) => { if (document.activeElement !== event.currentTarget) setHint(null); }}
+                    onBlur={(event) => { if (!event.currentTarget.matches(":hover")) setHint(null); }}
+                    onClick={() => setHint(null)}
                   >
                     {activePath === href && (
                       <motion.span
@@ -148,6 +203,10 @@ function Navigation({
           </section>
         ))}
       </nav>
+      {compact && hint && createPortal(
+        <span className={styles.tooltip} role="tooltip" aria-hidden="true" style={{ left: hint.left, top: hint.top }}>{hint.label}</span>,
+        document.body,
+      )}
     </LayoutGroup>
   );
 }
@@ -155,6 +214,7 @@ function Navigation({
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const reduceMotion = useReducedMotion();
+  const compact = useSyncExternalStore(subscribeToSidebarPreference, getSidebarPreference, () => null);
   if (pathname === "/login") return children;
   const activePath =
     pathname === "/dashboard" ? "/" : "/" + (pathname.split("/")[1] || "");
@@ -169,16 +229,32 @@ export function AppShell({ children }: { children: ReactNode }) {
         : "standard";
 
   return (
-    <div className="app-shell refresh-shell min-h-screen bg-background text-foreground">
+    <motion.div
+      className={`app-shell refresh-shell min-h-screen bg-background text-foreground ${styles.shell}`}
+      data-sidebar={compact == null ? undefined : compact ? "compact" : "expanded"}
+      initial={false}
+      animate={compact == null ? undefined : { "--live-sidebar-width": compact ? "4.625rem" : "15rem" }}
+      transition={reduceMotion ? { duration: 0 } : sectionTransition}
+    >
       <a className="skip-link" href="#main-content">
         Saltar al contenido
       </a>
-      <aside className="app-sidebar fixed inset-y-0 left-0 z-30 flex-col bg-[var(--sidebar)]">
+      <aside id="operix-sidebar" className={`app-sidebar fixed inset-y-0 left-0 z-30 flex-col bg-[var(--sidebar)] ${styles.sidebar}`}>
         <div className="brand-lockup">
           <Brand onDark showDescriptor />
         </div>
-        <div className="mt-7">
-          <Navigation activePath={activePath} scope="desktop-nav" />
+        <button
+          type="button"
+          aria-label={compact ? "Expandir barra lateral" : "Contraer barra lateral"}
+          aria-expanded={compact == null ? undefined : !compact}
+          aria-controls="operix-sidebar"
+          className={styles.collapse}
+          onClick={() => changeSidebarPreference(!compact)}
+        >
+          {compact ? <PanelLeftOpen size={17} aria-hidden="true" /> : <PanelLeftClose size={17} aria-hidden="true" />}
+        </button>
+        <div className={styles.navigationViewport}>
+          <Navigation activePath={activePath} scope="desktop-nav" compact={compact ?? false} />
         </div>
         <div className="sidebar-footer">
           <SessionAccount />
@@ -234,6 +310,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           </motion.div>
         </main>
       </div>
-    </div>
+    </motion.div>
   );
 }

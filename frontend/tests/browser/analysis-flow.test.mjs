@@ -103,6 +103,7 @@ test(
       let next = 0;
       let sessionId;
       let resolveLoad;
+      let discardConfirmation;
       const pending = new Map();
       socket.addEventListener("message", ({ data }) => {
         const response = JSON.parse(data);
@@ -111,6 +112,12 @@ test(
           response.method === "Page.loadEventFired"
         ) {
           resolveLoad?.();
+        }
+        if (
+          response.sessionId === sessionId &&
+          response.method === "Page.javascriptDialogOpening"
+        ) {
+          discardConfirmation?.(response.params);
         }
         if (response.id && pending.has(response.id)) {
           const { resolve, reject, timeout } = pending.get(response.id);
@@ -229,7 +236,18 @@ test(
         "[...document.querySelectorAll('main summary')].find(el=>el.textContent.includes('Habilitada')).parentElement.open=true",
       );
       await wait(text("Distancia máxima configurada"));
-      await go("/account");
+      const accountTrigger = "[...document.querySelectorAll('button[aria-label^=\"Opciones de cuenta\"]')].find(b=>b.offsetParent!==null)";
+      await wait(`!!(${accountTrigger})`);
+      await evaluate(`(${accountTrigger}).focus()`);
+      await call("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", text: "\r", windowsVirtualKeyCode: 13 });
+      await call("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+      await wait(`(${accountTrigger}).getAttribute('aria-expanded')==='true'`);
+      await call("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+      await wait(`(${accountTrigger}).getAttribute('aria-expanded')==='false' && document.activeElement===(${accountTrigger})`);
+      await evaluate(`(${accountTrigger}).click()`);
+      await evaluate("document.querySelector('.app-sidebar a[href=\"/account\"]').click()");
+      await wait("location.pathname==='/account'");
+      await wait(`(${accountTrigger})?.getAttribute('aria-expanded')==='false'`);
       await wait(text("Mi cuenta"));
       await click("Mostrar contraseñas");
       await wait("document.querySelector('#current')?.type === 'text'");
@@ -292,7 +310,7 @@ test(
       await wait(
         "document.querySelector('video[aria-label=\"Referencia de configuración\"]')?.readyState >= 2",
       );
-      await click("Capturar fotograma de referencia");
+      await click("Capturar primer fotograma");
       await wait(
         "!!document.querySelector('img[alt=\"Fotograma de la fuente para configuración espacial\"]')",
       );
@@ -348,7 +366,18 @@ test(
       await evaluate(
         `document.documentElement.dataset.theme=${JSON.stringify(previousTheme)}`,
       );
-      await click("Cancelar edición");
+      const discard = new Promise((resolve) => {
+        discardConfirmation = resolve;
+      });
+      const cancelEdit = click("Cancelar edición");
+      const confirmation = await Promise.race([discard, cancelEdit.then(() => null)]);
+      if (confirmation) {
+        assert.equal(confirmation.type, "confirm");
+        assert.equal(confirmation.message, "¿Descartar los cambios espaciales sin guardar?");
+        await call("Page.handleJavaScriptDialog", { accept: true });
+      }
+      await cancelEdit;
+      discardConfirmation = undefined;
       // Demo → archivo propio: la API entrega una zona vacía, sin polígonos ocultos.
       await evaluate(
         `(async()=>{const video=document.querySelector('video'); const blob=await (await fetch(video.src)).blob(); const dt=new DataTransfer();dt.items.add(new File([blob], 'TEST_DATA_custom.mp4', {type:'video/mp4'}));const input=document.querySelector('input[type=file]');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`,
@@ -422,6 +451,27 @@ test(
       );
       await wait("document.querySelector('video').readyState>=1");
       await wait(text("MP4 listo para reproducir"));
+      const sidebarSize = "document.querySelector('#operix-sidebar').getBoundingClientRect().width";
+      const expandedWidth = await evaluate(sidebarSize);
+      const sizingSession = await control();
+      await evaluate("void (window.sidebarVideo = document.querySelector('.analysis-stage video'))");
+      await evaluate("document.querySelector('button[aria-label=\"Contraer barra lateral\"]').click()");
+      await wait(`${sidebarSize} < 80`);
+      await wait("localStorage.getItem('operix-sidebar')==='compact'");
+      assert.ok(expandedWidth > 200);
+      assert.equal(await evaluate("window.sidebarVideo === document.querySelector('.analysis-stage video')"), true);
+      assert.equal((await control()).created, sizingSession.created);
+      assert.equal((await control()).deleted, sizingSession.deleted);
+      await evaluate("document.querySelector('#operix-sidebar a[href=\"/analysis\"]').focus()");
+      await wait("document.querySelector('[role=tooltip]')?.textContent==='Análisis'");
+      await wait("document.querySelector('#operix-sidebar a[aria-current=page]')?.pathname==='/analysis'");
+      await evaluate(`(${accountTrigger}).click()`);
+      await wait("!!document.querySelector('#operix-sidebar a[href=\"/account#account-security\"]')");
+      await evaluate("document.querySelector('main').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))");
+      await wait(`(${accountTrigger}).getAttribute('aria-expanded')==='false'`);
+      await evaluate("document.querySelector('button[aria-label=\"Expandir barra lateral\"]').click()");
+      await wait(`${sidebarSize} > 200`);
+      assert.equal(await evaluate("window.sidebarVideo === document.querySelector('.analysis-stage video')"), true);
       assert.equal(
         await evaluate("document.querySelector('video').playbackRate"),
         1,
@@ -705,9 +755,8 @@ test(
       await wait(text("Tu sesión terminó."));
       await credentials("TEST_ONLY_PASSWORD");
       await wait("location.pathname==='/events'");
-      await evaluate(
-        "[...document.querySelectorAll('[aria-label=\"Cerrar sesión\"]')].find(button=>button.offsetParent!==null).click()",
-      );
+      await evaluate(`(${accountTrigger}).click()`);
+      await click("Cerrar sesión");
       await wait("location.pathname==='/login'");
       await go("/events");
       await wait("location.pathname==='/login'");
@@ -731,9 +780,8 @@ test(
       await go("/analysis?profile=C");
       await wait(text("Perfil C · demo no disponible"));
       assert.ok(await evaluate("!!document.querySelector('.analysis-contextbar input[type=file]')"));
-      await evaluate(
-        "[...document.querySelectorAll('[aria-label=\"Cerrar sesión\"]')].find(button=>button.offsetParent!==null).click()",
-      );
+      await evaluate(`(${accountTrigger}).click()`);
+      await click("Cerrar sesión");
       await wait("location.pathname==='/login'");
       await evaluate(`(() => {
         document.querySelector('#login-username').value = 'fixture-viewer';
@@ -742,6 +790,8 @@ test(
       await click("Ingresar");
       await wait("location.pathname==='/indicators'");
       await wait(text("Sin eventos de cargas manuales"));
+      await wait("!!document.querySelector('#operix-sidebar a[href=\"/indicators\"]')");
+      assert.equal(await evaluate("!!document.querySelector('#operix-sidebar a[href=\"/analysis\"]')"), false);
       assert.deepEqual(
         await evaluate(`Promise.all([
           fetch('/api/v1/users/'), fetch('/api/v1/events/'), fetch('/api/v1/analysis/profiles/')

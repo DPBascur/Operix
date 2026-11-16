@@ -22,7 +22,7 @@ export function MobileNavigation({ children }: { children: ReactNode }) {
         setOpen(false);
     }
     function escape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.defaultPrevented) {
         setOpen(false);
         trigger.current?.focus();
       }
