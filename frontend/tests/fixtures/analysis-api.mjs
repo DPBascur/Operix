@@ -62,6 +62,7 @@ export async function startFixtureApi(port = 8000) {
   };
   let directory = [adminRow];
   const directoryPasswords = new Map();
+  let demoCMissing = false;
   const csrf = "TEST_ONLY_CSRF";
   const run = "00000000-0000-4000-8000-000000000055";
   const event = {
@@ -157,7 +158,10 @@ export async function startFixtureApi(port = 8000) {
           sequence = 0;
           deleted = 0;
           failNext = false;
+          demoCMissing = false;
         }
+        if (typeof body.demoCMissing === "boolean")
+          demoCMissing = body.demoCMissing;
         if (body.failNext) failNext = true;
         if (body.expire) signedIn = false;
         if (body.failHistory) failHistory = true;
@@ -213,7 +217,7 @@ export async function startFixtureApi(port = 8000) {
         return send({ user: account, csrf_token: csrf });
       }
       const directoryUrl = url.pathname.match(
-        /^\/api\/v1\/users\/(?:(\d+)\/((?:password|retire)\/)?)?$/,
+        /^\/api\/v1\/users\/(?:(\d+)\/((?:password|retire|reactivate)\/)?)?$/,
       );
       if (directoryUrl) {
         if (account.role !== "administrator")
@@ -258,6 +262,9 @@ export async function startFixtureApi(port = 8000) {
           row.is_active = false;
           row.retired = true;
           directoryPasswords.delete(row.id);
+        } else if (directoryUrl[2] === "reactivate/") {
+          row.is_active = true;
+          directoryPasswords.set(row.id, body.password);
         } else if (directoryUrl[2])
           directoryPasswords.set(row.id, body.password);
         else {
@@ -285,11 +292,14 @@ export async function startFixtureApi(port = 8000) {
             id,
             display_name: `Demo ${id}`,
             configuration: rulesFor(id),
-            default_demo_video: {
-              id: `demo-${id}`,
-              filename: `TEST_DATA_${id}.mp4`,
-              bytes: video.length,
-            },
+            default_demo_video:
+              demoCMissing && id === "C"
+                ? null
+                : {
+                    id: `demo-${id}`,
+                    filename: `TEST_DATA_${id}.mp4`,
+                    bytes: video.length,
+                  },
           })),
         );
       if (

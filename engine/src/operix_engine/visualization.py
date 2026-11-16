@@ -208,7 +208,7 @@ class OpenCvRenderer:
 
     def render_proximity(
         self, frame: NDArray[np.uint8], spatial: FrameSpatialState,
-        result: RuleFrameResult, *, max_pairs: int | None = None,
+        result: RuleFrameResult, *, max_pairs: int | None = None, metric_expected: bool = False,
     ) -> NDArray[np.uint8]:
         """Muestra episodios evaluados, sin geometría/distancia/estado alternativos.
 
@@ -224,6 +224,8 @@ class OpenCvRenderer:
             raise ValueError("El overlay y las reglas deben pertenecer al mismo frame/tiempo")
         if spatial.epoch != result.epoch:
             raise ValueError("El overlay y las reglas deben pertenecer a la misma época")
+        if not any(isinstance(item, PairRuleEvaluation) for item in result.evaluations):
+            return self._render_observed_proximity(frame, spatial, max_pairs, metric_expected)
         objects = {obj.identity: obj for obj in spatial.objects}
         emitted = {candidate.episode_key for candidate in result.candidates if isinstance(candidate, PairEventCandidate)}
         relevant = [evaluation for evaluation in result.evaluations
@@ -319,6 +321,48 @@ class OpenCvRenderer:
         if len(selected) < len(relevant):
             self._draw_label(annotated, f"Relaciones visibles: {len({item.interaction for item in selected})}/{len({item.interaction for item in relevant})}",
                              (8, 28 + len(selected) * 24), self._ZONE_NORMAL_COLOR, fit_width=True)
+        return annotated
+
+    def _render_observed_proximity(self, frame, spatial, max_pairs, metric_expected):
+        # El analizador ya mide los pares con o sin una regla de proximidad activa.
+        pairs = sorted(
+            (pair for pair in spatial.proximities
+             if {pair.class_name_a, pair.class_name_b} == {"person", "forklift"}
+             and pair.geometry_version == PROXIMITY_GEOMETRY_VERSION
+             and pair.point_a is not None and pair.point_b is not None),
+            key=lambda pair: (metric_expected and pair.ground is None,
+                              pair.normalized_distance, pair.identity_a, pair.identity_b),
+        )
+        annotated = frame.copy()
+        color = self._ZONE_NORMAL_COLOR
+        height, width = frame.shape[:2]
+        self._draw_label(
+            annotated,
+            f"Distancias observadas: {min(max_pairs, len(pairs))}/{len(pairs)}"
+            if pairs else "Distancia no disponible: sin pares persona/montacargas con seguimiento",
+            (8, 28), color, fit_width=True,
+        )
+        for index, pair in enumerate(pairs[:max_pairs]):
+            person_first = pair.class_name_a == "person"
+            person, forklift = ((pair.track_id_a, pair.track_id_b) if person_first
+                                else (pair.track_id_b, pair.track_id_a))
+            identity = f"P#{person} / F#{forklift}"
+            if pair.ground is None and metric_expected:
+                label = f"{identity} | Distancia metrica no disponible: plano no aplicable"
+            else:
+                if pair.ground is not None:
+                    points = (pair.ground["person_anchor"], pair.ground["equipment_target"])
+                    distance = pair.ground["distance"]
+                    unit = "m approx"
+                else:
+                    points = ((pair.point_a.x, pair.point_a.y), (pair.point_b.x, pair.point_b.y))
+                    distance = pair.normalized_distance
+                    unit = "norm"
+                endpoints = tuple((min(width - 1, max(0, round(x * width))),
+                                   min(height - 1, max(0, round(y * height)))) for x, y in points)
+                cv2.line(annotated, *endpoints, color, self.config.box_thickness, self._LINE_TYPE)
+                label = f"{identity} | d {distance:.4g} {unit}"
+            self._draw_label(annotated, label, (8, 52 + index * 24), color, fit_width=True)
         return annotated
 
     def render_zone(

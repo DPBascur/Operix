@@ -186,7 +186,9 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                         tracks = getattr(observed, f"{name}_tracks")
                         history = histories[name].update(frame_index, tracks)
                         annotated = renderer.render_tracks(annotated, tracks, history)
-                    annotated = renderer.render_proximity(annotated, spatial, rule_result)
+                    annotated = renderer.render_proximity(
+                        annotated, spatial, rule_result, metric_expected=config.calibration is not None,
+                    )
                     times["rendering_s"] += time.perf_counter() - render_start
                     if frame_index in args.capture_frames and observed.person_tracks and observed.forklift_tracks:
                         name = f"frame-{frame_index:04d}.png"

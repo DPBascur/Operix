@@ -697,6 +697,22 @@ test(
       await credentials("TEST_ONLY_PASSWORD");
       await wait("location.pathname==='/'");
       assert.equal(await evaluate("location.origin"), new URL(base).origin);
+      await control({ demoCMissing: true });
+      await evaluate("sessionStorage.clear()");
+      await go("/analysis?profile=B");
+      await wait("!!document.querySelector('.analysis-stage video')");
+      const beforeMissingDemo = await control();
+      await evaluate("document.querySelectorAll('.analysis-profiles button')[2].click()");
+      await wait(text("El Perfil C no tiene una demo disponible"));
+      assert.equal((await control()).deleted, beforeMissingDemo.deleted);
+      assert.equal(await evaluate(
+        "document.querySelectorAll('.analysis-profiles button')[1].getAttribute('aria-pressed')",
+      ), "true");
+      assert.ok(await evaluate("!!document.querySelector('.analysis-stage video')"));
+      await evaluate("sessionStorage.clear()");
+      await go("/analysis?profile=C");
+      await wait(text("Perfil C · demo no disponible"));
+      assert.ok(await evaluate("!!document.querySelector('.analysis-contextbar input[type=file]')"));
       await evaluate(
         "[...document.querySelectorAll('[aria-label=\"Cerrar sesión\"]')].find(button=>button.offsetParent!==null).click()",
       );

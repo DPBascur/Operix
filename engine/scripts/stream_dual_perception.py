@@ -300,7 +300,9 @@ def process(args: argparse.Namespace) -> None:
                         annotated, tracks, histories[name].update(frame_index, tracks),
                     )
                 if result is not None:
-                    annotated = renderer.render_proximity(annotated, spatial, result)
+                    annotated = renderer.render_proximity(
+                        annotated, spatial, result, metric_expected=config.calibration is not None,
+                    )
                 elif framing is not None:
                     cv2.putText(annotated, "Geometria suspendida", (12, 32), cv2.FONT_HERSHEY_SIMPLEX,
                                 .7, (0, 220, 255), 2, cv2.LINE_AA)

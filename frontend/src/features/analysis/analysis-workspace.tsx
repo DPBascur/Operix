@@ -163,13 +163,13 @@ export function AnalysisWorkspace({
               restored.reason.status === 404
             ) {
               writeSessionReference(tabStorage(), referenceKey, null);
-              throw new Error(
+              setError(
                 "La sesión anterior expiró. Seleccione una demo o un video para continuar.",
               );
+            } else {
+              throw restored.reason;
             }
-            throw restored.reason;
-          }
-          if (restored.value) {
+          } else if (restored.value) {
             setSession(restored.value);
             setProfile(restored.value.profile);
             setDraft(restored.value.zone.polygon);
@@ -469,10 +469,10 @@ export function AnalysisWorkspace({
         if (nextDemo) {
           await selectProfileDemo(next);
         } else {
-          generation.current += 1;
-          if (session) await analysisService.closeAnalysisSession(session.id);
-          writeSessionReference(tabStorage(), referenceKey, null);
-          setSession(null);
+          if (session) {
+            setError(`El Perfil ${next} no tiene una demo disponible en este entorno. Carga un video local compatible y vuelve a seleccionar el perfil. La fuente actual sigue preparada.`);
+            return;
+          }
           setProfile(next);
           setDemoSource(null);
           setDraft([]);
@@ -695,9 +695,15 @@ export function AnalysisWorkspace({
                 {!sourceName && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-white/80">
                     <Upload size={30} aria-hidden="true" />
-                    <p className="text-lg font-semibold">Sin fuente de video</p>
+                    <p className="text-lg font-semibold">
+                      {profiles.length > 0 && !selectedProfile?.default_demo_video
+                        ? `Perfil ${profile} · demo no disponible`
+                        : "Sin fuente de video"}
+                    </p>
                     <p className="max-w-sm text-sm opacity-75">
-                      Seleccione un archivo o use una demo.
+                      {profiles.length > 0 && !selectedProfile?.default_demo_video
+                        ? "Selecciona un archivo MP4, MOV o AVI desde Cambiar fuente."
+                        : "Seleccione un archivo o use una demo."}
                     </p>
                   </div>
                 )}
@@ -1267,7 +1273,8 @@ export function AnalysisWorkspace({
               al montacargas. «d» indica la distancia observada y «max» el
               umbral configurado. «norm» corresponde a imagen normalizada; «m
               approx» a metros aproximados de suelo, solo con calibración
-              válida. Condición configurada satisfecha; requiere revisión
+              válida. Las distancias observadas sin umbral no evalúan una
+              regla de proximidad. Condición configurada satisfecha; requiere revisión
               humana, no confirma un incidente.
             </p>
           )}

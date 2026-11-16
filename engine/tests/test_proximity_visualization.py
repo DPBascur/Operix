@@ -85,6 +85,24 @@ class ProximityVisualizationTests(unittest.TestCase):
                 self.renderer.render_proximity(self.frame, spatial, result)
             line.assert_not_called()
 
+    def test_dwell_only_profile_displays_observations_without_pair_events(self):
+        spatial, _ = self.step(0, (self.person, self.forklift, track("person", 2, 40, 50)))
+        dwell = RuleEngine(replace(self.config, rules=(
+            RuleConfig("dwell", 1, True, {"kind": "zone_dwell", "zone_id": "floor",
+                                         "class_name": "person", "min_duration_s": 1.}),)))
+        result = dwell.evaluate(spatial)
+        with patch("operix_engine.visualization.cv2.line", wraps=cv2.line) as lines, \
+                patch.object(self.renderer, "_draw_label") as labels:
+            self.renderer.render_proximity(self.frame, spatial, result)
+        self.assertEqual(lines.call_count, 2)
+        self.assertTrue(any("P#1 / F#1 | d 0.4472 norm" in call.args[1] for call in labels.call_args_list))
+        self.assertEqual(result.candidates, ())
+        with patch("operix_engine.visualization.cv2.line") as lines, \
+                patch.object(self.renderer, "_draw_label") as labels:
+            self.renderer.render_proximity(self.frame, spatial, result, metric_expected=True)
+        lines.assert_not_called()
+        self.assertTrue(any("plano no aplicable" in call.args[1] for call in labels.call_args_list))
+
     def test_outside_threshold_displays_one_observation_without_an_event(self):
         spatial, result = self.step(0, (self.person, track("forklift", 1, 95, 95)))
         with patch("operix_engine.visualization.cv2.line", wraps=cv2.line) as line, \
