@@ -1,6 +1,5 @@
 "use client";
 import { useState } from "react";
-import { motion, useReducedMotion } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Eye, EyeOff } from "lucide-react";
@@ -9,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { ThemeSelector } from "@/components/ui/theme-selector";
 import { signIn } from "@/services/browser-session";
 import { canOpen, useSession } from "./session-provider";
-import { enterTransition, revealVariants } from "@/lib/motion/presets";
 
 import { ObservationStory } from "@/features/experience/observation-story";
 
@@ -19,7 +17,6 @@ export function LoginExperience() {
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  const reduceMotion = useReducedMotion();
   return (
     <main className="login-page">
       <section className="login-form-side">
@@ -36,13 +33,7 @@ export function LoginExperience() {
           </Link>
           <ThemeSelector />
         </header>
-        <motion.div
-          className="login-form-content"
-          variants={revealVariants}
-          initial="hidden"
-          animate="visible"
-          transition={reduceMotion ? { duration: 0 } : enterTransition}
-        >
+        <div className="login-form-content">
           <h1>Bienvenido a Operix.</h1>
           <p>
             {expired
@@ -151,7 +142,7 @@ export function LoginExperience() {
             Proyecto académico · Visión artificial aplicada a la prevención
             operacional
           </footer>
-        </motion.div>
+        </div>
       </section>
       <section className="login-preview-side" aria-label="Cómo funciona Operix">
         <ObservationStory login />

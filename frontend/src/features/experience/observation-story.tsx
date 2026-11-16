@@ -10,6 +10,7 @@ import {
   Pause,
   Play,
   ScanLine,
+  X,
 } from "lucide-react";
 import {
   animate,
@@ -24,11 +25,16 @@ import Link from "next/link";
 import {
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 import { canOpen, useSession } from "@/features/auth/session-provider";
+import { Aurora } from "@/components/effects/aurora";
+import { Magnet } from "@/components/effects/magnet";
+import { SplitText } from "@/components/effects/split-text";
+import { SpotlightCard } from "@/components/effects/spotlight-card";
 import { chapters } from "./chapters";
 import { WarehouseScene } from "./warehouse-scene";
 import { Warehouse3D } from "./warehouse-3d";
@@ -69,7 +75,9 @@ function watchLoginMedia(change: () => void) {
   return () => media.removeEventListener("change", change);
 }
 function staticLoginSnapshot() {
-  return window.matchMedia(staticLoginQuery).matches;
+  const { deviceMemory } = navigator as Navigator & { deviceMemory?: number };
+  return window.matchMedia(staticLoginQuery).matches ||
+    (deviceMemory !== undefined && deviceMemory <= 2);
 }
 
 export function ObservationStory({ login = false }: { login?: boolean }) {
@@ -80,6 +88,9 @@ export function ObservationStory({ login = false }: { login?: boolean }) {
   const [sceneReady, setSceneReady] = useState(false);
   const handleSceneReady = useCallback(() => setSceneReady(true), []);
   const stage = useRef<HTMLElement>(null);
+  const chaptersDialog = useRef<HTMLDialogElement>(null);
+  const chaptersTitle = useId();
+  const [chaptersOpen, setChaptersOpen] = useState(false);
   const clock = useMotionValue(0);
   const [target, setTarget] = useState<{ chapter: number } | null>(null);
   const [visible, setVisible] = useState(false);
@@ -126,8 +137,9 @@ export function ObservationStory({ login = false }: { login?: boolean }) {
   }, []);
 
   useEffect(() => {
+    if (chaptersOpen || !visible) return;
     if (playing) {
-      if (!visible || staticPreview || (login && !sceneReady)) return;
+      if (staticPreview || (login && !sceneReady)) return;
       if (returning) {
         const rewind = animate(clock, 0, {
           duration: Math.max(0.01, (clock.get() / lastBeat) * 2.5),
@@ -167,6 +179,7 @@ export function ObservationStory({ login = false }: { login?: boolean }) {
     return () => transition.stop();
   }, [
     clock,
+    chaptersOpen,
     login,
     playing,
     reduced,
@@ -178,13 +191,23 @@ export function ObservationStory({ login = false }: { login?: boolean }) {
   ]);
 
   function select(index: number) {
+    setReturning(false);
     setPlaying(false);
     setChapter(index);
     setTarget({ chapter: index });
   }
 
+  const Caption = login ? SpotlightCard : "div";
+
   return (
     <div className={login ? "experience login-story" : "experience"}>
+      {login && (
+        <Aurora
+          className="login-story-aurora"
+          animate={!staticPreview}
+          paused={!playing || !visible || !sceneReady || chaptersOpen}
+        />
+      )}
       {!login && (
         <header className="experience-header">
           <h2>Cómo funciona Operix</h2>
@@ -203,13 +226,18 @@ export function ObservationStory({ login = false }: { login?: boolean }) {
             <span>
               <ScanLine size={16} aria-hidden="true" /> Vista de bodega
             </span>
-            <span>Simulación ilustrativa</span>
+            <span className={login ? "login-story-label" : undefined}>
+              Simulación ilustrativa
+            </span>
             {login && !staticPreview && (
               <button
                 className="login-story-play"
                 type="button"
                 aria-label={playing ? "Pausar historia" : "Reproducir historia"}
-                onClick={() => setPlaying(!playing)}
+                onClick={() => {
+                  setTarget(null);
+                  setPlaying(!playing);
+                }}
               >
                 {playing ? <Pause size={16} /> : <Play size={16} />}
               </button>
@@ -275,39 +303,101 @@ export function ObservationStory({ login = false }: { login?: boolean }) {
             </motion.div>
           )}
         </section>
-        {(!login || !staticPreview) && (
-          <div className="experience-chapter">
-            <p className="experience-chapter-index">
-              {String(chapter + 1).padStart(2, "0")} /{" "}
-              {String(chapters.length).padStart(2, "0")}
-            </p>
-            <div aria-live={playing ? "off" : "polite"}>
-              <motion.div
-                key={chapter}
-                initial={reduced ? false : { opacity: 0.4 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: reduced ? 0 : 0.35 }}
-              >
-                <p className="experience-chapter-name">{current.name}</p>
-                <h3>{current.title}</h3>
+        <Caption className="experience-chapter">
+          <p className="experience-chapter-index">
+            {String(chapter + 1).padStart(2, "0")} /{" "}
+            {String(chapters.length).padStart(2, "0")}
+          </p>
+          <div aria-live={playing ? "off" : "polite"}>
+            <div key={chapter}>
+              <p className="experience-chapter-name">{current.name}</p>
+              <SplitText
+                as="h3"
+                text={current.title}
+                animate={!staticPreview}
+                staggerMs={26}
+              />
+              {login ? (
+                <SplitText
+                  as="p"
+                  text={current.description}
+                  animate={!staticPreview}
+                  staggerMs={10}
+                />
+              ) : (
                 <p>{current.description}</p>
-                <div className="experience-detail">{current.detail}</div>
-              </motion.div>
+              )}
+              <div className="experience-detail">{current.detail}</div>
             </div>
-            {!login && last && user && (
-              <Link
-                className="button button-primary"
-                href={canOpen("/events", user.role) ? "/events" : "/indicators"}
-              >
-                {canOpen("/events", user.role)
-                  ? "Abrir historial"
-                  : "Ver indicadores"}{" "}
-                <ArrowRight size={16} aria-hidden="true" />
-              </Link>
-            )}
           </div>
-        )}
+          {!login && last && user && (
+            <Link
+              className="button button-primary"
+              href={canOpen("/events", user.role) ? "/events" : "/indicators"}
+            >
+              {canOpen("/events", user.role)
+                ? "Abrir historial"
+                : "Ver indicadores"}{" "}
+              <ArrowRight size={16} aria-hidden="true" />
+            </Link>
+          )}
+        </Caption>
       </div>
+      {login && (
+        <>
+          <div className="login-story-actions">
+            <Magnet maxOffset={4}>
+              <button
+                type="button"
+                className="login-story-cta"
+                aria-haspopup="dialog"
+                onClick={() => {
+                  chaptersDialog.current?.showModal();
+                  setChaptersOpen(true);
+                }}
+              >
+                Ver historia completa <ArrowRight size={16} aria-hidden="true" />
+              </button>
+            </Magnet>
+          </div>
+          <dialog
+            ref={chaptersDialog}
+            className="login-story-dialog"
+            aria-labelledby={chaptersTitle}
+            onClose={() => setChaptersOpen(false)}
+          >
+            <header>
+              <h2 id={chaptersTitle}>Cómo funciona Operix</h2>
+              <form method="dialog">
+                <button type="submit" className="login-story-close" aria-label="Cerrar historia">
+                  <X size={19} aria-hidden="true" />
+                </button>
+              </form>
+            </header>
+            <ol>
+              {chapters.map((item, index) => (
+                <li key={item.name}>
+                  <div>
+                    <strong>{item.name}</strong>
+                    <p>{item.description}</p>
+                  </div>
+                  {!staticPreview && (
+                    <button type="button" className="button button-outline"
+                      aria-label={`Ver capítulo ${item.name}`}
+                      onClick={() => {
+                        select(index);
+                        chaptersDialog.current?.close();
+                      }}
+                    >
+                      Ver <ArrowRight size={14} aria-hidden="true" />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </dialog>
+        </>
+      )}
       {!login && (
         <>
           <div className="experience-toolbar experience-glass">

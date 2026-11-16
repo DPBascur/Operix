@@ -41,6 +41,11 @@
   animation: aurora-drift 18s ease-in-out -6s infinite alternate-reverse;
 }
 
+.aurora[data-paused="true"]::before,
+.aurora[data-paused="true"]::after {
+  animation-play-state: paused;
+}
+
 @keyframes aurora-drift {
   from {
     translate: -5% 2%;

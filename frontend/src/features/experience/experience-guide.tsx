@@ -6,6 +6,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Magnet } from "@/components/effects/magnet";
+import { SpotlightCard } from "@/components/effects/spotlight-card";
 import { canOpen } from "@/features/auth/session-provider";
 import { enterTransition } from "@/lib/motion/presets";
 import type { OperixUser } from "@/services/browser-session";
@@ -237,23 +239,30 @@ export function ExperienceGuide({
 
   if (!open) {
     return unseen && pathname !== "/experience" ? (
-      <aside
+      <SpotlightCard
         className="experience-invite experience-glass"
+        role="complementary"
         aria-label="Introducción de Operix"
       >
         <Compass size={21} aria-hidden="true" />
         <div>
           <strong>Descubre cómo funciona Operix</strong>
           <div className="experience-invite-actions">
-            <button type="button" onClick={() => onOpenChange(true)}>
-              Comenzar tutorial
-            </button>
+            <Magnet maxOffset={3}>
+              <button
+                className="button button-outline"
+                type="button"
+                onClick={() => onOpenChange(true)}
+              >
+                Comenzar tutorial
+              </button>
+            </Magnet>
             <button type="button" onClick={remember}>
               Omitir
             </button>
           </div>
         </div>
-      </aside>
+      </SpotlightCard>
     ) : null;
   }
 
