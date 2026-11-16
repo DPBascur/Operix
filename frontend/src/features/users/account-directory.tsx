@@ -91,6 +91,7 @@ function AccountEditor({
   const inFlight = useRef(false);
   const [error, setError] = useState("");
   const [reset, setReset] = useState(false);
+  const reactivating = Boolean(account && !account.is_active && reset);
   const [retireError, setRetireError] = useState("");
   const retirement = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -108,7 +109,10 @@ function AccountEditor({
     setPending(true);
     setError("");
     try {
-      const path = account ? account.id + (reset ? "/password/" : "/") : "";
+      const path = account
+        ? account.id +
+          (reactivating ? "/reactivate/" : reset ? "/password/" : "/")
+        : "";
       const body = !account
         ? {
             username: values.get("username"),
@@ -129,11 +133,13 @@ function AccountEditor({
       form.reset();
       onSaved(
         updated,
-        reset
-          ? "Contraseña restablecida. Las sesiones anteriores quedaron invalidadas."
-          : account
-            ? "Cambios guardados."
-            : "Cuenta creada.",
+        reactivating
+          ? "Cuenta reactivada. Debe ingresar con su nueva contraseña."
+          : reset
+            ? "Contraseña restablecida. Las sesiones anteriores quedaron invalidadas."
+            : account
+              ? "Cambios guardados."
+              : "Cuenta creada.",
       );
       if (reset) setReset(false);
     } catch (cause) {
@@ -180,11 +186,13 @@ function AccountEditor({
       animate={{ opacity: 1 }}
     >
       <h2 id="directory-editor-title" tabIndex={-1} ref={heading}>
-        {reset
-          ? "Restablecer contraseña"
-          : account
-            ? "Editar cuenta"
-            : "Nueva cuenta"}
+        {reactivating
+          ? "Reactivar cuenta"
+          : reset
+            ? "Restablecer contraseña"
+            : account
+              ? "Editar cuenta"
+              : "Nueva cuenta"}
       </h2>
       {account && (
         <p className="directory-selected">
@@ -243,7 +251,12 @@ function AccountEditor({
                 className="select-control"
                 defaultValue={String(account?.is_active ?? true)}
               >
-                <option value="true">Activa</option>
+                <option
+                  value="true"
+                  disabled={Boolean(account && !account.is_active)}
+                >
+                  Activa
+                </option>
                 <option value="false">Desactivada</option>
               </select>
               <p className="field-help">
@@ -268,7 +281,9 @@ function AccountEditor({
             {pending
               ? "Guardando…"
               : reset
-                ? "Restablecer"
+                ? reactivating
+                  ? "Confirmar reactivación"
+                  : "Restablecer"
                 : account
                   ? "Guardar cambios"
                   : "Crear cuenta"}
@@ -299,7 +314,8 @@ function AccountEditor({
               setError("");
             }}
           >
-            <KeyRound size={16} aria-hidden="true" /> Restablecer contraseña
+            <KeyRound size={16} aria-hidden="true" />{" "}
+            {account.is_active ? "Restablecer contraseña" : "Reactivar cuenta"}
           </Button>
           <Button
             variant="destructive"
@@ -363,6 +379,11 @@ export function AccountDirectory() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [archive, setArchive] = useState(false);
+  const visibleAccounts = accounts.filter((account) =>
+    archive ? !account.is_active : account.is_active,
+  );
+  const archivedCount = accounts.filter((account) => !account.is_active).length;
   const create = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(
@@ -444,8 +465,40 @@ export function AccountDirectory() {
           aria-busy={loading}
         >
           <h3>
-            <Users size={18} aria-hidden="true" /> Cuentas registradas
+            <Users size={18} aria-hidden="true" />{" "}
+            {archive ? "Cuentas archivadas" : "Cuentas activas"}
           </h3>
+          <div
+            className="identity-actions"
+            role="group"
+            aria-label="Estado de cuentas cargadas"
+          >
+            <Button
+              variant={archive ? "outline" : "primary"}
+              aria-pressed={!archive}
+              onClick={() => {
+                setArchive(false);
+                setEditor(null);
+              }}
+            >
+              Activas ({accounts.length - archivedCount})
+            </Button>
+            <Button
+              variant={archive ? "primary" : "outline"}
+              aria-pressed={archive}
+              onClick={() => {
+                setArchive(true);
+                setEditor(null);
+              }}
+            >
+              Archivadas ({archivedCount})
+            </Button>
+          </div>
+          {next && (
+            <p className="field-help">
+              Los recuentos corresponden a las cuentas cargadas.
+            </p>
+          )}
           {loading && !accounts.length && (
             <p role="status">Cargando cuentas…</p>
           )}
@@ -463,9 +516,17 @@ export function AccountDirectory() {
               Reintentar
             </Button>
           )}
-          {!loading && !error && !accounts.length && <p>Aún no hay cuentas.</p>}
+          {!loading && !error && !visibleAccounts.length && (
+            <p>
+              {next
+                ? "No hay coincidencias en las cuentas cargadas."
+                : archive
+                  ? "No hay cuentas archivadas."
+                  : "No hay cuentas activas."}
+            </p>
+          )}
           <ul>
-            {accounts.map((account) => {
+            {visibleAccounts.map((account) => {
               const self = account.username === user?.username;
               const selected =
                 editor?.mode === "edit" && editor.account.id === account.id;
@@ -559,7 +620,7 @@ export function AccountDirectory() {
                   current?.mode === "edit" &&
                   current.account.id === updated.id
                 ) {
-                  return updated.retired
+                  return updated.retired || updated.is_active === archive
                     ? null
                     : { mode: "edit", account: updated };
                 }

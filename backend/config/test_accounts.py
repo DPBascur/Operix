@@ -175,6 +175,23 @@ class AccountDirectoryTests(TestCase):
         self.assertEqual(admin.post(url).status_code, 403)
         self.assertFalse(AccountRetirement.objects.exists())
 
+    def test_reactivation_preserves_role_and_never_restores_old_sessions(self):
+        admin = self.signed_in(self.root)
+        managed = self.add(admin, "reactivation-target", "safety_lead").json()
+        user = get_user_model().objects.get(pk=managed["id"])
+        old_session = self.signed_in(user)
+        url = USERS + f"{user.pk}/"
+        disabled = {"role": "safety_lead", "is_active": False}
+        self.assertEqual(admin.patch(url, disabled, format="json").status_code, 200)
+        self.assertEqual(admin.patch(url, {"role": "administrator", "is_active": True}, format="json").status_code, 409)
+        self.assertEqual(admin.post(url + "reactivate/", {"password": TEST_PASSWORD}, format="json").status_code, 400)
+        self.assertEqual(admin.post(url + "reactivate/", {"password": NEW_PASSWORD, "role": "administrator"}, format="json").status_code, 400)
+        response = admin.post(url + "reactivate/", {"password": NEW_PASSWORD}, format="json")
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()["role"], "safety_lead")
+        self.assertEqual(old_session.get("/api/v1/events/").status_code, 401)
+        self.assertEqual(self.signed_in(user, NEW_PASSWORD).get("/api/v1/events/").status_code, 200)
+
 
 class AccountRetirementConcurrencyTests(TransactionTestCase):
     @skipUnlessDBFeature("has_select_for_update")

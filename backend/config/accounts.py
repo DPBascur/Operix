@@ -187,11 +187,37 @@ def account_detail(request, pk):
         with transaction.atomic():
             actor = lock_directory(request)
             user = editable_target(actor, pk)
+            if not user.is_active and data["is_active"]:
+                raise AccountError("Para reactivar la cuenta, establece una nueva contraseña desde Archivadas.", 409)
             if data["role"] != "administrator" or not data["is_active"]:
                 preserve_administrator(user)
             user.is_active = data["is_active"]
             user.save(update_fields=["is_active"])
             assign_role(user, data["role"])
+        return JsonResponse(describe(user))
+    except AccountError as error:
+        return failure(error)
+
+
+@require_http_methods(["POST"])
+@csrf_protect
+@sensitive_variables()
+def account_reactivate(request, pk):
+    try:
+        require_admin(request.user)
+        data = payload(request, {"password"})
+        with transaction.atomic():
+            actor = lock_directory(request)
+            user = editable_target(actor, pk)
+            if user.is_active:
+                raise AccountError("La cuenta ya está activa.", 409)
+            if describe(user)["role"] is None:
+                raise AccountError("Asigna un rol a la cuenta antes de reactivarla.", 409)
+            if isinstance(data["password"], str) and user.check_password(data["password"]):
+                raise AccountError("Selecciona una contraseña distinta a la anterior.")
+            save_password(user, data["password"])
+            user.is_active = True
+            user.save(update_fields=["is_active", "password"])
         return JsonResponse(describe(user))
     except AccountError as error:
         return failure(error)
