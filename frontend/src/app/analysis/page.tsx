@@ -1,5 +1,5 @@
-import { AppShell } from "@/components/layout/app-shell";
 import { AnalysisWorkspace } from "@/features/analysis/analysis-workspace";
+import { PageTitle } from "@/components/layout/page-title";
 
 export default async function AnalysisPage({
   searchParams,
@@ -11,13 +11,14 @@ export default async function AnalysisPage({
     ? (params.profile as "A" | "B" | "C")
     : "A";
   return (
-    <AppShell activePath="/analysis">
-      <div className="analysis-page">
-        <AnalysisWorkspace
-          initialProfile={initialProfile}
-          initialManual={params.source === "manual"}
-        />
-      </div>
-    </AppShell>
+    <div className="analysis-page">
+      <header className="app-page-heading">
+        <PageTitle>Análisis de video</PageTitle>
+      </header>
+      <AnalysisWorkspace
+        initialProfile={initialProfile}
+        initialManual={params.source === "manual"}
+      />
+    </div>
   );
 }

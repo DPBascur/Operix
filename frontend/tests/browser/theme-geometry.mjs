@@ -7,7 +7,9 @@ export async function checkButtonThemes(evaluate, call) {
   const original = await evaluate("document.documentElement.dataset.theme");
   const measure = (selector) =>
     evaluate(`(() => {
-    return [...document.querySelectorAll(${JSON.stringify(selector)})]
+    return ['light', 'dark'].map(theme => {
+      document.documentElement.dataset.theme = theme;
+      return [...document.querySelectorAll(${JSON.stringify(selector)})]
       .filter(el => el.getClientRects().length).map(el => {
         const s = getComputedStyle(el);
         // Un flex que rellena su panel hereda el ancho disponible; se compara
@@ -16,15 +18,11 @@ export async function checkButtonThemes(evaluate, call) {
         return [s.borderRadius, s.height, width, s.padding, s.fontSize,
           s.fontWeight, s.lineHeight, s.display, s.gap, s.borderWidth];
       });
+    });
   })()`);
   const compare = async (selector, label) => {
-    const results = [];
-    for (const theme of ["light", "dark"]) {
-      await evaluate(
-        `document.documentElement.dataset.theme=${JSON.stringify(theme)}`,
-      );
-      results.push(await measure(selector));
-    }
+    // Keep the live page state identical between the two measurements.
+    const results = await measure(selector);
     assert.ok(results[0].length, `Sin controles: ${label}`);
     assert.deepEqual(results[0], results[1], `Geometría light/dark: ${label}`);
   };

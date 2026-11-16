@@ -13,12 +13,15 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import type { ReactNode } from "react";
 import { ThemeSelector } from "@/components/ui/theme-selector";
 import { MobileNavigation } from "./mobile-navigation";
 import { ApiStatus } from "@/components/ui/api-status";
 import { SessionAccount } from "./session-account";
 import { canOpen, useSession } from "@/features/auth/session-provider";
+import { calmSpring, enterTransition } from "@/lib/motion/presets";
 
 const navigationGroups: {
   label: string;
@@ -92,8 +95,15 @@ function Brand({
   );
 }
 
-function Navigation({ activePath }: { activePath: string }) {
+function Navigation({
+  activePath,
+  scope,
+}: {
+  activePath: string;
+  scope: string;
+}) {
   const { user } = useSession();
+  const reduceMotion = useReducedMotion();
   const groups = navigationGroups
     .map((group) => ({
       ...group,
@@ -101,42 +111,63 @@ function Navigation({ activePath }: { activePath: string }) {
     }))
     .filter((group) => group.items.length);
   return (
-    <nav aria-label="Navegación principal" className="navigation-groups">
-      {groups.map((group) => (
-        <section className="navigation-group" key={group.label}>
-          <h2 className="navigation-group-label">{group.label}</h2>
-          <ul className="space-y-0.5">
-            {group.items.map(({ href, label, icon: Icon }) => (
-              <li key={href}>
-                <Link
-                  aria-current={activePath === href ? "page" : undefined}
-                  className="navigation-item"
-                  href={href}
-                >
-                  <Icon
-                    aria-hidden="true"
-                    className="navigation-icon"
-                    size={16}
-                    strokeWidth={1.8}
-                  />
-                  <span>{label}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
-    </nav>
+    <LayoutGroup id={scope}>
+      <nav aria-label="Navegación principal" className="navigation-groups">
+        {groups.map((group) => (
+          <section className="navigation-group" key={group.label}>
+            <h2 className="navigation-group-label">{group.label}</h2>
+            <ul className="space-y-0.5">
+              {group.items.map(({ href, label, icon: Icon }) => (
+                <li key={href}>
+                  <Link
+                    aria-current={activePath === href ? "page" : undefined}
+                    className="navigation-item"
+                    href={href}
+                  >
+                    {activePath === href && (
+                      <motion.span
+                        aria-hidden="true"
+                        className="navigation-highlight"
+                        layoutId={reduceMotion ? undefined : "active-route"}
+                        transition={calmSpring}
+                        initial={false}
+                      />
+                    )}
+                    <span aria-hidden="true" className="navigation-glyph">
+                      <Icon
+                        className="navigation-icon"
+                        size={16}
+                        strokeWidth={1.8}
+                      />
+                    </span>
+                    <span className="navigation-label">{label}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+      </nav>
+    </LayoutGroup>
   );
 }
 
-export function AppShell({
-  activePath,
-  children,
-}: {
-  activePath: string;
-  children: ReactNode;
-}) {
+export function AppShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const reduceMotion = useReducedMotion();
+  if (pathname === "/login") return children;
+  const activePath =
+    pathname === "/dashboard" ? "/" : "/" + (pathname.split("/")[1] || "");
+  const routeTitle = routeNames[activePath] ?? "Operix";
+  const width =
+    activePath === "/account"
+      ? "compact"
+      : ["/analysis", "/events", "/indicators", "/experience", "/"].includes(
+            activePath,
+          )
+        ? "wide"
+        : "standard";
+
   return (
     <div className="app-shell refresh-shell min-h-screen bg-background text-foreground">
       <a className="skip-link" href="#main-content">
@@ -147,7 +178,7 @@ export function AppShell({
           <Brand onDark showDescriptor />
         </div>
         <div className="mt-7">
-          <Navigation activePath={activePath} />
+          <Navigation activePath={activePath} scope="desktop-nav" />
         </div>
         <div className="sidebar-footer">
           <SessionAccount />
@@ -161,15 +192,15 @@ export function AppShell({
         <header className="app-header sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border bg-surface/95 px-4 backdrop-blur-sm sm:px-5 lg:px-6">
           <div className="mobile-header-context lg:hidden">
             <Brand />
-            <span className="mobile-route-name">{routeNames[activePath]}</span>
+            <span className="mobile-route-name">{routeTitle}</span>
           </div>
-          <h1 className="route-title text-sm font-semibold tracking-[-0.01em]">
-            {routeNames[activePath]}
-          </h1>
+          <span className="route-title text-sm font-semibold tracking-[-0.01em]">
+            {routeTitle}
+          </span>
           <div className="flex items-center gap-2">
             <ApiStatus />
             <MobileNavigation>
-              <Navigation activePath={activePath} />
+              <Navigation activePath={activePath} scope="mobile-nav" />
               <div className="sidebar-footer">
                 <SessionAccount />
                 <div className="sidebar-appearance">
@@ -180,8 +211,27 @@ export function AppShell({
             </MobileNavigation>
           </div>
         </header>
-        <main id="main-content" tabIndex={-1}>
-          {children}
+        <main
+          id="main-content"
+          className="app-page"
+          data-width={width}
+          tabIndex={-1}
+        >
+          <motion.div
+            key={pathname}
+            className="app-page-body"
+            initial={
+              reduceMotion ||
+              activePath === "/analysis" ||
+              activePath === "/experience"
+                ? false
+                : { opacity: 0.84, y: 4 }
+            }
+            animate={{ opacity: 1, y: 0 }}
+            transition={enterTransition}
+          >
+            {children}
+          </motion.div>
         </main>
       </div>
     </div>

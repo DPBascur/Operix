@@ -1,5 +1,6 @@
 "use client";
 
+import { PageTitle } from "@/components/layout/page-title";
 import {
   useCallback,
   useEffect,
@@ -7,7 +8,13 @@ import {
   useState,
   type FormEvent,
 } from "react";
-import { ChevronRight, KeyRound, UserPlus, Users } from "lucide-react";
+import {
+  ChevronRight,
+  KeyRound,
+  UserMinus,
+  UserPlus,
+  Users,
+} from "lucide-react";
 import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { useSession } from "@/features/auth/session-provider";
@@ -26,6 +33,7 @@ type Account = {
   is_active: boolean;
   role_review_required: boolean;
   protected: boolean;
+  retired?: boolean;
 };
 
 type AccountPage = { accounts: Account[]; next: number | null };
@@ -83,6 +91,8 @@ function AccountEditor({
   const inFlight = useRef(false);
   const [error, setError] = useState("");
   const [reset, setReset] = useState(false);
+  const [retireError, setRetireError] = useState("");
+  const retirement = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => heading.current?.focus(), []);
 
@@ -135,6 +145,30 @@ function AccountEditor({
     } finally {
       setPending(false);
       inFlight.current = false;
+    }
+  }
+
+  async function retire() {
+    if (!account || inFlight.current) return;
+    inFlight.current = true;
+    setPending(true);
+    setRetireError("");
+    try {
+      const updated = await directoryRequest<Account>(account.id + "/retire/", {
+        method: "POST",
+        signal: AbortSignal.timeout(15000),
+      });
+      retirement.current?.close();
+      onSaved(updated, `Cuenta @${updated.username} dada de baja.`);
+    } catch (cause) {
+      setRetireError(
+        cause instanceof Error
+          ? cause.message
+          : "No se pudo dar de baja la cuenta.",
+      );
+    } finally {
+      inFlight.current = false;
+      setPending(false);
     }
   }
 
@@ -255,17 +289,67 @@ function AccountEditor({
         </div>
       </form>
       {account && !reset && (
-        <Button
-          type="button"
-          variant="ghost"
-          disabled={pending}
-          onClick={() => {
-            setReset(true);
-            setError("");
-          }}
-        >
-          <KeyRound size={16} aria-hidden="true" /> Restablecer contraseña
-        </Button>
+        <div className="directory-secondary-actions">
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={pending}
+            onClick={() => {
+              setReset(true);
+              setError("");
+            }}
+          >
+            <KeyRound size={16} aria-hidden="true" /> Restablecer contraseña
+          </Button>
+          <Button
+            variant="destructive"
+            aria-haspopup="dialog"
+            disabled={pending}
+            onClick={() => {
+              setRetireError("");
+              retirement.current?.showModal();
+            }}
+          >
+            <UserMinus size={16} aria-hidden="true" /> Dar de baja
+          </Button>
+          <dialog
+            ref={retirement}
+            className="directory-retirement surface-card"
+            aria-labelledby="retirement-title"
+            aria-describedby="retirement-consequences"
+            onCancel={(event) => {
+              if (inFlight.current) event.preventDefault();
+            }}
+          >
+            <h3 id="retirement-title">Dar de baja a @{account.username}</h3>
+            <p id="retirement-consequences">
+              Se revocará el acceso y se cerrarán las sesiones de la cuenta. La
+              baja es permanente en Operix, a diferencia de la desactivación
+              temporal. La cuenta y sus registros históricos se conservan.
+            </p>
+            {retireError && (
+              <p className="form-error" role="alert">
+                {retireError}
+              </p>
+            )}
+            <div className="identity-actions">
+              <Button
+                variant="outline"
+                disabled={pending}
+                onClick={() => retirement.current?.close()}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="destructive"
+                loading={pending}
+                onClick={() => void retire()}
+              >
+                {pending ? "Procesando…" : "Confirmar baja"}
+              </Button>
+            </div>
+          </dialog>
+        </div>
       )}
     </motion.section>
   );
@@ -335,9 +419,9 @@ export function AccountDirectory() {
 
   return (
     <section className="page-wrap identity-page">
-      <header className="identity-heading directory-heading">
+      <header className="identity-heading directory-heading app-page-heading">
         <div>
-          <h2 className="compact-page-title">Cuentas de Operix</h2>
+          <PageTitle>Cuentas de Operix</PageTitle>
           <p>Administra quién puede acceder y qué puede hacer en Operix.</p>
         </div>
         <Button
@@ -397,7 +481,11 @@ export function AccountDirectory() {
                     )}
                     <small>
                       {account.role ? roleLabels[account.role] : "Sin rol"} ·{" "}
-                      {account.is_active ? "Activa" : "Desactivada"}
+                      {account.retired
+                        ? "Dada de baja"
+                        : account.is_active
+                          ? "Activa"
+                          : "Desactivada"}
                     </small>
                     {account.role_review_required && (
                       <span className="directory-review">
@@ -405,7 +493,7 @@ export function AccountDirectory() {
                       </span>
                     )}
                   </div>
-                  {!self && !account.protected ? (
+                  {!self && !account.protected && !account.retired ? (
                     <Button
                       variant="outline"
                       size="small"
@@ -464,13 +552,16 @@ export function AccountDirectory() {
                   : [...current, updated],
               );
               setMessage(success);
+              if (updated.retired) create.current?.focus();
               setEditor((current) => {
                 if (
                   editor.mode === "edit" &&
                   current?.mode === "edit" &&
                   current.account.id === updated.id
                 ) {
-                  return { mode: "edit", account: updated };
+                  return updated.retired
+                    ? null
+                    : { mode: "edit", account: updated };
                 }
                 return current === editor ? null : current;
               });

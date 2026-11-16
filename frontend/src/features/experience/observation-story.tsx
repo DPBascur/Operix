@@ -1,5 +1,6 @@
 "use client";
 
+import { PageTitle } from "@/components/layout/page-title";
 import {
   ArrowLeft,
   ArrowRight,
@@ -209,8 +210,8 @@ export function ObservationStory({ login = false }: { login?: boolean }) {
         />
       )}
       {!login && (
-        <header className="experience-header">
-          <h2>Cómo funciona Operix</h2>
+        <header className="experience-header app-page-heading">
+          <PageTitle>Cómo funciona Operix</PageTitle>
           <p>La IA percibe el entorno. Las reglas interpretan el contexto.</p>
         </header>
       )}

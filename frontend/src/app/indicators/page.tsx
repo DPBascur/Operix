@@ -1,4 +1,3 @@
-import { AppShell } from "@/components/layout/app-shell";
 import { IndicatorsAccess } from "@/features/dashboard/indicators-access";
 export default async function IndicatorsPage({
   searchParams,
@@ -28,9 +27,5 @@ export default async function IndicatorsPage({
         ? source
         : undefined,
   };
-  return (
-    <AppShell activePath="/indicators">
-      <IndicatorsAccess key={JSON.stringify(selection)} {...selection} />
-    </AppShell>
-  );
+  return <IndicatorsAccess key={JSON.stringify(selection)} {...selection} />;
 }

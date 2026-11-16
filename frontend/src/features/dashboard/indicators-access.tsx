@@ -1,5 +1,6 @@
 "use client";
 
+import { PageTitle } from "@/components/layout/page-title";
 import { useEffect, useState, type ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
 import { useSession } from "@/features/auth/session-provider";
@@ -56,9 +57,9 @@ function SharedIndicators({ initialMonth }: { initialMonth?: string }) {
 
   return (
     <section className="page-wrap identity-page">
-      <header className="identity-heading directory-heading">
+      <header className="identity-heading directory-heading app-page-heading">
         <div>
-          <h2 className="compact-page-title">Indicadores de eventos</h2>
+          <PageTitle>Indicadores de eventos</PageTitle>
           <p>
             Conteos por día y condición configurada satisfecha. Las cargas
             manuales pueden incluir ensayos.

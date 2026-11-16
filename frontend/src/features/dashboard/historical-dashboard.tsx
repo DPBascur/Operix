@@ -1,4 +1,5 @@
 "use client";
+import { PageTitle } from "@/components/layout/page-title";
 import { apiFetch } from "@/services/browser-session";
 import { useEffect, useMemo, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
@@ -169,9 +170,9 @@ export function HistoricalDashboard({
     <div
       className={`insights-page market-dashboard${overview ? " dashboard-overview" : ""}`}
     >
-      <header className="insights-heading">
+      <header className="insights-heading app-page-heading">
         <div>
-          <h2>{overview ? "Resumen de eventos" : "Indicadores de eventos"}</h2>
+          <PageTitle animate={overview}>{overview ? "Resumen de eventos" : "Indicadores de eventos"}</PageTitle>
           <p>Actividad operacional · {currentLabel}</p>
         </div>
         <Link

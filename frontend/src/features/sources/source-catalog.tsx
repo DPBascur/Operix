@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { SpotlightCard } from "@/components/effects/spotlight-card";
 import {
   analysisService,
   type AnalysisProfile,
@@ -57,8 +58,9 @@ function SourceCard({
     source.type === "local"
       ? "/analysis?source=manual"
       : `/analysis?profile=${profile ?? "A"}`;
+  const Card = profile ? SpotlightCard : "div";
   return (
-    <article className="source-card">
+    <Card className="source-card surface-card" role="article">
       <div className="source-card-media">
         <SourcePreview source={source} />
         <span className="source-card-status">
@@ -74,7 +76,7 @@ function SourceCard({
           Abrir <ArrowRight aria-hidden="true" />
         </Link>
       </div>
-    </article>
+    </Card>
   );
 }
 

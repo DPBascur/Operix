@@ -1,4 +1,5 @@
 "use client";
+import { PageTitle } from "@/components/layout/page-title";
 
 import { apiFetch } from "@/services/browser-session";
 import { sourceKind, sourceNames } from "@/features/dashboard/history-model";
@@ -11,7 +12,6 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { environment } from "@/config/environment";
 import {
@@ -194,7 +194,7 @@ function EventContent({ event }: { event: OperationalEvent }) {
   return (
     <>
       <header className={styles.header}>
-        <h2>{eventTypeName(event.event_type)}</h2>
+        <PageTitle>{eventTypeName(event.event_type)}</PageTitle>
         <p className={styles.location}>
           {event.zone_id} <span aria-hidden="true">·</span>{" "}
           {text(source.filename, "Fuente no informada")}
@@ -427,39 +427,33 @@ export function EventDetail({ id }: { id: string }) {
     return () => controller.abort();
   }, [id, attempt]);
   return (
-    <AppShell activePath="/events">
-      <div className={`page-wrap ${styles.root}`}>
-        <Link className={styles.back} href="/events">
-          <ArrowLeft size={16} aria-hidden="true" /> Volver al histórico
-        </Link>
-        {error ? (
-          <section className={styles.loadState} role="alert">
-            <h2>No se pudo abrir el evento</h2>
-            <p>{error}</p>
-            <Button
-              className={styles.action}
-              onClick={() => {
-                setError(null);
-                setEvent(null);
-                setAttempt(attempt + 1);
-              }}
-            >
-              Volver a consultar
-            </Button>
-          </section>
-        ) : !event ? (
-          <section
-            className={styles.loadState}
-            role="status"
-            aria-live="polite"
+    <div className={`page-wrap ${styles.root}`}>
+      <Link className={styles.back} href="/events">
+        <ArrowLeft size={16} aria-hidden="true" /> Volver al histórico
+      </Link>
+      {error ? (
+        <section className={styles.loadState} role="alert">
+          <PageTitle>No se pudo abrir el evento</PageTitle>
+          <p>{error}</p>
+          <Button
+            className={styles.action}
+            onClick={() => {
+              setError(null);
+              setEvent(null);
+              setAttempt(attempt + 1);
+            }}
           >
-            <h2>Detalle del evento</h2>
-            <p>Consultando el registro…</p>
-          </section>
-        ) : (
-          <EventContent event={event} />
-        )}
-      </div>
-    </AppShell>
+            Volver a consultar
+          </Button>
+        </section>
+      ) : !event ? (
+        <section className={styles.loadState} role="status" aria-live="polite">
+          <PageTitle>Detalle del evento</PageTitle>
+          <p>Consultando el registro…</p>
+        </section>
+      ) : (
+        <EventContent event={event} />
+      )}
+    </div>
   );
 }

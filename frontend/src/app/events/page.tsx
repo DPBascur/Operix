@@ -1,4 +1,4 @@
-import { AppShell } from "@/components/layout/app-shell";
+import { PageTitle } from "@/components/layout/page-title";
 import { EventsTable } from "@/features/events/events-table";
 import type { EventQuery } from "@/services/adapters/frontend-data.adapter";
 
@@ -37,21 +37,19 @@ export default async function EventsPage({
         : undefined,
   };
   return (
-    <AppShell activePath="/events">
-      <div className="page-wrap operational-page">
-        <header className="compact-page-header">
-          <div>
-            <h2 className="compact-page-title">Investigación de eventos</h2>
-            <p className="compact-page-copy">
-              Tipo, hora, zona y evidencia del registro operacional.
-            </p>
-          </div>
-          <span className="source-indicator">Registros de PostgreSQL</span>
-        </header>
-        <section className="event-ledger" aria-label="Investigación de eventos">
-          <EventsTable key={JSON.stringify(initial)} initial={initial} />
-        </section>
-      </div>
-    </AppShell>
+    <div className="page-wrap operational-page">
+      <header className="compact-page-header app-page-heading">
+        <div>
+          <PageTitle animate>Investigación de eventos</PageTitle>
+          <p className="compact-page-copy">
+            Tipo, hora, zona y evidencia del registro operacional.
+          </p>
+        </div>
+        <span className="source-indicator">Registros de PostgreSQL</span>
+      </header>
+      <section className="event-ledger" aria-label="Investigación de eventos">
+        <EventsTable key={JSON.stringify(initial)} initial={initial} />
+      </section>
+    </div>
   );
 }

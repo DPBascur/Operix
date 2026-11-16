@@ -213,7 +213,7 @@ export async function startFixtureApi(port = 8000) {
         return send({ user: account, csrf_token: csrf });
       }
       const directoryUrl = url.pathname.match(
-        /^\/api\/v1\/users\/(?:(\d+)\/(password\/)?)?$/,
+        /^\/api\/v1\/users\/(?:(\d+)\/((?:password|retire)\/)?)?$/,
       );
       if (directoryUrl) {
         if (account.role !== "administrator")
@@ -245,9 +245,21 @@ export async function startFixtureApi(port = 8000) {
         const row = directory.find(
           (entry) => entry.id === Number(directoryUrl[1]),
         );
-        if (!row || row.protected)
+        if (
+          !row ||
+          row.protected ||
+          row.retired ||
+          row.username === account.username
+        )
           return send({ detail: "Cuenta no editable" }, 409);
-        if (directoryUrl[2]) directoryPasswords.set(row.id, body.password);
+        if (directoryUrl[2] === "retire/") {
+          if (req.method !== "POST")
+            return send({ detail: "Método no permitido" }, 405);
+          row.is_active = false;
+          row.retired = true;
+          directoryPasswords.delete(row.id);
+        } else if (directoryUrl[2])
+          directoryPasswords.set(row.id, body.password);
         else {
           row.role = body.role;
           row.is_active = body.is_active;

@@ -1,0 +1,324 @@
+/* Authenticated shell. Route widths share a gutter and a common reading edge. */
+.refresh-shell {
+  --page-gutter: clamp(1rem, 2.5vw, 2.25rem);
+  --page-top: clamp(1.25rem, 2.5vw, 2rem);
+  --page-rhythm: clamp(1rem, 2vw, 1.65rem);
+  --page-standard: 76rem;
+  --page-wide: 102rem;
+  --page-compact: 54rem;
+  --page-title: clamp(1.55rem, 2.15vw, 2.05rem);
+  --section-title: 1.05rem;
+  --surface-radius: 0.9rem;
+  --interaction-duration: 160ms;
+  --interaction-ease: cubic-bezier(0.2, 0.7, 0.25, 1);
+}
+
+.refresh-shell .app-header {
+  padding-inline: var(--page-gutter);
+}
+
+.app-page {
+  padding: var(--page-top) var(--page-gutter) clamp(2.5rem, 6vw, 4rem);
+  min-width: 0;
+  --page-measure: var(--page-standard);
+}
+
+.app-page[data-width="wide"] {
+  --page-measure: var(--page-wide);
+}
+.app-page[data-width="compact"] {
+  --page-measure: var(--page-compact);
+}
+
+.app-page-body {
+  width: min(100%, var(--page-measure));
+  min-width: 0;
+}
+
+.app-page
+  .app-page-body
+  > :is(.page-wrap, .page-v1, .insights-page, .analysis-page, .experience) {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+.app-page .app-page-heading {
+  display: flex;
+  min-height: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.7rem 1.25rem;
+  margin: 0 0 var(--page-rhythm);
+  padding: 0;
+  border: 0;
+}
+
+.app-page .operational-page {
+  gap: var(--page-rhythm);
+}
+
+.app-page .operational-page > .app-page-heading {
+  margin-bottom: 0;
+}
+
+.app-page .experience-header {
+  display: block;
+}
+
+.app-page-title {
+  margin: 0;
+  color: var(--foreground);
+  font-size: var(--page-title);
+  font-weight: 675;
+  letter-spacing: -0.032em;
+  line-height: 1.14;
+  text-wrap: pretty;
+}
+
+.app-page .app-page-heading p {
+  max-width: 68ch;
+  margin: 0.4rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.app-page :is(.app-page-heading, .section-intro) .eyebrow {
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.app-page
+  :is(
+    .section-intro h2,
+    .panel-heading h3,
+    .directory-list h3,
+    .zones-guide h2
+  ) {
+  font-size: var(--section-title);
+  font-weight: 665;
+  line-height: 1.35;
+}
+
+.app-page :is(.surface-card, .feedback-panel, .identity-panel) {
+  border: 1px solid var(--border);
+  border-radius: var(--surface-radius);
+  background-color: var(--surface);
+}
+
+.app-page .zones-guide {
+  width: min(100%, 48rem);
+  padding: clamp(1rem, 2.6vw, 1.9rem);
+}
+
+.app-page .zones-guide ol {
+  padding-inline-start: 1.35rem;
+}
+
+.app-page .dashboard-overview :is(.kpi-strip, .dashboard-recent) {
+  grid-column: 1 / -1;
+}
+
+.app-page .dashboard-overview .kpi-strip {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0 0 var(--page-rhythm);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--surface-radius);
+  background: var(--surface);
+}
+
+.app-page .dashboard-overview .kpi-strip > div {
+  padding: 1rem clamp(0.85rem, 2vw, 1.45rem);
+}
+
+.app-page .dashboard-overview .kpi-strip > div:first-child {
+  display: grid;
+}
+
+.app-page .dashboard-overview .kpi-strip strong {
+  font-size: clamp(1.45rem, 2.8vw, 2.25rem);
+  font-variant-numeric: tabular-nums;
+}
+
+.app-page .dashboard-overview .dashboard-recent {
+  padding-top: var(--page-rhythm);
+}
+
+@media (max-width: 760px) {
+  .app-page .dashboard-overview .kpi-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.15rem;
+  }
+}
+
+.refresh-shell .navigation-item {
+  position: relative;
+  isolation: isolate;
+  transition:
+    color var(--interaction-duration) var(--interaction-ease),
+    background-color var(--interaction-duration) var(--interaction-ease);
+}
+
+.refresh-shell .navigation-item > :is(.navigation-glyph, .navigation-label) {
+  position: relative;
+}
+
+.refresh-shell .navigation-glyph {
+  display: inline-flex;
+  flex-shrink: 0;
+  transition: transform var(--interaction-duration) var(--interaction-ease);
+}
+
+.refresh-shell .navigation-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.refresh-shell
+  :is(.app-sidebar, .mobile-navigation-panel)
+  .navigation-item[aria-current="page"] {
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="dark"]
+  .refresh-shell
+  :is(.app-sidebar, .mobile-navigation-panel)
+  .navigation-item[aria-current="page"] {
+  background: transparent;
+}
+
+.navigation-highlight {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface-muted));
+  box-shadow: inset 3px 0 var(--accent);
+}
+
+.app-sidebar .navigation-highlight {
+  background: color-mix(in srgb, var(--accent) 27%, var(--sidebar));
+}
+
+.refresh-shell .button {
+  transition:
+    background-color var(--interaction-duration) var(--interaction-ease),
+    border-color var(--interaction-duration) var(--interaction-ease),
+    color var(--interaction-duration) var(--interaction-ease),
+    box-shadow var(--interaction-duration) var(--interaction-ease),
+    transform var(--interaction-duration) var(--interaction-ease);
+}
+
+.refresh-shell .button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.refresh-shell .button:not(:disabled):active {
+  transform: scale(0.985);
+}
+
+.refresh-shell .button[aria-busy="true"] {
+  cursor: progress;
+}
+
+.refresh-shell .button-destructive {
+  color: color-mix(in srgb, var(--danger) 74%, var(--foreground));
+}
+
+.app-page .rules-catalog summary {
+  min-height: 2rem;
+  align-content: center;
+}
+
+@supports (interpolate-size: allow-keywords) {
+  @media (prefers-reduced-motion: no-preference) {
+    .app-page .rules-catalog details {
+      interpolate-size: allow-keywords;
+    }
+
+    .app-page .rules-catalog details::details-content {
+      block-size: 0;
+      overflow: clip;
+      transition:
+        block-size var(--interaction-duration) var(--interaction-ease),
+        content-visibility var(--interaction-duration) allow-discrete;
+    }
+
+    .app-page .rules-catalog details[open]::details-content {
+      block-size: auto;
+    }
+  }
+}
+
+.app-page :is(.event-ledger tbody tr, .directory-list li) {
+  transition: background-color var(--interaction-duration)
+    var(--interaction-ease);
+}
+
+.app-page
+  :is(.event-ledger tbody tr, .directory-list li):is(:hover, :focus-within) {
+  background-color: var(--surface-muted);
+}
+
+.app-page .source-card {
+  --spotlight-light: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.app-page .source-card-body a {
+  min-height: 2.75rem;
+}
+
+.app-page .source-card-body a svg {
+  transition: transform var(--interaction-duration) var(--interaction-ease);
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .refresh-shell .navigation-item:hover .navigation-glyph,
+  .app-page .source-card-body a:hover svg {
+    transform: translateX(2px);
+  }
+}
+
+.directory-secondary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  padding-top: 0.85rem;
+}
+
+.directory-retirement {
+  position: fixed;
+  inset: 0;
+  width: min(100% - 2rem, 31rem);
+  max-height: 88svh;
+  margin: auto;
+  padding: clamp(1rem, 4vw, 1.6rem);
+  color: var(--foreground);
+}
+
+.directory-retirement::backdrop {
+  background: rgb(8 16 28 / 68%);
+}
+
+.directory-retirement h3 {
+  margin-bottom: 0.6rem;
+  font-size: var(--section-title);
+  font-weight: 680;
+  overflow-wrap: anywhere;
+}
+
+.directory-retirement p {
+  line-height: 1.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .refresh-shell .button:not(:disabled):active {
+    transform: none;
+  }
+}
