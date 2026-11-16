@@ -110,6 +110,23 @@ test("límites mensuales y zona horaria se interpretan en UTC", () => {
   ];
   assert.equal(summarizeHistory(data, "2026-10").total, 3);
 });
+test("agrupa por hora de Santiago con horario de verano e invierno", () => {
+  for (const [month, expectedHours] of [
+    ["2026-11", [0, 23]],
+    ["2026-07", [22, 23]],
+  ]) {
+    const events = [
+      event("1", `${month}-13T02:45:00Z`),
+      event("2", `${month}-13T03:45:00Z`),
+    ];
+    const result = summarizeHistory(events, month);
+    assert.deepEqual(
+      result.hours.filter(({ count }) => count).map(({ hour }) => hour),
+      expectedHours,
+    );
+    assert.equal(result.days[12].count, 2);
+  }
+});
 test("vacío no inventa porcentaje ni zona de mayor recurrencia", () => {
   const s = summarizeHistory([], "2026-02");
   assert.equal(s.total, 0);

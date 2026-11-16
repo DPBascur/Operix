@@ -170,6 +170,12 @@ export function parseHistory(value: unknown): HistoryEvent[] {
   return value.filter((item) => !ids.has(item.id) && !!ids.add(item.id));
 }
 
+const santiagoHour = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "America/Santiago",
+  hour: "2-digit",
+  hourCycle: "h23",
+});
+
 export function summarizeHistory(events: HistoryEvent[], month: string) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))
     throw new Error("Seleccione un mes válido.");
@@ -208,7 +214,7 @@ export function summarizeHistory(events: HistoryEvent[], month: string) {
   selected.forEach((e) => {
     const d = new Date(e.occurred_at);
     days[d.getUTCDate() - 1].count++;
-    hours[d.getUTCHours()].count++;
+    hours[Number(santiagoHour.format(d))].count++;
     const sha = e.source?.video_sha256;
     if (typeof sha === "string" && /^[a-f0-9]{64}$/.test(sha)) {
       const existing = videos.get(sha);

@@ -487,7 +487,8 @@ export function HistoricalDashboard({
                         <div>
                           <h3>Distribución horaria</h3>
                           <p>
-                            Frecuencia por hora UTC; no representa nivel de
+                            Hora de Santiago de Chile para los eventos del
+                            período UTC seleccionado. No representa nivel de
                             riesgo.
                           </p>
                         </div>
@@ -501,8 +502,8 @@ export function HistoricalDashboard({
                               style={{
                                 backgroundColor: `color-mix(in srgb, var(--primary) ${h.count ? 25 + (65 * h.count) / Math.max(1, busiest.count) : 0}%, var(--surface-muted))`,
                               }}
-                              title={`${h.hour}:00 UTC: ${h.count} eventos`}
-                              aria-label={`${h.hour}:00 UTC, ${h.count} eventos`}
+                              title={`${String(h.hour).padStart(2, "0")}:00 en Santiago · ${h.count} eventos`}
+                              aria-label={`${String(h.hour).padStart(2, "0")}:00 en Santiago, ${h.count} eventos`}
                             />
                           </div>
                         ))}
@@ -512,7 +513,7 @@ export function HistoricalDashboard({
                         <div className="daily-data">
                           {summary.hours.map((h) => (
                             <span key={h.hour}>
-                              {String(h.hour).padStart(2, "0")}:00 UTC:{" "}
+                              {String(h.hour).padStart(2, "0")}:00 ·{" "}
                               <b>{h.count}</b>
                             </span>
                           ))}
@@ -520,7 +521,7 @@ export function HistoricalDashboard({
                       </details>
                       <p className="insight-caption">
                         {busiest.count
-                          ? `Mayor frecuencia observada a las ${String(busiest.hour).padStart(2, "0")}:00 UTC (${busiest.count} registros).`
+                          ? `Mayor frecuencia observada a las ${String(busiest.hour).padStart(2, "0")}:00, hora de Santiago (${busiest.count} registros).`
                           : "No hay actividad en este período."}
                       </p>
                       <div className="type-breakdown">
