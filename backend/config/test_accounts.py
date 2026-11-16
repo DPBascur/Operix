@@ -1,10 +1,17 @@
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
-from django.test import TestCase
+from django.db import close_old_connections
+from django.db.models.deletion import ProtectedError
+from django.test import TestCase, TransactionTestCase, skipUnlessDBFeature
 from rest_framework.test import APIClient
 
 from apps.events.test_pair_events import pair_payload
-from .access import OPERATOR_GROUP
+from apps.analysis.models import SpatialConfiguration
+from .access import ADMIN_GROUP, OPERATOR_GROUP
+from .models import AccountRetirement
 
 USERS = "/api/v1/users/"
 AUTH = "/api/v1/auth/"
@@ -120,3 +127,79 @@ class AccountDirectoryTests(TestCase):
         self.assertEqual(viewer.get(url, {"source_kind": "demo"}).status_code, 400)
         self.assertEqual(viewer.get(url, {"occurred_after": now().isoformat()}).status_code, 400)
         self.assertEqual(viewer.get(url, {"month": "2025-02"}).json()["total"], 0)
+
+    def test_retirement_preserves_history_and_revokes_access(self):
+        admin = self.signed_in(self.root)
+        managed = self.add(admin, "retirement-target", "safety_lead").json()
+        user = get_user_model().objects.get(pk=managed["id"])
+        session = self.signed_in(user)
+        config = SpatialConfiguration.objects.create(
+            owner=user, source_sha256="f" * 64, revision=1, document={"zones": []},
+        )
+        detail = USERS + f"{user.pk}/"
+        response = admin.post(detail + "retire/")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["retired"])
+        self.assertFalse(response.json()["is_active"])
+        self.assertEqual(AccountRetirement.objects.get(account=user).actor, self.root)
+        config.refresh_from_db()
+        self.assertEqual(config.owner_id, user.pk)
+        user.refresh_from_db()
+        self.assertFalse(user.has_usable_password())
+        self.assertEqual(session.get("/api/v1/events/").status_code, 401)
+        self.assertEqual(session.get("/api/v1/analysis/sessions/").status_code, 401)
+        self.assertIsNone(session.get(AUTH + "session/").json()["user"])
+        anonymous = APIClient()
+        self.assertNotEqual(anonymous.post(AUTH + "login/", {
+            "username": user.username, "password": TEST_PASSWORD,
+        }, format="json").status_code, 200)
+        self.assertEqual(admin.patch(detail, {"role": "viewer", "is_active": True}, format="json").status_code, 409)
+        self.assertEqual(admin.post(detail + "password/", {"password": NEW_PASSWORD}, format="json").status_code, 409)
+        self.assertEqual(admin.post(detail + "retire/").status_code, 409)
+        with self.assertRaises(ProtectedError):
+            user.delete()
+
+    def test_retirement_requires_admin_and_csrf(self):
+        admin = self.signed_in(self.root)
+        managed = self.add(admin, "retirement-target", "safety_lead").json()
+        url = USERS + f"{managed['id']}/retire/"
+        lead = self.signed_in(get_user_model().objects.get(pk=managed["id"]))
+        viewer = self.signed_in(self.legacy)
+        self.assertEqual(APIClient().post(url).status_code, 401)
+        self.assertEqual(lead.post(url).status_code, 403)
+        self.assertEqual(viewer.post(url).status_code, 403)
+        self.assertEqual(admin.post(USERS + "99999/retire/").status_code, 404)
+        self.assertEqual(admin.post(USERS + f"{self.root.pk}/retire/").status_code, 409)
+        self.assertEqual(admin.delete(USERS + f"{managed['id']}/").status_code, 405)
+        admin.credentials()
+        self.assertEqual(admin.post(url).status_code, 403)
+        self.assertFalse(AccountRetirement.objects.exists())
+
+
+class AccountRetirementConcurrencyTests(TransactionTestCase):
+    @skipUnlessDBFeature("has_select_for_update")
+    def test_two_administrators_cannot_retire_each_other(self):
+        group, _ = Group.objects.get_or_create(name=ADMIN_GROUP)
+        users = [get_user_model().objects.create_user(name) for name in ("first-admin", "second-admin")]
+        for user in users:
+            user.groups.add(group)
+        barrier = Barrier(2, timeout=10)
+
+        def retire(actor, target):
+            close_old_connections()
+            try:
+                client = APIClient()
+                client.force_login(actor)
+                barrier.wait()
+                return client.post(USERS + f"{target.pk}/retire/").status_code
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            first = workers.submit(retire, *users)
+            second = workers.submit(retire, *reversed(users))
+            statuses = sorted((first.result(), second.result()))
+        self.assertEqual(statuses[0], 200)
+        self.assertIn(statuses[1], (401, 403, 409))
+        self.assertEqual(get_user_model().objects.filter(is_active=True, groups=group).count(), 1)
+        self.assertEqual(AccountRetirement.objects.count(), 1)

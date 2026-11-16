@@ -10,6 +10,7 @@ from django.views.decorators.debug import sensitive_variables
 from django.views.decorators.http import require_http_methods
 
 from .access import ADMIN_GROUP, MANAGED_GROUPS, OPERATOR_GROUP, ROLE_GROUPS, auth_data, user_role
+from .models import AccountRetirement
 from .passwords import MAX_PASSWORD_LENGTH
 
 PAGE_SIZE = 50
@@ -68,6 +69,7 @@ def describe(user):
         "is_active": user.is_active,
         "role_review_required": role == "viewer" and OPERATOR_GROUP in groups,
         "protected": user.is_staff or user.is_superuser,
+        "retired": hasattr(user, "operix_retirement"),
     }
 
 
@@ -115,7 +117,19 @@ def editable_target(actor, pk):
         raise AccountError("Gestiona tu contraseña en Mi cuenta. El rol y el estado propios no se pueden cambiar aquí.", 409)
     if target.is_staff or target.is_superuser:
         raise AccountError("Esta cuenta está gestionada en Django.", 409)
+    if hasattr(target, "operix_retirement"):
+        raise AccountError("Esta cuenta ya está dada de baja.", 409)
     return target
+
+
+def preserve_administrator(user):
+    if user_role(user) != "administrator":
+        return
+    another = get_user_model().objects.filter(is_active=True).filter(
+        Q(is_superuser=True) | Q(groups__name=ADMIN_GROUP)
+    ).exclude(pk=user.pk).exists()
+    if not another:
+        raise AccountError("Debe quedar al menos un administrador activo.", 409)
 
 
 @require_http_methods(["GET", "POST"])
@@ -129,7 +143,8 @@ def account_collection(request):
             after = request.GET.get("after", "0")
             if not after.isascii() or not after.isdecimal() or len(after) > 18:
                 raise AccountError("Página inválida.")
-            rows = list(users.filter(pk__gt=int(after)).order_by("pk").prefetch_related("groups")[:PAGE_SIZE + 1])
+            rows = list(users.filter(pk__gt=int(after)).order_by("pk")
+                        .select_related("operix_retirement").prefetch_related("groups")[:PAGE_SIZE + 1])
             return JsonResponse({
                 "accounts": [describe(user) for user in rows[:PAGE_SIZE]],
                 "next": rows[PAGE_SIZE - 1].pk if len(rows) > PAGE_SIZE else None,
@@ -172,15 +187,29 @@ def account_detail(request, pk):
         with transaction.atomic():
             actor = lock_directory(request)
             user = editable_target(actor, pk)
-            if user_role(user) == "administrator" and (data["role"] != "administrator" or not data["is_active"]):
-                another = get_user_model().objects.filter(is_active=True).filter(
-                    Q(is_superuser=True) | Q(groups__name=ADMIN_GROUP)
-                ).exclude(pk=user.pk).exists()
-                if not another:
-                    raise AccountError("Debe quedar al menos un administrador activo.", 409)
+            if data["role"] != "administrator" or not data["is_active"]:
+                preserve_administrator(user)
             user.is_active = data["is_active"]
             user.save(update_fields=["is_active"])
             assign_role(user, data["role"])
+        return JsonResponse(describe(user))
+    except AccountError as error:
+        return failure(error)
+
+
+@require_http_methods(["POST"])
+@csrf_protect
+def account_retire(request, pk):
+    try:
+        require_admin(request.user)
+        with transaction.atomic():
+            actor = lock_directory(request)
+            user = editable_target(actor, pk)
+            preserve_administrator(user)
+            user.is_active = False
+            user.set_unusable_password()
+            user.save(update_fields=["is_active", "password"])
+            AccountRetirement.objects.create(account=user, actor=actor)
         return JsonResponse(describe(user))
     except AccountError as error:
         return failure(error)
