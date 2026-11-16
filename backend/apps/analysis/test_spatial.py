@@ -67,8 +67,8 @@ class SpatialConfigurationTests(TestCase):
         self.assertIn(self.client.get(self.url).status_code, (401,403))
         other = get_user_model().objects.create(username="other")
         from django.contrib.auth.models import Group
-        from config.access import OPERATOR_GROUP
-        other.groups.add(Group.objects.get_or_create(name=OPERATOR_GROUP)[0])
+        from config.access import SAFETY_GROUP
+        other.groups.add(Group.objects.get_or_create(name=SAFETY_GROUP)[0])
         self.client.force_authenticate(other)
         self.assertEqual(self.client.get(self.url).status_code, 404)
         self.client.force_authenticate(self.user)

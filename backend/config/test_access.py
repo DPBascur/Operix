@@ -30,8 +30,8 @@ class AccessTests(TestCase):
     def setUpTestData(cls):
         users = get_user_model().objects
         operator = Group.objects.create(name=OPERATOR_GROUP)
-        reviewer = Group.objects.create(name=SAFETY_GROUP)
-        for name, group in (("operator", operator), ("other", operator), ("reviewer", reviewer)):
+        reviewer, _ = Group.objects.get_or_create(name=SAFETY_GROUP)
+        for name, group in (("operator", operator), ("other", operator), ("reviewer", reviewer), ("analyst", reviewer), ("second-analyst", reviewer)):
             users.create_user(username=name, password=PASSWORD).groups.add(group)
         users.create_superuser(username="admin", password=PASSWORD)
         users.create_user(username="unassigned", password=PASSWORD)
@@ -188,7 +188,7 @@ class AccessTests(TestCase):
     def test_analysis_isolation_on_all_routes(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
         owner = APIClient(enforce_csrf_checks=True)
-        token = self.sign_in(owner, "operator").json()["csrf_token"]
+        token = self.sign_in(owner, "analyst").json()["csrf_token"]
         collection = ANALYSIS + "sessions/"
         self.assertEqual(owner.post(collection, {}, format="json").status_code, 403)
         created = owner.post(collection, {
@@ -198,7 +198,7 @@ class AccessTests(TestCase):
         self.addCleanup(remove_session, UUID(created.data["id"]))
         url = collection + created.data["id"] + "/"
         other = APIClient()
-        self.sign_in(other, "other")
+        self.sign_in(other, "second-analyst")
         self.assertEqual(owner.get(url + "source/", HTTP_RANGE="bytes=0-3").status_code, 206)
         for suffix in ("status/", "source/", "result/", "stream/"):
             self.assertEqual(other.get(url + suffix).status_code, 404)

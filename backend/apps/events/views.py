@@ -1,13 +1,15 @@
 import struct
 import zlib
+import re
 from decimal import Decimal, InvalidOperation
-from datetime import timezone
+from datetime import datetime, timezone
 
 from django.db import DatabaseError, connection, transaction
 from django.db.models import Count, Q
 from django.db.models.functions import TruncDate
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
+from django.utils.timezone import now
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import AllowAny
@@ -15,7 +17,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from config.access import CanReviewEvents
+from config.access import CanReviewEvents, HasOperixRole
 
 from .clips import clip_directory, clip_info
 from .models import Event
@@ -139,21 +141,46 @@ class EventFrequencyView(APIView):
     """Frecuencias UTC de eventos persistidos, no indicadores de riesgo."""
 
     permission_classes = [CanReviewEvents]
+
     def get(self, request):
         queryset = filtered_events(Event.objects.all(), request.query_params)
-        grouped = queryset.annotate(day=TruncDate("occurred_at", tzinfo=timezone.utc)).values(
-            "day", "event_type",
-        ).order_by("day", "event_type").annotate(count=Count("id"))
-        by_day, by_type = {}, {}
-        for row in grouped:
-            day, event_type, count = row["day"].isoformat(), row["event_type"], row["count"]
-            by_day[day] = by_day.get(day, 0) + count
-            by_type[event_type] = by_type.get(event_type, 0) + count
-        return Response({
-            "total": sum(by_day.values()), "timezone": "UTC", "period": "day",
-            "by_period": [{"date": day, "count": count} for day, count in sorted(by_day.items())],
-            "by_type": [{"event_type": name, "count": count} for name, count in sorted(by_type.items())],
-        })
+        return Response(frequency_data(queryset))
+
+
+class SharedIndicatorsView(APIView):
+    permission_classes = [HasOperixRole]
+
+    def get(self, request):
+        filters = request.query_params
+        if set(filters) - {"month", "event_type"}:
+            raise ValidationError({"filters": "Solo se admite el mes UTC y el tipo de evento."})
+        month = filters.get("month", now().strftime("%Y-%m"))
+        if not re.fullmatch(r"[1-9][0-9]{3}-(?:0[1-9]|1[0-2])", month) or month > now().strftime("%Y-%m"):
+            raise ValidationError({"month": "Seleccione un mes UTC válido."})
+        year, number = map(int, month.split("-"))
+        start = datetime(year, number, 1, tzinfo=timezone.utc)
+        end = datetime(year + (number == 12), number % 12 + 1, 1, tzinfo=timezone.utc)
+        # The deployment shares aggregate counts of manually uploaded sources.
+        # Never allow source hashes, identifiers, zones, demos, or evidence here.
+        queryset = Event.objects.filter(source__kind="manual", occurred_at__gte=start, occurred_at__lt=end)
+        event_type = filters.get("event_type")
+        return Response(frequency_data(filtered_events(queryset, {"event_type": event_type} if event_type else {})))
+
+
+def frequency_data(queryset):
+    grouped = queryset.annotate(day=TruncDate("occurred_at", tzinfo=timezone.utc)).values(
+        "day", "event_type",
+    ).order_by("day", "event_type").annotate(count=Count("id"))
+    by_day, by_type = {}, {}
+    for row in grouped:
+        day, event_type, count = row["day"].isoformat(), row["event_type"], row["count"]
+        by_day[day] = by_day.get(day, 0) + count
+        by_type[event_type] = by_type.get(event_type, 0) + count
+    return {
+        "total": sum(by_day.values()), "timezone": "UTC", "period": "day",
+        "by_period": [{"date": day, "count": count} for day, count in sorted(by_day.items())],
+        "by_type": [{"event_type": name, "count": count} for name, count in sorted(by_type.items())],
+    }
 
 
 def validate_png(content):

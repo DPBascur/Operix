@@ -29,15 +29,30 @@ set -a; source .env; set +a
 ## Acceso y despliegue
 
 1. Ejecutar `python manage.py migrate` y `python manage.py createsuperuser` con el entorno del Backend. Con Compose, usar `docker compose exec backend python manage.py createsuperuser` después de iniciar los servicios. Elegir una contraseña propia. No hay cuenta inicial incluida.
-2. En la administración local de Django (`/admin/` del Backend), crear los grupos exactos `Responsable de seguridad` y `Usuario`. Crear cuentas activas, establecer su contraseña y asignar un grupo. Los superusuarios tienen el rol administrador. Si una cuenta pertenece a ambos grupos, prevalece el rol de responsable de seguridad.
+2. Iniciar sesión como administrador y abrir **Usuarios** para crear cuentas,
+   asignar roles, cambiar su estado o restablecer contraseñas. Los superusuarios
+   actuales conservan su acceso. El rol Administrador creado desde Operix permite
+   gestionar el producto y sus cuentas, sin asignar privilegios de Django Admin.
+   Las cuentas de Django con permisos administrativos se mantienen en Django.
 3. Configurar el frontend con `NEXT_PUBLIC_DATA_SOURCE=api`, `NEXT_PUBLIC_API_BASE_URL=/api/v1` y `OPERIX_API_PROXY_TARGET` apuntando al Backend. Incluir el origen exacto del frontend en `CSRF_TRUSTED_ORIGINS`, con esquema y puerto cuando corresponda. Reiniciar Django y reconstruir Next si se usa un build. Docker Compose utiliza la red interna y el script Tailscale configura los orígenes de la demo.
 4. Para HTTPS, configurar `OPERIX_SECURE_COOKIES=1` y el origen HTTPS exacto. Conservar HTTP solo para desarrollo y demo privada controlada. Mantener `DJANGO_SECRET_KEY` estable y privada, y servir evidencias únicamente por la API.
 
 | Rol | Permisos |
 | --- | --- |
-| Administrador | Gestionar cuentas en Django, ejecutar y consultar análisis, revisar historial, indicadores y PNG. |
-| Responsable de seguridad | Preparar, configurar y ejecutar sus propios análisis; consultar historial, indicadores, detalle, PNG y clips del despliegue. No administrar usuarios. |
-| Usuario | Preparar, ejecutar y consultar sus propios análisis, incluyendo fuente, resultado y estado de publicación. |
+| Administrador | Gestionar cuentas desde Operix, ejecutar y consultar análisis, configurar zonas y reglas, revisar historial, evidencia e indicadores. |
+| Responsable de seguridad | Preparar, configurar y ejecutar sus propios análisis; consultar historial, indicadores, detalle, PNG y clips del despliegue. |
+| Visualizador | Consultar indicadores agregados de cargas manuales, Mi cuenta y ayuda. |
+
+Después de aplicar la migración, **Usuarios** marca las cuentas anteriores del
+grupo `Usuario` como pendientes de revisión. Conservan sus contraseñas y pasan a
+tener acceso de Visualizador. Reasigna a Responsable de seguridad solo a quienes
+deban seguir operando análisis, o confirma Visualizador para cerrar la revisión.
+
+`GET /api/v1/indicators/shared/` ofrece totales y frecuencias agregadas de cargas
+manuales en el despliegue, que pueden incluir ensayos. Solo admite filtros de
+mes UTC y tipo de evento. Excluye demos, nombres, zonas, identificadores y
+evidencias. El piloto RTSP aún no ofrece transmisión en navegador ni gestión
+de acceso a cámaras.
 
 Esta política mínima sigue la [verificación de acceso de Etapa 4](../engine/evidence/ETAPA4-AUTH-VERIFICATION.md). Las sesiones del navegador duran ocho horas y se guardan en PostgreSQL. Para conservarlas tras reiniciar Django, mantener la misma base y `DJANGO_SECRET_KEY`. El cierre de sesión invalida la sesión en el servidor. La salud de API/DB permanece pública. El alcance de revisión es el despliegue completo.
 

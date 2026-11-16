@@ -25,6 +25,10 @@ from .passwords import MAX_PASSWORD_LENGTH
 
 SAFETY_GROUP = "Responsable de seguridad"
 OPERATOR_GROUP = "Usuario"
+VIEWER_GROUP = "Visualizador"
+ADMIN_GROUP = "Administrador Operix"
+ROLE_GROUPS = {"administrator": ADMIN_GROUP, "safety_lead": SAFETY_GROUP, "viewer": VIEWER_GROUP}
+MANAGED_GROUPS = (*ROLE_GROUPS.values(), OPERATOR_GROUP)
 LOGIN_PEER_LIMIT = 80
 LOGIN_ACCOUNT_LIMIT = 8
 LOGIN_DISTRIBUTED_LIMIT = 30
@@ -106,11 +110,13 @@ def user_role(user):
         return None
     if user.is_superuser:
         return "administrator"
-    groups = set(user.groups.filter(name__in=(SAFETY_GROUP, OPERATOR_GROUP)).values_list("name", flat=True))
+    groups = set(user.groups.filter(name__in=MANAGED_GROUPS).values_list("name", flat=True))
+    if ADMIN_GROUP in groups:
+        return "administrator"
     if SAFETY_GROUP in groups:
         return "safety_lead"
-    if OPERATOR_GROUP in groups:
-        return "operator"
+    if OPERATOR_GROUP in groups or VIEWER_GROUP in groups:
+        return "viewer"
     return None
 
 
@@ -137,12 +143,14 @@ class CanReviewEvents(BasePermission):
 
 class CanAnalyze(BasePermission):
     def has_permission(self, request, view):
-        return request_role(request) in {"administrator", "operator", "safety_lead"}
+        return request_role(request) in {"administrator", "safety_lead"}
 
 
 def session_response(request, *, error=None, status=200):
     role = user_role(request.user)
     user = {"username": request.user.get_username(), "role": role} if role else None
+    if user and role == "viewer" and request.user.groups.filter(name=OPERATOR_GROUP).exists():
+        user["role_review_required"] = True
     data = {"user": user, "csrf_token": get_token(request)}
     if error:
         data["detail"] = error

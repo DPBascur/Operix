@@ -3,6 +3,7 @@ from django.conf import settings
 from django.urls import include, path
 
 from apps.events.views import health
+from .accounts import account_collection, account_detail, account_password
 from .access import admin_login_view, admin_password_view, login_view, logout_view, password_view, session_view
 
 urlpatterns = [
@@ -11,6 +12,9 @@ urlpatterns = [
     path("api/v1/auth/login/", login_view),
     path("api/v1/auth/logout/", logout_view),
     path("api/v1/auth/password/", password_view),
+    path("api/v1/users/", account_collection),
+    path("api/v1/users/<int:pk>/", account_detail),
+    path("api/v1/users/<int:pk>/password/", account_password),
     path("api/v1/", include("apps.events.urls")),
     path("api/v1/", include("apps.analysis.urls")),
 ]
