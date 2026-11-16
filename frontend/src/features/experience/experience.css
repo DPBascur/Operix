@@ -482,12 +482,13 @@
   opacity: 1;
 }
 .experience-aperture {
+  --guide-ease: cubic-bezier(0.24, 0.76, 0.28, 1);
   transition:
-    x 240ms ease-out,
-    y 240ms ease-out,
-    width 240ms ease-out,
-    height 240ms ease-out,
-    rx 240ms ease-out;
+    x var(--guide-travel) var(--guide-ease),
+    y var(--guide-travel) var(--guide-ease),
+    width var(--guide-travel) var(--guide-ease),
+    height var(--guide-travel) var(--guide-ease),
+    rx var(--guide-travel) var(--guide-ease);
 }
 :root[data-theme="dark"] .experience-veil {
   fill: rgb(2 5 11 / 72%);
@@ -522,6 +523,15 @@
   right: auto;
   bottom: auto;
 }
+.experience-guide[data-moving="true"] {
+  transition:
+    left var(--guide-travel) ease-in-out,
+    top var(--guide-travel) ease-in-out;
+}
+.experience-guide-content[data-ready="false"] {
+  visibility: hidden;
+  pointer-events: none;
+}
 .experience-guide .button {
   border-radius: var(--radius-button);
 }
@@ -537,11 +547,12 @@
   border-radius: inherit;
   background: var(--primary);
   transform-origin: left;
-  transition: transform 230ms ease-out;
+  transition: transform 460ms ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
   .experience-veil,
   .experience-aperture,
+  .experience-guide[data-moving="true"],
   .experience-guide-progress span {
     transition: none;
   }
