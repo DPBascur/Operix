@@ -3,13 +3,7 @@ import { useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
-import {
-  ArrowRight,
-  Activity,
-  ShieldCheck,
-  Check,
-  BarChart3,
-} from "lucide-react";
+import { ArrowRight, Eye, EyeOff } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ThemeSelector } from "@/components/ui/theme-selector";
@@ -17,9 +11,12 @@ import { signIn } from "@/services/browser-session";
 import { canOpen, useSession } from "./session-provider";
 import { enterTransition, revealVariants } from "@/lib/motion/presets";
 
+import { ObservationStory } from "@/features/experience/observation-story";
+
 export function LoginExperience() {
   const { setUser, expired } = useSession();
   const [busy, setBusy] = useState(false);
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const reduceMotion = useReducedMotion();
@@ -42,7 +39,7 @@ export function LoginExperience() {
         <motion.div
           className="login-form-content"
           variants={revealVariants}
-          initial={reduceMotion ? false : "hidden"}
+          initial="hidden"
           animate="visible"
           transition={reduceMotion ? { duration: 0 } : enterTransition}
         >
@@ -59,6 +56,7 @@ export function LoginExperience() {
               if (busy) return;
               const form = new FormData(event.currentTarget);
               setError(null);
+              setPasswordVisible(false);
               setBusy(true);
               try {
                 const account = await signIn(
@@ -107,15 +105,32 @@ export function LoginExperience() {
               required
             />
             <label htmlFor="login-password">Contraseña</label>
-            <input
-              className="input"
-              id="login-password"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              maxLength={4096}
-              required
-            />
+            <div className="login-password-field">
+              <input
+                className="input"
+                id="login-password"
+                name="password"
+                type={passwordVisible ? "text" : "password"}
+                autoComplete="current-password"
+                maxLength={4096}
+                required
+              />
+              <button
+                type="button"
+                className="login-password-toggle"
+                aria-label={
+                  passwordVisible ? "Ocultar contraseña" : "Mostrar contraseña"
+                }
+                aria-controls="login-password"
+                onClick={() => setPasswordVisible((visible) => !visible)}
+              >
+                {passwordVisible ? (
+                  <EyeOff size={19} aria-hidden="true" />
+                ) : (
+                  <Eye size={19} aria-hidden="true" />
+                )}
+              </button>
+            </div>
             {error && (
               <p className="form-error" role="alert">
                 {error}
@@ -125,99 +140,21 @@ export function LoginExperience() {
               {busy ? "Ingresando…" : "Ingresar"} <ArrowRight size={18} />
             </Button>
           </form>
+          <details className="login-recovery">
+            <summary>Recuperar contraseña</summary>
+            <p>
+              Solicita el restablecimiento de tu contraseña al administrador de
+              Operix.
+            </p>
+          </details>
+          <footer>
+            Proyecto académico · Visión artificial aplicada a la prevención
+            operacional
+          </footer>
         </motion.div>
-        <footer>
-          Proyecto académico · Visión artificial aplicada a la prevención
-          operacional
-        </footer>
       </section>
-      <section
-        className="login-preview-side"
-        aria-label="Vista animada ilustrativa de Operix"
-      >
-        <motion.div
-          className="preview-intro"
-          variants={revealVariants}
-          initial={reduceMotion ? false : "hidden"}
-          animate="visible"
-          transition={reduceMotion ? { duration: 0 } : enterTransition}
-        >
-          <h2>
-            Del video al contexto.
-            <br />
-            Del contexto a la revisión.
-          </h2>
-          <p>Una misma plataforma para observar, analizar y comprender.</p>
-        </motion.div>
-        <motion.div
-          className="live-preview"
-          initial={reduceMotion ? false : { opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={
-            reduceMotion ? { duration: 0 } : { ...enterTransition, delay: 0.08 }
-          }
-        >
-          <div className="mini-topbar">
-            <strong>OPERIX</strong>
-            <span>
-              <i />
-              Vista ilustrativa
-            </span>
-          </div>
-          <div className="mini-content">
-            <aside>
-              <Activity size={18} />
-              <BarChart3 size={18} />
-              <ShieldCheck size={18} />
-            </aside>
-            <div className="mini-panels">
-              <div className="mini-heading">
-                <span>Resumen operacional</span>
-                <span>Octubre</span>
-              </div>
-              <div className="mini-kpis">
-                <div>
-                  <small>Eventos demo</small>
-                  <strong>64</strong>
-                </div>
-                <div>
-                  <small>Zonas</small>
-                  <strong>4</strong>
-                </div>
-                <div>
-                  <small>En revisión</small>
-                  <strong>12</strong>
-                </div>
-              </div>
-              <div className="mini-chart" aria-hidden="true">
-                {[30, 52, 43, 68, 47, 80, 56, 65, 39, 58, 35, 45].map(
-                  (v, i) => (
-                    <span
-                      key={i}
-                      style={{ height: `${v}%`, animationDelay: `${i * 70}ms` }}
-                    />
-                  ),
-                )}
-              </div>
-              <div className="mini-notification">
-                <span className="mini-check">
-                  <Check size={17} />
-                </span>
-                <div>
-                  <strong>Evidencia lista para revisión</strong>
-                  <small>El criterio humano completa el análisis.</small>
-                </div>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-        <div className="preview-caption">
-          <span>Detección</span>
-          <ArrowRight size={14} />
-          <span>Contexto</span>
-          <ArrowRight size={14} />
-          <span>Evidencia</span>
-        </div>
+      <section className="login-preview-side" aria-label="Cómo funciona Operix">
+        <ObservationStory login />
       </section>
     </main>
   );

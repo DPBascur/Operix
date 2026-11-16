@@ -1516,7 +1516,6 @@ a {
 :root[data-theme="dark"] .select-control {
   background: var(--sidebar);
   border-color: var(--control-border);
-  border-radius: 0.5rem;
 }
 :root[data-theme="dark"] .input::placeholder {
   color: var(--text-muted);

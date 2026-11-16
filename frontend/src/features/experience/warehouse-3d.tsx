@@ -122,11 +122,13 @@ export function Warehouse3D({
   chapter,
   clock,
   reduced,
+  onReady,
   onUnavailable,
 }: {
   chapter: number;
   clock: MotionValue<number>;
   reduced: boolean;
+  onReady?: () => void;
   onUnavailable: () => void;
 }) {
   const surface = useRef<HTMLDivElement>(null);
@@ -136,7 +138,10 @@ export function Warehouse3D({
   const [ready, setReady] = useState(false);
   const [capture, setCapture] = useState<WarehouseCapture | null>(null);
   const [contextLost, setContextLost] = useState(false);
-  const handleReady = useCallback(() => setReady(true), []);
+  const handleReady = useCallback(() => {
+    setReady(true);
+    onReady?.();
+  }, [onReady]);
   const tint = useTransform(clock, [captureBeat, dossierBeat], [0, 0.19]);
 
   useEffect(() => {

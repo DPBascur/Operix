@@ -577,26 +577,6 @@
   }
 }
 
-.experience-view-options {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  flex-wrap: wrap;
-}
-
-.experience-view-options button {
-  color: var(--foreground);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-button);
-  background: var(--surface);
-  min-height: 44px;
-  padding: 0 0.8rem;
-}
-
-.experience-view-options button:hover {
-  background: var(--surface-muted);
-}
-
 .warehouse-3d {
   position: relative;
   aspect-ratio: 3 / 2;
@@ -706,9 +686,6 @@
 }
 
 @media (max-width: 48rem) {
-  .experience-view-options {
-    gap: 0.4rem;
-  }
   .warehouse-detection text {
     font-size: 21px;
   }
@@ -734,4 +711,116 @@
   z-index: 1;
   background: #131e36;
   pointer-events: none;
+}
+
+.login-story {
+  --story-ink: #f3f6ff;
+  width: min(100%, 88svh);
+  margin: 0 auto;
+  color: var(--story-ink);
+}
+.login-story .experience-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+.login-story .experience-stage {
+  background: rgb(13 24 44 / 62%);
+  border-color: rgb(255 255 255 / 25%);
+  box-shadow: 0 24px 45px -28px rgb(0 0 0 / 75%);
+}
+.login-story .experience-stage-header {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 3.25rem;
+  padding: 0.2rem 0.85rem;
+  border-color: rgb(255 255 255 / 16%);
+  color: #dbe6fb;
+}
+.login-story .experience-stage-header > span:first-child {
+  color: var(--story-ink);
+}
+.login-story-play {
+  display: grid;
+  place-items: center;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  border: 1px solid rgb(255 255 255 / 26%);
+  color: var(--story-ink);
+  background: rgb(255 255 255 / 10%);
+  cursor: pointer;
+}
+.login-story-play:hover {
+  background: rgb(255 255 255 / 20%);
+}
+.login-story .experience-chapter {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.85rem;
+  min-height: 7.5rem;
+}
+.login-story .experience-chapter > p,
+.login-story .experience-chapter p {
+  color: #e2ebfa;
+}
+.login-story .experience-chapter-index {
+  margin: 0;
+  padding-top: 0.12rem;
+  font-variant-numeric: tabular-nums;
+}
+.login-story .experience-chapter-name {
+  margin: 0 0 0.25rem;
+}
+.login-story .experience-chapter h3 {
+  font-size: clamp(1.2rem, 2vw, 1.65rem);
+  margin-bottom: 0.3rem;
+  letter-spacing: -0.025em;
+}
+.login-story .experience-chapter .experience-detail {
+  display: none;
+}
+.login-story-poster {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.login-story .warehouse-overlay {
+  transition: opacity 240ms ease;
+}
+.login-story [data-returning="true"] .warehouse-overlay {
+  opacity: 0;
+}
+.login-story .experience-dossier,
+.login-story .experience-checks {
+  color: var(--foreground);
+}
+
+@media (max-width: 767px) and (min-height: 760px) {
+  .login-page .login-form-side {
+    min-height: min(63svh, 35rem);
+  }
+  .login-page .login-preview-side {
+    display: block;
+    padding: 0.7rem 1rem 1rem;
+    margin: 0 auto;
+    width: min(100%, 24rem);
+    background: transparent;
+    color: var(--foreground);
+    border: 0;
+  }
+  .login-story .experience-stage-header {
+    grid-template-columns: 1fr auto;
+  }
+  .login-story-poster {
+    height: min(19svh, 10rem);
+    object-fit: contain;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-page .login-form-content {
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }
