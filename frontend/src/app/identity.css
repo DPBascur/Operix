@@ -1,0 +1,198 @@
+.identity-page {
+  width: min(100%, 76rem);
+  margin-inline: auto;
+}
+.identity-heading {
+  margin-bottom: 1.6rem;
+}
+.identity-heading p,
+.identity-panel p {
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+.identity-heading p {
+  margin: 0.4rem 0 0;
+}
+.account-grid,
+.directory-grid,
+.shared-indicator-grid {
+  display: grid;
+  align-items: start;
+  gap: 1.25rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+.identity-panel {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  padding: clamp(1rem, 2.3vw, 1.75rem);
+  box-shadow: var(--panel-shadow, 0 10px 15px -13px rgb(19 31 54 / 26%));
+}
+:root .refresh-shell .identity-page :is(.input, .select-control) {
+  border-radius: var(--radius-button);
+  min-height: 2.75rem;
+}
+.identity-panel :is(h2, h3) {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 650;
+}
+.account-profile > svg,
+.account-security-heading > svg {
+  color: var(--primary);
+  flex: none;
+}
+.account-profile h2 {
+  margin: 0.7rem 0 0.5rem;
+  overflow-wrap: anywhere;
+}
+.account-profile p {
+  margin-top: 0.9rem;
+  font-size: 0.85rem;
+}
+.identity-role,
+.directory-review {
+  display: inline-block;
+  background: var(--accent-soft);
+  color: var(--foreground);
+  border-radius: var(--radius-button);
+  padding: 0.28rem 0.7rem;
+  font-size: 0.8rem;
+}
+.account-security-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.05rem;
+  padding-bottom: 1rem;
+}
+.account-security-heading p {
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+}
+.identity-panel form :is(label, legend) {
+  display: block;
+  margin: 0.85rem 0 0.35rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+.identity-panel .field-help {
+  margin: 0.35rem 0 0;
+}
+.identity-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+.identity-feedback:empty {
+  display: none;
+}
+.identity-feedback:not(:empty) {
+  margin: 0.75rem 0;
+}
+.identity-feedback .success-message {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.directory-heading {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.85rem;
+}
+.directory-list h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-bottom: 0.75rem;
+}
+.directory-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  border-top: 1px solid var(--border);
+  padding-block: 0.75rem;
+}
+.directory-list li button {
+  flex: none;
+}
+.directory-name {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.directory-name small,
+.directory-locked {
+  color: var(--text-secondary);
+}
+.directory-review {
+  justify-self: start;
+  margin-top: 0.2rem;
+}
+.directory-editor > button {
+  margin-top: 0.7rem;
+}
+.directory-notice {
+  margin-top: 0.5rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+  font-size: 0.86rem;
+}
+.directory-selected {
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+}
+.shared-period {
+  font-size: 0.85rem;
+}
+.shared-period input {
+  display: block;
+  margin-top: 0.3rem;
+}
+.shared-total {
+  margin-bottom: 1.2rem;
+  color: var(--text-secondary);
+}
+.shared-total strong {
+  color: var(--foreground);
+  display: block;
+  font-size: 2.1rem;
+  font-variant-numeric: tabular-nums;
+}
+.shared-frequency li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 0.7rem;
+  font-size: 0.88rem;
+}
+.shared-frequency progress {
+  flex: 1;
+  height: 0.45rem;
+  min-width: 1rem;
+  accent-color: var(--primary);
+}
+@media (min-width: 760px) {
+  .account-grid {
+    grid-template-columns: minmax(13rem, 0.8fr) minmax(0, 1.7fr);
+    max-width: 60rem;
+  }
+  .directory-grid,
+  .shared-indicator-grid {
+    grid-template-columns: minmax(0, 1.25fr) minmax(18rem, 1fr);
+  }
+}
+@media (max-width: 759px) {
+  .directory-editor {
+    order: -1;
+  }
+}

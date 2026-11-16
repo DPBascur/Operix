@@ -53,6 +53,7 @@ const routeNames: Record<string, string> = {
   "/zones": "Zonas",
   "/indicators": "Indicadores",
   "/users": "Usuarios y roles",
+  "/account": "Mi cuenta",
   "/experience": "Cómo funciona Operix",
 };
 

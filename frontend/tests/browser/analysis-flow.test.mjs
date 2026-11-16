@@ -240,6 +240,28 @@ test(
       })()`);
       await click("Cambiar contraseña");
       await wait(text("Contraseña actualizada."));
+      await go("/users");
+      await wait(text("Admin de prueba"));
+      await click("Nueva cuenta");
+      await evaluate(`(() => {
+        document.querySelector('#directory-username').value = 'fixture-viewer';
+        document.querySelector('#directory-display-name').value = 'Cuenta de visualización';
+        document.querySelector('#directory-password').value = 'TEST_ONLY_DIRECTORY_PASSWORD';
+      })()`);
+      await click("Crear cuenta");
+      await wait(text("Cuenta creada."));
+      await click("Editar");
+      await evaluate("document.querySelector('#directory-role').value='safety_lead'");
+      await click("Guardar cambios");
+      await wait(text("Cambios guardados."));
+      await wait("document.querySelector('#directory-role').value==='safety_lead'");
+      await evaluate("document.querySelector('#directory-role').value='viewer'");
+      await click("Guardar cambios");
+      await wait("document.querySelector('#directory-role').value==='viewer'");
+      await click("Restablecer contraseña");
+      await evaluate("document.querySelector('#directory-password').value='TEST_ONLY_RESET_PASSWORD'");
+      await click("Restablecer");
+      await wait(text("Contraseña restablecida."));
       await go("/analysis?source=manual");
       await click("Perfil B Demo B");
       await wait(text("TEST_DATA_B.mp4"));
@@ -675,6 +697,25 @@ test(
       await credentials("TEST_ONLY_PASSWORD");
       await wait("location.pathname==='/'");
       assert.equal(await evaluate("location.origin"), new URL(base).origin);
+      await evaluate(
+        "[...document.querySelectorAll('[aria-label=\"Cerrar sesión\"]')].find(button=>button.offsetParent!==null).click()",
+      );
+      await wait("location.pathname==='/login'");
+      await evaluate(`(() => {
+        document.querySelector('#login-username').value = 'fixture-viewer';
+        document.querySelector('#login-password').value = 'TEST_ONLY_RESET_PASSWORD';
+      })()`);
+      await click("Ingresar");
+      await wait("location.pathname==='/indicators'");
+      await wait(text("Sin eventos de cargas manuales"));
+      assert.deepEqual(
+        await evaluate(`Promise.all([
+          fetch('/api/v1/users/'), fetch('/api/v1/events/'), fetch('/api/v1/analysis/profiles/')
+        ]).then(items=>items.map(item=>item.status))`),
+        [403, 403, 403],
+      );
+      await go("/analysis");
+      await wait("location.pathname==='/indicators'");
       console.log(
         "PASS: navegación sin DELETE, recuperación, 99.9 antes de completed, MP4/seek, polígono por teclado, error/cancelación, histórico/evidencia, 18 combinaciones de viewport/ruta.",
       );

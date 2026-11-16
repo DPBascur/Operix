@@ -43,12 +43,9 @@ test("la historia conserva los siete capítulos y distingue evento de incidente"
 
 test("la guía operacional adapta historial e indicadores al rol", () => {
   for (const kind of ["overview", "analysis"]) {
-    const operator = guideSteps(kind, "operator");
-    assert.ok(
-      operator.every(
-        ({ route }) =>
-          !["/", "/events", "/indicators", "/users"].includes(route),
-      ),
+    assert.deepEqual(
+      guideSteps(kind, "viewer").map(({ route }) => route),
+      ["/indicators", "/account"],
     );
     for (const role of ["administrator", "safety_lead"]) {
       const steps = guideSteps(kind, role);
@@ -57,5 +54,4 @@ test("la guía operacional adapta historial e indicadores al rol", () => {
     }
   }
   assert.equal(guideSteps("analysis", "administrator").length, 10);
-  assert.equal(guideSteps("overview", "operator").at(-1).route, "/account");
 });

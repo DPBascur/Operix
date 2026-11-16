@@ -1,5 +1,5 @@
 import { AppShell } from "@/components/layout/app-shell";
-import { HistoricalDashboard } from "@/features/dashboard/historical-dashboard";
+import { IndicatorsAccess } from "@/features/dashboard/indicators-access";
 export default async function IndicatorsPage({
   searchParams,
 }: {
@@ -30,7 +30,7 @@ export default async function IndicatorsPage({
   };
   return (
     <AppShell activePath="/indicators">
-      <HistoricalDashboard key={JSON.stringify(selection)} {...selection} />
+      <IndicatorsAccess key={JSON.stringify(selection)} {...selection} />
     </AppShell>
   );
 }

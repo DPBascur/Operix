@@ -75,7 +75,7 @@ export function LoginExperience() {
                     ? URL.parse(nextValue, window.location.origin)
                     : null;
                 const fallback =
-                  account.role === "operator" ? "/analysis" : "/";
+                  account.role === "viewer" ? "/indicators" : "/";
                 setUser(account);
                 router.replace(
                   next &&

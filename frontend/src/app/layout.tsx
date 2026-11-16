@@ -3,6 +3,7 @@ import { OperixMotionProvider } from "@/components/motion/motion-provider";
 import { SessionProvider } from "@/features/auth/session-provider";
 import { GuideLauncher } from "@/features/experience/guide-launcher";
 import "./globals.css";
+import "./identity.css";
 import "@/features/experience/experience.css";
 
 export const metadata: Metadata = {

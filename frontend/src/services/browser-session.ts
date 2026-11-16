@@ -1,12 +1,13 @@
 export type OperixUser = {
   username: string;
-  role: "administrator" | "safety_lead" | "operator";
+  role: "administrator" | "safety_lead" | "viewer";
+  role_review_required?: boolean;
 };
 
 export const roleLabels = {
   administrator: "Administrador",
   safety_lead: "Responsable de seguridad",
-  operator: "Usuario",
+  viewer: "Visualizador",
 };
 
 type Session = { user: OperixUser | null; csrf_token: string; detail?: string };

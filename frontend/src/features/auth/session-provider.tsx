@@ -33,7 +33,7 @@ export function canOpen(path: string, role: OperixUser["role"]) {
   if (page === "account") return true;
   if (page === "users") return false;
   if (role === "safety_lead") return true;
-  return ["analysis", "sources", "rules", "zones", "experience"].includes(page);
+  return ["indicators", "experience"].includes(page);
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
@@ -89,7 +89,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const next = path + window.location.search;
       router.replace(`/login?next=${encodeURIComponent(next)}`);
     } else if (!login && user && !canOpen(path, user.role)) {
-      router.replace(user.role === "operator" ? "/analysis" : "/");
+      router.replace(user.role === "viewer" ? "/indicators" : "/");
     }
   }, [login, path, router, user]);
 

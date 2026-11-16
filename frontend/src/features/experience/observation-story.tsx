@@ -227,11 +227,11 @@ export function ObservationStory() {
           {last && user && (
             <Link
               className="button button-primary"
-              href={canOpen("/events", user.role) ? "/events" : "/analysis"}
+              href={canOpen("/events", user.role) ? "/events" : "/indicators"}
             >
               {canOpen("/events", user.role)
                 ? "Abrir historial"
-                : "Ir a Análisis"}{" "}
+                : "Ver indicadores"}{" "}
               <ArrowRight size={16} aria-hidden="true" />
             </Link>
           )}

@@ -1,0 +1,483 @@
+"use client";
+
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
+import { ChevronRight, KeyRound, UserPlus, Users } from "lucide-react";
+import { motion } from "motion/react";
+import { Button } from "@/components/ui/button";
+import { useSession } from "@/features/auth/session-provider";
+import {
+  apiFetch,
+  roleLabels,
+  type OperixUser,
+} from "@/services/browser-session";
+
+type Role = OperixUser["role"];
+type Account = {
+  id: number;
+  username: string;
+  display_name: string;
+  role: Role | null;
+  is_active: boolean;
+  role_review_required: boolean;
+  protected: boolean;
+};
+
+type AccountPage = { accounts: Account[]; next: number | null };
+type Editor = { mode: "create" } | { mode: "edit"; account: Account };
+
+async function directoryRequest<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const response = await apiFetch("/api/v1/users/" + path, {
+    cache: "no-store",
+    ...init,
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data) {
+    throw new Error(data?.detail || "No se pudo completar la solicitud.");
+  }
+  return data as T;
+}
+
+function passwordInput(id: string) {
+  return (
+    <>
+      <label htmlFor={id}>Contraseña</label>
+      <input
+        id={id}
+        name="password"
+        className="input"
+        type="password"
+        autoComplete="new-password"
+        minLength={15}
+        maxLength={256}
+        aria-describedby={id + "-help"}
+        required
+      />
+      <p className="field-help" id={id + "-help"}>
+        Usa entre 15 y 256 caracteres. Entrégala de forma privada a la persona
+        titular.
+      </p>
+    </>
+  );
+}
+
+function AccountEditor({
+  editor,
+  onSaved,
+  onClose,
+}: {
+  editor: Editor;
+  onSaved: (account: Account, message: string) => void;
+  onClose: () => void;
+}) {
+  const account = editor.mode === "edit" ? editor.account : null;
+  const [pending, setPending] = useState(false);
+  const inFlight = useRef(false);
+  const [error, setError] = useState("");
+  const [reset, setReset] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => heading.current?.focus(), []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (inFlight.current) return;
+    const form = event.currentTarget;
+    const values = new FormData(form);
+    const role = values.get("role");
+    const is_active = values.get("is_active") === "true";
+    const password = values.get("password");
+    inFlight.current = true;
+    setPending(true);
+    setError("");
+    try {
+      const path = account ? account.id + (reset ? "/password/" : "/") : "";
+      const body = !account
+        ? {
+            username: values.get("username"),
+            display_name: values.get("display_name"),
+            role,
+            is_active,
+            password,
+          }
+        : reset
+          ? { password }
+          : { role, is_active };
+      const updated = await directoryRequest<Account>(path, {
+        signal: AbortSignal.timeout(15000),
+        method: account && !reset ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      form.reset();
+      onSaved(
+        updated,
+        reset
+          ? "Contraseña restablecida. Las sesiones anteriores quedaron invalidadas."
+          : account
+            ? "Cambios guardados."
+            : "Cuenta creada.",
+      );
+      if (reset) setReset(false);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "No se pudo guardar la cuenta.",
+      );
+    } finally {
+      setPending(false);
+      inFlight.current = false;
+    }
+  }
+
+  return (
+    <motion.section
+      className="identity-panel directory-editor"
+      aria-labelledby="directory-editor-title"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+    >
+      <h2 id="directory-editor-title" tabIndex={-1} ref={heading}>
+        {reset
+          ? "Restablecer contraseña"
+          : account
+            ? "Editar cuenta"
+            : "Nueva cuenta"}
+      </h2>
+      {account && (
+        <p className="directory-selected">
+          {account.display_name || account.username} · @{account.username}
+        </p>
+      )}
+      {account?.role_review_required && !reset && (
+        <p className="directory-notice">
+          Esta cuenta usaba el perfil Usuario. Confirma Visualizador o asigna un
+          rol operativo acorde a su función.
+        </p>
+      )}
+      <form method="post" key={String(reset)} onSubmit={submit}>
+        <fieldset disabled={pending}>
+          {!account && (
+            <>
+              <label htmlFor="directory-username">Usuario</label>
+              <input
+                className="input"
+                id="directory-username"
+                name="username"
+                autoComplete="off"
+                maxLength={150}
+                required
+              />
+              <label htmlFor="directory-display-name">Nombre visible</label>
+              <input
+                className="input"
+                id="directory-display-name"
+                name="display_name"
+                autoComplete="off"
+                maxLength={150}
+                required
+              />
+            </>
+          )}
+          {!reset && (
+            <>
+              <label htmlFor="directory-role">Rol</label>
+              <select
+                id="directory-role"
+                name="role"
+                className="select-control"
+                defaultValue={account?.role ?? "viewer"}
+              >
+                {Object.entries(roleLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <label htmlFor="directory-state">Estado</label>
+              <select
+                id="directory-state"
+                name="is_active"
+                className="select-control"
+                defaultValue={String(account?.is_active ?? true)}
+              >
+                <option value="true">Activa</option>
+                <option value="false">Desactivada</option>
+              </select>
+              <p className="field-help">
+                Una cuenta desactivada pierde acceso a Operix.
+              </p>
+            </>
+          )}
+          {(!account || reset) && passwordInput("directory-password")}
+        </fieldset>
+        {reset && (
+          <p className="directory-notice">
+            La operación cierra las sesiones anteriores de esta cuenta.
+          </p>
+        )}
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="identity-actions">
+          <Button type="submit" disabled={pending}>
+            {pending
+              ? "Guardando…"
+              : reset
+                ? "Restablecer"
+                : account
+                  ? "Guardar cambios"
+                  : "Crear cuenta"}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={pending}
+            onClick={() => {
+              if (reset) {
+                setReset(false);
+                setError("");
+              } else onClose();
+            }}
+          >
+            {reset ? "Volver" : "Cerrar"}
+          </Button>
+        </div>
+      </form>
+      {account && !reset && (
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={pending}
+          onClick={() => {
+            setReset(true);
+            setError("");
+          }}
+        >
+          <KeyRound size={16} aria-hidden="true" /> Restablecer contraseña
+        </Button>
+      )}
+    </motion.section>
+  );
+}
+
+export function AccountDirectory() {
+  const { user } = useSession();
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [next, setNext] = useState<number | null>(null);
+  const [editor, setEditor] = useState<Editor | null>(null);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+  const create = useRef<HTMLButtonElement>(null);
+
+  const load = useCallback(
+    async (after?: number, signal = AbortSignal.timeout(10000)) => {
+      try {
+        const page = await directoryRequest<AccountPage>(
+          after ? "?after=" + after : "",
+          { signal },
+        );
+        setAccounts((current) =>
+          after
+            ? [
+                ...current,
+                ...page.accounts.filter(
+                  (account) => !current.some((item) => item.id === account.id),
+                ),
+              ]
+            : page.accounts,
+        );
+        setNext(page.next);
+      } catch (cause) {
+        if (!signal.aborted || signal.reason?.name !== "AbortError") {
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "No se pudieron cargar las cuentas.",
+          );
+        }
+      } finally {
+        if (!signal.aborted || signal.reason?.name !== "AbortError")
+          setLoading(false);
+      }
+    },
+    [],
+  );
+
+  function loadPage(after?: number) {
+    setLoading(true);
+    setError("");
+    void load(after);
+  }
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const signal = AbortSignal.any([
+      controller.signal,
+      AbortSignal.timeout(10000),
+    ]);
+    queueMicrotask(() => {
+      if (!signal.aborted) void load(undefined, signal);
+    });
+    return () => controller.abort();
+  }, [load]);
+
+  return (
+    <section className="page-wrap identity-page">
+      <header className="identity-heading directory-heading">
+        <div>
+          <h2 className="compact-page-title">Cuentas de Operix</h2>
+          <p>Administra quién puede acceder y qué puede hacer en Operix.</p>
+        </div>
+        <Button
+          ref={create}
+          onClick={() => {
+            setMessage("");
+            setEditor({ mode: "create" });
+          }}
+        >
+          <UserPlus size={17} aria-hidden="true" /> Nueva cuenta
+        </Button>
+      </header>
+      <p className="identity-feedback" role="status">
+        {message}
+      </p>
+      <div className="directory-grid">
+        <section
+          className="identity-panel directory-list"
+          aria-label="Cuentas registradas"
+          aria-busy={loading}
+        >
+          <h3>
+            <Users size={18} aria-hidden="true" /> Cuentas registradas
+          </h3>
+          {loading && !accounts.length && (
+            <p role="status">Cargando cuentas…</p>
+          )}
+          {error && (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          )}
+          {error && (
+            <Button
+              variant="outline"
+              disabled={loading}
+              onClick={() => loadPage(next ?? undefined)}
+            >
+              Reintentar
+            </Button>
+          )}
+          {!loading && !error && !accounts.length && <p>Aún no hay cuentas.</p>}
+          <ul>
+            {accounts.map((account) => {
+              const self = account.username === user?.username;
+              const selected =
+                editor?.mode === "edit" && editor.account.id === account.id;
+              return (
+                <li key={account.id}>
+                  <div className="directory-name">
+                    <strong>{account.display_name || account.username}</strong>
+                    {(account.display_name || self) && (
+                      <small>
+                        @{account.username}
+                        {self ? " · Tu cuenta" : ""}
+                      </small>
+                    )}
+                    <small>
+                      {account.role ? roleLabels[account.role] : "Sin rol"} ·{" "}
+                      {account.is_active ? "Activa" : "Desactivada"}
+                    </small>
+                    {account.role_review_required && (
+                      <span className="directory-review">
+                        Revisar rol anterior
+                      </span>
+                    )}
+                  </div>
+                  {!self && !account.protected ? (
+                    <Button
+                      variant="outline"
+                      size="small"
+                      aria-label={"Editar " + account.username}
+                      aria-pressed={selected}
+                      onClick={() => {
+                        setMessage("");
+                        setEditor({ mode: "edit", account });
+                      }}
+                    >
+                      Editar <ChevronRight size={15} aria-hidden="true" />
+                    </Button>
+                  ) : (
+                    account.protected && (
+                      <small className="directory-locked">
+                        Cuenta de Django
+                      </small>
+                    )
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          {next && !error && (
+            <Button
+              variant="outline"
+              disabled={loading}
+              onClick={() => loadPage(next)}
+            >
+              Cargar más
+            </Button>
+          )}
+        </section>
+        {editor && (
+          <AccountEditor
+            key={
+              editor.mode === "edit"
+                ? [
+                    editor.account.id,
+                    editor.account.role,
+                    editor.account.is_active,
+                  ].join(":")
+                : "create"
+            }
+            editor={editor}
+            onClose={() => {
+              setEditor(null);
+              create.current?.focus();
+            }}
+            onSaved={(updated, success) => {
+              setAccounts((current) =>
+                current.some((item) => item.id === updated.id)
+                  ? current.map((item) =>
+                      item.id === updated.id ? updated : item,
+                    )
+                  : [...current, updated],
+              );
+              setMessage(success);
+              setEditor((current) => {
+                if (
+                  editor.mode === "edit" &&
+                  current?.mode === "edit" &&
+                  current.account.id === updated.id
+                ) {
+                  return { mode: "edit", account: updated };
+                }
+                return current === editor ? null : current;
+              });
+            }}
+          />
+        )}
+      </div>
+    </section>
+  );
+}

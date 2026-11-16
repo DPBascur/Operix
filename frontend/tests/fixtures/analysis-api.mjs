@@ -50,7 +50,18 @@ export async function startFixtureApi(port = 8000) {
   const pendingZones = [];
   let signedIn = false;
   let failHistory = false;
-  const account = { username: "fixture-admin", role: "administrator" };
+  const admin = { username: "fixture-admin", role: "administrator" };
+  let account = admin;
+  const adminRow = {
+    ...admin,
+    id: 1,
+    display_name: "Admin de prueba",
+    is_active: true,
+    protected: true,
+    role_review_required: false,
+  };
+  let directory = [adminRow];
+  const directoryPasswords = new Map();
   const csrf = "TEST_ONLY_CSRF";
   const run = "00000000-0000-4000-8000-000000000055";
   const event = {
@@ -139,6 +150,9 @@ export async function startFixtureApi(port = 8000) {
       if (url.pathname === "/__fixture") {
         if (body.reset) {
           signedIn = false;
+          account = admin;
+          directory = [adminRow];
+          directoryPasswords.clear();
           sessions = new Map();
           sequence = 0;
           deleted = 0;
@@ -169,13 +183,22 @@ export async function startFixtureApi(port = 8000) {
       ) {
         if (req.method !== "POST" || req.headers["x-csrftoken"] !== csrf)
           return send({ detail: "CSRF inválido" }, 403);
-        if (
-          url.pathname.endsWith("/login/") &&
-          (body.username !== account.username ||
-            body.password !== "TEST_ONLY_PASSWORD")
-        )
-          return send({ detail: "Usuario o contraseña incorrectos." }, 401);
-        signedIn = url.pathname.endsWith("/login/");
+        if (url.pathname.endsWith("/login/")) {
+          const accepted = directory.find(
+            (row) => row.username === body.username && row.is_active,
+          );
+          const pass =
+            accepted?.id === 1
+              ? "TEST_ONLY_PASSWORD"
+              : directoryPasswords.get(accepted?.id);
+          if (!accepted || body.password !== pass)
+            return send({ detail: "Usuario o contraseña incorrectos." }, 401);
+          account = { username: accepted.username, role: accepted.role };
+          signedIn = true;
+        } else {
+          signedIn = false;
+          account = admin;
+        }
         return send({ user: signedIn ? account : null, csrf_token: csrf });
       }
       if (!signedIn) return send({ detail: "Sesión requerida" }, 401);
@@ -189,6 +212,61 @@ export async function startFixtureApi(port = 8000) {
           return send({ detail: "Revise las contraseñas." }, 400);
         return send({ user: account, csrf_token: csrf });
       }
+      const directoryUrl = url.pathname.match(
+        /^\/api\/v1\/users\/(?:(\d+)\/(password\/)?)?$/,
+      );
+      if (directoryUrl) {
+        if (account.role !== "administrator")
+          return send({ detail: "Acceso denegado" }, 403);
+        if (req.method !== "GET" && req.headers["x-csrftoken"] !== csrf)
+          return send({ detail: "CSRF inválido" }, 403);
+        if (!directoryUrl[1]) {
+          if (req.method === "GET")
+            return send({ accounts: directory, next: null });
+          if (directory.some((row) => row.username === body.username))
+            return send(
+              { detail: "Ya existe una cuenta con ese usuario." },
+              409,
+            );
+          const { password, username, display_name, role, is_active } = body;
+          const row = {
+            id: directory.length + 1,
+            username,
+            display_name,
+            role,
+            is_active,
+            protected: false,
+            role_review_required: false,
+          };
+          directory.push(row);
+          directoryPasswords.set(row.id, password);
+          return send(row, 201);
+        }
+        const row = directory.find(
+          (entry) => entry.id === Number(directoryUrl[1]),
+        );
+        if (!row || row.protected)
+          return send({ detail: "Cuenta no editable" }, 409);
+        if (directoryUrl[2]) directoryPasswords.set(row.id, body.password);
+        else {
+          row.role = body.role;
+          row.is_active = body.is_active;
+        }
+        return send(row);
+      }
+      if (url.pathname === "/api/v1/indicators/shared/")
+        return send({
+          total: 0,
+          timezone: "UTC",
+          period: "day",
+          by_period: [],
+          by_type: [],
+        });
+      if (
+        account.role === "viewer" &&
+        /^\/api\/v1\/(analysis|events)\//.test(url.pathname)
+      )
+        return send({ detail: "Acceso denegado" }, 403);
       if (url.pathname.endsWith("/profiles/"))
         return send(
           ["A", "B", "C"].map((id) => ({

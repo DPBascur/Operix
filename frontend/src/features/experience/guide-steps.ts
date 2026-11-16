@@ -59,20 +59,32 @@ export function guideSteps(
   kind: GuideKind,
   role: OperixUser["role"],
 ): GuideStep[] {
-  const operational = role !== "operator";
+  if (role === "viewer") {
+    return [
+      {
+        route: "/indicators",
+        target: "#shared-indicator-month",
+        title: "Consulta indicadores",
+        description:
+          "Elige un mes para ver el total y la distribución de los eventos compartidos.",
+      },
+      {
+        route: "/account",
+        target: "#current",
+        title: "Cuenta y seguridad",
+        description: "Consulta tu rol o cambia tu contraseña.",
+      },
+    ];
+  }
   if (kind === "overview") {
     return [
-      ...(operational
-        ? [
-            {
-              route: "/",
-              target: 'main a[href^="/indicators"]',
-              title: "Resumen de Operix",
-              description:
-                "Consulta la actividad registrada y abre los indicadores o el historial desde esta vista.",
-            },
-          ]
-        : []),
+      {
+        route: "/",
+        target: 'main a[href^="/indicators"]',
+        title: "Resumen de Operix",
+        description:
+          "Consulta la actividad registrada y abre los indicadores o el historial desde esta vista.",
+      },
       sources,
       analysis,
       {
@@ -90,19 +102,15 @@ export function guideSteps(
         description:
           "Revisa qué reglas están habilitadas por perfil. Para cambiar la configuración de una fuente, usa el editor de Análisis.",
       },
-      ...(operational
-        ? [
-            events,
-            evidence,
-            {
-              route: "/indicators",
-              target: ".history-controls select",
-              title: "Consulta indicadores",
-              description:
-                "Compara la evolución y recurrencia de los eventos registrados por período y procedencia.",
-            },
-          ]
-        : []),
+      events,
+      evidence,
+      {
+        route: "/indicators",
+        target: ".history-controls select",
+        title: "Consulta indicadores",
+        description:
+          "Compara la evolución y recurrencia de los eventos registrados por período y procedencia.",
+      },
       {
         route: "/account",
         target: "#current",
@@ -158,6 +166,7 @@ export function guideSteps(
         "El panel muestra fotogramas procesados y FPS del Motor. El resultado final se habilita cuando termina el procesamiento.",
       optional: "Las métricas aparecen cuando hay una sesión de análisis.",
     },
-    ...(operational ? [events, evidence] : []),
+    events,
+    evidence,
   ];
 }
