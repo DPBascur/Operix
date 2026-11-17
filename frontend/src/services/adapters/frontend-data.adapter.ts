@@ -26,4 +26,5 @@ export interface EventQuery {
     | "zone_coexistence";
   sourceKind?: "demo" | "manual" | "unknown";
   sourceSha256?: string;
+  zoneId?: string;
 }

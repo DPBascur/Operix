@@ -10,12 +10,17 @@ import {
   ArrowUpRight,
   ArrowRight,
   RefreshCw,
-  Activity,
 } from "lucide-react";
+import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
 import { Button } from "@/components/ui/button";
 import { environment } from "@/config/environment";
 import { eventTypeName } from "@/services/event-contract";
-import { enterTransition, sectionTransition, revealVariants, sectionEntrance } from "@/lib/motion/presets";
+import {
+  enterTransition,
+  sectionTransition,
+  revealVariants,
+  sectionEntrance,
+} from "@/lib/motion/presets";
 import {
   historyHref,
   sourceNames,
@@ -29,6 +34,15 @@ import {
   type EventFrequency,
   type HistoryEvent,
 } from "./history-model";
+
+import {
+  DailyEvents,
+  HeatLegend,
+  SpatialHeatmap,
+  TemporalHeatmap,
+} from "./analytics-charts";
+import { spatialHistory } from "./spatial-history";
+import styles from "./analytics-charts.module.css";
 
 const eventName = eventTypeName;
 const chartDraw = { ...enterTransition, duration: 0.85 };
@@ -58,6 +72,17 @@ export function HistoricalDashboard({
     periods.push(initialMonth);
   const [type, setType] = useState(initialType);
   const [source, setSource] = useState(initialSource);
+  const [zone, setZone] = useState("");
+  const [video, setVideo] = useState("");
+  const [facets, setFacets] = useState<{
+    zones: { label: string }[];
+    videos: { sha: string; name: string }[];
+  }>({ zones: [], videos: [] });
+  function resetFacets() {
+    setZone("");
+    setVideo("");
+    setFacets({ zones: [], videos: [] });
+  }
   const applied = useMemo(() => {
     const bounds = monthUtcBounds(month);
     const params = new URLSearchParams({
@@ -66,8 +91,10 @@ export function HistoricalDashboard({
     });
     if (type) params.set("event_type", type);
     if (source) params.set("source_kind", source);
+    if (zone) params.set("zone_id", zone);
+    if (video) params.set("source_sha256", video);
     return params;
-  }, [month, type, source]);
+  }, [month, type, source, zone, video]);
   const queryKey = applied.toString();
   const [records, setRecords] = useState<HistoryEvent[]>([]);
   const [frequencies, setFrequencies] = useState<{
@@ -122,16 +149,29 @@ export function HistoricalDashboard({
         const data = parseHistory(eventsPayload);
         const current = parseFrequency(currentPayload);
         const previousFrequency = parseFrequency(previousPayload);
-        const summary = summarizeApiHistory(data, month, current, previousFrequency);
+        const summary = summarizeApiHistory(
+          data,
+          month,
+          current,
+          previousFrequency,
+        );
         if (active) {
           setRecords(data);
+          if (!zone && !video)
+            setFacets({ zones: summary.zones, videos: summary.videos });
           setFrequencies((last) => ({
             key: queryKey,
             current,
             previous: previousFrequency,
             zones: summary.zones.length,
             analyses: summary.runsWithEvents,
-            prior: last && { total: last.current.total, zones: last.zones, analyses: last.analyses } || undefined,
+            prior:
+              (last && {
+                total: last.current.total,
+                zones: last.zones,
+                analyses: last.analyses,
+              }) ||
+              undefined,
             animateRecent: !last?.hasRecent && summary.recent.length > 0,
             hasRecent: Boolean(last?.hasRecent || summary.recent.length),
           }));
@@ -149,7 +189,7 @@ export function HistoricalDashboard({
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [applied, queryKey, month, revision]);
+  }, [applied, queryKey, month, revision, zone, video]);
   const summary = useMemo(
     () =>
       frequencies?.key === queryKey
@@ -162,13 +202,10 @@ export function HistoricalDashboard({
         : summarizeHistory([], month),
     [queryKey, records, frequencies, month],
   );
-  const max = Math.max(1, ...summary.days.map((d) => d.count));
-  const points = summary.days
-    .map(
-      (d, i) =>
-        `${20 + (i * 680) / (summary.days.length - 1)},${170 - (d.count / max) * 140}`,
-    )
-    .join(" ");
+  const groups = useMemo(
+    () => (overview ? [] : spatialHistory(records)),
+    [overview, records],
+  );
   const currentLabel = new Intl.DateTimeFormat("es-CL", {
     month: "long",
     year: "numeric",
@@ -180,11 +217,13 @@ export function HistoricalDashboard({
   );
   return (
     <div
-      className={`insights-page market-dashboard${overview ? " dashboard-overview" : ""}`}
+      className={`insights-page market-dashboard${overview ? " dashboard-overview" : ` ${styles.indicators}`}`}
     >
       <header className="insights-heading app-page-heading">
         <div>
-          <PageTitle animate={overview}>{overview ? "Resumen de eventos" : "Indicadores de eventos"}</PageTitle>
+          <PageTitle animate={overview}>
+            {overview ? "Resumen de eventos" : "Indicadores de eventos"}
+          </PageTitle>
           <p>Actividad operacional · {currentLabel}</p>
         </div>
         <Link
@@ -202,7 +241,13 @@ export function HistoricalDashboard({
       <div className="history-controls">
         <label className="month-control">
           Período UTC
-          <select value={month} onChange={(e) => setMonth(e.target.value)}>
+          <select
+            value={month}
+            onChange={(e) => {
+              setMonth(e.target.value);
+              resetFacets();
+            }}
+          >
             {periods.map((value) => {
               const d = new Date(`${value}-01T00:00:00Z`);
               return (
@@ -219,7 +264,13 @@ export function HistoricalDashboard({
         </label>
         <label className="month-control">
           Tipo de evento
-          <select value={type} onChange={(e) => setType(e.target.value)}>
+          <select
+            value={type}
+            onChange={(e) => {
+              setType(e.target.value);
+              resetFacets();
+            }}
+          >
             <option value="">Todos</option>
             <option value="zone_entry">Ingreso observado</option>
             <option value="zone_coexistence">Presencia simultánea</option>
@@ -231,7 +282,13 @@ export function HistoricalDashboard({
         </label>
         <label className="month-control">
           Procedencia
-          <select value={source} onChange={(e) => setSource(e.target.value)}>
+          <select
+            value={source}
+            onChange={(e) => {
+              setSource(e.target.value);
+              resetFacets();
+            }}
+          >
             <option value="">Todas</option>
             {Object.entries(sourceNames).map(([key, name]) => (
               <option key={key} value={key}>
@@ -240,6 +297,38 @@ export function HistoricalDashboard({
             ))}
           </select>
         </label>
+        {!overview && (
+          <>
+            <label className="month-control">
+              Zona
+              <select
+                value={zone}
+                onChange={(event) => setZone(event.target.value)}
+              >
+                <option value="">Todas las zonas</option>
+                {facets.zones.map(({ label }) => (
+                  <option key={label} value={label}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="month-control">
+              Video identificado
+              <select
+                value={video}
+                onChange={(event) => setVideo(event.target.value)}
+              >
+                <option value="">Todos los videos</option>
+                {facets.videos.map(({ sha, name }) => (
+                  <option key={sha} value={sha}>
+                    {name} · {sha.slice(0, 8)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        )}
         <Button
           variant="outline"
           loading={loading}
@@ -250,13 +339,15 @@ export function HistoricalDashboard({
       </div>
       <p className="history-source-caption">
         Eventos registrados en el período UTC seleccionado. Cada evento indica
-        una condición configurada satisfecha. Una carga manual puede ser un ensayo.
+        una condición configurada satisfecha. Una carga manual puede ser un
+        ensayo.
       </p>
-      {loading || (!error && frequencies?.key !== queryKey) ? (
-        <div className="dashboard-loading" role="status">
-          <span className="spinner" />
-          Consultando el histórico…
-        </div>
+      {!error && frequencies?.key !== queryKey ? (
+        <OperixScanLoader
+          className="dashboard-loading"
+          variant="panel"
+          message="Consultando el histórico…"
+        />
       ) : error ? (
         <div className="feedback-panel" role="alert">
           <h3>No se pudo cargar el histórico</h3>
@@ -280,7 +371,12 @@ export function HistoricalDashboard({
                 transition={enterTransition}
               >
                 <span>Eventos del período</span>
-                <strong><EventCount value={summary.total} from={frequencies?.prior?.total} /></strong>
+                <strong>
+                  <EventCount
+                    value={summary.total}
+                    from={frequencies?.prior?.total}
+                  />
+                </strong>
                 <small>{currentLabel}</small>
               </motion.div>
               <motion.div
@@ -311,7 +407,12 @@ export function HistoricalDashboard({
                 transition={enterTransition}
               >
                 <span>Zonas con registros</span>
-                <strong><EventCount value={summary.zones.length} from={frequencies?.prior?.zones} /></strong>
+                <strong>
+                  <EventCount
+                    value={summary.zones.length}
+                    from={frequencies?.prior?.zones}
+                  />
+                </strong>
                 <small>Ubicaciones en el período</small>
               </motion.div>
               <motion.div
@@ -319,15 +420,69 @@ export function HistoricalDashboard({
                 transition={enterTransition}
               >
                 <span>Análisis con eventos</span>
-                <strong><EventCount value={summary.runsWithEvents} from={frequencies?.prior?.analyses} /></strong>
+                <strong>
+                  <EventCount
+                    value={summary.runsWithEvents}
+                    from={frequencies?.prior?.analyses}
+                  />
+                </strong>
                 <small>Análisis distintos entre estos registros</small>
               </motion.div>
             </motion.section>
           )}
+          {!overview && (
+            <section
+              className={styles.kpis}
+              aria-label="Resumen de indicadores"
+              aria-busy={loading}
+            >
+              <div>
+                <span>Eventos registrados</span>
+                <strong>
+                  <EventCount
+                    value={summary.total}
+                    from={frequencies?.prior?.total}
+                  />
+                </strong>
+              </div>
+              {summary.types[0] && (
+                <div>
+                  <span>Tipo con más registros</span>
+                  <strong>{eventName(summary.types[0].label)}</strong>
+                  <small>{summary.types[0].count} eventos</small>
+                </div>
+              )}
+              {summary.zones[0] && (
+                <div>
+                  <span>Zona con más registros</span>
+                  <strong>{summary.zones[0].label}</strong>
+                  <small>{summary.zones[0].count} eventos</small>
+                </div>
+              )}
+              {!!busiest.count && (
+                <div>
+                  <span>Hora con más registros · Santiago</span>
+                  <strong>{String(busiest.hour).padStart(2, "0")}:00</strong>
+                  <small>{busiest.count} eventos</small>
+                </div>
+              )}
+              {summary.videos[0] && (
+                <div>
+                  <span>Video con más registros</span>
+                  <strong>{summary.videos[0].name}</strong>
+                  <small>{summary.videos[0].count} eventos</small>
+                </div>
+              )}
+            </section>
+          )}
           {summary.total === 0 ? (
             <motion.div
               className="feedback-panel"
-              initial={reduceMotion || frequencies?.prior ? false : { opacity: 0.8, filter: "blur(2px)" }}
+              initial={
+                reduceMotion || frequencies?.prior
+                  ? false
+                  : { opacity: 0.8, filter: "blur(2px)" }
+              }
               animate={{ opacity: 1, filter: "blur(0px)" }}
               transition={enterTransition}
             >
@@ -338,177 +493,28 @@ export function HistoricalDashboard({
             <>
               {!overview && (
                 <>
-                  <div className="analytics-grid">
-                    <motion.section
-                      className="insight-panel trend-panel"
-                      initial={reduceMotion ? false : { opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={
-                        reduceMotion ? { duration: 0 } : enterTransition
-                      }
-                    >
-                      <div className="panel-heading">
-                        <div>
-                          <h3>
-                            <Activity size={20} aria-hidden="true" /> Eventos
-                            registrados
-                          </h3>
-                          <div className="chart-headline">
-                            <strong><EventCount value={summary.total} from={frequencies?.prior?.total} /></strong>
-                            <span>{currentLabel}</span>
-                          </div>
-                          <p className="chart-comparison">
-                            {summary.change === null
-                              ? "Sin comparación anterior"
-                              : `${summary.change > 0 ? "+" : ""}${summary.change.toFixed(1)} % frente al mes anterior`}
-                          </p>
-                        </div>
-                        <span className="source-indicator">
-                          {summary.total} eventos
-                        </span>
-                      </div>
-                      <div className="trend-chart">
-                        <div className="chart-scale">
-                          <span>{max}</span>
-                          <span>{max / 2}</span>
-                          <span>0</span>
-                        </div>
-                        <svg
-                          viewBox="0 0 720 190"
-                          role="img"
-                          aria-label={`Frecuencia diaria, ${summary.total} eventos. Tabla diaria disponible debajo.`}
-                        >
-                          <defs>
-                            <linearGradient
-                              id="history-area"
-                              x1="0"
-                              y1="0"
-                              x2="0"
-                              y2="1"
-                            >
-                              <stop
-                                offset="0%"
-                                stopColor="var(--primary)"
-                                stopOpacity="0.23"
-                              />
-                              <stop
-                                offset="100%"
-                                stopColor="var(--primary)"
-                                stopOpacity="0.015"
-                              />
-                            </linearGradient>
-                            <pattern
-                              id="history-dots"
-                              width="36"
-                              height="35"
-                              patternUnits="userSpaceOnUse"
-                            >
-                              <circle
-                                cx="2"
-                                cy="2"
-                                r="0.6"
-                                fill="var(--border-strong)"
-                              />
-                            </pattern>
-                          </defs>
-                          <rect
-                            x="20"
-                            y="0"
-                            width="680"
-                            height="170"
-                            fill="url(#history-dots)"
-                            className="chart-dot-field"
-                          />
-                          <motion.polygon
-                            key={queryKey}
-                            points={`20,170 ${points} 700,170`}
-                            fill="url(#history-area)"
-                            initial={reduceMotion ? false : { opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            transition={
-                              reduceMotion
-                                ? { duration: 0 }
-                                : { ...enterTransition, delay: 0.42 }
-                            }
-                          />
-                          <line x1="20" y1="30" x2="700" y2="30" />
-                          <line x1="20" y1="100" x2="700" y2="100" />
-                          <line x1="20" y1="170" x2="700" y2="170" />
-                          <motion.polyline
-                            key={`${queryKey}-line`}
-                            points={points}
-                            initial={
-                              reduceMotion
-                                ? false
-                                : { pathLength: 0, opacity: 0 }
-                            }
-                            animate={{ pathLength: 1, opacity: 1 }}
-                            transition={
-                              reduceMotion
-                                ? { duration: 0 }
-                                : { ...chartDraw, opacity: { duration: 0.12 } }
-                            }
-                          />
-                          <motion.g
-                            key={`${queryKey}-points`}
-                            initial={reduceMotion ? false : { opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            transition={
-                              reduceMotion
-                                ? { duration: 0 }
-                                : { ...enterTransition, delay: 0.55 }
-                            }
-                          >
-                            {summary.days.map((d, i) => (
-                              <circle
-                                key={d.day}
-                                cx={20 + (i * 680) / (summary.days.length - 1)}
-                                cy={170 - (d.count / max) * 140}
-                                r="3"
-                              >
-                                <title>{`Día ${d.day}: ${d.count} eventos`}</title>
-                              </circle>
-                            ))}
-                          </motion.g>
-                        </svg>
-                      </div>
-                      <div className="chart-days">
-                        <span>01</span>
-                        <span>08</span>
-                        <span>15</span>
-                        <span>22</span>
-                        <span>{summary.days.length}</span>
-                      </div>
-                      <details className="chart-data">
-                        <summary>Ver valores diarios</summary>
-                        <div className="daily-data">
-                          {summary.days.map((d) => (
-                            <span key={d.day}>
-                              {d.count > 0 ? (
-                                <Link
-                                  className="text-link"
-                                  href={historyHref(applied, {
-                                    occurred_after: `${month}-${String(d.day).padStart(2, "0")}T00:00:00Z`,
-                                    occurred_before: `${month}-${String(d.day).padStart(2, "0")}T23:59:59.999999Z`,
-                                  })}
-                                >
-                                  Día {d.day}: <b>{d.count}</b>
-                                </Link>
-                              ) : (
-                                <>
-                                  Día {d.day}: <b>0</b>
-                                </>
-                              )}
-                            </span>
-                          ))}
-                        </div>
-                      </details>
-                    </motion.section>
+                  <DailyEvents
+                    month={month}
+                    days={summary.days}
+                    filters={applied}
+                    queryKey={queryKey}
+                  />
+                  <div className={styles.patterns}>
+                    <TemporalHeatmap matrix={summary.timeMatrix} />
+                    <SpatialHeatmap
+                      groups={groups}
+                      total={summary.total}
+                      back={historyHref(applied)}
+                    />
                     <section className="insight-panel">
                       <div className="panel-heading">
                         <div>
                           <h3>Recurrencia por zona</h3>
-                          <p>Dónde concentrar la revisión</p>
+                          <p>
+                            {summary.zones[0].label} reúne{" "}
+                            {summary.zones[0].count} de {summary.total}{" "}
+                            registros del período.
+                          </p>
                         </div>
                       </div>
                       <ol className="zone-ranking">
@@ -519,8 +525,14 @@ export function HistoricalDashboard({
                             animate="filled"
                           >
                             <div>
-                              <span>{String(i + 1).padStart(2, "0")}</span>
-                              <strong>{z.label}</strong>
+                              <Link
+                                className="text-link"
+                                href={historyHref(applied, {
+                                  zone_id: z.label,
+                                })}
+                              >
+                                {z.label}
+                              </Link>
                               <b>{z.count}</b>
                             </div>
                             <span
@@ -551,8 +563,6 @@ export function HistoricalDashboard({
                         ))}
                       </ol>
                     </section>
-                  </div>
-                  <div className="analytics-grid lower-analytics">
                     <section className="insight-panel">
                       <div className="panel-heading">
                         <div>
@@ -564,6 +574,7 @@ export function HistoricalDashboard({
                           </p>
                         </div>
                       </div>
+                      <HeatLegend max={busiest.count} />
                       <div className="hour-heatmap">
                         {summary.hours.map((h) => (
                           <div key={h.hour}>
@@ -582,7 +593,7 @@ export function HistoricalDashboard({
                                     }
                               }
                               style={{
-                                backgroundColor: `color-mix(in srgb, var(--primary) ${h.count ? 25 + (65 * h.count) / Math.max(1, busiest.count) : 0}%, var(--surface-muted))`,
+                                backgroundColor: `color-mix(in srgb, var(--primary) ${h.count ? 16 + (30 * h.count) / Math.max(1, busiest.count) : 0}%, var(--surface-muted))`,
                               }}
                               title={`${String(h.hour).padStart(2, "0")}:00 en Santiago · ${h.count} eventos`}
                               aria-label={`${String(h.hour).padStart(2, "0")}:00 en Santiago, ${h.count} eventos`}
@@ -697,12 +708,22 @@ export function HistoricalDashboard({
                   </div>
                   <motion.ol
                     className="activity-ledger"
-                    initial={reduceMotion || !frequencies?.animateRecent ? false : "hidden"}
+                    initial={
+                      reduceMotion || !frequencies?.animateRecent
+                        ? false
+                        : "hidden"
+                    }
                     animate="visible"
-                    variants={{ visible: { transition: { staggerChildren: 0.045 } } }}
+                    variants={{
+                      visible: { transition: { staggerChildren: 0.045 } },
+                    }}
                   >
                     {summary.recent.map((e) => (
-                      <motion.li key={e.id} variants={sectionEntrance} transition={sectionTransition}>
+                      <motion.li
+                        key={e.id}
+                        variants={sectionEntrance}
+                        transition={sectionTransition}
+                      >
                         <span className="activity-dot" />
                         <div>
                           <Link

@@ -35,6 +35,7 @@ export class ApiAdapter implements FrontendDataAdapter {
     if (filters.eventType) params.set("event_type", filters.eventType);
     if (filters.sourceKind) params.set("source_kind", filters.sourceKind);
     if (filters.sourceSha256) params.set("source_sha256", filters.sourceSha256);
+    if (filters.zoneId) params.set("zone_id", filters.zoneId);
     const response = await apiFetch(`${url}?${params}`, {
       cache: "no-store",
       signal: AbortSignal.timeout(15000),

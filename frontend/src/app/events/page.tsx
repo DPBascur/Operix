@@ -17,6 +17,12 @@ export default async function EventsPage({
       : undefined;
   };
   const initial: EventQuery = {
+    zoneId:
+      typeof params.zone_id === "string" &&
+      params.zone_id.length > 0 &&
+      params.zone_id.length <= 64
+        ? params.zone_id
+        : undefined,
     sourceSha256:
       typeof params.source_sha256 === "string" &&
       /^[a-f0-9]{64}$/.test(params.source_sha256)

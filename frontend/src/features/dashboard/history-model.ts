@@ -4,7 +4,15 @@ export interface HistoryEvent {
   event_type: string;
   zone_id: string;
   analysis_run_id?: string;
-  source?: { kind?: unknown; video_sha256?: unknown; filename?: unknown };
+  view_id?: unknown;
+  observations?: unknown;
+  source?: {
+    kind?: unknown;
+    video_sha256?: unknown;
+    filename?: unknown;
+    config_sha256?: unknown;
+    epoch?: unknown;
+  };
 }
 
 export const sourceNames = {
@@ -170,11 +178,35 @@ export function parseHistory(value: unknown): HistoryEvent[] {
   return value.filter((item) => !ids.has(item.id) && !!ids.add(item.id));
 }
 
-const santiagoHour = new Intl.DateTimeFormat("en-GB", {
+const santiagoTime = new Intl.DateTimeFormat("en-GB", {
   timeZone: "America/Santiago",
+  weekday: "short",
   hour: "2-digit",
   hourCycle: "h23",
 });
+
+export const weekdays = [
+  "Lunes",
+  "Martes",
+  "Miércoles",
+  "Jueves",
+  "Viernes",
+  "Sábado",
+  "Domingo",
+];
+const weekdayKeys = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+export function dayUtcBounds(month: string, day: number) {
+  const first = new Date(monthUtcBounds(month).start);
+  first.setUTCDate(day);
+  if (!Number.isInteger(day) || first.toISOString().slice(0, 7) !== month)
+    throw new Error("Día fuera del período seleccionado.");
+  const date = first.toISOString().slice(0, 10);
+  return {
+    occurred_after: `${date}T00:00:00.000Z`,
+    occurred_before: `${date}T23:59:59.999999Z`,
+  };
+}
 
 export function summarizeHistory(events: HistoryEvent[], month: string) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))
@@ -207,6 +239,7 @@ export function summarizeHistory(events: HistoryEvent[], month: string) {
     (_, i) => ({ day: i + 1, count: 0 }),
   );
   const hours = Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 }));
+  const timeMatrix = weekdays.map(() => [0, 0, 0, 0, 0, 0]);
   const videos = new Map<
     string,
     { sha: string; name: string; count: number }
@@ -214,7 +247,13 @@ export function summarizeHistory(events: HistoryEvent[], month: string) {
   selected.forEach((e) => {
     const d = new Date(e.occurred_at);
     days[d.getUTCDate() - 1].count++;
-    hours[Number(santiagoHour.format(d))].count++;
+    const clock = santiagoTime.formatToParts(d);
+    const hour = Number(clock.find((part) => part.type === "hour")?.value);
+    const weekday = weekdayKeys.indexOf(
+      clock.find((part) => part.type === "weekday")?.value ?? "",
+    );
+    hours[hour].count++;
+    timeMatrix[weekday][Math.floor(hour / 4)]++;
     const sha = e.source?.video_sha256;
     if (typeof sha === "string" && /^[a-f0-9]{64}$/.test(sha)) {
       const existing = videos.get(sha);
@@ -249,6 +288,7 @@ export function summarizeHistory(events: HistoryEvent[], month: string) {
     types: countBy((e) => e.event_type),
     days,
     hours,
+    timeMatrix,
     recent: [...selected]
       .sort((a, b) => Date.parse(b.occurred_at) - Date.parse(a.occurred_at))
       .slice(0, 5),

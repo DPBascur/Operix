@@ -8,6 +8,7 @@ import { EventPreview, EventThumbnail } from "./event-preview";
 import type { FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
+import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { eventsService } from "@/services/events.service";
@@ -92,6 +93,7 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
     if (values.eventType) params.set("event_type", values.eventType);
     if (values.sourceKind) params.set("source_kind", values.sourceKind);
     if (values.sourceSha256) params.set("source_sha256", values.sourceSha256);
+    if (values.zoneId) params.set("zone_id", values.zoneId);
     window.history.replaceState(
       null,
       "",
@@ -109,6 +111,7 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
     if (filters.eventType) params.set("event_type", filters.eventType);
     if (filters.sourceKind) params.set("source_kind", filters.sourceKind);
     if (filters.sourceSha256) params.set("source_sha256", filters.sourceSha256);
+    if (filters.zoneId) params.set("zone_id", filters.zoneId);
     return params.size
       ? `${url}?${new URLSearchParams({ back: `/events?${params}` })}`
       : url;
@@ -191,6 +194,7 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
       eventType: eventType || undefined,
       sourceKind: source || undefined,
       sourceSha256: filters.sourceSha256,
+      zoneId: filters.zoneId,
     });
     setRetry((current) => current + 1);
   }
@@ -279,6 +283,11 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
           {filterError}
         </p>
       )}
+      {filters.zoneId && (
+        <p className="mt-2 text-xs text-text-secondary">
+          Zona filtrada · {filters.zoneId}
+        </p>
+      )}
       {filters.sourceSha256 && (
         <p className="mt-2 text-xs text-text-secondary">
           Video filtrado · SHA-256 {filters.sourceSha256.slice(0, 12)}…
@@ -287,11 +296,17 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
 
       <div className="mt-4 flex min-h-11 items-center justify-between gap-3">
         <p role="status" className="text-xs text-text-secondary">
-          {loading
-            ? "Cargando eventos…"
-            : error
-              ? "Eventos no disponibles"
-              : `${filteredEvents.length} ${filteredEvents.length === 1 ? "evento registrado" : "eventos registrados"}`}
+          {loading ? (
+            <OperixScanLoader
+              size="small"
+              message="Cargando eventos…"
+              announce={false}
+            />
+          ) : error ? (
+            "Eventos no disponibles"
+          ) : (
+            `${filteredEvents.length} ${filteredEvents.length === 1 ? "evento registrado" : "eventos registrados"}`
+          )}
         </p>
         {(hasDraftFilters || hasAppliedFilters) && (
           <Button variant="ghost" onClick={clearFilters}>

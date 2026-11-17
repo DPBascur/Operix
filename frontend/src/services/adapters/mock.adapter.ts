@@ -40,6 +40,7 @@ export class MockAdapter implements FrontendDataAdapter {
         const occurredAt = new Date(event.occurredAt).getTime();
         return (
           (!filters.eventType || event.eventType === filters.eventType) &&
+          (!filters.zoneId || event.zone === filters.zoneId) &&
           (!filters.occurredAfter ||
             occurredAt >= Date.parse(filters.occurredAfter)) &&
           (!filters.occurredBefore ||

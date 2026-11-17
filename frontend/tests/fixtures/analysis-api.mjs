@@ -67,6 +67,7 @@ export async function startFixtureApi(port = 8000) {
   const run = "00000000-0000-4000-8000-000000000055";
   const event = {
     analysis_run_id: run,
+    view_id: "fixture",
     evidence_clip: {
       kind: "annotated",
       event_id: eventId,
@@ -92,6 +93,7 @@ export async function startFixtureApi(port = 8000) {
       filename: "TEST_DATA_demo.mp4",
       kind: "demo",
       video_sha256: "a".repeat(64),
+      config_sha256: "b".repeat(64),
       timestamp_basis: "ANALYSIS_START_PROXY_NOT_RECORDING_TIME",
     },
     rule_parameters: { max_distance: 0.25, minimum_duration_seconds: 1 },
@@ -513,6 +515,7 @@ export async function startFixtureApi(port = 8000) {
         const matches =
           Object.entries({
             event_type: event.event_type,
+            zone_id: event.zone_id,
             source_kind: event.source.kind,
             source_sha256: event.source.video_sha256,
           }).every(

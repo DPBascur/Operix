@@ -708,6 +708,27 @@ test(
       );
       await go("/indicators");
       await wait(text("Eventos por procedencia"));
+      await wait(text("Eventos por día"));
+      await wait(text("Mapa de calor temporal"));
+      assert.equal(
+        await evaluate(
+          "Array.from(document.querySelectorAll('section[aria-labelledby=temporal-map] td')).reduce((sum,cell)=>sum+Number(cell.textContent),0)",
+        ),
+        1,
+      );
+      await evaluate(
+        "document.querySelector('section[aria-labelledby=spatial-map] button[aria-pressed=false]').click()",
+      );
+      await wait(
+        "!!document.querySelector('section[aria-labelledby=spatial-map] a[href^=\"/events/\"]')",
+      );
+      await evaluate("document.querySelector('main a[href*=zone_id]').click()");
+      await wait(
+        "location.pathname==='/events' && location.search.includes('zone_id=TEST_DATA_ZONE')",
+      );
+      await wait(text("1 evento registrado"));
+      await go("/indicators");
+      await wait(text("Eventos por procedencia"));
       assert.equal(await evaluate(text("Ejemplo ilustrativo")), false);
       const setProvenance = (value) =>
         evaluate(`(() => {

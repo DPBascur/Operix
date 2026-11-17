@@ -68,6 +68,7 @@ class EventFrequencyTests(APITestCase):
         Event.objects.filter(pk=demo.pk).update(source={"kind": "demo", "video_sha256": sha})
         Event.objects.filter(pk=manual.pk).update(source={"kind": "manual", "video_sha256": sha})
         Event.objects.filter(pk=other.pk).update(source={"kind": "legacy"})
+        Event.objects.filter(pk=manual.pk).update(zone_id="Piso de tránsito")
         for params, expected in (
             ({"source_kind": "demo"}, {demo.pk}),
             ({"source_kind": "manual"}, {manual.pk}),
@@ -76,6 +77,8 @@ class EventFrequencyTests(APITestCase):
             ({"source_sha256": sha, "source_kind": "manual", "event_type": "zone_dwell",
               "occurred_after": self.dates[1], "occurred_before": self.dates[1]}, {manual.pk}),
             ({"source_sha256": "b" * 64}, set()),
+            ({"source_sha256": sha, "zone_id": "Piso de tránsito"}, {manual.pk}),
+            ({"zone_id": "Zona inexistente"}, set()),
         ):
             with self.subTest(params=params):
                 response = self.client.get("/api/v1/events/", params)
@@ -91,6 +94,7 @@ class EventFrequencyTests(APITestCase):
         for filters in (
             {"unexpected": "1"}, {"event_type": "invented"},
             {"source_kind": "operational"}, {"source_sha256": "invalid"},
+            {"zone_id": "x" * 65},
             {"occurred_after": "2026-10-20T00:00:00"},
             {"occurred_after": self.dates[2], "occurred_before": self.dates[1]},
         ):

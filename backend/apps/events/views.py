@@ -115,7 +115,7 @@ class EventClipView(APIView):
 
 def filtered_events(queryset, query_params):
     """Comparte el contrato de filtros y sus límites inclusivos con la lista."""
-    unknown = set(query_params) - {"event_type", "occurred_after", "occurred_before", "source_kind", "source_sha256"}
+    unknown = set(query_params) - {"event_type", "zone_id", "occurred_after", "occurred_before", "source_kind", "source_sha256"}
     if unknown:
         raise ValidationError({"filters": f"Parámetros desconocidos: {', '.join(sorted(unknown))}."})
     filters = EventFilterSerializer(data=query_params)
@@ -123,6 +123,8 @@ def filtered_events(queryset, query_params):
     data = filters.validated_data
     if "event_type" in data:
         queryset = queryset.filter(event_type=data["event_type"])
+    if "zone_id" in data:
+        queryset = queryset.filter(zone_id=data["zone_id"])
     if "occurred_after" in data:
         queryset = queryset.filter(occurred_at__gte=data["occurred_after"])
     if "occurred_before" in data:

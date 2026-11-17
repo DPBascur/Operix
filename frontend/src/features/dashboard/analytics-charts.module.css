@@ -1,0 +1,268 @@
+.daily {
+  min-width: 0;
+}
+.axisTitle,
+.axisCaption {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+.axisCaption {
+  text-align: center;
+  margin: 0.6rem 0;
+}
+.chartScroll,
+.tableScroll {
+  overflow-x: auto;
+  min-width: 0;
+  padding: 2px;
+}
+.chartFrame {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-width: 53rem;
+  gap: 0.6rem;
+  padding: 1.5rem 0.55rem 0;
+}
+.axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  height: calc(10.5rem + 1em);
+  margin-top: -0.5em;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.bars {
+  display: grid;
+  grid-template-columns: repeat(var(--days), minmax(0, 1fr));
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  text-align: center;
+}
+.bars > li {
+  min-width: 0;
+}
+.barLink {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 10.5rem;
+  background: repeating-linear-gradient(
+    to top,
+    var(--border) 0 1px,
+    transparent 1px calc(100% / var(--chart-lines))
+  );
+  border-top: 1px solid var(--border);
+}
+.barLink:is(:focus-visible, :hover) {
+  background-color: var(--accent-soft);
+}
+.bars > li:has(.barLink:is(:hover, :focus-visible)) {
+  z-index: 1;
+}
+.bar {
+  width: min(73%, 2rem);
+  min-width: 0.55rem;
+  background: var(--primary);
+  border-radius: 0.2rem 0.2rem 0 0;
+  transform-origin: center bottom;
+}
+.day {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.chartTooltip {
+  display: none;
+  position: absolute;
+  inset-block-end: calc(100% + 0.15rem);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  color: var(--foreground);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.75rem;
+}
+.barLink:is(:focus-visible, :hover) .chartTooltip {
+  display: block;
+}
+.bars > li:nth-child(-n + 3) .chartTooltip {
+  left: 0;
+  transform: none;
+}
+.bars > li:nth-last-child(-n + 3) .chartTooltip {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 1rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+}
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.legend i {
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 0.18rem;
+  border: 1px solid var(--border);
+}
+.legend i,
+.heatTable td,
+.spatialGrid > * {
+  color: var(--foreground);
+  background: color-mix(
+    in srgb,
+    var(--primary) var(--intensity, 0%),
+    var(--surface-muted)
+  );
+}
+.heatTable {
+  min-width: 29rem;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0.2rem;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8125rem;
+}
+.heatTable th {
+  color: var(--text-secondary);
+  font-weight: 550;
+  text-align: start;
+}
+.heatTable th[scope="col"]:not(:first-child),
+.heatTable td {
+  text-align: center;
+}
+.heatTable td {
+  border-radius: 0.3rem;
+  padding: 0.38rem 0.3rem;
+}
+.heatTable td:hover {
+  outline: 1px solid var(--accent);
+}
+.spatialSelect {
+  display: grid;
+  gap: 0.4rem;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  margin-bottom: 0.75rem;
+}
+.spatialSelect select {
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+}
+.spatialGrid {
+  display: grid;
+  grid-template-columns: repeat(var(--columns), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--rows), minmax(0, 1fr));
+  aspect-ratio: 3 / 2;
+  gap: 0.15rem;
+  max-width: 32rem;
+}
+.spatialGrid > * {
+  border-radius: 0.2rem;
+  font-size: 0.75rem;
+}
+.spatialGrid button[aria-pressed="true"],
+.spatialGrid button:hover {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.cellRecords {
+  margin-top: 0.65rem;
+  font-size: 0.875rem;
+}
+.cellRecords ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  margin-top: 0.3rem;
+}
+.indicators.indicators {
+  display: flex;
+  flex-direction: column;
+  gap: var(--page-rhythm);
+}
+.indicators.indicators :global(.history-controls) {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.75rem), 1fr));
+  margin: 0;
+}
+.indicators.indicators :global(.insights-heading),
+.indicators.indicators :global(.history-source-caption) {
+  margin: 0;
+}
+.indicators :global(.history-controls) select {
+  width: 100%;
+}
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--surface-radius);
+  gap: 0.5rem;
+  padding: 0.75rem;
+}
+.kpis > div {
+  display: grid;
+  align-content: start;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.45rem;
+}
+.kpis > div > span,
+.kpis small {
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+}
+.kpis strong {
+  font-size: 1.15rem;
+  overflow-wrap: anywhere;
+}
+.kpis > div:first-child strong {
+  font-size: clamp(1.65rem, 3vw, 2.35rem);
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 600px) {
+  .kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .kpis > div:first-child {
+    grid-column: 1 / -1;
+  }
+}
+.patterns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: var(--page-rhythm);
+}
+.patterns > section {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.patterns :global(.zone-ranking) a {
+  grid-column: 1 / -2;
+}
+@media (max-width: 1100px) {
+  .patterns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
