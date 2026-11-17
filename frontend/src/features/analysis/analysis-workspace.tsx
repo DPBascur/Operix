@@ -4,6 +4,7 @@
 import { RuleConfiguration } from "@/features/analysis/rule-configuration";
 import { SpatialEditor } from "@/features/analysis/spatial-editor";
 import { VideoControls } from "@/features/analysis/video-controls";
+import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
 import {
   ChevronDown,
   Info,
@@ -762,8 +763,11 @@ export function AnalysisWorkspace({
                 }}
               >
                 {switchingDemo && (
-                  <div className="analysis-source-loading" role="status">
-                    Cargando video del perfil…
+                  <div className="analysis-source-loading">
+                    <OperixScanLoader
+                      variant="panel"
+                      message="Cargando video del perfil…"
+                    />
                   </div>
                 )}
                 {!sourceName && !switchingDemo && (

@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { SpotlightCard } from "@/components/effects/spotlight-card";
+import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
 import {
   analysisService,
   type AnalysisProfile,
@@ -172,16 +173,7 @@ export function SourceCatalog({ compact = false }: { compact?: boolean }) {
           )}
         </div>
         {loading ? (
-          <div
-            className="source-grid"
-            aria-label="Cargando fuentes"
-            aria-busy="true"
-            role="status"
-          >
-            {[0, 1, 2].map((item) => (
-              <div className="source-card source-card-loading" key={item} />
-            ))}
-          </div>
+          <OperixScanLoader variant="panel" message="Cargando fuentes…" />
         ) : error ? (
           <p className="inline-message is-error" role="alert">
             {error}

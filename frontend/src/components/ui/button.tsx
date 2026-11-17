@@ -1,4 +1,5 @@
 import type { ComponentPropsWithRef } from "react";
+import { OperixScanLoader } from "./operix-scan-loader";
 export type ButtonVariant =
   "primary" | "secondary" | "ghost" | "outline" | "destructive";
 export function Button({
@@ -22,7 +23,7 @@ export function Button({
       aria-busy={loading || undefined}
       className={`button button-${variant} button-size-${size} ${className}`}
     >
-      {loading && <span className="spinner" aria-hidden="true" />}
+      {loading && <OperixScanLoader size="small" />}
       {children}
     </button>
   );

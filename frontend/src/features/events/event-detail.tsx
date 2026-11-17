@@ -15,6 +15,7 @@ import {
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import { Button } from "@/components/ui/button";
+import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
 import { environment } from "@/config/environment";
 import {
   controlTransition,
@@ -240,8 +241,11 @@ function Evidence({
           ) : (
             <>
               {state === "loading" && (
-                <span className={styles.imageLoading} role="status">
-                  Cargando fotograma…
+                <span className={styles.imageLoading}>
+                  <OperixScanLoader
+                    size="small"
+                    message="Cargando fotograma…"
+                  />
                 </span>
               )}
               <a
@@ -648,9 +652,9 @@ export function EventDetail({
           </Button>
         </section>
       ) : !event ? (
-        <section className={styles.loadState} role="status" aria-live="polite">
+        <section className={styles.loadState}>
           <PageTitle>Detalle del evento</PageTitle>
-          <p>Consultando el registro…</p>
+          <OperixScanLoader message="Consultando el registro…" />
         </section>
       ) : (
         <EventContent event={event} />

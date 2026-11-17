@@ -3,6 +3,7 @@
 import { PageTitle } from "@/components/layout/page-title";
 import { useEffect, useState, type ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
+import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
 import { useSession } from "@/features/auth/session-provider";
 import { apiFetch } from "@/services/browser-session";
 import { eventTypeName } from "@/services/event-contract";
@@ -84,7 +85,9 @@ function SharedIndicators({ initialMonth }: { initialMonth?: string }) {
           />
         </label>
       </header>
-      {!result && <p role="status">Cargando indicadores…</p>}
+      {!result && (
+        <OperixScanLoader variant="panel" message="Cargando indicadores…" />
+      )}
       {result?.error && (
         <div role="alert">
           <p>{result.error}</p>

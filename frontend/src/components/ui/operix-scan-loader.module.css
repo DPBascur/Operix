@@ -1,0 +1,71 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+}
+.panel {
+  display: grid;
+  justify-items: center;
+  min-height: 8rem;
+  padding: 1rem;
+  align-content: center;
+  text-align: center;
+}
+.root svg {
+  width: var(--scan-size);
+  height: var(--scan-size);
+  flex: none;
+  color: var(--primary);
+}
+.small {
+  --scan-size: 1.5rem;
+}
+.small svg {
+  color: inherit;
+}
+.medium {
+  --scan-size: 3.5rem;
+}
+.large {
+  --scan-size: 5.5rem;
+}
+.track,
+.arc,
+.eye {
+  stroke: currentColor;
+  stroke-width: 2.5;
+}
+.track {
+  opacity: 0.18;
+}
+.arc,
+.eye {
+  stroke-linecap: round;
+}
+.detection {
+  fill: color-mix(in srgb, currentColor 55%, #28b9c7);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .arc {
+    transform-origin: center;
+    animation: scan 1.8s linear infinite;
+  }
+  .detection {
+    animation: detect 1.8s ease-in-out infinite;
+  }
+}
+@keyframes scan {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes detect {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}

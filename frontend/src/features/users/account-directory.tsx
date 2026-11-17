@@ -16,6 +16,7 @@ import {
   Users,
 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
+import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
 import {
   controlTransition,
   enterTransition,
@@ -518,7 +519,7 @@ export function AccountDirectory() {
             </p>
           )}
           {loading && !accounts.length && (
-            <p role="status">Cargando cuentas…</p>
+            <OperixScanLoader size="small" message="Cargando cuentas…" />
           )}
           {error && (
             <p className="form-error" role="alert">
