@@ -24,6 +24,7 @@ export function EventThumbnail({
   return (
     <figure
       className={`event-thumbnail ${expanded ? "is-expanded" : ""}`}
+      data-state={state}
       aria-busy={Boolean(url && state === "loading")}
     >
       {url && state !== "error" && (

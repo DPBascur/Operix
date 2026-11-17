@@ -1,9 +1,9 @@
 import type { Transition, Variants } from "motion/react";
 
 export const motionTiming = {
-  fast: 0.15,
-  normal: 0.22,
-  slow: 0.34,
+  fast: 0.18,
+  normal: 0.28,
+  slow: 0.36,
 } as const;
 
 export const motionEase = {
@@ -34,6 +34,11 @@ export const enterTransition = {
   ease: motionEase.enter,
 } as const satisfies Transition;
 
+export const pageTransition = {
+  duration: motionTiming.slow,
+  ease: motionEase.enter,
+} as const satisfies Transition;
+
 export const exitTransition = {
   duration: motionTiming.fast,
   ease: motionEase.exit,
@@ -44,7 +49,17 @@ export const controlTransition = {
   ease: motionEase.enter,
 } as const satisfies Transition;
 
+export const sectionEntrance = {
+  hidden: { opacity: 0.72, y: 5 },
+  visible: { opacity: 1, y: 0 },
+} satisfies Variants;
+
 export const sectionTransition = {
   duration: 0.36,
   ease: motionEase.enter,
 } as const satisfies Transition;
+
+export const countTransition = {
+  duration: 0.64,
+  ease: motionEase.enter,
+} as const;

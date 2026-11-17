@@ -3,6 +3,7 @@
 
 import { RuleConfiguration } from "@/features/analysis/rule-configuration";
 import { SpatialEditor } from "@/features/analysis/spatial-editor";
+import { VideoControls } from "@/features/analysis/video-controls";
 import {
   ChevronDown,
   Info,
@@ -15,8 +16,17 @@ import {
   Upload,
   Waypoints,
 } from "lucide-react";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type RefObject,
+} from "react";
 import Link from "next/link";
+import { motion, useReducedMotion } from "motion/react";
+import { calmSpring, enterTransition } from "@/lib/motion/presets";
 import { Button } from "@/components/ui/button";
 import {
   analysisService,
@@ -40,6 +50,22 @@ import {
 } from "./analysis-session";
 
 const referenceKey = sessionReferenceKey(environment.apiBaseUrl);
+
+function attachVideo(
+  ref: RefObject<HTMLVideoElement | null>,
+  video: HTMLVideoElement | null,
+) {
+  ref.current = video;
+  if (!video) return;
+  if (video.dataset.source) video.src = video.dataset.source;
+  return () => {
+    // Detaching a video alone does not cancel its media requests.
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    ref.current = null;
+  };
+}
 
 const labels = {
   ready: "Video listo para analizar.",
@@ -114,13 +140,25 @@ export function AnalysisWorkspace({
   });
   const [editing, setEditing] = useState(false);
   const [suspendResult, setSuspendResult] = useState(false);
+  const [switchingDemo, setSwitchingDemo] = useState(false);
   const [draft, setDraft] = useState<NormalizedVertex[]>([]);
   const [closed, setClosed] = useState(true);
   const [selectedVertex, setSelectedVertex] = useState<number | null>(null);
+  const reducedMotion = useReducedMotion();
+  const detailsButton = useRef<HTMLButtonElement>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const dragging = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const resultVideoRef = useRef<HTMLVideoElement>(null);
+  const attachReference = useCallback(
+    (video: HTMLVideoElement | null) => attachVideo(videoRef, video),
+    [],
+  );
+  const attachResult = useCallback(
+    (video: HTMLVideoElement | null) => attachVideo(resultVideoRef, video),
+    [],
+  );
+  const changingProfile = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const localUrlRef = useRef<string | null>(null);
   const [spatialEditing, setSpatialEditing] = useState(false);
@@ -333,12 +371,7 @@ export function AnalysisWorkspace({
       throw new Error("Este perfil no tiene un video demo disponible.");
     }
     const current = ++generation.current;
-    if (session?.state === "completed") {
-      setSuspendResult(true);
-      await new Promise<void>((resolve) =>
-        requestAnimationFrame(() => resolve()),
-      );
-    }
+    setSwitchingDemo(true);
     if (session) await analysisService.closeAnalysisSession(session.id);
     if (generation.current !== current) return;
     writeSessionReference(tabStorage(), referenceKey, null);
@@ -346,6 +379,7 @@ export function AnalysisWorkspace({
     localUrlRef.current = null;
     setLocalUrl(null);
     setFile(null);
+    setDemoSource(null);
     setSession(null);
     const created = await analysisService.createDemoSession(next, demo.id);
     if (generation.current !== current) {
@@ -446,11 +480,18 @@ export function AnalysisWorkspace({
     );
   }
 
-  async function changeProfile(next: AnalysisProfile) {
+  async function changeProfile(next: AnalysisProfile, useDemo = false) {
+    if (
+      busy ||
+      changingProfile.current ||
+      (next === profile && !useDemo && session)
+    )
+      return;
+    changingProfile.current = true;
     setBusy(true);
     setError(null);
     try {
-      if (session?.source_kind === "manual") {
+      if (session?.source_kind === "manual" && !useDemo) {
         const current = ++generation.current;
         const updated = await analysisService.updateZone(session.id, {
           profile: next,
@@ -486,6 +527,8 @@ export function AnalysisWorkspace({
           : "No se pudo cambiar el perfil.",
       );
     } finally {
+      changingProfile.current = false;
+      setSwitchingDemo(false);
       setBusy(false);
     }
   }
@@ -542,12 +585,18 @@ export function AnalysisWorkspace({
   const showStream =
     !!session && ["preparing", "processing"].includes(session.state);
   const showResult =
+    !switchingDemo &&
     !!session &&
     session.state === "completed" &&
     !!session.result &&
     !editing &&
     !suspendResult;
-  const showReference = !!sourceName && !!referenceUrl && !showResult;
+  const showReference =
+    !switchingDemo &&
+    !suspendResult &&
+    !!sourceName &&
+    !!referenceUrl &&
+    !showResult;
   const visibleError = error
     ? readableError(error)
     : session?.persistence?.state === "failed"
@@ -624,7 +673,12 @@ export function AnalysisWorkspace({
           </p>
         </div>
         <div className="analysis-context-actions">
-          <div className="analysis-profiles" aria-label="Perfil de zona">
+          <div
+            className="analysis-profiles"
+            role="group"
+            aria-label="Perfil de zona"
+            aria-busy={switchingDemo}
+          >
             {(["A", "B", "C"] as AnalysisProfile[]).map((item) => {
               const profileName =
                 profiles.find((candidate) => candidate.id === item)
@@ -644,6 +698,17 @@ export function AnalysisWorkspace({
                   disabled={busy || (!!session && !canEdit)}
                   onClick={() => void changeProfile(item)}
                 >
+                  {profile === item && (
+                    <motion.span
+                      aria-hidden="true"
+                      className="analysis-profile-selection"
+                      layoutId={
+                        reducedMotion ? undefined : "analysis-profile-selection"
+                      }
+                      initial={false}
+                      transition={enterTransition}
+                    />
+                  )}
                   <span className="block">Perfil {item}</span>
                   <span className="analysis-profile-name">{profileName}</span>
                 </button>
@@ -666,8 +731,10 @@ export function AnalysisWorkspace({
           <button
             type="button"
             className="analysis-context-button"
+            ref={detailsButton}
             id="analysis-inspector-trigger"
             aria-expanded={inspectorOpen}
+            aria-controls="analysis-details"
             onClick={() => setInspectorOpen((current) => !current)}
           >
             <Info size={16} aria-hidden="true" /> Detalles
@@ -675,10 +742,12 @@ export function AnalysisWorkspace({
         </div>
       </section>
 
-      <div className="analysis-layout">
+      <div
+        className={`analysis-layout ${session || inspectorOpen || switchingDemo || (busy && !initialManual) ? "has-telemetry" : ""}`}
+      >
         <section aria-label="Video de análisis" className="analysis-view">
           <div
-            className={`analysis-media-frame ${sourceName && videoInfo.height > videoInfo.width ? "is-portrait" : ""}`}
+            className={`analysis-media-frame ${(sourceName || switchingDemo) && videoInfo.height > videoInfo.width ? "is-portrait" : ""}`}
             style={
               {
                 "--analysis-source-ratio": videoInfo.width / videoInfo.height,
@@ -687,12 +756,17 @@ export function AnalysisWorkspace({
           >
             <div className="analysis-media-stage">
               <div
-                className={`analysis-stage ${sourceName ? "has-source" : "is-empty"}`}
+                className={`analysis-stage ${sourceName || switchingDemo ? "has-source" : "is-empty"}`}
                 style={{
                   aspectRatio: `${videoInfo.width} / ${videoInfo.height}`,
                 }}
               >
-                {!sourceName && (
+                {switchingDemo && (
+                  <div className="analysis-source-loading" role="status">
+                    Cargando video del perfil…
+                  </div>
+                )}
+                {!sourceName && !switchingDemo && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-white/80">
                     <Upload size={30} aria-hidden="true" />
                     <p className="text-lg font-semibold">
@@ -710,9 +784,9 @@ export function AnalysisWorkspace({
                 {showReference && referenceUrl && (
                   <video
                     key={referenceUrl}
-                    ref={videoRef}
-                    src={referenceUrl}
-                    controls={!editing && !showStream}
+                    ref={attachReference}
+                    data-source={referenceUrl}
+                    playsInline
                     preload="metadata"
                     className="absolute inset-0 h-full w-full object-contain"
                     onLoadedMetadata={(event) => {
@@ -737,12 +811,12 @@ export function AnalysisWorkspace({
                 {showResult && (
                   <video
                     key={`${session.id}-${session.run}-result`}
-                    ref={resultVideoRef}
-                    src={analysisService.getAnalysisResultUrl(
+                    ref={attachResult}
+                    data-source={analysisService.getAnalysisResultUrl(
                       session.id,
                       session.run,
                     )}
-                    controls
+                    playsInline
                     onLoadedMetadata={(event) => {
                       const video = event.currentTarget;
                       if (video !== resultVideoRef.current) return;
@@ -757,6 +831,18 @@ export function AnalysisWorkspace({
                     preload="metadata"
                     aria-label="Resultado anotado de Operix"
                     className="absolute inset-0 h-full w-full object-contain"
+                  />
+                )}
+                {showResult && (
+                  <VideoControls
+                    key={`${session.id}-${session.run}-controls`}
+                    videoRef={resultVideoRef}
+                  />
+                )}
+                {showReference && referenceUrl && !editing && !showStream && (
+                  <VideoControls
+                    key={`reference-controls-${referenceUrl}`}
+                    videoRef={videoRef}
                   />
                 )}
                 {showReference && !showStream && session && (
@@ -894,22 +980,7 @@ export function AnalysisWorkspace({
                   <Button
                     variant="secondary"
                     disabled={busy || !canEdit}
-                    onClick={() => {
-                      setBusy(true);
-                      setError(null);
-                      selectProfileDemo(profile)
-                        .catch((cause: unknown) =>
-                          setError(
-                            cause instanceof Error
-                              ? cause.message
-                              : "No se pudo restaurar la demo.",
-                          ),
-                        )
-                        .finally(() => {
-                          setSuspendResult(false);
-                          setBusy(false);
-                        });
-                    }}
+                    onClick={() => void changeProfile(profile, true)}
                   >
                     Usar video demo
                   </Button>
@@ -984,20 +1055,6 @@ export function AnalysisWorkspace({
                 </details>
               )}
             </div>
-            {session && canEdit && !editing && (
-              <SpatialEditor
-                key={session.id}
-                session={session}
-                onEditingChange={setSpatialEditing}
-                onSaved={(next) => {
-                  setSession((current) =>
-                    current?.id === next.id ? next : current,
-                  );
-                  setDraft(next.zone.polygon);
-                  setClosed(next.zone.polygon.length >= 3);
-                }}
-              />
-            )}
             {editing && (
               <div className="analysis-zone-toolbar">
                 <Button
@@ -1132,6 +1189,20 @@ export function AnalysisWorkspace({
               </p>
             )}
           </div>
+          {session && canEdit && !editing && (
+            <SpatialEditor
+              key={session.id}
+              session={session}
+              onEditingChange={setSpatialEditing}
+              onSaved={(next) => {
+                setSession((current) =>
+                  current?.id === next.id ? next : current,
+                );
+                setDraft(next.zone.polygon);
+                setClosed(next.zone.polygon.length >= 3);
+              }}
+            />
+          )}
           <p
             role={visibleError ? "alert" : undefined}
             className={`analysis-feedback ${visibleError ? "has-error" : ""}`}
@@ -1278,247 +1349,275 @@ export function AnalysisWorkspace({
               humana, no confirma un incidente.
             </p>
           )}
-          {session && (
-            <section
-              className="analysis-summary"
-              aria-label="Resumen de percepción"
-            >
-              <div>
-                <span>Detecciones de personas</span>
-                <strong>
-                  {session.run > 0 ? session.person_detections : "—"}
-                </strong>
-              </div>
-              <div>
-                <span>Detecciones de montacargas</span>
-                <strong>
-                  {session.run > 0 ? session.forklift_detections : "—"}
-                </strong>
-              </div>
-              <div>
-                <span>FPS de procesamiento</span>
-                <strong>
-                  {session.fps == null ? "—" : session.fps.toFixed(2)}
-                </strong>
-              </div>
-              <div>
-                <span>Progreso</span>
-                <strong>
-                  {percent == null ? "—" : `${percent.toFixed(1)} %`}
-                </strong>
-              </div>
-            </section>
-          )}
         </section>
 
-        <aside
-          aria-label="Estado del análisis"
-          className={`analysis-inspector ${inspectorOpen ? "is-open" : ""}`}
-        >
-          <div className="analysis-inspector-head">
-            <div>
-              <h2>Detalles del análisis</h2>
-            </div>
-            <button
-              type="button"
-              onClick={() => setInspectorOpen(false)}
-              aria-label="Cerrar detalles"
+        {(session || inspectorOpen) && (
+          <aside
+            aria-label="Estado del análisis"
+            className="analysis-telemetry"
+          >
+            <motion.section
+              id="analysis-details"
+              className="analysis-inspector"
+              hidden={!inspectorOpen}
+              initial={false}
+              animate={{ opacity: inspectorOpen ? 1 : 0 }}
+              transition={reducedMotion ? { duration: 0 } : enterTransition}
             >
-              <ChevronDown size={18} aria-hidden="true" />
-            </button>
-          </div>
-          <div className="analysis-group">
-            <p className="section-heading">Sesión</p>
-            <dl className="analysis-data mt-3">
-              <dt>Estado</dt>
-              <dd>
-                {session
-                  ? labels[session.state].replace(".", "")
-                  : sourceName
-                    ? "Video listo"
-                    : "Vacío"}
-              </dd>
-              <dt>Fuente</dt>
-              <dd>
-                {sourceKind === "demo"
-                  ? "Demo incluida"
-                  : sourceKind === "manual"
-                    ? "Video manual"
-                    : "—"}
-              </dd>
-              {sourceName && (
-                <>
-                  <dt>Video</dt>
-                  <dd title={sourceName}>{sourceName}</dd>
-                </>
-              )}
-              <dt>Perfil</dt>
-              <dd>{profile}</dd>
-            </dl>
-          </div>
-
-          {session && session.run > 0 && (
-            <div className="analysis-group">
-              <div className="flex items-center justify-between gap-3">
-                <p className="section-heading">Progreso</p>
-                <span className="text-xs font-semibold tabular-nums">
-                  {percent == null ? "—" : `${percent.toFixed(1)} %`}
-                </span>
-              </div>
-              <div className="analysis-progress mt-3" aria-hidden="true">
-                <span style={{ width: `${percent ?? 0}%` }} />
-              </div>
-              <dl className="analysis-data mt-3">
-                <dt>Frame</dt>
-                <dd>
-                  {session ? `${session.frame} / ${session.total ?? "—"}` : "—"}
-                </dd>
-                <dt>Motor</dt>
-                <dd>
-                  {session?.fps == null ? "—" : `${session.fps.toFixed(2)} FPS`}
-                </dd>
-                <dt>Fuente</dt>
-                <dd>
-                  {session?.result
-                    ? `${session.result.video.fps.toFixed(2)} FPS`
-                    : "—"}
-                </dd>
-              </dl>
-            </div>
-          )}
-
-          {session && session.run > 0 && (
-            <div className="analysis-group">
-              <p className="section-heading">Percepción</p>
-              <div className="mt-3 grid grid-cols-2 gap-px bg-border">
-                <div className="bg-surface py-3 pr-3">
-                  <span className="block text-2xl font-semibold tabular-nums">
-                    {session && session.run > 0
-                      ? session.person_detections
-                      : "—"}
-                  </span>
-                  <span className="text-xs text-text-secondary">PERSON</span>
+              <div className="analysis-inspector-head">
+                <div>
+                  <h2>Detalles del análisis</h2>
                 </div>
-                <div className="bg-surface py-3 pl-3">
-                  <span className="block text-2xl font-semibold tabular-nums">
-                    {session && session.run > 0
-                      ? session.forklift_detections
-                      : "—"}
-                  </span>
-                  <span className="text-xs text-text-secondary">FORKLIFT</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {session && (
-            <div className="analysis-group">
-              <p className="section-heading">Contexto</p>
-              <dl className="analysis-data mt-3">
-                <dt>Zona</dt>
-                <dd>
-                  {showResult
-                    ? (session.result?.zone.name ?? "—")
-                    : (session?.zone.name ?? "—")}
-                </dd>
-                <dt>Resolución</dt>
-                <dd>
-                  {sourceName
-                    ? `${videoInfo.width} × ${videoInfo.height}`
-                    : "—"}
-                </dd>
-                <dt>Duración</dt>
-                <dd>
-                  {sourceName && videoInfo.duration
-                    ? `${videoInfo.duration.toFixed(1)} s`
-                    : "—"}
-                </dd>
-                <dt>Tamaño</dt>
-                <dd>
-                  {sourceBytes
-                    ? `${(sourceBytes / 1048576).toFixed(1)} MiB`
-                    : "—"}
-                </dd>
-              </dl>
-              {!!session.equipment_motion?.length && (
-                <section
-                  className="mt-4 grid gap-2"
-                  aria-label="Movimiento observado"
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInspectorOpen(false);
+                    detailsButton.current?.focus();
+                  }}
+                  aria-label="Cerrar detalles"
                 >
-                  <h3 className="section-heading">
-                    Movimiento · último fotograma procesado
-                  </h3>
-                  {session.equipment_motion.map((item) => (
-                    <p
-                      key={`${item.epoch}-${item.track_id}`}
-                      className="text-sm"
+                  <ChevronDown size={18} aria-hidden="true" />
+                </button>
+              </div>
+              <div className="analysis-group">
+                <p className="section-heading">Sesión</p>
+                <dl className="analysis-data mt-3">
+                  <dt>Estado</dt>
+                  <dd>
+                    {session
+                      ? labels[session.state].replace(".", "")
+                      : sourceName
+                        ? "Video listo"
+                        : "Vacío"}
+                  </dd>
+                  <dt>Fuente</dt>
+                  <dd>
+                    {sourceKind === "demo"
+                      ? "Demo incluida"
+                      : sourceKind === "manual"
+                        ? "Video manual"
+                        : "—"}
+                  </dd>
+                  {sourceName && (
+                    <>
+                      <dt>Video</dt>
+                      <dd title={sourceName}>{sourceName}</dd>
+                    </>
+                  )}
+                  <dt>Perfil</dt>
+                  <dd>{profile}</dd>
+                </dl>
+              </div>
+
+              {session && session.run > 0 && (
+                <div className="analysis-group">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="section-heading">Progreso</p>
+                    <span className="text-xs font-semibold tabular-nums">
+                      {percent == null ? "—" : `${percent.toFixed(1)} %`}
+                    </span>
+                  </div>
+                  <div className="analysis-progress mt-3" aria-hidden="true">
+                    <span style={{ width: `${percent ?? 0}%` }} />
+                  </div>
+                  <dl className="analysis-data mt-3">
+                    <dt>Frame</dt>
+                    <dd>
+                      {session
+                        ? `${session.frame} / ${session.total ?? "—"}`
+                        : "—"}
+                    </dd>
+                    <dt>Motor</dt>
+                    <dd>
+                      {session?.fps == null
+                        ? "—"
+                        : `${session.fps.toFixed(2)} FPS`}
+                    </dd>
+                    <dt>Fuente</dt>
+                    <dd>
+                      {session?.result
+                        ? `${session.result.video.fps.toFixed(2)} FPS`
+                        : "—"}
+                    </dd>
+                  </dl>
+                </div>
+              )}
+
+              {session && session.run > 0 && (
+                <div className="analysis-group">
+                  <p className="section-heading">Percepción</p>
+                  <div className="mt-3 grid grid-cols-2 gap-px bg-border">
+                    <div className="bg-surface py-3 pr-3">
+                      <span className="block text-2xl font-semibold tabular-nums">
+                        {session && session.run > 0
+                          ? session.person_detections
+                          : "—"}
+                      </span>
+                      <span className="text-xs text-text-secondary">
+                        PERSON
+                      </span>
+                    </div>
+                    <div className="bg-surface py-3 pl-3">
+                      <span className="block text-2xl font-semibold tabular-nums">
+                        {session && session.run > 0
+                          ? session.forklift_detections
+                          : "—"}
+                      </span>
+                      <span className="text-xs text-text-secondary">
+                        FORKLIFT
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {session && (
+                <div className="analysis-group">
+                  <p className="section-heading">Contexto</p>
+                  <dl className="analysis-data mt-3">
+                    <dt>Zona</dt>
+                    <dd>
+                      {showResult
+                        ? (session.result?.zone.name ?? "—")
+                        : (session?.zone.name ?? "—")}
+                    </dd>
+                    <dt>Resolución</dt>
+                    <dd>
+                      {sourceName
+                        ? `${videoInfo.width} × ${videoInfo.height}`
+                        : "—"}
+                    </dd>
+                    <dt>Duración</dt>
+                    <dd>
+                      {sourceName && videoInfo.duration
+                        ? `${videoInfo.duration.toFixed(1)} s`
+                        : "—"}
+                    </dd>
+                    <dt>Tamaño</dt>
+                    <dd>
+                      {sourceBytes
+                        ? `${(sourceBytes / 1048576).toFixed(1)} MiB`
+                        : "—"}
+                    </dd>
+                  </dl>
+                  {!!session.equipment_motion?.length && (
+                    <section
+                      className="mt-4 grid gap-2"
+                      aria-label="Movimiento observado"
                     >
-                      Montacargas · ID {item.track_id}:{" "}
-                      {
-                        {
-                          MOVING: "En movimiento",
-                          STATIONARY: "Estacionario",
-                          UNKNOWN: "Indeterminado",
-                        }[item.state]
-                      }
-                      {item.state !== "UNKNOWN" && item.speed != null
-                        ? ` · ${item.speed.toLocaleString("es-CL", { maximumSignificantDigits: 4 })} ${item.unit === "m_per_s" ? "m/s aprox." : "unidades de imagen/s"}`
-                        : ""}
-                      {` · frame ${item.frame_index}`}
+                      <h3 className="section-heading">
+                        Movimiento · último fotograma procesado
+                      </h3>
+                      {session.equipment_motion.map((item) => (
+                        <p
+                          key={`${item.epoch}-${item.track_id}`}
+                          className="text-sm"
+                        >
+                          Montacargas · ID {item.track_id}:{" "}
+                          {
+                            {
+                              MOVING: "En movimiento",
+                              STATIONARY: "Estacionario",
+                              UNKNOWN: "Indeterminado",
+                            }[item.state]
+                          }
+                          {item.state !== "UNKNOWN" && item.speed != null
+                            ? ` · ${item.speed.toLocaleString("es-CL", { maximumSignificantDigits: 4 })} ${item.unit === "m_per_s" ? "m/s aprox." : "unidades de imagen/s"}`
+                            : ""}
+                          {` · frame ${item.frame_index}`}
+                        </p>
+                      ))}
+                    </section>
+                  )}
+                  <div className="mt-4 grid gap-2">
+                    <p className="section-heading">
+                      {showResult
+                        ? "Reglas del resultado"
+                        : session.state === "processing" ||
+                            session.state === "preparing"
+                          ? "Reglas de la ejecución"
+                          : "Reglas del próximo análisis"}
                     </p>
-                  ))}
+                    <p className="analysis-inspector-note">
+                      {showResult
+                        ? session.result?.spatial_revision
+                          ? `Revisión espacial del resultado: ${session.result.spatial_revision}`
+                          : "Revisión espacial del resultado sin número registrado."
+                        : session.state === "processing" ||
+                            session.state === "preparing"
+                          ? session.active_configuration?.spatial_revision
+                            ? `Revisión espacial en ejecución: ${session.active_configuration.spatial_revision}`
+                            : "Configuración inicial en ejecución."
+                          : session.spatial_revision
+                            ? `Revisión espacial preparada: ${session.spatial_revision}`
+                            : "Configuración inicial preparada."}
+                    </p>
+                    <RuleConfiguration
+                      snapshot={
+                        showResult
+                          ? session.result
+                          : session.state === "processing" ||
+                              session.state === "preparing"
+                            ? session.active_configuration
+                            : session.configuration
+                      }
+                    />
+                    {showResult && session.pending_changes && (
+                      <>
+                        <p className="section-heading">
+                          Reglas del próximo análisis
+                        </p>
+                        <RuleConfiguration snapshot={session.configuration} />
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+              {!session && (
+                <p className="analysis-inspector-note">
+                  La configuración y la evidencia aparecerán al preparar una
+                  fuente.
+                </p>
+              )}
+            </motion.section>
+            <motion.div
+              layout={reducedMotion ? false : "position"}
+              transition={calmSpring}
+            >
+              {session && (
+                <section
+                  className="analysis-summary"
+                  aria-label="Resumen de percepción"
+                >
+                  <div>
+                    <span>Detecciones de personas</span>
+                    <strong>
+                      {session.run > 0 ? session.person_detections : "—"}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Detecciones de montacargas</span>
+                    <strong>
+                      {session.run > 0 ? session.forklift_detections : "—"}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>FPS de procesamiento</span>
+                    <strong>
+                      {session.fps == null ? "—" : session.fps.toFixed(2)}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Progreso</span>
+                    <strong>
+                      {percent == null ? "—" : `${percent.toFixed(1)} %`}
+                    </strong>
+                  </div>
                 </section>
               )}
-              <div className="mt-4 grid gap-2">
-                <p className="section-heading">
-                  {showResult
-                    ? "Reglas del resultado"
-                    : session.state === "processing" ||
-                        session.state === "preparing"
-                      ? "Reglas de la ejecución"
-                      : "Reglas del próximo análisis"}
-                </p>
-                <p className="analysis-inspector-note">
-                  {showResult
-                    ? session.result?.spatial_revision
-                      ? `Revisión espacial del resultado: ${session.result.spatial_revision}`
-                      : "Revisión espacial del resultado sin número registrado."
-                    : session.state === "processing" ||
-                        session.state === "preparing"
-                      ? session.active_configuration?.spatial_revision
-                        ? `Revisión espacial en ejecución: ${session.active_configuration.spatial_revision}`
-                        : "Configuración inicial en ejecución."
-                      : session.spatial_revision
-                        ? `Revisión espacial preparada: ${session.spatial_revision}`
-                        : "Configuración inicial preparada."}
-                </p>
-                <RuleConfiguration
-                  snapshot={
-                    showResult
-                      ? session.result
-                      : session.state === "processing" ||
-                          session.state === "preparing"
-                        ? session.active_configuration
-                        : session.configuration
-                  }
-                />
-                {showResult && session.pending_changes && (
-                  <>
-                    <p className="section-heading">
-                      Reglas del próximo análisis
-                    </p>
-                    <RuleConfiguration snapshot={session.configuration} />
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-          {!session && (
-            <p className="analysis-inspector-note">
-              La configuración y la evidencia aparecerán al preparar una fuente.
-            </p>
-          )}
-        </aside>
+            </motion.div>
+          </aside>
+        )}
       </div>
     </div>
   );

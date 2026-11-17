@@ -14,6 +14,7 @@ import { eventsService } from "@/services/events.service";
 import type { EventQuery } from "@/services/adapters/frontend-data.adapter";
 import type { EventListItem } from "@/types/operix";
 import { historyError, sourceNames } from "@/features/dashboard/history-model";
+import { controlTransition } from "@/lib/motion/presets";
 
 function formatLocalMinute(date: Date): string {
   const parts = [
@@ -64,7 +65,7 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
   );
   const reduced = useReducedMotion();
   const [expanded, setExpanded] = useState<string | null>(null);
-  const animation = { duration: reduced ? 0 : 0.18 };
+  const animation = reduced ? { duration: 0 } : controlTransition;
   const [events, setEvents] = useState<EventListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

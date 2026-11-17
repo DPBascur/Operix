@@ -8,13 +8,19 @@ import {
   ArrowLeft,
   ArrowUpRight,
   ChevronDown,
+  Copy,
   ImageOff,
   RefreshCw,
 } from "lucide-react";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { motion, useReducedMotion } from "motion/react";
+import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { environment } from "@/config/environment";
+import {
+  controlTransition,
+  sectionTransition,
+  sectionEntrance,
+} from "@/lib/motion/presets";
 import {
   eventTypeName,
   isOperationalEvent,
@@ -40,6 +46,45 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       <dt>{label}</dt>
       <dd>{children}</dd>
     </div>
+  );
+}
+
+function CopyIdentifier({ value, label }: { value: string; label: string }) {
+  const code = useRef<HTMLElement>(null);
+  const [feedback, setFeedback] = useState("");
+  return (
+    <>
+      <span className={styles.identifierValue}>
+        <code ref={code}>{value}</code>
+        <button
+          type="button"
+          className={styles.copyButton}
+          aria-label={`Copiar ${label}`}
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(value);
+              setFeedback("Copiado.");
+            } catch {
+              const selection = window.getSelection();
+              if (selection && code.current) {
+                const range = document.createRange();
+                range.selectNodeContents(code.current);
+                selection.removeAllRanges();
+                selection.addRange(range);
+                setFeedback(
+                  "Texto seleccionado. Puedes copiarlo con el teclado.",
+                );
+              }
+            }
+          }}
+        >
+          <Copy size={15} aria-hidden="true" />
+        </button>
+      </span>
+      <span role="status" className={styles.copyFeedback}>
+        {feedback}
+      </span>
+    </>
   );
 }
 function Snapshot({ title, value }: { title: string; value: unknown }) {
@@ -80,7 +125,7 @@ function Evidence({
   const [clipError, setClipError] = useState(false);
   const [duration, setDuration] = useState<number | null>(null);
   const clip = evidenceClip(event, environment.apiBaseUrl);
-  const transition = { duration: reducedMotion ? 0 : 0.16 };
+  const transition = reducedMotion ? { duration: 0 } : controlTransition;
   const showClip = view === 1;
 
   function selectView(index: number) {
@@ -90,46 +135,60 @@ function Evidence({
   }
 
   return (
-    <figure className={styles.evidence} aria-label="Evidencia del evento">
+    <motion.figure
+      className={styles.evidence}
+      aria-label="Evidencia del evento"
+      variants={sectionEntrance}
+    >
       <div className={styles.sectionHeading}>
         <div
           className={styles.tabs}
           role="tablist"
           aria-label="Medio de evidencia"
         >
-          {evidenceViews.map((item, index) => (
-            <button
-              key={item.id}
-              ref={(node) => {
-                tabs.current[index] = node;
-              }}
-              type="button"
-              role="tab"
-              id={`${id}-tab-${item.id}`}
-              aria-controls={`${id}-panel-${item.id}`}
-              aria-selected={view === index}
-              tabIndex={view === index ? 0 : -1}
-              onClick={() => {
-                if (view !== index) selectView(index);
-              }}
-              onKeyDown={(event) => {
-                const next =
-                  event.key === "Home"
-                    ? 0
-                    : event.key === "End"
-                      ? 1
-                      : ["ArrowLeft", "ArrowRight"].includes(event.key)
-                        ? 1 - index
-                        : null;
-                if (next === null) return;
-                event.preventDefault();
-                tabs.current[next]?.focus();
-                if (next !== view) selectView(next);
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
+          <LayoutGroup id={id}>
+            {evidenceViews.map((item, index) => (
+              <button
+                key={item.id}
+                ref={(node) => {
+                  tabs.current[index] = node;
+                }}
+                type="button"
+                role="tab"
+                id={`${id}-tab-${item.id}`}
+                aria-controls={`${id}-panel-${item.id}`}
+                aria-selected={view === index}
+                tabIndex={view === index ? 0 : -1}
+                onClick={() => {
+                  if (view !== index) selectView(index);
+                }}
+                onKeyDown={(event) => {
+                  const next =
+                    event.key === "Home"
+                      ? 0
+                      : event.key === "End"
+                        ? 1
+                        : ["ArrowLeft", "ArrowRight"].includes(event.key)
+                          ? 1 - index
+                          : null;
+                  if (next === null) return;
+                  event.preventDefault();
+                  tabs.current[next]?.focus();
+                  if (next !== view) selectView(next);
+                }}
+              >
+                {view === index && (
+                  <motion.span
+                    aria-hidden="true"
+                    className={styles.tabIndicator}
+                    layoutId={reducedMotion ? undefined : "media-selection"}
+                    transition={transition}
+                  />
+                )}
+                <span className={styles.tabLabel}>{item.label}</span>
+              </button>
+            ))}
+          </LayoutGroup>
         </div>
         {!showClip && url && state === "ready" && (
           <a
@@ -281,7 +340,7 @@ function Evidence({
           ? "Clip anotado del resultado de Operix."
           : `Fotograma del evento${event.frame_index == null ? "" : ` · Frame ${event.frame_index}`}`}
       </figcaption>
-    </figure>
+    </motion.figure>
   );
 }
 function EventContent({ event }: { event: OperationalEvent }) {
@@ -304,11 +363,22 @@ function EventContent({ event }: { event: OperationalEvent }) {
   return (
     <motion.article
       className={styles.dossier}
-      initial={reducedMotion ? false : { opacity: 0.92 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: reducedMotion ? 0 : 0.2 }}
+      initial={reducedMotion ? false : "hidden"}
+      animate="visible"
+      variants={{
+        visible: {
+          transition: {
+            ...sectionTransition,
+            staggerChildren: reducedMotion ? 0 : 0.035,
+          },
+        },
+      }}
     >
-      <header className={styles.header}>
+      <motion.header
+        className={styles.header}
+        variants={sectionEntrance}
+        transition={sectionTransition}
+      >
         <PageTitle>{eventTypeName(event.event_type)}</PageTitle>
         <p className={styles.location}>
           {event.zone_id} <span aria-hidden="true">·</span>{" "}
@@ -318,8 +388,12 @@ function EventContent({ event }: { event: OperationalEvent }) {
           Condición configurada satisfecha; requiere revisión humana, no
           confirma un incidente.
         </p>
-      </header>
-      <section aria-labelledby="summary-title">
+      </motion.header>
+      <motion.section
+        aria-labelledby="summary-title"
+        variants={sectionEntrance}
+        transition={sectionTransition}
+      >
         <h2 id="summary-title" className="sr-only">
           Resumen operacional
         </h2>
@@ -341,13 +415,18 @@ function EventContent({ event }: { event: OperationalEvent }) {
             </Field>
           )}
         </dl>
-      </section>
+      </motion.section>
       <Evidence
         key={event.id}
         event={event}
         url={evidenceHref(event, environment.apiBaseUrl)}
       />
-      <section className={styles.summary} aria-labelledby="context-title">
+      <motion.section
+        className={styles.summary}
+        aria-labelledby="context-title"
+        variants={sectionEntrance}
+        transition={sectionTransition}
+      >
         <h2 id="context-title">Contexto del evento</h2>
         <dl className={styles.context}>
           <Field label="Zona">{event.zone_id}</Field>
@@ -397,8 +476,8 @@ function EventContent({ event }: { event: OperationalEvent }) {
               : "Distancia en espacio de imagen normalizado, sin unidad física."}
           </p>
         )}
-      </section>
-      <details className={styles.trace}>
+      </motion.section>
+      <details className={styles.trace} data-motion-disclosure>
         <summary>
           <span>
             <strong>Trazabilidad técnica</strong>
@@ -408,9 +487,19 @@ function EventContent({ event }: { event: OperationalEvent }) {
         </summary>
         <div className={styles.traceBody}>
           <dl className={styles.identifiers}>
-            <Field label="UUID del evento">{event.id}</Field>
+            <Field label="UUID del evento">
+              <CopyIdentifier label="UUID del evento" value={event.id} />
+            </Field>
             <Field label="Run del análisis">
-              {text(event.analysis_run_id)}
+              {typeof event.analysis_run_id === "string" &&
+              event.analysis_run_id ? (
+                <CopyIdentifier
+                  label="ID del análisis"
+                  value={event.analysis_run_id}
+                />
+              ) : (
+                text(event.analysis_run_id)
+              )}
             </Field>
             <Field label="Sesión">{text(source.session_id)}</Field>
             <Field label="Ejecución de la sesión">
@@ -478,7 +567,7 @@ function EventContent({ event }: { event: OperationalEvent }) {
             <Snapshot title="Episodio" value={event.episode} />
             <Snapshot title="Fuente y hashes" value={event.source} />
           </div>
-          <details className={styles.payload}>
+          <details className={styles.payload} data-motion-disclosure>
             <summary>
               Payload completo recibido de la API{" "}
               <ChevronDown size={16} aria-hidden="true" />

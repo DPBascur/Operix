@@ -3,10 +3,11 @@
 import { PageTitle } from "@/components/layout/page-title";
 import { useRef, useState } from "react";
 import { CircleCheck, KeyRound, UserRound } from "lucide-react";
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { useSession } from "@/features/auth/session-provider";
 import { changePassword, roleLabels } from "@/services/browser-session";
+import { controlTransition } from "@/lib/motion/presets";
 
 const fields = [
   {
@@ -31,6 +32,7 @@ const fields = [
 
 export default function AccountPage() {
   const { user, setUser } = useSession();
+  const reduceMotion = useReducedMotion();
   const inFlight = useRef(false);
   const [busy, setBusy] = useState(false);
   const [visible, setVisible] = useState(false);
@@ -159,8 +161,9 @@ export default function AccountPage() {
               {message && (
                 <motion.p
                   className="success-message"
-                  initial={{ opacity: 0 }}
+                  initial={reduceMotion ? false : { opacity: 0.7 }}
                   animate={{ opacity: 1 }}
+                  transition={controlTransition}
                 >
                   <CircleCheck size={16} aria-hidden="true" /> {message}
                 </motion.p>

@@ -15,19 +15,35 @@ export async function checkButtonThemes(evaluate, call) {
         // Un flex que rellena su panel hereda el ancho disponible; se compara
         // su contrato flex, no el ancho cromático del contenedor ajeno a Button.
         const width = Number(s.flexGrow) > 0 ? 'flex:' + s.flex : s.width;
-        return [s.borderRadius, s.height, width, s.padding, s.fontSize,
-          s.fontWeight, s.lineHeight, s.display, s.gap, s.borderWidth];
+        return [el.id || el.classList.value, s.borderRadius, s.height, width,
+          s.padding, s.fontSize, s.fontWeight, s.lineHeight, s.display, s.gap,
+          s.borderWidth, el.matches('.navigation-item[aria-current=page]')
+            ? getComputedStyle(el, '::before').display : null];
       });
     });
   })()`);
   const compare = async (selector, label) => {
-    // Keep the live page state identical between the two measurements.
+    // Take both readings in one browser task so live API state cannot change
+    // between the light and dark measurements.
     const results = await measure(selector);
     assert.ok(results[0].length, `Sin controles: ${label}`);
     assert.deepEqual(results[0], results[1], `Geometría light/dark: ${label}`);
   };
   try {
-    await compare(".button,button[role='tab'],#operix-sidebar button", "controles de la ruta");
+    await compare(
+      ".button,button[role='tab'],#operix-sidebar button,.input,.select-control,select,.api-status,.app-header,.login-preview-side,.chart-dot-field,.navigation-item[aria-current=page]",
+      "controles y superficies de la ruta",
+    );
+    if (await evaluate("!!document.querySelector('.login-page')")) {
+      assert.equal(
+        await evaluate(`['login-username', 'login-password'].every(id => {
+          const field = document.getElementById(id);
+          return field && parseFloat(getComputedStyle(field).borderRadius) >= field.offsetHeight / 2;
+        })`),
+        true,
+        "El usuario y la contraseña conservan la forma de píldora",
+      );
+    }
     if (!call) return;
     await evaluate(`(() => {
       const host = document.createElement('section');

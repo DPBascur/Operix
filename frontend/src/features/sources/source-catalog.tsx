@@ -64,7 +64,7 @@ function SourceCard({
       <div className="source-card-media">
         <SourcePreview source={source} />
         <span className="source-card-status">
-          <span aria-hidden="true" /> Disponible
+          {profile ? `Demo ${profile}` : "Carga manual"}
         </span>
       </div>
       <div className="source-card-body">
@@ -73,7 +73,8 @@ function SourceCard({
           <p>{source.location}</p>
         </div>
         <Link href={href} aria-label={`Abrir ${source.name} en análisis`}>
-          Abrir <ArrowRight aria-hidden="true" />
+          {profile ? "Abrir demo" : "Elegir video"}{" "}
+          <ArrowRight aria-hidden="true" />
         </Link>
       </div>
     </Card>
@@ -111,11 +112,11 @@ export function SourceCatalog({ compact = false }: { compact?: boolean }) {
         if (!demo) return [];
         const source: VideoSource = {
           id: demo.id,
-          name: `Demo ${definition.id}`,
+          name: definition.display_name || fallbackNames[definition.id],
           type: "demo",
           status: "available",
           previewUrl: analysisService.getDemoSourceUrl(definition.id, demo.id),
-          location: definition.display_name || fallbackNames[definition.id],
+          location: "Video de demostración",
         };
         return [{ source, profile: definition.id }];
       }),

@@ -220,6 +220,11 @@ test(
       await viewport(1440);
       await go("/rules");
       await wait("location.pathname==='/login'");
+      for (const width of [1440, 1280, 390]) {
+        await viewport(width);
+        await checkButtonThemes(evaluate);
+      }
+      await viewport(1440);
       const credentials = async (password) => {
         await evaluate(`(() => {
           document.querySelector('#login-username').value = 'fixture-admin';
@@ -283,6 +288,37 @@ test(
       await go("/analysis?source=manual");
       await click("Perfil B Demo B");
       await wait(text("TEST_DATA_B.mp4"));
+      await wait(
+        "document.querySelector('.analysis-stage video')?.readyState >= 1",
+      );
+      for (const profile of ["A", "C", "A", "C", "B"]) {
+        await evaluate(`(() => {
+          const stage = document.querySelector('.analysis-media-frame');
+          window.previousProfileVideo = stage.querySelector('video');
+          window.previousProfileFrame = stage.getBoundingClientRect().toJSON();
+          const buttons = [...document.querySelectorAll('.analysis-profile')];
+          const target = buttons.find(button => button.textContent.startsWith('Perfil ' + ${JSON.stringify(profile)}));
+          for (let i = 0; i < 12; i++) {
+            target.click();
+            buttons.find(button => button !== target).click();
+          }
+        })()`);
+        await wait(
+          `document.querySelector('.analysis-profile[aria-pressed=true]:enabled')?.textContent.startsWith('Perfil ' + ${JSON.stringify(profile)}) && document.querySelector('.analysis-stage video')?.readyState >= 1`,
+        );
+        assert.equal(
+          await evaluate(`(() => {
+            const frame = document.querySelector('.analysis-media-frame').getBoundingClientRect();
+            const old = window.previousProfileFrame;
+            const released = !window.previousProfileVideo.hasAttribute('src');
+            delete window.previousProfileVideo;
+            delete window.previousProfileFrame;
+            return released && Math.abs(frame.x - old.x) < 1 && Math.abs(frame.width - old.width) < 1 && document.querySelectorAll('.analysis-stage video').length === 1;
+          })()`),
+          true,
+          "Los cambios rápidos deben liberar el video anterior y mantener estable el marco",
+        );
+      }
       await click("Detalles");
       await wait(text("REGLAS DEL PRÓXIMO ANÁLISIS"));
       await click("Detalles");
@@ -298,9 +334,13 @@ test(
       await wait(
         "document.querySelector('[aria-label=\"Zona seleccionada\"]') !== null",
       );
+      await checkButtonThemes(evaluate);
       await click("Guardar configuración");
       await wait(text("Configuración guardada para el próximo análisis."));
       await wait(text("En sesi\u00f3n: revisi\u00f3n 1"));
+      await evaluate(
+        "[...document.querySelectorAll('.spatial-step summary')].find(s=>s.textContent.trim()==='Calibración del suelo').click()",
+      );
       await click("Calibrar / recalibrar");
       await wait(
         text(
@@ -466,7 +506,11 @@ test(
       await wait("document.querySelector('[role=tooltip]')?.textContent==='Análisis'");
       await wait("document.querySelector('#operix-sidebar a[aria-current=page]')?.pathname==='/analysis'");
       await evaluate(`(${accountTrigger}).click()`);
-      await wait("!!document.querySelector('#operix-sidebar a[href=\"/account#account-security\"]')");
+      await wait("!!document.querySelector('#operix-sidebar a[href=\"/account\"]')");
+      assert.equal(
+        await evaluate("document.querySelectorAll('#operix-sidebar a[href^=\"/account\"]').length"),
+        1,
+      );
       await evaluate("document.querySelector('main').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))");
       await wait(`(${accountTrigger}).getAttribute('aria-expanded')==='false'`);
       await evaluate("document.querySelector('button[aria-label=\"Expandir barra lateral\"]').click()");
@@ -496,6 +540,7 @@ test(
       await wait("document.querySelector('video').currentTime<.1");
       await click("Editar zona");
       await click("Nueva zona");
+      await checkButtonThemes(evaluate);
       const input = async (label, value) => {
         await evaluate(
           `(()=>{const input=[...document.querySelectorAll('label')].find(l=>l.textContent.trim().startsWith(${JSON.stringify(label)})).querySelector('input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(value)}); input.dispatchEvent(new Event('input',{bubbles:true}));})()`,
@@ -699,11 +744,16 @@ test(
         await viewport(width);
         for (const route of [
           "/",
+          "/sources",
           "/events",
           `/events/${eventId}`,
           "/indicators",
           "/zones",
           "/analysis",
+          "/rules",
+          "/users",
+          "/account",
+          "/experience",
         ]) {
           await go(route);
           await wait("!!document.querySelector('main#main-content')");
@@ -717,6 +767,14 @@ test(
             );
           }
           if (route === "/analysis") await wait(text("Análisis detenido"));
+          if (route === "/sources") await wait(text("Seleccionar video"));
+          if (route === "/rules") {
+            await wait(text("Reglas por perfil"));
+            await evaluate("document.querySelector('main details')?.setAttribute('open','')");
+          }
+          if (route === "/users") await wait(text("Cuentas de Operix"));
+          if (route === "/account") await wait(text("Mi cuenta"));
+          if (route === "/experience") await wait(text("Cómo funciona Operix"));
           await wait("document.fonts.status==='loaded'");
           try {
             await checkButtonThemes(evaluate);
@@ -801,7 +859,7 @@ test(
       await go("/analysis");
       await wait("location.pathname==='/indicators'");
       console.log(
-        "PASS: navegación sin DELETE, recuperación, 99.9 antes de completed, MP4/seek, polígono por teclado, error/cancelación, histórico/evidencia, 18 combinaciones de viewport/ruta.",
+          "PASS: navegación sin DELETE, recuperación, 99.9 antes de completed, MP4/seek, polígono por teclado, error/cancelación, histórico/evidencia, 36 combinaciones de viewport/ruta en ambos temas.",
       );
     } finally {
       socket?.close();

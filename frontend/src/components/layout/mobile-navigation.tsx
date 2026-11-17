@@ -67,7 +67,11 @@ export function MobileNavigation({ children }: { children: ReactNode }) {
             variants={popoverVariants}
             initial={reduceMotion ? false : "hidden"}
             animate="visible"
-            exit={{ ...popoverVariants.exit, transition: exitTransition }}
+            exit={
+              reduceMotion
+                ? undefined
+                : { ...popoverVariants.exit, transition: exitTransition }
+            }
             transition={reduceMotion ? { duration: 0 } : enterTransition}
             onClick={(event) => {
               if (event.target instanceof Element && event.target.closest("a"))

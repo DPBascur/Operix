@@ -15,7 +15,12 @@ import {
   UserPlus,
   Users,
 } from "lucide-react";
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
+import {
+  controlTransition,
+  enterTransition,
+  sectionEntrance,
+} from "@/lib/motion/presets";
 import { Button } from "@/components/ui/button";
 import { useSession } from "@/features/auth/session-provider";
 import {
@@ -93,6 +98,7 @@ function AccountEditor({
   const [reset, setReset] = useState(false);
   const reactivating = Boolean(account && !account.is_active && reset);
   const [retireError, setRetireError] = useState("");
+  const reduceMotion = useReducedMotion();
   const retirement = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => heading.current?.focus(), []);
@@ -182,8 +188,10 @@ function AccountEditor({
     <motion.section
       className="identity-panel directory-editor"
       aria-labelledby="directory-editor-title"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
+      initial={reduceMotion ? false : "hidden"}
+      animate="visible"
+      variants={sectionEntrance}
+      transition={enterTransition}
     >
       <h2 id="directory-editor-title" tabIndex={-1} ref={heading}>
         {reactivating
@@ -372,6 +380,7 @@ function AccountEditor({
 }
 
 export function AccountDirectory() {
+  const reduceMotion = useReducedMotion();
   const { user } = useSession();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [next, setNext] = useState<number | null>(null);
@@ -456,7 +465,16 @@ export function AccountDirectory() {
         </Button>
       </header>
       <p className="identity-feedback" role="status">
-        {message}
+        {message && (
+          <motion.span
+            key={message}
+            initial={reduceMotion ? false : { opacity: 0.7 }}
+            animate={{ opacity: 1 }}
+            transition={controlTransition}
+          >
+            {message}
+          </motion.span>
+        )}
       </p>
       <div className="directory-grid">
         <section
@@ -525,7 +543,12 @@ export function AccountDirectory() {
                   : "No hay cuentas activas."}
             </p>
           )}
-          <ul>
+          <motion.ul
+            key={String(archive)}
+            initial={reduceMotion ? false : { opacity: 0.8 }}
+            animate={{ opacity: 1 }}
+            transition={controlTransition}
+          >
             {visibleAccounts.map((account) => {
               const self = account.username === user?.username;
               const selected =
@@ -577,7 +600,7 @@ export function AccountDirectory() {
                 </li>
               );
             })}
-          </ul>
+          </motion.ul>
           {next && !error && (
             <Button
               variant="outline"

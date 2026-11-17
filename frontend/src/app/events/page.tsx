@@ -47,7 +47,6 @@ export default async function EventsPage({
             Tipo, hora, zona y evidencia del registro operacional.
           </p>
         </div>
-        <span className="source-indicator">Registros de PostgreSQL</span>
       </header>
       <section className="event-ledger" aria-label="Investigación de eventos">
         <EventsTable key={JSON.stringify(initial)} initial={initial} />

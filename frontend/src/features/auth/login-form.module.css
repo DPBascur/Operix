@@ -1,0 +1,178 @@
+:global(.login-page) .panel:global(.login-form-side) {
+  --login-ground: var(--background);
+  --login-glow: color-mix(in srgb, var(--primary) 10%, var(--login-ground));
+  --login-field: var(--surface);
+  --login-edge: color-mix(in srgb, var(--foreground) 37%, var(--border-strong));
+  --login-focus: var(--primary);
+  --login-link: var(--primary-hover);
+  --login-error: color-mix(in srgb, var(--danger) 78%, var(--foreground));
+  --login-depth: rgb(22 43 77 / 14%);
+  --login-button-depth: color-mix(in srgb, var(--primary) 42%, transparent);
+  --login-submit: var(--primary);
+  --login-submit-hover: var(--primary-hover);
+  --login-column: 25rem;
+
+  grid-template-rows: auto 1fr;
+  padding-inline: clamp(1.5rem, 4.25vw, 4.5rem);
+  background: radial-gradient(ellipse at 100% 14%, var(--login-glow), transparent 64%),
+    var(--login-ground);
+}
+
+:global(:root[data-theme="dark"]) .panel:global(.login-form-side) {
+  --login-ground: var(--background-secondary);
+  --login-glow: color-mix(in srgb, var(--primary) 13%, var(--login-ground));
+  --login-edge: var(--control-border);
+  --login-focus: var(--accent);
+  --login-link: color-mix(in srgb, var(--accent) 75%, var(--foreground));
+  --login-depth: rgb(0 0 0 / 40%);
+  --login-button-depth: rgb(0 0 0 / 55%);
+  --login-submit-hover: color-mix(in srgb, var(--primary) 80%, var(--primary-hover));
+}
+
+.panel:global(.login-form-side) > header,
+.panel .content {
+  width: min(100%, var(--login-column));
+  margin-inline: auto;
+}
+
+.panel :global(.login-brand) {
+  margin-inline-start: -0.9rem;
+}
+
+.panel .content {
+  align-self: center;
+  padding-block: 1.25rem clamp(1.25rem, 7svh, 4.75rem);
+}
+
+.panel .content h1 {
+  margin-bottom: 0.55rem;
+  font-size: clamp(1.75rem, 2.65vw, 2.55rem);
+  text-wrap: balance;
+}
+
+.panel .content h1,
+.panel .content > p {
+  text-align: start;
+}
+
+.panel .content form {
+  max-width: none;
+  margin-top: 1.65rem;
+}
+
+.panel .content label {
+  margin: 1rem 0 0.4rem;
+  color: var(--foreground);
+}
+
+.panel .content label:first-child {
+  margin-top: 0;
+}
+
+:global(.login-page) .panel .content :global(.input) {
+  width: 100%;
+  min-height: 3.125rem;
+  border-color: var(--login-edge);
+  border-radius: var(--radius-button);
+  background: var(--login-field);
+  caret-color: var(--login-focus);
+  box-shadow: 0 4px 6px -5px var(--login-depth);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+:global(.login-page) .panel .content :global(.input):hover {
+  border-color: color-mix(in srgb, var(--login-edge) 60%, var(--login-focus));
+}
+
+:global(.login-page) .panel .content :global(.input):focus {
+  border-color: var(--login-focus);
+  outline: 2px solid var(--login-focus);
+  outline-offset: 2px;
+}
+
+.panel :is(:global(.login-submit), :global(.login-password-toggle), summary):focus-visible {
+  outline: 2px solid var(--login-focus);
+  outline-offset: 3px;
+}
+
+.panel .content :global(.login-submit) {
+  min-height: 3.125rem;
+  margin-top: 1.25rem;
+  border-color: var(--login-submit);
+  border-radius: var(--radius-button);
+  background: var(--login-submit);
+  box-shadow: 0 8px 13px -7px var(--login-button-depth);
+  transition: background-color 150ms ease, box-shadow 150ms ease, transform 100ms ease;
+}
+
+.panel .content :global(.login-submit):not(:disabled):hover {
+  border-color: var(--login-submit-hover);
+  background: var(--login-submit-hover);
+  box-shadow: 0 9px 14px -7px var(--login-button-depth);
+}
+
+.panel .content :global(.login-submit):not(:disabled):active {
+  box-shadow: 0 3px 7px -4px var(--login-button-depth);
+}
+
+.panel .content :global(.login-submit)[aria-busy="true"] {
+  opacity: 1;
+  cursor: progress;
+  box-shadow: none;
+}
+
+.panel .content :global(.login-recovery) {
+  max-width: none;
+  margin-top: 0.55rem;
+  text-align: start;
+}
+
+.panel .content :global(.login-recovery) summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  color: var(--login-link);
+}
+
+.panel .content :global(.login-recovery) p {
+  margin-top: 0;
+}
+
+.panel .content :global(.form-error) {
+  margin-top: 0.55rem;
+  color: var(--login-error);
+}
+
+.panel .content footer {
+  max-width: none;
+  margin: 1.15rem 0 0;
+  padding-top: 0.95rem;
+  border-top: 1px solid var(--border);
+  text-align: start;
+  text-wrap: pretty;
+}
+
+@media (max-width: 767px), (max-height: 680px) {
+  .panel .content {
+    padding-block: 0.9rem 0.5rem;
+  }
+
+  .panel .content form {
+    margin-top: 1.1rem;
+  }
+
+  .panel .content footer {
+    margin-top: 0.65rem;
+    padding-top: 0.6rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel .content :global(.login-submit):not(:disabled):active {
+    transform: none;
+  }
+
+  .panel :global(.login-submit .spinner) {
+    animation: none;
+  }
+}

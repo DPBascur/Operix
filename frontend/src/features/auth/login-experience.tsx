@@ -10,6 +10,7 @@ import { signIn } from "@/services/browser-session";
 import { canOpen, useSession } from "./session-provider";
 
 import { ObservationStory } from "@/features/experience/observation-story";
+import styles from "./login-form.module.css";
 
 export function LoginExperience() {
   const { setUser, expired } = useSession();
@@ -19,7 +20,7 @@ export function LoginExperience() {
   const router = useRouter();
   return (
     <main className="login-page">
-      <section className="login-form-side">
+      <section className={`login-form-side ${styles.panel}`}>
         <header>
           <Link href="/" className="login-brand" aria-label="Operix · Inicio">
             <Image
@@ -33,7 +34,7 @@ export function LoginExperience() {
           </Link>
           <ThemeSelector />
         </header>
-        <div className="login-form-content">
+        <div className={`login-form-content ${styles.content}`}>
           <h1>Bienvenido a Operix.</h1>
           <p>
             {expired
@@ -127,8 +128,9 @@ export function LoginExperience() {
                 {error}
               </p>
             )}
-            <Button type="submit" className="login-submit" disabled={busy}>
-              {busy ? "Ingresando…" : "Ingresar"} <ArrowRight size={18} />
+            <Button type="submit" className="login-submit" loading={busy}>
+              {busy ? "Ingresando…" : "Ingresar"}
+              {!busy && <ArrowRight size={18} aria-hidden="true" />}
             </Button>
           </form>
           <details className="login-recovery">

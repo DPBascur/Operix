@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronDown, KeyRound, LogOut, UserRound } from "lucide-react";
+import { ChevronDown, LogOut, UserRound } from "lucide-react";
 import {
   AnimatePresence,
   motion,
@@ -108,12 +108,6 @@ function AccountMenu({
             <AccountActions key="account-options">
               <Link href="/account" onClick={() => setOpen(false)}>
                 <UserRound size={16} aria-hidden="true" /> Mi cuenta
-              </Link>
-              <Link
-                href="/account#account-security"
-                onClick={() => setOpen(false)}
-              >
-                <KeyRound size={16} aria-hidden="true" /> Seguridad
               </Link>
               <div className={styles.divider} />
               <button

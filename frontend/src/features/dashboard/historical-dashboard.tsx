@@ -1,4 +1,5 @@
 "use client";
+import { EventCount } from "@/components/motion/event-count";
 import { PageTitle } from "@/components/layout/page-title";
 import { apiFetch } from "@/services/browser-session";
 import { useEffect, useMemo, useState } from "react";
@@ -14,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { environment } from "@/config/environment";
 import { eventTypeName } from "@/services/event-contract";
-import { enterTransition, revealVariants } from "@/lib/motion/presets";
+import { enterTransition, sectionTransition, revealVariants, sectionEntrance } from "@/lib/motion/presets";
 import {
   historyHref,
   sourceNames,
@@ -30,6 +31,9 @@ import {
 } from "./history-model";
 
 const eventName = eventTypeName;
+const chartDraw = { ...enterTransition, duration: 0.85 };
+const barVariants = { empty: { scaleX: 0 }, filled: { scaleX: 1 } };
+
 export function HistoricalDashboard({
   overview = false,
   initialMonth,
@@ -70,6 +74,11 @@ export function HistoricalDashboard({
     key: string;
     current: EventFrequency;
     previous: EventFrequency;
+    zones: number;
+    analyses: number;
+    prior?: { total: number; zones: number; analyses: number };
+    animateRecent: boolean;
+    hasRecent: boolean;
   } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,8 +90,6 @@ export function HistoricalDashboard({
     async function load() {
       setLoading(true);
       setError(null);
-      setRecords([]);
-      setFrequencies(null);
       try {
         if (!environment.apiBaseUrl)
           throw new Error(
@@ -115,14 +122,19 @@ export function HistoricalDashboard({
         const data = parseHistory(eventsPayload);
         const current = parseFrequency(currentPayload);
         const previousFrequency = parseFrequency(previousPayload);
-        summarizeApiHistory(data, month, current, previousFrequency);
+        const summary = summarizeApiHistory(data, month, current, previousFrequency);
         if (active) {
           setRecords(data);
-          setFrequencies({
+          setFrequencies((last) => ({
             key: queryKey,
             current,
             previous: previousFrequency,
-          });
+            zones: summary.zones.length,
+            analyses: summary.runsWithEvents,
+            prior: last && { total: last.current.total, zones: last.zones, analyses: last.analyses } || undefined,
+            animateRecent: !last?.hasRecent && summary.recent.length > 0,
+            hasRecent: Boolean(last?.hasRecent || summary.recent.length),
+          }));
         }
       } catch (cause) {
         if (active) setError(historyError(cause));
@@ -233,13 +245,12 @@ export function HistoricalDashboard({
           loading={loading}
           onClick={() => setRevision((r) => r + 1)}
         >
-          <RefreshCw size={15} /> Actualizar
+          <RefreshCw size={15} /> {loading ? "Actualizando…" : "Actualizar"}
         </Button>
       </div>
       <p className="history-source-caption">
-        Registros de PostgreSQL por hora del evento (UTC). Los eventos
-        representan condiciones configuradas satisfechas. Una carga manual puede
-        ser un ensayo.
+        Eventos registrados en el período UTC seleccionado. Cada evento indica
+        una condición configurada satisfecha. Una carga manual puede ser un ensayo.
       </p>
       {loading || (!error && frequencies?.key !== queryKey) ? (
         <div className="dashboard-loading" role="status">
@@ -260,7 +271,7 @@ export function HistoricalDashboard({
             <motion.section
               className="kpi-strip"
               aria-label="Estadísticas del período"
-              initial={reduceMotion ? false : "hidden"}
+              initial={reduceMotion || frequencies?.prior ? false : "hidden"}
               animate="visible"
               transition={{ staggerChildren: reduceMotion ? 0 : 0.045 }}
             >
@@ -269,7 +280,7 @@ export function HistoricalDashboard({
                 transition={enterTransition}
               >
                 <span>Eventos del período</span>
-                <strong>{summary.total}</strong>
+                <strong><EventCount value={summary.total} from={frequencies?.prior?.total} /></strong>
                 <small>{currentLabel}</small>
               </motion.div>
               <motion.div
@@ -300,24 +311,29 @@ export function HistoricalDashboard({
                 transition={enterTransition}
               >
                 <span>Zonas con registros</span>
-                <strong>{summary.zones.length}</strong>
+                <strong><EventCount value={summary.zones.length} from={frequencies?.prior?.zones} /></strong>
                 <small>Ubicaciones en el período</small>
               </motion.div>
               <motion.div
                 variants={revealVariants}
                 transition={enterTransition}
               >
-                <span>Runs con eventos</span>
-                <strong>{summary.runsWithEvents}</strong>
-                <small>Ejecuciones distintas entre estos registros</small>
+                <span>Análisis con eventos</span>
+                <strong><EventCount value={summary.runsWithEvents} from={frequencies?.prior?.analyses} /></strong>
+                <small>Análisis distintos entre estos registros</small>
               </motion.div>
             </motion.section>
           )}
           {summary.total === 0 ? (
-            <div className="feedback-panel">
+            <motion.div
+              className="feedback-panel"
+              initial={reduceMotion || frequencies?.prior ? false : { opacity: 0.8, filter: "blur(2px)" }}
+              animate={{ opacity: 1, filter: "blur(0px)" }}
+              transition={enterTransition}
+            >
               <h3>No existen registros para este período</h3>
               <p>Pruebe otro mes o amplíe los filtros.</p>
-            </div>
+            </motion.div>
           ) : (
             <>
               {!overview && (
@@ -338,7 +354,7 @@ export function HistoricalDashboard({
                             registrados
                           </h3>
                           <div className="chart-headline">
-                            <strong>{summary.total}</strong>
+                            <strong><EventCount value={summary.total} from={frequencies?.prior?.total} /></strong>
                             <span>{currentLabel}</span>
                           </div>
                           <p className="chart-comparison">
@@ -403,24 +419,57 @@ export function HistoricalDashboard({
                             fill="url(#history-dots)"
                             className="chart-dot-field"
                           />
-                          <polygon
+                          <motion.polygon
+                            key={queryKey}
                             points={`20,170 ${points} 700,170`}
                             fill="url(#history-area)"
+                            initial={reduceMotion ? false : { opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={
+                              reduceMotion
+                                ? { duration: 0 }
+                                : { ...enterTransition, delay: 0.42 }
+                            }
                           />
                           <line x1="20" y1="30" x2="700" y2="30" />
                           <line x1="20" y1="100" x2="700" y2="100" />
                           <line x1="20" y1="170" x2="700" y2="170" />
-                          <polyline points={points} />
-                          {summary.days.map((d, i) => (
-                            <circle
-                              key={d.day}
-                              cx={20 + (i * 680) / (summary.days.length - 1)}
-                              cy={170 - (d.count / max) * 140}
-                              r="3"
-                            >
-                              <title>{`Día ${d.day}: ${d.count} eventos`}</title>
-                            </circle>
-                          ))}
+                          <motion.polyline
+                            key={`${queryKey}-line`}
+                            points={points}
+                            initial={
+                              reduceMotion
+                                ? false
+                                : { pathLength: 0, opacity: 0 }
+                            }
+                            animate={{ pathLength: 1, opacity: 1 }}
+                            transition={
+                              reduceMotion
+                                ? { duration: 0 }
+                                : { ...chartDraw, opacity: { duration: 0.12 } }
+                            }
+                          />
+                          <motion.g
+                            key={`${queryKey}-points`}
+                            initial={reduceMotion ? false : { opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={
+                              reduceMotion
+                                ? { duration: 0 }
+                                : { ...enterTransition, delay: 0.55 }
+                            }
+                          >
+                            {summary.days.map((d, i) => (
+                              <circle
+                                key={d.day}
+                                cx={20 + (i * 680) / (summary.days.length - 1)}
+                                cy={170 - (d.count / max) * 140}
+                                r="3"
+                              >
+                                <title>{`Día ${d.day}: ${d.count} eventos`}</title>
+                              </circle>
+                            ))}
+                          </motion.g>
                         </svg>
                       </div>
                       <div className="chart-days">
@@ -464,19 +513,41 @@ export function HistoricalDashboard({
                       </div>
                       <ol className="zone-ranking">
                         {summary.zones.map((z, i) => (
-                          <li key={z.label}>
+                          <motion.li
+                            key={`${queryKey}-${z.label}`}
+                            initial={reduceMotion ? false : "empty"}
+                            animate="filled"
+                          >
                             <div>
                               <span>{String(i + 1).padStart(2, "0")}</span>
                               <strong>{z.label}</strong>
                               <b>{z.count}</b>
                             </div>
-                            <meter
-                              min={0}
-                              max={summary.total}
-                              value={z.count}
-                              aria-label={`${z.label}: ${z.count} de ${summary.total}`}
-                            />
-                          </li>
+                            <span
+                              className="zone-frequency-track"
+                              role="meter"
+                              aria-valuemin={0}
+                              aria-valuemax={summary.total}
+                              aria-valuenow={z.count}
+                              aria-label={z.label}
+                            >
+                              <motion.span
+                                className="zone-frequency-fill"
+                                style={{
+                                  width: `${(100 * z.count) / summary.total}%`,
+                                }}
+                                variants={barVariants}
+                                transition={
+                                  reduceMotion
+                                    ? { duration: 0 }
+                                    : {
+                                        ...chartDraw,
+                                        delay: Math.min(i, 5) * 0.045,
+                                      }
+                                }
+                              />
+                            </span>
+                          </motion.li>
                         ))}
                       </ol>
                     </section>
@@ -497,8 +568,19 @@ export function HistoricalDashboard({
                         {summary.hours.map((h) => (
                           <div key={h.hour}>
                             <span>{String(h.hour).padStart(2, "0")}</span>
-                            <span
+                            <motion.span
+                              key={queryKey}
                               className="heat-cell"
+                              initial={reduceMotion ? false : { opacity: 0.2 }}
+                              animate={{ opacity: 1 }}
+                              transition={
+                                reduceMotion
+                                  ? { duration: 0 }
+                                  : {
+                                      ...enterTransition,
+                                      delay: h.hour * 0.018,
+                                    }
+                              }
                               style={{
                                 backgroundColor: `color-mix(in srgb, var(--primary) ${h.count ? 25 + (65 * h.count) / Math.max(1, busiest.count) : 0}%, var(--surface-muted))`,
                               }}
@@ -613,9 +695,14 @@ export function HistoricalDashboard({
                       Ver historial filtrado <ArrowRight size={14} />
                     </Link>
                   </div>
-                  <ol className="activity-ledger">
+                  <motion.ol
+                    className="activity-ledger"
+                    initial={reduceMotion || !frequencies?.animateRecent ? false : "hidden"}
+                    animate="visible"
+                    variants={{ visible: { transition: { staggerChildren: 0.045 } } }}
+                  >
                     {summary.recent.map((e) => (
-                      <li key={e.id}>
+                      <motion.li key={e.id} variants={sectionEntrance} transition={sectionTransition}>
                         <span className="activity-dot" />
                         <div>
                           <Link
@@ -629,9 +716,9 @@ export function HistoricalDashboard({
                         <time dateTime={e.occurred_at}>
                           {formatHistoryTime(e.occurred_at)}
                         </time>
-                      </li>
+                      </motion.li>
                     ))}
-                  </ol>
+                  </motion.ol>
                 </section>
               )}
             </>

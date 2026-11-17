@@ -479,12 +479,15 @@ a {
   background: var(--surface);
 }
 .theme-switch {
+  --switch-width: 4rem;
   position: relative;
-  display: inline-flex;
-  width: 3.65rem;
-  height: 1.85rem;
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: var(--switch-width);
+  height: 2.75rem;
   align-items: center;
-  justify-content: space-around;
+  justify-items: center;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface-muted);
@@ -493,17 +496,18 @@ a {
 }
 .theme-switch-thumb {
   position: absolute;
-  top: 0.16rem;
-  left: 0.16rem;
+  top: 50%;
+  left: 25%;
   width: 1.4rem;
   height: 1.4rem;
   border-radius: 50%;
   background: var(--surface);
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.14);
   transition: transform 160ms ease;
+  transform: translate(-50%, -50%);
 }
 .theme-switch[aria-checked="true"] .theme-switch-thumb {
-  transform: translateX(1.72rem);
+  transform: translate(calc(-50% + (var(--switch-width) - 2px) / 2), -50%);
 }
 .theme-switch-icon {
   position: relative;
@@ -1468,17 +1472,6 @@ a {
 }
 
 /* Shared dark surfaces for analysis, records, rules and zone editing. */
-:root[data-theme="dark"] .surface-card,
-:root[data-theme="dark"] .source-card,
-:root[data-theme="dark"] .zone-workbench {
-  border-radius: 0.5rem;
-  box-shadow: none;
-}
-:root[data-theme="dark"] .source-card:hover,
-:root[data-theme="dark"] .analysis-inspector,
-:root[data-theme="dark"] .analysis-profile.is-active {
-  box-shadow: none;
-}
 :root[data-theme="dark"] .zone-preview {
   background: var(--background-secondary);
 }
@@ -1487,7 +1480,6 @@ a {
 :root[data-theme="dark"] .analysis-zone-toolbar {
   background: var(--surface);
   border-color: var(--border);
-  box-shadow: none;
   backdrop-filter: none;
 }
 :root[data-theme="dark"] .analysis-toolbar .button,
@@ -1627,17 +1619,6 @@ a {
 }
 .system-status {
   font-size: 0.8125rem;
-}
-.theme-switch {
-  width: 4rem;
-  height: 2.75rem;
-}
-.theme-switch-thumb {
-  top: 0.5rem;
-  left: 0.45rem;
-}
-.theme-switch[aria-checked="true"] .theme-switch-thumb {
-  transform: translateX(1.65rem);
 }
 .page-v1,
 .page-wrap {
@@ -2495,10 +2476,6 @@ a {
   font-size: 0.8125rem;
 }
 
-:root[data-theme="dark"] .source-card:hover,
-:root[data-theme="dark"] .analysis-inspector {
-  box-shadow: 0 18px 50px rgb(0 0 0 / 0.32);
-}
 :root[data-theme="dark"] .analysis-profile.is-active {
   box-shadow: 0 1px 5px rgb(0 0 0 / 0.35);
 }

@@ -10,6 +10,7 @@
   --section-title: 1.05rem;
   --surface-radius: 0.9rem;
   --interaction-duration: 160ms;
+  --panel-duration: 340ms;
   --interaction-ease: cubic-bezier(0.2, 0.7, 0.25, 1);
 }
 
@@ -38,7 +39,8 @@
 }
 
 @container (min-width: 92rem) {
-  .refresh-shell .analysis-layout:is(.has-telemetry, :has(.analysis-inspector.is-open)) {
+  .refresh-shell
+    .analysis-layout:is(.has-telemetry, :has(.analysis-inspector.is-open)) {
     grid-template-columns: minmax(0, 1fr) clamp(18rem, 21cqw, 31rem);
     gap: clamp(1rem, 1.4cqw, 2rem);
   }
@@ -425,5 +427,104 @@
 @media (prefers-reduced-motion: reduce) {
   .refresh-shell .button:not(:disabled):active {
     transform: none;
+  }
+}
+
+.refresh-shell .mobile-navigation-panel {
+  max-block-size: calc(100dvh - 5rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.refresh-shell .source-card:has(.source-card-body a) {
+  transition:
+    border-color var(--interaction-duration) var(--interaction-ease),
+    box-shadow var(--interaction-duration) var(--interaction-ease),
+    translate var(--interaction-duration) var(--interaction-ease);
+}
+
+.refresh-shell .source-card:has(.source-card-body a):is(:hover, :focus-within) {
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+}
+
+.refresh-shell .source-card .source-preview-video {
+  transition: filter var(--panel-duration) var(--interaction-ease);
+}
+
+.refresh-shell .source-card:is(:hover, :focus-within) .source-card-media video {
+  scale: 1;
+  filter: brightness(1.05);
+}
+
+.refresh-shell
+  :is(
+    .source-card-body a,
+    .event-preview-trigger button,
+    .event-preview a
+  ):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.refresh-shell .analysis-profile,
+.refresh-shell .history-controls :is(select, button) {
+  transition:
+    background-color var(--interaction-duration) var(--interaction-ease),
+    color var(--interaction-duration) var(--interaction-ease),
+    border-color var(--interaction-duration) var(--interaction-ease);
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .refresh-shell .source-card:has(.source-card-body a):hover {
+    translate: 0 -2px;
+    box-shadow: var(--raised-shadow);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @supports (interpolate-size: allow-keywords) and
+    selector(details::details-content) {
+    .refresh-shell
+      details:is([data-motion-disclosure], .spatial-step)::details-content {
+      block-size: 0;
+      overflow: clip;
+      interpolate-size: allow-keywords;
+      opacity: 0;
+      transition:
+        block-size var(--panel-duration) var(--interaction-ease),
+        opacity var(--interaction-duration) var(--interaction-ease),
+        content-visibility var(--panel-duration) allow-discrete;
+    }
+
+    .refresh-shell
+      details:is(
+        [data-motion-disclosure],
+        .spatial-step
+      )[open]::details-content {
+      block-size: auto;
+      opacity: 1;
+    }
+  }
+
+  .refresh-shell
+    :is(
+      .analysis-source-loading,
+      .analysis-result-help,
+      .analysis-summary,
+      .directory-retirement[open],
+      .identity-panel .form-error,
+      .event-thumbnail[data-state="ready"] img
+    ) {
+    animation: operix-feedback-in var(--interaction-duration)
+      var(--interaction-ease) both;
+  }
+}
+
+@keyframes operix-feedback-in {
+  from {
+    opacity: 0.72;
+  }
+  to {
+    opacity: 1;
   }
 }

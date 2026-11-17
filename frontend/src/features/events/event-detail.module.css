@@ -115,7 +115,22 @@
     color 140ms ease,
     background-color 140ms ease;
 }
-.tabs button[aria-selected="true"],
+.tabs button {
+  position: relative;
+  isolation: isolate;
+}
+.tabIndicator {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border: 1px solid var(--border);
+  border-radius: inherit;
+  background: var(--surface);
+  box-shadow: var(--control-shadow);
+}
+.tabs button[aria-selected="true"] {
+  color: var(--foreground);
+}
 .root .action {
   border-color: var(--border);
   background: var(--surface);
@@ -138,7 +153,41 @@
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
+.copyButton:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.root .action:active,
+.tabs button:active,
+.trace > summary:active {
+  color: var(--accent);
+}
+.identifierValue {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.copyButton {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+}
+.copyButton:hover {
+  background: var(--surface-muted);
+  color: var(--foreground);
+}
+.copyFeedback:not(:empty) {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
 .imageStage {
+  box-shadow: var(--panel-shadow);
   position: relative;
   display: grid;
   place-items: center;
@@ -215,6 +264,7 @@
   accent-color: var(--accent);
 }
 .summary {
+  box-shadow: var(--panel-shadow);
   min-width: 0;
   padding: 0.85rem 1rem;
   background: var(--surface);
@@ -254,6 +304,7 @@
   color: var(--text-secondary);
 }
 .trace {
+  box-shadow: var(--panel-shadow);
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 0 1rem;

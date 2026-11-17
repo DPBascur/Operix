@@ -258,10 +258,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
         <div className="sidebar-footer">
           <SessionAccount />
-          <div className="sidebar-appearance">
-            <span>Apariencia</span>
-            <ThemeSelector />
-          </div>
         </div>
       </aside>
       <div className="app-content min-w-0">
@@ -275,14 +271,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           </span>
           <div className="flex items-center gap-2">
             <ApiStatus />
+            <ThemeSelector />
             <MobileNavigation>
               <Navigation activePath={activePath} scope="mobile-nav" />
               <div className="sidebar-footer">
                 <SessionAccount />
-                <div className="sidebar-appearance">
-                  <span>Apariencia</span>
-                  <ThemeSelector />
-                </div>
               </div>
             </MobileNavigation>
           </div>
