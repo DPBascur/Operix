@@ -41,6 +41,7 @@ import {
   SpatialHeatmap,
   TemporalHeatmap,
 } from "./analytics-charts";
+import { IndicatorMetrics, IndicatorRanking } from "./indicator-board";
 import { spatialHistory } from "./spatial-history";
 import styles from "./analytics-charts.module.css";
 
@@ -340,7 +341,7 @@ export function HistoricalDashboard({
       <p className="history-source-caption">
         Eventos registrados en el período UTC seleccionado. Cada evento indica
         una condición configurada satisfecha. Una carga manual puede ser un
-        ensayo.
+        ensayo.{!overview && " La frecuencia no representa nivel de riesgo."}
       </p>
       {!error && frequencies?.key !== queryKey ? (
         <OperixScanLoader
@@ -431,49 +432,14 @@ export function HistoricalDashboard({
             </motion.section>
           )}
           {!overview && (
-            <section
-              className={styles.kpis}
-              aria-label="Resumen de indicadores"
-              aria-busy={loading}
-            >
-              <div>
-                <span>Eventos registrados</span>
-                <strong>
-                  <EventCount
-                    value={summary.total}
-                    from={frequencies?.prior?.total}
-                  />
-                </strong>
-              </div>
-              {summary.types[0] && (
-                <div>
-                  <span>Tipo con más registros</span>
-                  <strong>{eventName(summary.types[0].label)}</strong>
-                  <small>{summary.types[0].count} eventos</small>
-                </div>
-              )}
-              {summary.zones[0] && (
-                <div>
-                  <span>Zona con más registros</span>
-                  <strong>{summary.zones[0].label}</strong>
-                  <small>{summary.zones[0].count} eventos</small>
-                </div>
-              )}
-              {!!busiest.count && (
-                <div>
-                  <span>Hora con más registros · Santiago</span>
-                  <strong>{String(busiest.hour).padStart(2, "0")}:00</strong>
-                  <small>{busiest.count} eventos</small>
-                </div>
-              )}
-              {summary.videos[0] && (
-                <div>
-                  <span>Video con más registros</span>
-                  <strong>{summary.videos[0].name}</strong>
-                  <small>{summary.videos[0].count} eventos</small>
-                </div>
-              )}
-            </section>
+            <IndicatorMetrics
+              summary={summary}
+              busiest={busiest}
+              period={currentLabel}
+              previousTotal={frequencies?.prior?.total}
+              loading={loading}
+              filters={applied}
+            />
           )}
           {summary.total === 0 ? (
             <motion.div
@@ -492,208 +458,162 @@ export function HistoricalDashboard({
           ) : (
             <>
               {!overview && (
-                <>
+                <div className={styles.patterns}>
                   <DailyEvents
                     month={month}
                     days={summary.days}
                     filters={applied}
                     queryKey={queryKey}
                   />
-                  <div className={styles.patterns}>
-                    <TemporalHeatmap matrix={summary.timeMatrix} />
-                    <SpatialHeatmap
-                      groups={groups}
-                      total={summary.total}
-                      back={historyHref(applied)}
-                    />
-                    <section className="insight-panel">
-                      <div className="panel-heading">
-                        <div>
-                          <h3>Recurrencia por zona</h3>
-                          <p>
-                            {summary.zones[0].label} reúne{" "}
-                            {summary.zones[0].count} de {summary.total}{" "}
-                            registros del período.
-                          </p>
-                        </div>
+                  <section className={`insight-panel ${styles.zones}`}>
+                    <div className="panel-heading">
+                      <div>
+                        <h3>Recurrencia por zona</h3>
+                        <p>
+                          {summary.zones[0].label} reúne{" "}
+                          {summary.zones[0].count} de {summary.total} registros
+                          del período.
+                        </p>
                       </div>
-                      <ol className="zone-ranking">
-                        {summary.zones.map((z, i) => (
-                          <motion.li
-                            key={`${queryKey}-${z.label}`}
-                            initial={reduceMotion ? false : "empty"}
-                            animate="filled"
-                          >
-                            <div>
-                              <Link
-                                className="text-link"
-                                href={historyHref(applied, {
-                                  zone_id: z.label,
-                                })}
-                              >
-                                {z.label}
-                              </Link>
-                              <b>{z.count}</b>
-                            </div>
-                            <span
-                              className="zone-frequency-track"
-                              role="meter"
-                              aria-valuemin={0}
-                              aria-valuemax={summary.total}
-                              aria-valuenow={z.count}
-                              aria-label={z.label}
+                    </div>
+                    <ol className="zone-ranking">
+                      {summary.zones.map((z, i) => (
+                        <motion.li
+                          key={`${queryKey}-${z.label}`}
+                          initial={reduceMotion ? false : "empty"}
+                          animate="filled"
+                        >
+                          <div>
+                            <Link
+                              className="text-link"
+                              href={historyHref(applied, {
+                                zone_id: z.label,
+                              })}
                             >
-                              <motion.span
-                                className="zone-frequency-fill"
-                                style={{
-                                  width: `${(100 * z.count) / summary.total}%`,
-                                }}
-                                variants={barVariants}
-                                transition={
-                                  reduceMotion
-                                    ? { duration: 0 }
-                                    : {
-                                        ...chartDraw,
-                                        delay: Math.min(i, 5) * 0.045,
-                                      }
-                                }
-                              />
-                            </span>
-                          </motion.li>
-                        ))}
-                      </ol>
-                    </section>
-                    <section className="insight-panel">
-                      <div className="panel-heading">
-                        <div>
-                          <h3>Distribución horaria</h3>
-                          <p>
-                            Hora de Santiago de Chile para los eventos del
-                            período UTC seleccionado. No representa nivel de
-                            riesgo.
-                          </p>
-                        </div>
-                      </div>
-                      <HeatLegend max={busiest.count} />
-                      <div className="hour-heatmap">
-                        {summary.hours.map((h) => (
-                          <div key={h.hour}>
-                            <span>{String(h.hour).padStart(2, "0")}</span>
+                              {z.label}
+                            </Link>
+                            <b>{z.count}</b>
+                          </div>
+                          <span
+                            className="zone-frequency-track"
+                            role="meter"
+                            aria-valuemin={0}
+                            aria-valuemax={summary.total}
+                            aria-valuenow={z.count}
+                            aria-label={z.label}
+                          >
                             <motion.span
-                              key={queryKey}
-                              className="heat-cell"
-                              initial={reduceMotion ? false : { opacity: 0.2 }}
-                              animate={{ opacity: 1 }}
+                              className="zone-frequency-fill"
+                              style={{
+                                width: `${(100 * z.count) / summary.total}%`,
+                              }}
+                              variants={barVariants}
                               transition={
                                 reduceMotion
                                   ? { duration: 0 }
                                   : {
-                                      ...enterTransition,
-                                      delay: h.hour * 0.018,
+                                      ...chartDraw,
+                                      delay: Math.min(i, 5) * 0.045,
                                     }
                               }
-                              style={{
-                                backgroundColor: `color-mix(in srgb, var(--primary) ${h.count ? 16 + (30 * h.count) / Math.max(1, busiest.count) : 0}%, var(--surface-muted))`,
-                              }}
-                              title={`${String(h.hour).padStart(2, "0")}:00 en Santiago · ${h.count} eventos`}
-                              aria-label={`${String(h.hour).padStart(2, "0")}:00 en Santiago, ${h.count} eventos`}
                             />
-                          </div>
-                        ))}
+                          </span>
+                        </motion.li>
+                      ))}
+                    </ol>
+                  </section>
+                  <TemporalHeatmap matrix={summary.timeMatrix} />
+                  <section className={`insight-panel ${styles.hours}`}>
+                    <div className="panel-heading">
+                      <div>
+                        <h3>Distribución horaria</h3>
+                        <p>Frecuencia por hora de Santiago de Chile.</p>
                       </div>
-                      <details className="chart-data">
-                        <summary>Ver valores horarios</summary>
-                        <div className="daily-data">
-                          {summary.hours.map((h) => (
-                            <span key={h.hour}>
-                              {String(h.hour).padStart(2, "0")}:00 ·{" "}
-                              <b>{h.count}</b>
-                            </span>
-                          ))}
+                    </div>
+                    <HeatLegend max={busiest.count} />
+                    <div className="hour-heatmap">
+                      {summary.hours.map((h) => (
+                        <div key={h.hour}>
+                          <span>{String(h.hour).padStart(2, "0")}</span>
+                          <motion.span
+                            key={queryKey}
+                            className="heat-cell"
+                            initial={reduceMotion ? false : { opacity: 0.2 }}
+                            animate={{ opacity: 1 }}
+                            transition={
+                              reduceMotion
+                                ? { duration: 0 }
+                                : {
+                                    ...enterTransition,
+                                    delay: h.hour * 0.018,
+                                  }
+                            }
+                            style={{
+                              backgroundColor: `color-mix(in srgb, var(--primary) ${h.count ? 16 + (30 * h.count) / Math.max(1, busiest.count) : 0}%, var(--surface-muted))`,
+                            }}
+                            title={`${String(h.hour).padStart(2, "0")}:00 en Santiago · ${h.count} eventos`}
+                            aria-label={`${String(h.hour).padStart(2, "0")}:00 en Santiago, ${h.count} eventos`}
+                          />
                         </div>
-                      </details>
-                      <p className="insight-caption">
-                        {busiest.count
-                          ? `Mayor frecuencia observada a las ${String(busiest.hour).padStart(2, "0")}:00, hora de Santiago (${busiest.count} registros).`
-                          : "No hay actividad en este período."}
-                      </p>
-                      <div className="type-breakdown">
-                        <h4>Por tipo de evento</h4>
-                        {summary.types.map((t) => (
-                          <p key={t.label}>
-                            <Link
-                              className="text-link"
-                              href={historyHref(applied, {
-                                event_type: t.label,
-                              })}
-                            >
-                              {eventName(t.label)}
-                            </Link>
-                            <strong>
-                              {t.count}{" "}
-                              <small>
-                                ({((t.count / summary.total) * 100).toFixed(0)}{" "}
-                                %)
-                              </small>
-                            </strong>
-                          </p>
+                      ))}
+                    </div>
+                    <details className="chart-data">
+                      <summary>Ver valores horarios</summary>
+                      <div className="daily-data">
+                        {summary.hours.map((h) => (
+                          <span key={h.hour}>
+                            {String(h.hour).padStart(2, "0")}:00 ·{" "}
+                            <b>{h.count}</b>
+                          </span>
                         ))}
                       </div>
-                    </section>
-                    <section className="insight-panel">
-                      <div className="panel-heading">
-                        <div>
-                          <h3>Eventos por procedencia</h3>
-                          <p>
-                            Clasificación registrada en la fuente del evento.
-                          </p>
-                        </div>
-                      </div>
-                      <div className="type-breakdown">
-                        {summary.sources.map(({ label, count }) => (
-                          <p key={label}>
-                            <Link
-                              className="text-link"
-                              href={historyHref(applied, {
-                                source_kind: label,
-                              })}
-                            >
-                              {sourceNames[label as keyof typeof sourceNames]}
-                            </Link>
-                            <strong>{count}</strong>
-                          </p>
-                        ))}
-                      </div>
-                      <div className="type-breakdown">
-                        <h4>Por video identificado</h4>
-                        {summary.videos.length === 0 && (
-                          <p>No hay videos con huella registrada.</p>
-                        )}
-                        {summary.videos.length > 10 && (
-                          <p>
-                            10 de {summary.videos.length} videos, ordenados por
-                            registros.
-                          </p>
-                        )}
-                        {summary.videos
-                          .slice(0, 10)
-                          .map(({ sha, name, count }) => (
-                            <p key={sha}>
-                              <Link
-                                className="text-link min-w-0 break-all"
-                                href={historyHref(applied, {
-                                  source_sha256: sha,
-                                })}
-                              >
-                                {name} <small>· {sha.slice(0, 8)}</small>
-                              </Link>
-                              <strong>{count}</strong>
-                            </p>
-                          ))}
-                      </div>
-                    </section>
-                  </div>
-                </>
+                    </details>
+                  </section>
+                  <IndicatorRanking
+                    title="Eventos por tipo"
+                    rows={summary.types.map(({ label, count }) => ({
+                      key: label,
+                      label: eventName(label),
+                      count,
+                      href: historyHref(applied, { event_type: label }),
+                    }))}
+                    total={summary.total}
+                  />
+                  <IndicatorRanking
+                    title="Eventos por procedencia"
+                    rows={summary.sources.map(({ label, count }) => ({
+                      key: label,
+                      label: sourceNames[label as keyof typeof sourceNames],
+                      count,
+                      href: historyHref(applied, { source_kind: label }),
+                    }))}
+                    total={summary.total}
+                  />
+                  <IndicatorRanking
+                    title="Videos con más registros"
+                    rows={summary.videos
+                      .slice(0, 10)
+                      .map(({ sha, name, count }) => ({
+                        key: sha,
+                        label: name,
+                        detail: sha.slice(0, 8),
+                        count,
+                        href: historyHref(applied, { source_sha256: sha }),
+                      }))}
+                    total={summary.total}
+                    caption={
+                      summary.videos.length > 10
+                        ? `10 de ${summary.videos.length} videos identificados.`
+                        : undefined
+                    }
+                    empty="No hay videos con huella registrada."
+                  />
+                  <SpatialHeatmap
+                    groups={groups}
+                    total={summary.total}
+                    back={historyHref(applied)}
+                  />
+                </div>
               )}
               {overview && (
                 <section className="insight-panel dashboard-recent">

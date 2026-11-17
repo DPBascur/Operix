@@ -19,16 +19,16 @@
 .chartFrame {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  min-width: 53rem;
+  min-width: 16rem;
   gap: 0.6rem;
-  padding: 1.5rem 0.55rem 0;
+  padding: 1.25rem 0.45rem 0;
 }
 .axis {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   align-items: flex-end;
-  height: calc(10.5rem + 1em);
+  height: calc(8.5rem + 1em);
   margin-top: -0.5em;
   font-variant-numeric: tabular-nums;
   font-size: 0.75rem;
@@ -50,7 +50,7 @@
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  height: 10.5rem;
+  height: 8.5rem;
   background: repeating-linear-gradient(
     to top,
     var(--border) 0 1px,
@@ -66,7 +66,7 @@
 }
 .bar {
   width: min(73%, 2rem);
-  min-width: 0.55rem;
+  min-width: 2px;
   background: var(--primary);
   border-radius: 0.2rem 0.2rem 0 0;
   transform-origin: center bottom;
@@ -134,7 +134,7 @@
   );
 }
 .heatTable {
-  min-width: 29rem;
+  min-width: 16rem;
   width: 100%;
   border-collapse: separate;
   border-spacing: 0.2rem;
@@ -152,7 +152,7 @@
 }
 .heatTable td {
   border-radius: 0.3rem;
-  padding: 0.38rem 0.3rem;
+  padding: 0.35rem 0.15rem;
 }
 .heatTable td:hover {
   outline: 1px solid var(--accent);
@@ -169,6 +169,15 @@
   max-width: 100%;
   width: 100%;
 }
+.spatialLayout {
+  display: grid;
+  gap: var(--bento-padding);
+}
+
+.spatialInfo {
+  min-width: 0;
+}
+
 .spatialGrid {
   display: grid;
   grid-template-columns: repeat(var(--columns), minmax(0, 1fr));
@@ -196,73 +205,366 @@
   gap: 0.4rem 1rem;
   margin-top: 0.3rem;
 }
+
 .indicators.indicators {
+  --bento-gap: clamp(0.75rem, 1.25cqi, 1.25rem);
+  --bento-padding: clamp(0.875rem, 1.55cqi, 1.5rem);
+  --bento-radius: 1rem;
+  --bento-shadow: 0 8px 15px -13px rgb(17 34 63 / 27%);
+  container: indicators / inline-size;
   display: flex;
   flex-direction: column;
-  gap: var(--page-rhythm);
+  gap: 0.9rem;
+  max-inline-size: 109rem;
+  margin-inline: auto;
 }
-.indicators.indicators :global(.history-controls) {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.75rem), 1fr));
-  margin: 0;
+
+:global([data-theme="dark"]) .indicators {
+  --bento-shadow: 0 8px 15px -13px rgb(0 0 0 / 58%);
 }
+
 .indicators.indicators :global(.insights-heading),
 .indicators.indicators :global(.history-source-caption) {
   margin: 0;
 }
-.indicators :global(.history-controls) select {
-  width: 100%;
-}
-.kpis {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+
+.indicators.indicators :global(.history-controls) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem 0.8rem;
+  margin: 0;
+  padding: 0.7rem 0.8rem;
+  border-radius: var(--bento-radius);
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--surface-radius);
-  gap: 0.5rem;
-  padding: 0.75rem;
 }
-.kpis > div {
+
+.indicators.indicators :global(.history-controls) :global(.month-control) {
+  gap: 0.22rem;
+}
+
+.indicators.indicators :global(.history-controls) select {
+  width: 100%;
+  padding-block: 0.45rem;
+  min-height: 2.5rem;
+  text-overflow: ellipsis;
+}
+
+.indicators.indicators :global(.history-controls) button {
+  justify-self: end;
+  min-height: 2.5rem;
+  white-space: nowrap;
+}
+
+.kpis,
+.patterns {
   display: grid;
-  align-content: start;
-  gap: 0.25rem;
-  min-width: 0;
-  padding: 0.45rem;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--bento-gap);
 }
-.kpis > div > span,
-.kpis small {
+
+.totalCard,
+.metricCard,
+.indicators.indicators .patterns > :global(.insight-panel) {
+  min-width: 0;
+  padding: var(--bento-padding);
+  border: 1px solid var(--border);
+  border-radius: var(--bento-radius);
+  background: var(--surface);
+  box-shadow: var(--bento-shadow);
+}
+
+.totalCard {
+  display: flex;
+  flex-direction: column;
+  padding: clamp(0.9rem, 1.45cqi, 1.35rem) var(--bento-padding);
+  background: linear-gradient(125deg, #234bb5, #173581);
+  border-color: transparent;
+  color: #fff;
+}
+
+.totalHeading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.totalHeading h3 {
+  color: #edf4ff;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.totalHeading a {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  background: rgb(255 255 255 / 9%);
+  border-radius: 50%;
+  color: inherit;
+  transition: background-color 180ms ease;
+}
+
+.totalHeading a:hover {
+  background: rgb(255 255 255 / 22%);
+}
+
+.totalHeading a:focus-visible {
+  outline-color: #fff;
+}
+
+.totalValue {
+  display: block;
+  font-size: clamp(2.55rem, 4.1cqi, 4.5rem);
+  line-height: 1;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+}
+
+.totalCard p,
+.miniChart > span {
+  color: #e0eaff;
+  font-size: 0.8125rem;
+}
+
+.totalCard p {
+  margin: 0.35rem 0 0;
+}
+
+.miniChart {
+  margin-top: auto;
+  padding-top: 0.65rem;
+}
+
+.miniChart > div {
+  display: flex;
+  align-items: end;
+  height: 2.15rem;
+  gap: clamp(2px, 0.4cqi, 6px);
+  margin-bottom: 0.4rem;
+  border-bottom: 1px solid rgb(226 238 255 / 32%);
+}
+
+.miniChart > div span {
+  flex: 1;
+  background: #b4deff;
+  border-radius: 0.23rem 0.23rem 0 0;
+}
+
+.secondaryMetrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--bento-gap);
+}
+
+.metricCard {
+  display: grid;
+  padding-block: 0.7rem;
+  align-content: center;
+  gap: 0.25rem;
+}
+
+.metricCard h3,
+.metricCard small {
   color: var(--text-secondary);
   font-size: 0.8125rem;
 }
-.kpis strong {
-  font-size: 1.15rem;
-  overflow-wrap: anywhere;
+
+.metricCard h3 {
+  font-weight: 550;
 }
-.kpis > div:first-child strong {
-  font-size: clamp(1.65rem, 3vw, 2.35rem);
+
+.metricValue {
+  min-width: 0;
+  display: block;
+  color: var(--foreground);
+  font-size: clamp(0.95rem, 1.6cqi, 1.3rem);
+  font-weight: 680;
   font-variant-numeric: tabular-nums;
 }
-@media (max-width: 600px) {
-  .kpis {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+
+.metricValue > span,
+strong.metricValue {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.metricValue:is(:hover, :focus-visible),
+.ranking a:is(:hover, :focus-visible) {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.indicators.indicators .patterns :global(.panel-heading) {
+  margin-bottom: 0.65rem;
+}
+
+.patterns :global(.panel-heading) h3 {
+  font-size: 1.05rem;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+}
+
+.patterns :global(.panel-heading) p {
+  margin-top: 0.25rem;
+  text-wrap: pretty;
+}
+
+.patterns :global(.zone-ranking) {
+  gap: 0.9rem;
+}
+
+.patterns :global(.zone-ranking) a {
+  overflow-wrap: anywhere;
+}
+
+.patterns :global(.hour-heatmap) {
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+}
+
+.patterns :global(.heat-cell) {
+  height: 1.15rem;
+}
+
+.patterns :global(.chart-data) summary {
+  font-size: 0.8rem;
+}
+
+.ranking {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.ranking a {
+  display: flex;
+  gap: 0.65rem;
+  justify-content: space-between;
+  align-items: baseline;
+  color: var(--foreground);
+  font-size: 0.875rem;
+}
+
+.ranking a > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ranking small {
+  color: var(--text-secondary);
+}
+
+.ranking strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.rankingTrack {
+  height: 0.22rem;
+  background: var(--surface-muted);
+  margin-top: 0.35rem;
+  border-radius: 1rem;
+  overflow: hidden;
+}
+
+.rankingTrack span {
+  display: block;
+  height: 100%;
+  background: color-mix(in srgb, var(--primary) 70%, var(--surface));
+  border-radius: inherit;
+}
+
+.indicators.indicators
+  .spatial:not(:has(.spatialGrid))
+  :global(.panel-heading) {
+  margin: 0;
+}
+
+.daily {
+  container: daily-chart / inline-size;
+}
+
+.bars > li:not(:first-child, :last-child, :nth-child(5n)) .day {
+  visibility: hidden;
+}
+
+.bars > li:last-child:nth-child(5n + 1) .day {
+  visibility: hidden;
+}
+
+@container daily-chart (min-width: 42rem) {
+  .bars > li .day,
+  .bars > li:not(:first-child, :last-child, :nth-child(5n)) .day,
+  .bars > li:last-child:nth-child(5n + 1) .day {
+    visibility: visible;
   }
-  .kpis > div:first-child {
+}
+
+@container indicators (min-width: 34rem) {
+  .indicators.indicators :global(.history-controls) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .kpis {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  }
+
+  .totalCard:only-child {
     grid-column: 1 / -1;
   }
 }
-.patterns {
-  display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
-  gap: var(--page-rhythm);
-}
-.patterns > section {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.patterns :global(.zone-ranking) a {
-  grid-column: 1 / -2;
-}
-@media (max-width: 1100px) {
+
+@container indicators (min-width: 48rem) {
   .patterns {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .daily,
+  .temporal {
+    grid-column: span 4;
+  }
+
+  .zones,
+  .hours {
+    grid-column: span 2;
+  }
+
+  .contextCard {
+    grid-column: span 2;
+  }
+
+  .spatial {
+    grid-column: 1 / -1;
+  }
+
+  .spatialLayout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+    align-items: start;
+  }
+}
+
+@container indicators (min-width: 62rem) {
+  .indicators.indicators :global(.history-controls) {
+    grid-template-columns:
+      repeat(3, minmax(0, 1fr)) minmax(0, 0.95fr) minmax(0, 1.35fr)
+      auto;
+  }
+}
+
+@container indicators (min-width: 75rem) {
+  .patterns :global(.hour-heatmap) {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .totalHeading a {
+    transition: none;
   }
 }

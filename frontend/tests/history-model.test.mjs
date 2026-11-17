@@ -216,3 +216,28 @@ test("OP-41 vacío no fabrica días, tipos ni porcentaje de comparación", () =>
     /válidas/,
   );
 });
+
+test("ordena los tipos por frecuencia aunque la API los entregue por identificador", () => {
+  const timestamp = "2026-11-02T02:30:00Z";
+  const rows = [
+    { ...event("one", timestamp), event_type: "zone_dwell" },
+    { ...event("two", timestamp), event_type: "zone_dwell" },
+    { ...event("three", timestamp), event_type: "person_forklift_proximity" },
+  ];
+  const current = {
+    total: 3,
+    timezone: "UTC",
+    period: "day",
+    by_period: [{ date: "2026-11-02", count: 3 }],
+    by_type: [
+      { event_type: "person_forklift_proximity", count: 1 },
+      { event_type: "zone_dwell", count: 2 },
+    ],
+  };
+  const previous = { ...current, total: 0, by_period: [], by_type: [] };
+  const summary = summarizeApiHistory(rows, "2026-11", current, previous);
+  assert.deepEqual(summary.types, [
+    { label: "zone_dwell", count: 2 },
+    { label: "person_forklift_proximity", count: 1 },
+  ]);
+});

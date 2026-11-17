@@ -133,10 +133,6 @@ export function summarizeApiHistory(
       ? ((current.total - previous.total) / previous.total) * 100
       : null,
     days: base.days.map((row) => ({ ...row, count: byDay.get(row.day) ?? 0 })),
-    types: current.by_type.map((row) => ({
-      label: row.event_type,
-      count: row.count,
-    })),
   };
 }
 

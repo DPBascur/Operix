@@ -39,9 +39,6 @@ export function DailyEvents({
       <div className="panel-heading">
         <div>
           <h3 id="daily-events">Eventos por día</h3>
-          <p>
-            Cantidad de eventos registrados durante el período seleccionado.
-          </p>
         </div>
       </div>
       <p className={styles.axisTitle}>Cantidad de eventos</p>
@@ -138,7 +135,10 @@ export function TemporalHeatmap({ matrix }: { matrix: number[][] }) {
   const reducedMotion = useReducedMotion();
   const max = Math.max(0, ...matrix.flat());
   return (
-    <section className="insight-panel" aria-labelledby="temporal-map">
+    <section
+      className={`insight-panel ${styles.temporal}`}
+      aria-labelledby="temporal-map"
+    >
       <div className="panel-heading">
         <div>
           <h3 id="temporal-map">Mapa de calor temporal</h3>
@@ -215,42 +215,65 @@ export function SpatialHeatmap({
   const max = group ? Math.max(...group.cells.map((ids) => ids.length)) : 0;
   const selected = cell?.key === group?.key ? cell?.index : undefined;
   return (
-    <section className="insight-panel" aria-labelledby="spatial-map">
+    <section
+      className={`insight-panel ${styles.spatial}`}
+      aria-labelledby="spatial-map"
+    >
       <div className="panel-heading">
         <div>
           <h3 id="spatial-map">Mapa de calor espacial</h3>
           <p>
-            Punto de proximidad registrado del lado de la persona. Cada
-            cuadrícula corresponde a un único encuadre y una única ejecución.
+            {group
+              ? "Cada cuadrícula localiza los puntos de proximidad de la persona en un mismo encuadre y ejecución."
+              : "La selección no incluye puntos de proximidad con una referencia de fuente verificable."}
           </p>
         </div>
       </div>
-      {!group ? (
-        <p className="insight-caption">
-          Este filtro no incluye eventos con punto de proximidad y referencia de
-          fuente verificables.
-        </p>
-      ) : (
-        <>
-          <label className={styles.spatialSelect}>
-            Video y ejecución
-            <select
-              className="select-control"
-              value={group.key}
-              onChange={(event) => {
-                setKey(event.target.value);
-                setCell(null);
-              }}
-            >
-              {groups.map((item, index) => (
-                <option key={item.key} value={item.key}>
-                  {item.name} · grupo {index + 1} · {item.run.slice(0, 8)}
-                  {item.epoch === null ? "" : ` · época ${item.epoch}`}
-                </option>
-              ))}
-            </select>
-          </label>
-          <HeatLegend max={max} />
+      {group && (
+        <div className={styles.spatialLayout}>
+          <div className={styles.spatialInfo}>
+            <label className={styles.spatialSelect}>
+              Video y ejecución
+              <select
+                className="select-control"
+                value={group.key}
+                onChange={(event) => {
+                  setKey(event.target.value);
+                  setCell(null);
+                }}
+              >
+                {groups.map((item, index) => (
+                  <option key={item.key} value={item.key}>
+                    {item.name} · grupo {index + 1} · {item.run.slice(0, 8)}
+                    {item.epoch === null ? "" : ` · época ${item.epoch}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <HeatLegend max={max} />
+            <p className="insight-caption">
+              {group.total} de {total} eventos filtrados en este mapa. Las
+              coordenadas son relativas a la imagen. La esquina superior
+              izquierda es el origen.
+            </p>
+            {selected !== undefined && (
+              <div className={styles.cellRecords} aria-live="polite">
+                <p>Registros de la celda seleccionada</p>
+                <ul>
+                  {group.cells[selected].map((id) => (
+                    <li key={id}>
+                      <Link
+                        className="text-link"
+                        href={`/events/${encodeURIComponent(id)}?back=${encodeURIComponent(back)}`}
+                      >
+                        Ver expediente · {id.slice(0, 8)}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
           <div
             className={styles.spatialGrid}
             style={
@@ -279,29 +302,7 @@ export function SpatialHeatmap({
               );
             })}
           </div>
-          <p className="insight-caption">
-            {group.total} de {total} eventos filtrados en este mapa. Las
-            coordenadas son relativas a la imagen. La esquina superior izquierda
-            es el origen.
-          </p>
-          {selected !== undefined && (
-            <div className={styles.cellRecords} aria-live="polite">
-              <p>Registros de la celda seleccionada</p>
-              <ul>
-                {group.cells[selected].map((id) => (
-                  <li key={id}>
-                    <Link
-                      className="text-link"
-                      href={`/events/${encodeURIComponent(id)}?back=${encodeURIComponent(back)}`}
-                    >
-                      Ver expediente · {id.slice(0, 8)}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </>
+        </div>
       )}
     </section>
   );
