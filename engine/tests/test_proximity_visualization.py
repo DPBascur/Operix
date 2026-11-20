@@ -41,10 +41,11 @@ class ProximityVisualizationTests(unittest.TestCase):
         self.assertAlmostEqual(evaluation.observed_normalized_distance, np.hypot(.2, .4))
         self.assertNotEqual(evaluation.interaction.person, evaluation.interaction.forklift)
         with patch("operix_engine.visualization.cv2.line", wraps=cv2.line) as line, \
-                patch.object(self.renderer, "_draw_label", wraps=self.renderer._draw_label) as labels:
+                patch("operix_engine.visualization.cv2.putText", wraps=cv2.putText) as labels:
             annotated = self.renderer.render_proximity(self.frame, spatial, result)
         self.assertEqual(line.call_args.args[1:3], ((25, 20), (45, 60)))
-        self.assertTrue(any("d 0.4472 / max 0.5 norm" in call.args[1] for call in labels.call_args_list))
+        self.assertTrue(any(call.args[1] == "P#1/F#1  0,4472 norm." for call in labels.call_args_list))
+        self.assertTrue(any("max 0.5 norm." in call.args[1] for call in labels.call_args_list))
         self.assertTrue(any("Acumulando duracion | 0 s / min 1 s" in call.args[1] for call in labels.call_args_list))
         self.assertTrue(np.any(annotated))
         self.assertFalse(np.any(self.frame))
@@ -92,16 +93,16 @@ class ProximityVisualizationTests(unittest.TestCase):
                                          "class_name": "person", "min_duration_s": 1.}),)))
         result = dwell.evaluate(spatial)
         with patch("operix_engine.visualization.cv2.line", wraps=cv2.line) as lines, \
-                patch.object(self.renderer, "_draw_label") as labels:
+                patch("operix_engine.visualization.cv2.putText", wraps=cv2.putText) as labels:
             self.renderer.render_proximity(self.frame, spatial, result)
         self.assertEqual(lines.call_count, 2)
-        self.assertTrue(any("P#1 / F#1 | d 0.4472 norm" in call.args[1] for call in labels.call_args_list))
+        self.assertTrue(any(call.args[1] == "P#1/F#1  0,4472 norm." for call in labels.call_args_list))
         self.assertEqual(result.candidates, ())
         with patch("operix_engine.visualization.cv2.line") as lines, \
                 patch.object(self.renderer, "_draw_label") as labels:
             self.renderer.render_proximity(self.frame, spatial, result, metric_expected=True)
-        lines.assert_not_called()
-        self.assertTrue(any("plano no aplicable" in call.args[1] for call in labels.call_args_list))
+        self.assertEqual(lines.call_count, 2)
+        self.assertTrue(any("Plano no aplicable" in call.args[1] for call in labels.call_args_list))
 
     def test_outside_threshold_displays_one_observation_without_an_event(self):
         spatial, result = self.step(0, (self.person, track("forklift", 1, 95, 95)))
@@ -132,6 +133,28 @@ class ProximityVisualizationTests(unittest.TestCase):
             self.renderer.render_proximity(self.frame, spatial, result, max_pairs=1)
         self.assertEqual(line.call_count, 2)
 
+    def test_coincident_lines_get_distinct_readable_labels(self):
+        analyzer = SpatiotemporalAnalyzer(width=640, height=360, fps=30, zones=(self.zone,))
+        tracks = tuple(track(name, number, x, 200)
+                       for name, x in (("person", 200), ("forklift", 400)) for number in (1, 2))
+        spatial = analyzer.update(0, tracks)
+        result = self.rules.evaluate(spatial)
+        frame = np.zeros((360, 640, 3), dtype=np.uint8)
+        with patch("operix_engine.visualization.cv2.putText", wraps=cv2.putText) as text, \
+                patch("operix_engine.visualization.cv2.rectangle", wraps=cv2.rectangle) as rect:
+            self.renderer.render_proximity(frame, spatial, result)
+        badges = [(t.args[1], r.args[1], r.args[2])
+                  for t, r in zip(text.call_args_list, rect.call_args_list, strict=True)
+                  if t.args[1].endswith("0,2969 norm.")]
+        self.assertEqual({label.split()[0] for label, _, _ in badges},
+                         {"P#1/F#1", "P#1/F#2", "P#2/F#1", "P#2/F#2"})
+        for i, (_, (left, top), (right, bottom)) in enumerate(badges):
+            self.assertLessEqual(left, 300)
+            self.assertGreaterEqual(right, 300)
+            for _, (other_left, other_top), (other_right, other_bottom) in badges[i + 1:]:
+                self.assertTrue(right < other_left or other_right < left
+                                or bottom < other_top or other_bottom < top)
+
     def test_overlap_containment_zero_and_edge_positions_use_anchor_distance(self):
         for forklift, expected in ((replace(self.forklift, bounding_box=self.person.bounding_box), 0.),
                 (replace(self.forklift, bounding_box=BoundingBox(0, 0, 80, 80)), .6),
@@ -143,9 +166,9 @@ class ProximityVisualizationTests(unittest.TestCase):
     def test_overlay_uses_evaluated_distance_not_an_alternate_calculation(self):
         spatial, result = self.step(0)
         result = replace(result, evaluations=(replace(result.evaluations[0], observed_normalized_distance=.123),))
-        with patch.object(self.renderer, "_draw_label") as label:
+        with patch("operix_engine.visualization.cv2.putText", wraps=cv2.putText) as label:
             self.renderer.render_proximity(self.frame, spatial, result)
-        self.assertTrue(any("d 0.123 / max 0.5 norm" in call.args[1] for call in label.call_args_list))
+        self.assertTrue(any(call.args[1] == "P#1/F#1  0,123 norm." for call in label.call_args_list))
 
     def test_mismatched_frame_is_rejected(self):
         spatial, result = self.step(0)

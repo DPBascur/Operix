@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import math
 import unicodedata
-from collections import Counter, deque
+from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -208,98 +208,79 @@ class OpenCvRenderer:
 
     def render_proximity(
         self, frame: NDArray[np.uint8], spatial: FrameSpatialState,
-        result: RuleFrameResult, *, max_pairs: int | None = None, metric_expected: bool = False,
+        result: RuleFrameResult | None, *, max_pairs: int | None = None, metric_expected: bool = False,
     ) -> NDArray[np.uint8]:
-        """Muestra episodios evaluados, sin geometría/distancia/estado alternativos.
+        """Muestra una medición por par visible y el estado de sus reglas.
 
         Hasta cuatro relaciones activas por defecto; emisiones del frame siempre
-        visibles. El conjunto visual no limita evaluaciones ni candidatos.
+        visibles con la política activa. El conjunto visual no limita evaluaciones ni candidatos.
         """
         self._validate_frame(frame)
         display = self.config.relations
         max_pairs = display.max_pairs if max_pairs is None else max_pairs
         if type(max_pairs) is not int or max_pairs <= 0:
             raise ValueError("max_pairs debe ser entero positivo")
+        if result is None:
+            return self._render_observed_proximity(frame, spatial, max_pairs, metric_expected, suspended=True)
         if (spatial.frame_index, spatial.timestamp_s) != (result.frame_index, result.timestamp_s):
             raise ValueError("El overlay y las reglas deben pertenecer al mismo frame/tiempo")
         if spatial.epoch != result.epoch:
             raise ValueError("El overlay y las reglas deben pertenecer a la misma época")
-        if not any(isinstance(item, PairRuleEvaluation) for item in result.evaluations):
+        evaluations = [item for item in result.evaluations if isinstance(item, PairRuleEvaluation)]
+        if not evaluations:
             return self._render_observed_proximity(frame, spatial, max_pairs, metric_expected)
         objects = {obj.identity: obj for obj in spatial.objects}
         emitted = {candidate.episode_key for candidate in result.candidates if isinstance(candidate, PairEventCandidate)}
-        relevant = [evaluation for evaluation in result.evaluations
-                    if isinstance(evaluation, PairRuleEvaluation)
-                    and (evaluation.episode_key is not None or evaluation.reason == "calibration_unavailable")]
-        if any((item.frame_index, item.timestamp_s) != (result.frame_index, result.timestamp_s) for item in relevant):
-            raise ValueError("La evaluación de proximidad pertenece a otro frame/tiempo")
         if any((item.frame_index, item.timestamp_s, item.epoch) !=
                (spatial.frame_index, spatial.timestamp_s, spatial.epoch)
-               for item in result.evaluations if isinstance(item, PairRuleEvaluation)):
+               for item in evaluations):
             raise ValueError("La evaluación pertenece a otro frame, tiempo o época")
-        relevant.sort(key=lambda item: (
+        evaluations.sort(key=lambda item: (
             item.episode_key not in emitted, not item.satisfied, item.observed_normalized_distance,
             item.rule_id, item.rule_version, item.interaction.person, item.interaction.forklift,
         ))
-        if display.policy != "active":
-            relevant = [item for item in result.evaluations
-                        if isinstance(item, PairRuleEvaluation)
-                        and item.reason != "outside_zone"
-                        and (display.policy == "all" or item.satisfied
+        if display.policy == "active":
+            relevant = [item for item in evaluations
+                        if item.episode_key is not None or item.reason == "calibration_unavailable"]
+            if not relevant:
+                relevant = [item for item in evaluations if item.reason in {
+                    "outside_distance", "outside_zone", "motion_unknown", "equipment_stationary",
+                }]
+        else:
+            relevant = [item for item in evaluations
+                        if item.reason != "outside_zone"
+                        and (display.policy == "all" or item.satisfied or item.reason == "calibration_unavailable"
                              or (item.ground["distance"] if item.ground else item.observed_normalized_distance)
                              <= item.parameters["max_distance"] * (1 + display.near_margin))]
             relevant.sort(key=lambda item: (not item.satisfied, item.observed_normalized_distance))
-        visible_pairs = []
-        for item in relevant:
-            if item.interaction not in visible_pairs and len(visible_pairs) < max_pairs:
-                visible_pairs.append(item.interaction)
+        visible_pairs = set(tuple(dict.fromkeys(item.interaction for item in relevant))[:max_pairs])
         selected = [item for item in relevant if item.interaction in visible_pairs
                     or (display.policy == "active" and item.episode_key in emitted)]
-        if not selected and display.policy == "active":
-            observed = [item for item in result.evaluations
-                        if isinstance(item, PairRuleEvaluation)
-                        and item.reason in {"outside_distance", "outside_zone", "motion_unknown", "equipment_stationary"}]
-            if observed:
-                selected = [min(observed, key=lambda item: item.observed_normalized_distance)]
         annotated = frame.copy()
-        height, width = frame.shape[:2]
-        per_pair = Counter(item.interaction for item in selected)
-        label_rows = Counter()
-        for index, item in enumerate(selected):
-            left, right = (objects.get(identity) for identity in (item.interaction.person, item.interaction.forklift))
-            if left is None or right is None:
-                raise ValueError("La relación no corresponde a objetos presentes")
+        ground_by_pair = {frozenset((pair.identity_a, pair.identity_b)): pair.ground for pair in spatial.proximities}
+        labels = []
+        displayed = set()
+        normalized = False
+        details = []
+        for item in selected:
             if (item.proximity_geometry_version != PROXIMITY_GEOMETRY_VERSION
                     or item.person_anchor is None or item.equipment_target is None):
                 raise ValueError("El overlay requiere los puntos geométricos versionados de la regla")
-            # Solo conversión raster; no reconstruir el target desde la caja/centro.
-            endpoints = tuple((min(width - 1, max(0, round(point.x * width))),
-                               min(height - 1, max(0, round(point.y * height))))
-                              for point in (item.person_anchor, item.equipment_target))
-            if item.parameters.get("distance_unit") == "m" and item.ground is None:
-                self._draw_label(annotated, f"P#{left.track_id} / F#{right.track_id} | {item.rule_id} | Plano no aplicable: fuera del area calibrada", (8, 28 + index * 24), self._ZONE_NORMAL_COLOR, fit_width=True)
-                continue
+            person, forklift = item.interaction.person, item.interaction.forklift
+            if person not in objects or forklift not in objects:
+                raise ValueError("La relación no corresponde a objetos presentes")
+            identity = f"P#{person.track_id}/F#{forklift.track_id}"
+            ground = ground_by_pair.get(frozenset((person, forklift)), item.ground)
             color = self._ZONE_EVENT_COLOR if item.satisfied else self._ZONE_NORMAL_COLOR
-            if item.ground:
-                endpoints = tuple((round(point[0]*width), round(point[1]*height))
-                                  for point in (item.ground["person_anchor"], item.ground["equipment_target"]))
-            cv2.line(annotated, *endpoints, color, self.config.box_thickness, self._LINE_TYPE)
-            for point in endpoints:
-                cv2.circle(annotated, point, 4, color, -1, self._LINE_TYPE)
-            midpoint = tuple(round((a + b) / 2) for a, b in zip(*endpoints))
-            pair = f"P#{left.track_id} / F#{right.track_id}"
-            distance = item.ground["distance"] if item.ground else item.observed_normalized_distance
-            unit = "m approx" if item.ground else "norm"
-            measure = ("Presencia conjunta en zona" if item.parameters.get("kind") == "zone_coexistence"
-                       else f"d {distance:.4g} / max {item.parameters['max_distance']:.4g} {unit}")
-            # Distancia junto a sus endpoints canónicos; identidad técnica en carril secundario.
-            row = label_rows[midpoint]
-            label_rows[midpoint] += 1
-            self._draw_label(annotated, measure,
-                             (midpoint[0], midpoint[1] + row * 24), color, fit_width=True)
-            multiple = per_pair[item.interaction] > 1
-            # OpenCV usa texto ASCII. La duración y el estado comparten un carril compacto.
+            if item.interaction not in displayed:
+                displayed.add(item.interaction)
+                normalized |= ground is None
+                labels.append(self._draw_pair_line(
+                    annotated, identity, ground, (item.person_anchor, item.equipment_target),
+                    item.observed_normalized_distance, color,
+                ))
             state = {
+                "calibration_unavailable": "Metros no disponibles",
                 "outside_distance": "Fuera del umbral",
                 "outside_zone": "Fuera de zona",
                 "insufficient_duration": "Acumulando duracion",
@@ -312,18 +293,26 @@ class OpenCvRenderer:
                 motion_label = " | " + {"MOVING": "En movimiento", "STATIONARY": "Estacionario", "UNKNOWN": "Movimiento indeterminado"}[motion["state"]]
                 if motion["speed"] is not None:
                     motion_label += f" {motion['speed']:.4g} " + ("m/s approx" if motion["unit"] == "m_per_s" else "norm/s")
-            self._draw_label(annotated,
-                f"{pair} | " + (f"{measure} | " if multiple else "")
-                + f"{state} | {item.observed_duration_s:.4g} s"
-                f" / min {item.parameters['minimum_duration_seconds']:.4g} s"
-                f" | {item.rule_id} v{item.rule_version}" + motion_label,
-                (8, 28 + index * 24), color, fit_width=True)
-        if len(selected) < len(relevant):
-            self._draw_label(annotated, f"Relaciones visibles: {len({item.interaction for item in selected})}/{len({item.interaction for item in relevant})}",
-                             (8, 28 + len(selected) * 24), self._ZONE_NORMAL_COLOR, fit_width=True)
+            metric_rule = item.parameters.get("distance_unit") == "m"
+            if item.parameters.get("kind") == "zone_coexistence":
+                condition = "Presencia conjunta en zona"
+            elif metric_rule and item.ground is None:
+                condition = "Umbral metrico suspendido"
+            else:
+                unit = "m" if metric_rule else "norm."
+                condition = f"max {item.parameters['max_distance']:.4g} {unit}"
+            details.append((f"{identity} | {state} | {item.observed_duration_s:.4g} s"
+                            f" / min {item.parameters['minimum_duration_seconds']:.4g} s | {condition}"
+                            f" | {item.rule_id} v{item.rule_version}" + motion_label, color))
+        total_pairs = len({item.interaction for item in relevant})
+        if len(labels) < total_pairs:
+            details.insert(0, (f"Relaciones visibles: {len(labels)}/{total_pairs}", self._ZONE_NORMAL_COLOR))
+        if normalized:
+            details.insert(0, (self._normalized_notice(metric_expected), self._ZONE_NORMAL_COLOR))
+        self._draw_pair_overlays(annotated, spatial, labels, details)
         return annotated
 
-    def _render_observed_proximity(self, frame, spatial, max_pairs, metric_expected):
+    def _render_observed_proximity(self, frame, spatial, max_pairs, metric_expected, *, suspended=False):
         # El analizador ya mide los pares con o sin una regla de proximidad activa.
         pairs = sorted(
             (pair for pair in spatial.proximities
@@ -335,35 +324,118 @@ class OpenCvRenderer:
         )
         annotated = frame.copy()
         color = self._ZONE_NORMAL_COLOR
-        height, width = frame.shape[:2]
-        self._draw_label(
-            annotated,
-            f"Distancias observadas: {min(max_pairs, len(pairs))}/{len(pairs)}"
-            if pairs else "Distancia no disponible: sin pares persona/montacargas con seguimiento",
-            (8, 28), color, fit_width=True,
-        )
-        for index, pair in enumerate(pairs[:max_pairs]):
+        labels = []
+        for pair in pairs[:max_pairs]:
             person_first = pair.class_name_a == "person"
             person, forklift = ((pair.track_id_a, pair.track_id_b) if person_first
                                 else (pair.track_id_b, pair.track_id_a))
-            identity = f"P#{person} / F#{forklift}"
-            if pair.ground is None and metric_expected:
-                label = f"{identity} | Distancia metrica no disponible: plano no aplicable"
-            else:
-                if pair.ground is not None:
-                    points = (pair.ground["person_anchor"], pair.ground["equipment_target"])
-                    distance = pair.ground["distance"]
-                    unit = "m approx"
-                else:
-                    points = ((pair.point_a.x, pair.point_a.y), (pair.point_b.x, pair.point_b.y))
-                    distance = pair.normalized_distance
-                    unit = "norm"
-                endpoints = tuple((min(width - 1, max(0, round(x * width))),
-                                   min(height - 1, max(0, round(y * height)))) for x, y in points)
-                cv2.line(annotated, *endpoints, color, self.config.box_thickness, self._LINE_TYPE)
-                label = f"{identity} | d {distance:.4g} {unit}"
-            self._draw_label(annotated, label, (8, 52 + index * 24), color, fit_width=True)
+            labels.append(self._draw_pair_line(
+                annotated, f"P#{person}/F#{forklift}", None if suspended else pair.ground,
+                (pair.point_a, pair.point_b), pair.normalized_distance, color,
+            ))
+        summary = f"Distancias observadas: {len(labels)}/{len(pairs)}" if labels else (
+            "Distancia no disponible: sin pares persona/montacargas con seguimiento"
+        )
+        details = [(summary, color)]
+        if suspended:
+            details.insert(0, ("Encuadre sin validar | Geometria suspendida", color))
+            if labels:
+                details.insert(1, ("norm. = distancia normalizada", color))
+        elif any(pair.ground is None for pair in pairs[:max_pairs]):
+            details.insert(0, (self._normalized_notice(metric_expected), color))
+        self._draw_pair_overlays(annotated, spatial, labels, details)
         return annotated
+
+    @staticmethod
+    def _normalized_notice(metric_expected):
+        return ("norm. = distancia normalizada | Plano no aplicable a algunos pares" if metric_expected
+                else "norm. = distancia normalizada | Sin calibracion metrica")
+
+    def _draw_pair_line(self, frame, identity, ground, normalized_points, normalized_distance, color):
+        height, width = frame.shape[:2]
+        if ground is not None:
+            points = (ground["person_anchor"], ground["equipment_target"])
+            meters = ground["distance"]
+            # Hershey de OpenCV admite el indicador ASCII de aproximación.
+            measure = (f"~{meters * 100:.0f} cm" if meters < 1 else f"~{meters:.2f} m").replace(".", ",")
+        else:
+            points = tuple((point.x, point.y) for point in normalized_points)
+            value = f"{normalized_distance:.4g}".replace(".", ",")
+            measure = f"{value} norm."
+        endpoints = tuple((min(width - 1, max(0, round(x * width))),
+                           min(height - 1, max(0, round(y * height)))) for x, y in points)
+        cv2.line(frame, *endpoints, color, self.config.box_thickness, self._LINE_TYPE)
+        for point in endpoints:
+            cv2.circle(frame, point, 4, color, -1, self._LINE_TYPE)
+        midpoint = tuple(round((a + b) / 2) for a, b in zip(*endpoints))
+        return f"{identity}  {measure}", midpoint, color
+
+    def _draw_pair_overlays(self, frame, spatial, labels, details):
+        height, width = frame.shape[:2]
+        occupied = []
+        media_scale = max(1., max(width, height) / 640)
+        row_height = round(28 * media_scale)
+        # El encabezado usa como máximo un tercio del frame en escenas densas.
+        for index, (label, color) in enumerate(details[:max(2, height // (3 * row_height))], 1):
+            self._draw_label(frame, label, (round(8 * media_scale), index * row_height), color,
+                             fit_width=True, occupied=occupied, media_scale=media_scale)
+        boxes = [(box.x_min, box.y_min, box.x_max, box.y_max)
+                 for box in (obj.bounding_box for obj in spatial.objects)]
+        for label, midpoint, color in labels:
+            self._draw_pair_label(frame, label, midpoint, color, occupied, boxes)
+
+    @staticmethod
+    def _overlaps(first, second):
+        x1, y1, x2, y2 = first
+        left, top, right, bottom = second
+        return x1 <= right and x2 >= left and y1 <= bottom and y2 >= top
+
+    def _draw_pair_label(self, frame, label, midpoint, color, occupied, boxes):
+        """Centra la placa junto a su línea y desplázala si coincide con otra."""
+        height, width = frame.shape[:2]
+        # El clip se reduce a 640 px. Escalar la placa con la imagen conserva su lectura.
+        scale = max(self.config.font_scale, .55 * max(width, height) / 640)
+        thickness = max(self.config.text_thickness, round(2 * scale / .55))
+        padding = max(3, round(scale * 6))
+        (text_w, text_h), baseline = cv2.getTextSize(label, self._FONT, scale, thickness)
+        if text_w + 2 * padding >= width:
+            scale *= max(1, width - 2 * padding - thickness - 1) / text_w
+            thickness = max(1, round(2 * scale / .55))
+            (text_w, text_h), baseline = cv2.getTextSize(label, self._FONT, scale, thickness)
+        plaque_w = text_w + 2 * padding
+        plaque_h = text_h + baseline + 2 * padding
+        if plaque_w >= width or plaque_h >= height:
+            return
+        x, y = midpoint
+        max_left, max_top = width - 1 - plaque_w, height - 1 - plaque_h
+        center_left = x - plaque_w // 2
+        sides = (center_left, center_left - plaque_w // 2, center_left + plaque_w // 2,
+                 x - plaque_w - padding, x + padding, 0, max_left)
+        row_height = plaque_h + padding
+        rows = [top for offset in range(9)
+                for top in (y - plaque_h - padding - offset * row_height, y + padding + offset * row_height)]
+        positions = {(min(max_left, max(0, left)), min(max_top, max(0, top)))
+                     for left in sides for top in rows}
+        best = None
+        for left, top in positions:
+            rect = (left, top, left + plaque_w, top + plaque_h)
+            if any(self._overlaps(rect, other) for other in occupied):
+                continue
+            dx = max(left - x, 0, x - rect[2])
+            dy = max(top - y, 0, y - rect[3])
+            # Favorecer el punto medio y penalizar las placas sobre los objetos.
+            score = (dx**2 + dy**2 + (left - center_left)**2
+                     + plaque_h**2 * any(self._overlaps(rect, box) for box in boxes),
+                     top, left)
+            if best is None or score < best[0]:
+                best = score, rect
+        if best is None:
+            return
+        left, top, right, bottom = best[1]
+        occupied.append(best[1])
+        cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 0), -1)
+        cv2.putText(frame, label, (left + padding, top + padding + text_h),
+                    self._FONT, scale, color, thickness, self._LINE_TYPE)
 
     def render_zone(
         self,
@@ -549,22 +621,26 @@ class OpenCvRenderer:
         label: str,
         anchor: tuple[int, int],
         color: tuple[int, int, int],
-        *, fit_width: bool = False,
+        *, fit_width: bool = False, occupied: list | None = None, media_scale: float = 1.,
     ) -> None:
         height, width = frame.shape[:2]
+        font_scale = self.config.font_scale * media_scale
+        thickness = round(self.config.text_thickness * media_scale)
+        padding = round(3 * media_scale)
         (text_width, text_height), baseline = cv2.getTextSize(
             label,
             self._FONT,
-            self.config.font_scale,
-            self.config.text_thickness,
+            font_scale,
+            thickness,
         )
-        font_scale = self.config.font_scale
-        if fit_width and text_width > max(1, width - 14):
-            font_scale *= max(1, width - 14) / text_width
+        available_width = max(1, width - 2 * padding - round(8 * media_scale))
+        if fit_width and text_width > available_width:
+            ratio = available_width / text_width
+            font_scale *= ratio
+            thickness = max(1, round(thickness * ratio))
             (text_width, text_height), baseline = cv2.getTextSize(
-                label, self._FONT, font_scale, self.config.text_thickness,
+                label, self._FONT, font_scale, thickness,
             )
-        padding = 3
         left = min(max(0, anchor[0]), max(0, width - text_width - 2 * padding))
         if anchor[1] >= text_height + baseline + 2 * padding:
             text_baseline = anchor[1] - padding - baseline
@@ -577,6 +653,11 @@ class OpenCvRenderer:
         rectangle_top = max(0, text_baseline - text_height - padding)
         rectangle_bottom = min(height - 1, text_baseline + baseline + padding)
         rectangle_right = min(width - 1, left + text_width + 2 * padding)
+        if occupied is not None:
+            rect = (left, rectangle_top, rectangle_right, rectangle_bottom)
+            if any(self._overlaps(rect, other) for other in occupied):
+                return
+            occupied.append(rect)
         cv2.rectangle(
             frame,
             (left, rectangle_top),
@@ -591,6 +672,6 @@ class OpenCvRenderer:
             self._FONT,
             font_scale,
             color,
-            self.config.text_thickness,
+            thickness,
             self._LINE_TYPE,
         )

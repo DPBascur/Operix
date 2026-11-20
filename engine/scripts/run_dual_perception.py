@@ -18,6 +18,7 @@ import torch
 from operix_engine.byte_tracker import ByteTrackConfig, ByteTracker
 from operix_engine.candidate_transport import candidate_payloads
 from operix_engine.dual_perception import ClassPerceptionChannel, DualPerception
+from operix_engine.framing import RecordedFraming
 from operix_engine.operational_config import load_operational_config
 from operix_engine.rules import RuleEngine
 from operix_engine.spatiotemporal import SpatiotemporalAnalyzer
@@ -119,7 +120,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             proximity_roles=config.proximity_roles,
             calibration=config.calibration, motion=config.motion,
         )
-        rules = RuleEngine(config)
+        framing = RecordedFraming(config.calibration)
+        rules = None if framing.manually_invalid else RuleEngine(config)
         writer = cv2.VideoWriter(
             str(output / "annotated.mp4"), cv2.VideoWriter_fourcc(*"mp4v"),
             metadata.declared_fps, (metadata.width, metadata.height),
@@ -151,9 +153,14 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                         observed.person_tracks + observed.forklift_tracks,
                         metadata.width, metadata.height,
                     )
-                    spatial = analyzer.update(frame_index, visible_tracks)
-                    rule_result = rules.evaluate(spatial)
-                    frame_candidates = candidate_payloads(rule_result.candidates)
+                    timestamp = frame_index / metadata.declared_fps
+                    detections_in_frame = observed.person_detections + observed.forklift_detections
+                    spatial_allowed = framing.update(
+                        frame, frame_index, timestamp, (item.bounding_box for item in detections_in_frame),
+                    )
+                    spatial = analyzer.update(frame_index, visible_tracks, image_only=not spatial_allowed)
+                    rule_result = rules.evaluate(spatial) if spatial_allowed else None
+                    frame_candidates = candidate_payloads(rule_result.candidates) if rule_result is not None else []
                     candidates.extend(frame_candidates)
                     jsonl.write(json.dumps({
                         "frame_index": frame_index,
@@ -170,7 +177,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     }, ensure_ascii=False) + "\n")
                     render_start = time.perf_counter()
                     annotated = frame
-                    for zone in config.zones:
+                    for zone in config.zones if spatial_allowed else ():
                         if not zone.enabled:
                             continue
                         zone_candidate = next(

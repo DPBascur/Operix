@@ -1,11 +1,17 @@
 import unittest
+from unittest.mock import patch
 
 import cv2
 import numpy as np
 
 from operix_engine.detection import BoundingBox
-from operix_engine.framing import FramingGuard, REFERENCE
+from operix_engine.framing import FramingGuard, REFERENCE, RecordedFraming
 from operix_engine.calibration import calibration_snapshot
+from operix_engine.operational_config import OperationalConfig, RuleConfig, Zone
+from operix_engine.rules import RuleEngine
+from operix_engine.spatiotemporal import SpatiotemporalAnalyzer
+from operix_engine.tracking import Track
+from operix_engine.visualization import OpenCvRenderer
 from test_calibration import calibration
 
 
@@ -81,6 +87,55 @@ class FramingTests(unittest.TestCase):
         self.assertEqual(guard.update(np.zeros_like(self.reference), 0, 0), "UNAVAILABLE")
         self.assertEqual(guard.update(self.reference, 1, .25), "UNAVAILABLE")
         self.assertEqual(guard.first_suspended_frame, 0)
+
+    def test_camera_displacement_falls_back_and_breaks_metric_rule_continuity(self):
+        snapshot = calibration_snapshot({**calibration(), "framing_reference": REFERENCE})
+        zone = Zone("floor", "Floor", ((0, 0), (1, 0), (1, 1), (0, 1)))
+        rule = RuleConfig("pair", 1, True, {
+            "kind": "person_forklift_proximity", "zone_id": "floor",
+            "distance_unit": "m", "max_distance": 3.0, "minimum_duration_seconds": .5,
+        })
+        config = OperationalConfig(1, "camera", (zone,), (rule,), snapshot)
+        analyzer = SpatiotemporalAnalyzer(width=640, height=360, fps=4, zones=(zone,), calibration=snapshot)
+        rules = RuleEngine(config)
+        framing = RecordedFraming(snapshot)
+        renderer = OpenCvRenderer()
+        tracks = (Track(1, 0, "person", .9, BoundingBox(170, 120, 200, 180)),
+                  Track(1, 0, "forklift", .9, BoundingBox(264, 120, 334, 180)))
+        shifted = self.transformed(dx=24)
+        emitted = []
+        for i, frame in enumerate((self.reference, shifted, self.reference, self.reference,
+                                   self.reference, self.reference, shifted, shifted, shifted)):
+            allowed = framing.update(frame, i, i / 4, ())
+            spatial = analyzer.update(i, tracks, image_only=not allowed)
+            result = rules.evaluate(spatial) if allowed else None
+            if result:
+                emitted.extend(candidate.frame_index for candidate in result.candidates)
+            with patch("operix_engine.visualization.cv2.putText", wraps=cv2.putText) as text:
+                renderer.render_proximity(frame, spatial, result, metric_expected=True)
+            visible = [call.args[1] for call in text.call_args_list]
+            expected = "P#1/F#1  ~1,00 m" if allowed else "P#1/F#1  0,1 norm."
+            self.assertIn(expected, visible)
+            self.assertEqual(spatial.proximities[0].ground is not None, allowed)
+            if not allowed:
+                self.assertTrue(any("Geometria suspendida" in label for label in visible))
+                self.assertTrue(all(not obj.zones for obj in spatial.objects))
+        self.assertEqual(framing.status()["state"], "INVALID")
+        self.assertEqual(emitted, [5])
+
+    def test_manual_invalidation_keeps_only_image_distances(self):
+        snapshot = calibration_snapshot({**calibration(), "status": "invalid"})
+        framing = RecordedFraming(snapshot)
+        allowed = framing.update(self.reference, 0, 0., ())
+        self.assertFalse(allowed)
+        self.assertEqual(framing.status()["reason"], "operator_invalidated")
+        tracks = (Track(1, 0, "person", .9, BoundingBox(170, 120, 200, 180)),
+                  Track(1, 0, "forklift", .9, BoundingBox(264, 120, 334, 180)))
+        analyzer = SpatiotemporalAnalyzer(width=640, height=360, fps=4, zones=(), calibration=snapshot)
+        spatial = analyzer.update(0, tracks, image_only=True)
+        with patch("operix_engine.visualization.cv2.putText", wraps=cv2.putText) as text:
+            OpenCvRenderer().render_proximity(self.reference, spatial, None, metric_expected=True)
+        self.assertIn("P#1/F#1  0,1 norm.", [call.args[1] for call in text.call_args_list])
 
     def test_versioned_reference_preserves_legacy_snapshot(self):
         legacy = calibration()

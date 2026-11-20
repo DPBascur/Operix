@@ -72,7 +72,7 @@ class ObjectSpatialState:
 
 @dataclass(frozen=True, slots=True)
 class PairwiseProximity:
-    """Distancia en el plano normalizado de imagen, sin calibración métrica ni riesgo."""
+    """Distancia normalizada y, donde aplica, medición aproximada en el suelo."""
 
     track_id_a: int
     track_id_b: int
@@ -147,16 +147,16 @@ class SpatiotemporalAnalyzer:
         self.reset()
 
     def _proximity(self, left: ObjectSpatialState, right: ObjectSpatialState,
-                   frame_index: int, timestamp_s: float) -> PairwiseProximity:
+                   frame_index: int, timestamp_s: float, calibration: dict | None) -> PairwiseProximity:
         roles = (left.class_name, right.class_name)
         forward = roles in self._proximity_roles
         if forward or roles[::-1] in self._proximity_roles:
             person, equipment = (left, right) if forward else (right, left)
             measured = nearest_ground_edges(person.bounding_box, equipment.bounding_box, self.width, self.height)
             ground = None
-            if self.calibration:
+            if calibration:
                 from .calibration import ground_measurement
-                ground = ground_measurement(self.calibration, person.bounding_box, equipment.bounding_box,
+                ground = ground_measurement(calibration, person.bounding_box, equipment.bounding_box,
                                             self.width, self.height)
             points = (measured.person_anchor, measured.equipment_target)
             if not forward:
@@ -173,6 +173,7 @@ class SpatiotemporalAnalyzer:
         if type(next_epoch) is not int or next_epoch < 0 or next_epoch < getattr(self,"epoch",0):
             raise ValueError("Epoca inv\u00e1lida o anterior")
         self.epoch = next_epoch
+        self._image_only = False
         if self.motion is not None:
             self.motion.reset()
         self._last_frame_index: int | None = None
@@ -181,8 +182,11 @@ class SpatiotemporalAnalyzer:
         self._trajectories: dict[ObjectIdentity, deque[TrajectorySample]] = {}
         self._dwell_starts: dict[tuple[ObjectIdentity, str], float] = {}
 
-    def update(self, frame_index: int, tracks: tuple[Track, ...], *, timestamp_s: float | None = None) -> FrameSpatialState:
-        """Calcula variables para un frame; un gap rompe toda continuidad."""
+    def update(
+        self, frame_index: int, tracks: tuple[Track, ...], *, timestamp_s: float | None = None,
+        image_only: bool = False,
+    ) -> FrameSpatialState:
+        """Durante una suspensión del encuadre, conserva solo observaciones de imagen."""
         if type(frame_index) is not int or frame_index < 0:
             raise ValueError("frame_index debe ser entero no negativo")
         if self._last_frame_index is not None and frame_index <= self._last_frame_index:
@@ -197,24 +201,31 @@ class SpatiotemporalAnalyzer:
         if len(ids) != len(set(ids)):
             raise ValueError("Identidad de objeto duplicado en el frame")
 
+        zones = () if image_only else self.zones
+        calibration = None if image_only else self.calibration
+        motion = None if image_only else self.motion
+
         # Validar todas las cajas y zonas antes de cambiar el estado interno.
         prepared = tuple(
             (
                 track,
                 position := normalized_bottom_center(track.bounding_box, self.width, self.height),
-                tuple((zone.zone_id, point_in_zone(position, zone)) for zone in self.zones),
+                tuple((zone.zone_id, point_in_zone(position, zone)) for zone in zones),
             )
             for track in sorted(tracks, key=lambda item: ObjectIdentity(item.class_name, item.track_id))
         )
 
+        if image_only != self._image_only:
+            self.reset()
+            self._image_only = image_only
         if self._last_frame_index is not None and frame_index != self._last_frame_index + 1:
             self._last_seen.clear()
             self._trajectories.clear()
             self._dwell_starts.clear()
 
         present = set(ids)
-        if self.motion is not None:
-            self.motion.retain(present)
+        if motion is not None:
+            motion.retain(present)
         for identity in tuple(self._last_seen):
             if identity not in present:
                 del self._last_seen[identity]
@@ -257,14 +268,14 @@ class SpatiotemporalAnalyzer:
                 ObjectSpatialState(
                     track_id, track.class_name, frame_index, timestamp_s,
                     position, tuple(zone_states), tuple(history), track.bounding_box, track.confidence,
-                    self.motion.update(identity,frame_index,timestamp_s,(position.x,position.y),
-                        epoch=self.epoch,calibration=self.calibration)
-                    if self.motion is not None and track.class_name == "forklift" else None,
+                    motion.update(identity,frame_index,timestamp_s,(position.x,position.y),
+                        epoch=self.epoch,calibration=calibration)
+                    if motion is not None and track.class_name == "forklift" else None,
                 )
             )
 
         proximities = tuple(
-            self._proximity(left, right, frame_index, timestamp_s)
+            self._proximity(left, right, frame_index, timestamp_s, calibration)
             for index, left in enumerate(objects)
             for right in objects[index + 1:]
         )

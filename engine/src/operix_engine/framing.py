@@ -14,6 +14,32 @@ SHIFT_SAMPLES = 3
 MIN_INLIERS = 24
 
 
+class RecordedFraming:
+    """Aplica la política de encuadre de la calibración ligada al video."""
+
+    def __init__(self, calibration):
+        self.calibration = calibration
+        self.manually_invalid = bool(calibration and calibration["status"] == "invalid")
+        self.guard = FramingGuard() if (
+            calibration and not self.manually_invalid and calibration.get("framing_reference") == REFERENCE
+        ) else None
+
+    def update(self, frame, frame_index, timestamp_s, boxes):
+        if self.guard is not None:
+            return self.guard.update(frame, frame_index, timestamp_s, boxes) == "VALID"
+        return not self.manually_invalid
+
+    def status(self):
+        if self.guard is not None:
+            return self.guard.status()
+        if self.manually_invalid:
+            return {"state": "INVALID", "reason": "operator_invalidated"}
+        if self.calibration is not None:
+            # Los snapshots anteriores conservan la confirmación manual de vista fija.
+            return {"state": "UNAVAILABLE", "reason": "legacy_manual_only"}
+        return None
+
+
 class FramingGuard:
     def __init__(self):
         self.state = "UNAVAILABLE"

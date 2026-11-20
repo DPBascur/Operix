@@ -35,7 +35,8 @@ class CalibrationTests(unittest.TestCase):
         outside = BoundingBox(141.75 - 1e-6, 300, 190, 371)
         self.assertIsNone(ground_measurement(snapshot, outside, equipment, 1000, 1000))
 
-    def test_parallel_metric_and_normalized_rules_keep_visible_units(self):
+    def test_parallel_rules_share_one_metric_label_and_keep_threshold_units(self):
+        import cv2
         import numpy as np
         from unittest.mock import patch
         from operix_engine.visualization import OpenCvRenderer
@@ -49,15 +50,18 @@ class CalibrationTests(unittest.TestCase):
         state = analyzer.update(0,(Track(1,0,"person",.9,BoundingBox(0,10,10,20)),
                                   Track(1,1,"forklift",.9,BoundingBox(40,10,50,20))))
         renderer = OpenCvRenderer()
-        with patch.object(renderer,"_draw_label") as label:
+        with patch("operix_engine.visualization.cv2.putText", wraps=cv2.putText) as label, \
+                patch("operix_engine.visualization.cv2.line", wraps=cv2.line) as line:
             renderer.render_proximity(np.zeros((100,100,3),dtype=np.uint8),state,engine.evaluate(state))
-        banners = {name:next(call.args for call in label.call_args_list if name in call.args[1])
-                   for name in ("metric","normal")}
-        self.assertIn("m approx",banners["metric"][1])
-        self.assertIn("norm",banners["normal"][1])
-        self.assertNotEqual(banners["metric"][2],banners["normal"][2])
+        labels = [call.args[1] for call in label.call_args_list]
+        self.assertEqual(labels.count("P#1/F#1  ~3,00 m"), 1)
+        self.assertTrue(any("max 3.1 m | metric" in text for text in labels))
+        self.assertTrue(any("max 0.31 norm. | normal" in text for text in labels))
+        self.assertEqual(line.call_args.args[1:3], ((10, 20), (40, 20)))
+        line.assert_called_once()
 
-    def test_metric_outside_calibration_explains_absence_without_drawing_distance(self):
+    def test_metric_outside_calibration_draws_explicit_normalized_fallback(self):
+        import cv2
         import numpy as np
         from unittest.mock import patch
         from operix_engine.visualization import OpenCvRenderer
@@ -73,10 +77,67 @@ class CalibrationTests(unittest.TestCase):
         self.assertFalse(result.candidates)
         self.assertEqual(result.evaluations[0].reason,"calibration_unavailable")
         renderer = OpenCvRenderer()
-        with patch.object(renderer,"_draw_label") as label, patch("operix_engine.visualization.cv2.line") as line:
-            renderer.render_proximity(np.zeros((100,100,3),dtype=np.uint8),state,result)
-        line.assert_not_called()
-        self.assertTrue(any("Plano no aplicable" in call.args[1] for call in label.call_args_list))
+        with patch("operix_engine.visualization.cv2.putText", wraps=cv2.putText) as label, \
+                patch("operix_engine.visualization.cv2.line", wraps=cv2.line) as line:
+            renderer.render_proximity(np.zeros((100,100,3),dtype=np.uint8),state,result,metric_expected=True)
+        line.assert_called_once()
+        self.assertEqual(line.call_args.args[1:3], ((10, 20), (40, 20)))
+        labels = [call.args[1] for call in label.call_args_list]
+        self.assertIn("P#1/F#1  0,3 norm.", labels)
+        self.assertTrue(any("Plano no aplicable" in text for text in labels))
+        self.assertTrue(any("Umbral metrico suspendido" in text for text in labels))
+
+    def test_centimeters_and_meters_across_profiles_with_the_same_geometry(self):
+        import cv2
+        import numpy as np
+        from unittest.mock import patch
+        from operix_engine.visualization import OpenCvRenderer
+
+        zone = Zone("z", "Zone", ((0,0),(1,0),(1,1),(0,1)))
+        snapshot = calibration()
+        configs = (("m", .68), ("normalized", .15))
+        rules = [RuleConfig(unit, i, True, {"kind": "person_forklift_proximity", "zone_id": "z",
+                            "distance_unit": unit, "max_distance": threshold, "minimum_duration_seconds": 0})
+                 for i, (unit, threshold) in enumerate(configs, 1)]
+        renderer = OpenCvRenderer()
+        frame = np.zeros((360, 640, 3), dtype=np.uint8)
+        for physical, badge in ((.679, "~68 cm"), (.681, "~68 cm"), (1.42, "~1,42 m")):
+            person = Track(1, 0, "person", .9, BoundingBox(200, 120, 240, 200))
+            gap = 640 * physical / 10
+            equipment = Track(1, 1, "forklift", .9, BoundingBox(240 + gap, 120, 340 + gap, 200))
+            spatial = SpatiotemporalAnalyzer(width=640, height=360, fps=10, zones=(zone,), calibration=snapshot)
+            state = spatial.update(0, (person, equipment))
+            measured = state.proximities[0].ground["distance"]
+            self.assertAlmostEqual(measured, physical, places=6)
+            for active, emits in (((), False), ((rules[0],), physical <= .68), ((rules[1],), True)):
+                with self.subTest(physical=physical, rules=active):
+                    result = RuleEngine(OperationalConfig(1, "camera", (zone,), active, snapshot)).evaluate(state)
+                    self.assertEqual(bool(result.candidates), emits)
+                    with patch("operix_engine.visualization.cv2.putText", wraps=cv2.putText) as text:
+                        renderer.render_proximity(frame, state, result)
+                    self.assertIn(f"P#1/F#1  {badge}", [call.args[1] for call in text.call_args_list])
+
+    def test_each_visible_pair_uses_its_own_calibrated_area_eligibility(self):
+        import cv2
+        import numpy as np
+        from unittest.mock import patch
+        from operix_engine.visualization import OpenCvRenderer
+
+        snapshot = calibration_snapshot({**calibration(), "image_points": [[.2, .2], [.8, .2], [.8, .8], [.2, .8]]})
+        tracks = (
+            Track(1, 0, "person", .9, BoundingBox(200, 100, 240, 180)),
+            Track(2, 0, "person", .9, BoundingBox(100, 100, 140, 180)),
+            Track(1, 0, "forklift", .9, BoundingBox(300, 100, 350, 180)),
+        )
+        analyzer = SpatiotemporalAnalyzer(width=640, height=360, fps=10, zones=(), calibration=snapshot)
+        state = analyzer.update(0, tracks)
+        result = RuleEngine(OperationalConfig(1, "camera", (), (), snapshot)).evaluate(state)
+        frame = np.zeros((360, 640, 3), dtype=np.uint8)
+        with patch("operix_engine.visualization.cv2.putText", wraps=cv2.putText) as text:
+            OpenCvRenderer().render_proximity(frame, state, result, metric_expected=True)
+        labels = [call.args[1] for call in text.call_args_list]
+        self.assertIn("P#1/F#1  ~1,56 m", labels)
+        self.assertIn("P#2/F#1  0,25 norm.", labels)
 
     def test_projective_plane_known_distances_in_three_image_regions(self):
         # Plano virtual conocido, no GT físico de una cámara industrial.

@@ -3,6 +3,8 @@ import unittest
 
 from operix_engine.detection import BoundingBox
 from operix_engine.proximity_geometry import nearest_ground_edges
+from operix_engine.spatiotemporal import SpatiotemporalAnalyzer
+from operix_engine.tracking import Track
 
 
 FORK = (200,200,600,500)
@@ -96,6 +98,19 @@ class OccupancyCharacterizationTests(unittest.TestCase):
         for name in ("obvious_occupant","front_pedestrian_projected"):
             histories.append([(1,0.,signals(CASES[name])),(None,.1,None),(2,.2,signals(CASES[name]))])
         self.assertEqual(histories[0],histories[1])
+
+    def test_tracking_observations_keep_possible_occupant_and_occluded_pedestrians(self):
+        analyzer = SpatiotemporalAnalyzer(width=1000, height=600, fps=10, zones=())
+        people = ("obvious_occupant", "front_pedestrian_projected", "side_pedestrian", "partially_visible_occupant")
+        tracks = (Track(1, 0, "forklift", .9, BoundingBox(*FORK)),) + tuple(
+            Track(i, 0, "person", .9, BoundingBox(*CASES[name])) for i, name in enumerate(people, 1)
+        )
+        observed = analyzer.update(0, tracks)
+        pairs = {pair.track_id_b: pair.normalized_distance for pair in observed.proximities
+                 if pair.class_name_a == "forklift" and pair.class_name_b == "person"}
+        self.assertEqual(len(observed.objects), 5)
+        self.assertEqual(pairs, {i: signals(CASES[name])["ground_edge_distance"]
+                                 for i, name in enumerate(people, 1)})
 
 
 if __name__ == "__main__":

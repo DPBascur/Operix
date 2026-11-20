@@ -169,11 +169,18 @@ class MultipleRelationsTests(unittest.TestCase):
         with self.assertRaises(ValueError):renderer.render_proximity(np.zeros((100,100,3),dtype=np.uint8),replace(spatial,epoch=1),result)
 
     def test_stationary_and_unknown_never_emit_moving_only(self):
-        analyzer,engine,objects=self.setup_pair(1,1)
-        zone=analyzer.zones
-        rule=RuleConfig("moving",1,True,dict(kind="person_forklift_proximity",zone_id="z",max_distance=1.4,minimum_duration_seconds=.5,motion_condition="moving"))
-        engine=RuleEngine(OperationalConfig(1,"controlled",tuple(zone),(rule,),motion=config()))
-        for i in range(5):self.assertFalse(engine.evaluate(analyzer.update(i,objects)).candidates)
+        analyzer, _, objects = self.setup_pair(1, 1)
+        parameters = dict(kind="person_forklift_proximity", zone_id="z",
+                          max_distance=1.4, minimum_duration_seconds=.5)
+        rules = (RuleConfig("moving", 1, True, {**parameters, "motion_condition": "moving"}),
+                 RuleConfig("any", 1, True, parameters))
+        engine = RuleEngine(OperationalConfig(1, "controlled", analyzer.zones, rules, motion=config()))
+        results = [engine.evaluate(analyzer.update(i, objects)) for i in range(5)]
+        self.assertEqual([(c.rule_id, c.frame_index) for r in results for c in r.candidates], [("any", 1)])
+        moving = [next(e for e in result.evaluations if e.rule_id == "moving") for result in results]
+        self.assertEqual(moving[0].reason, "motion_unknown")
+        self.assertEqual(moving[-1].reason, "equipment_stationary")
+        self.assertEqual(moving[0].observed_normalized_distance, moving[-1].observed_normalized_distance)
 
     def test_metric_point_outside_calibration_is_unknown(self):
         cal=calibration()
