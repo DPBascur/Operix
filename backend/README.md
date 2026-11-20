@@ -179,6 +179,22 @@ fuente. Limitar el acceso de la API a una red controlada.
 
 Las sesiones de análisis y el MP4 de resultado temporal dependen del proceso Django. Si se interrumpe, el Motor se detiene al perder el canal con ese proceso. Tras reiniciar, crear una sesión nueva y volver a cargar o seleccionar la fuente. Los eventos ya persistidos y las evidencias confirmadas se conservan si se mantienen PostgreSQL y el volumen de medios. Un clip cuya generación quedó interrumpida puede seguir ausente.
 
+### Políticas y zonas por fuente
+
+El catálogo se guarda por cuenta. Un conjunto referencia plantillas y admite
+ajustes por regla. Si hay varias asignaciones activas, se aplica la de mayor
+prioridad en este orden: huella SHA-256 del video, demo y perfil. La asignación
+puede ajustar el conjunto para ese destino. Sin un conjunto activo, se usan las
+reglas de la configuración espacial de la sesión. Las zonas y la calibración
+siguen vinculadas a la fuente donde se definieron.
+
+Al iniciar, Operix valida la combinación efectiva de geometría y reglas. El
+recibo de la ejecución conserva configuraciones, versiones y SHA-256. Puedes
+consultarlo en `GET /api/v1/analysis/run-snapshots/<run-id>/` con la cuenta
+propietaria. Las ediciones posteriores generan nuevas versiones. El inventario
+de zonas conserva metadatos y revisiones; para editar tras expirar una sesión,
+vuelve a seleccionar la demo o carga el video original.
+
 ## Validación
 
 ### Publicación operacional desde sesiones web

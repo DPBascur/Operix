@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import atexit
+from contextlib import nullcontext
 import hashlib
 import json
 from copy import deepcopy
@@ -20,10 +21,14 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.db import transaction
 from apps.events.clips import finish_clips, reserve_result
 from apps.events.publication import event_publisher_environment
 
+from .catalog import load_catalog, resolve_policy
+from .models import AnalysisRunSnapshot, AnalysisSource, SpatialConfiguration
 from .preview import PreviewClock
+from .validation import validate_spatial
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -78,6 +83,7 @@ class AnalysisSession:
     process: subprocess.Popen | None = None
     run: int = 0
     active_config: dict | None = None
+    active_base_sha256: str | None = None
     result_config: dict | None = None
     last_access: float = field(default_factory=time.monotonic)
     _guard: threading.RLock = field(default_factory=threading.RLock, repr=False)
@@ -104,6 +110,18 @@ class AnalysisSession:
             if rule["parameters"].get("zone_id") == original_zone_id:
                 rule["parameters"]["zone_id"] = self.zone["zone_id"]
         return actual
+
+    def policy_configuration(self, base):
+        if self.owner_id is None:
+            return base, None
+        rules, policy = resolve_policy(load_catalog(self.owner_id), profile=self.profile,
+                                       demo_source_id=self.demo_source_id, source_sha256=self.source_sha256)
+        return ({**base, "rules": rules} if rules is not None else base), policy
+
+    def apply_spatial(self, document, revision):
+        self.profile_config = deepcopy(document)
+        self.spatial_revision = revision
+        self.zone = deepcopy(document["zones"][0])
 
     def touch(self) -> None:
         self.last_access = time.monotonic()
@@ -183,7 +201,9 @@ class AnalysisSession:
                 self.result_config and
                 (self.profile != self.result_config["profile"] or self.zone != self.result_config["zone"]
                  or (payload["configuration"] is not None and "config_sha256" in self.result_config
-                     and payload["configuration"]["config_sha256"] != self.result_config["config_sha256"]))
+                     and payload["configuration"]["config_sha256"] != (
+                         self.active_base_sha256 or self.result_config["config_sha256"]
+                     )))
             )
             payload["state"] = self.state
             if self.state == "cancelled":
@@ -355,8 +375,10 @@ def _validate_video_file(path: Path, filename: str, size: int) -> None:
 def _register_session(
     *, profile: str, filename: str, video_path: Path, source_sha256: str,
     source_bytes: int, source_kind: str, demo_source_id: str | None,
-    directory: Path, owner_id: int | None,
+    directory: Path, owner_id: int | None, expected_sha256: str | None,
 ) -> AnalysisSession:
+    if expected_sha256 is not None and source_sha256 != expected_sha256:
+        raise ValueError("El video no coincide con el SHA-256 de la fuente seleccionada")
     profile_config = read_profile(profile)
     zone = (profile_config["zones"][0]
             if source_kind == "demo" else
@@ -369,12 +391,25 @@ def _register_session(
     with _lock:
         if len(_sessions) >= settings.OPERIX_ANALYSIS_MAX_SESSIONS:
             raise RuntimeError("Se alcanzó el límite de análisis simultáneos")
+        if owner_id is not None:
+            if expected_sha256 is not None:
+                saved = SpatialConfiguration.objects.filter(
+                    owner_id=owner_id, source_sha256=source_sha256,
+                ).order_by("-revision").first()
+                if saved:
+                    session.apply_spatial(saved.document, saved.revision)
+            AnalysisSource.objects.update_or_create(
+                owner_id=owner_id, source_sha256=source_sha256,
+                defaults={"filename": filename, "profile": profile, "source_kind": source_kind,
+                          "demo_source_id": demo_source_id, "source_bytes": source_bytes},
+            )
         _sessions[session.id] = session
     session.schedule_cleanup()
     return session
 
 
-def create_session(upload, profile: str, *, owner_id: int | None = None) -> AnalysisSession:
+def create_session(upload, profile: str, *, owner_id: int | None = None,
+                   expected_sha256: str | None = None) -> AnalysisSession:
     if not isinstance(profile, str) or profile not in PROFILES:
         raise ValueError("Perfil de zona no válido")
     filename = _clean_filename(upload.name)
@@ -405,13 +440,15 @@ def create_session(upload, profile: str, *, owner_id: int | None = None) -> Anal
             profile=profile, filename=filename, video_path=video_path,
             source_sha256=digest.hexdigest(), source_bytes=count,
             source_kind="manual", demo_source_id=None, directory=directory, owner_id=owner_id,
+            expected_sha256=expected_sha256,
         )
     except Exception:
         shutil.rmtree(directory, ignore_errors=True)
         raise
 
 
-def create_demo_session(profile: str, *, owner_id: int | None = None) -> AnalysisSession:
+def create_demo_session(profile: str, *, owner_id: int | None = None,
+                        expected_sha256: str | None = None) -> AnalysisSession:
     demo = _demo_path(profile)
     if demo is None:
         raise ValueError("El perfil no tiene un video demo disponible")
@@ -429,6 +466,7 @@ def create_demo_session(profile: str, *, owner_id: int | None = None) -> Analysi
             profile=profile, filename=filename, video_path=video_path,
             source_sha256=digest.hexdigest(), source_bytes=source_bytes,
             source_kind="demo", demo_source_id=source_id, directory=directory, owner_id=owner_id,
+            expected_sha256=expected_sha256,
         )
     except Exception:
         shutil.rmtree(directory, ignore_errors=True)
@@ -438,6 +476,13 @@ def create_demo_session(profile: str, *, owner_id: int | None = None) -> Analysi
 def get_session(session_id: uuid.UUID) -> AnalysisSession | None:
     with _lock:
         return _sessions.get(session_id)
+
+
+def opened_sources(owner_id):
+    with _lock:
+        # On reopening a source, link its most recently created session.
+        return {session.source_sha256: session for session in _sessions.values()
+                if session.owner_id == owner_id}
 
 
 def remove_session(session_id: uuid.UUID) -> None:
@@ -547,17 +592,35 @@ def _start_session(session: AnalysisSession) -> None:
         forklift = Path(settings.OPERIX_FORKLIFT_WEIGHTS) if settings.OPERIX_FORKLIFT_WEIGHTS else None
         if not python.is_file() or person is None or not person.is_file() or forklift is None or not forklift.is_file():
             raise RuntimeError("Configure OPERIX_ENGINE_PYTHON y los pesos person/forklift fuera de Git")
-        actual = session.operational_config()
+        base = session.operational_config()
+        actual, policy = session.policy_configuration(base)
         if (actual.get("calibration") or {}).get("status") == "invalid":
             raise ValueError("Encuadre invalidado. Revise zonas y recalibre antes de analizar.")
-        _clear_run_outputs(session)
+        if policy is not None:
+            try:
+                actual = validate_spatial(actual, session.source_sha256, ROOT)
+            except ValueError as error:
+                raise ValueError(f"El conjunto asignado no es compatible con esta fuente. {error}") from error
+        run = session.run + 1
+        run_id = str(uuid.uuid5(session.id, str(run)))
+        snapshot = rule_snapshot(actual)
+        with transaction.atomic() if session.owner_id is not None else nullcontext():
+            if session.owner_id is not None:
+                AnalysisRunSnapshot.objects.create(
+                    id=run_id, owner_id=session.owner_id, profile=session.profile,
+                    source_sha256=session.source_sha256, spatial_revision=session.spatial_revision or None,
+                    configuration=actual, config_sha256=snapshot["config_sha256"], policy=policy,
+                )
+            _clear_run_outputs(session)
         session._cleanup_generation += 1
         if session._cleanup_timer is not None:
             session._cleanup_timer.cancel()
             session._cleanup_timer = None
-        session.run += 1
+        session.run = run
+        session.analysis_run_id = run_id
         session.result_config = None
         session.failure_detail = None
+        session.active_base_sha256 = hashlib.sha256(config_bytes(base)).hexdigest()
         session.active_config = {
             "profile": session.profile,
             "zone": json.loads(json.dumps(session.zone)),
@@ -571,9 +634,12 @@ def _start_session(session: AnalysisSession) -> None:
                          "class_filter": "forklift", "imgsz": 640, "confidence": 0.45, "nms_iou": 0.55},
             "tracker": "ByteTrack independiente por clase",
             "run": session.run,
+            "analysis_run_id": run_id,
             "spatial_revision": session.spatial_revision or None,
-            **rule_snapshot(actual),
+            **snapshot,
         }
+        if policy is not None:
+            session.active_config["policy"] = policy
         polygon_path = session.directory / "polygon.json"
         polygon_path.write_text(json.dumps(session.zone["polygon"]), encoding="utf-8")
         command = [
@@ -584,13 +650,12 @@ def _start_session(session: AnalysisSession) -> None:
             "--forklift-weights", str(forklift), "--forklift-sha256", FORKLIFT_SHA256,
             "--batch-size", "1",
         ]
-        if session.spatial_revision:
+        if session.spatial_revision or policy is not None:
             index = command.index("--polygon")
             del command[index:index+2]
         config_path = session.directory / "operational_config.json"
         config_path.write_bytes(config_bytes(actual))
         session.outbox_directory = None
-        session.analysis_run_id = str(uuid.uuid5(session.id, str(session.run)))
         if settings.EVENT_POST_ENABLED:
             api_url = local_event_api_url()
             session.outbox_directory = Path(settings.MEDIA_ROOT) / "analysis-events" / session.analysis_run_id
@@ -602,15 +667,15 @@ def _start_session(session: AnalysisSession) -> None:
                       "perception": {name: dict(session.active_config[name]) for name in ("person", "forklift")},
                       "timestamp_basis": "ANALYSIS_START_PROXY_NOT_RECORDING_TIME",
                       "session_id": str(session.id), "session_run": session.run}
+            if session.spatial_revision or policy is not None:
+                source["spatial_configuration"] = deepcopy(actual)
             if session.spatial_revision:
                 source["spatial_revision"] = session.spatial_revision
-                source["spatial_configuration"] = deepcopy(actual)
             context_path = session.outbox_directory / "context.json"
             context_path.write_text(json.dumps({"analysis_run_id": session.analysis_run_id,
                 "analysis_started_at": datetime.now(timezone.utc).isoformat(), "source": source,
                 "api_url": api_url}), encoding="utf-8")
-            session.active_config.update(analysis_run_id=session.analysis_run_id, source=source,
-                                         event_retention="MANUAL_RETENTION")
+            session.active_config.update(source=source, event_retention="MANUAL_RETENTION")
             command.extend(["--event-context", str(context_path)])
         (session.directory / "run_config.json").write_text(
             json.dumps(session.active_config, ensure_ascii=False), encoding="utf-8")

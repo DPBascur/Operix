@@ -10,6 +10,7 @@ import time
 from unittest.mock import patch
 from uuid import UUID
 
+from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import LiveServerTestCase, SimpleTestCase, override_settings
 from config.test_clients import administrator_client
@@ -58,6 +59,7 @@ class WebPersistenceTests(LiveServerTestCase):
         # OpenCV, ByteTrack, reglas, outbox, HTTP, PostgreSQL y rutas API se ejecutan.
         self.spawn = spawn
         self.client = administrator_client()
+        self.client.force_authenticate(get_user_model().objects.create(username="analysis_admin", is_superuser=True))
 
     def create(self):
         with self.video.open("rb") as source:

@@ -12,6 +12,8 @@ from django.conf import settings
 from rest_framework.exceptions import PermissionDenied
 
 from django.http import FileResponse, HttpResponse, StreamingHttpResponse
+from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.response import Response
@@ -19,6 +21,8 @@ from rest_framework.views import APIView
 from config.access import CanAnalyze, request_role
 from apps.events.publication import event_publisher_environment
 
+from .catalog import SHA256
+from .models import AnalysisSource
 from .sessions import (
     PROFILES, create_demo_session, create_session, get_demo_video, get_session,
     profile_catalog, read_profile, remove_session, start_session, stream_frames,
@@ -38,7 +42,13 @@ class AnalysisView(APIView):
 
 class ProfileListView(AnalysisView):
     def get(self, request):
-        return Response(profile_catalog())
+        profiles = profile_catalog()
+        for profile in profiles:
+            demo = profile["default_demo_video"]
+            if demo is not None:
+                demo["video_url"] = reverse("analysis-demo-source", args=[profile["id"], demo["id"]])
+                demo["session_create_url"] = reverse("analysis-session-create")
+        return Response(profiles)
 
 
 class DemoSourceView(AnalysisView):
@@ -63,9 +73,12 @@ class SessionListView(AnalysisView):
         if not isinstance(profile, str) or profile not in PROFILES:
             return Response({"detail": "Perfil de zona no válido"}, status=400)
         demo_source_id = request.data.get("demo_source_id")
+        source_sha256 = request.data.get("source_sha256")
+        if "source_sha256" in request.data and (not isinstance(source_sha256, str) or not SHA256.fullmatch(source_sha256)):
+            return Response({"detail": "SHA-256 de fuente inválido"}, status=400)
         try:
             if upload is not None and demo_source_id is None:
-                session = create_session(upload, profile, owner_id=request.user.pk)
+                session = create_session(upload, profile, owner_id=request.user.pk, expected_sha256=source_sha256)
             elif upload is None and isinstance(demo_source_id, str):
                 expected = next(
                     (
@@ -77,7 +90,7 @@ class SessionListView(AnalysisView):
                 )
                 if demo_source_id != expected:
                     raise ValueError("La fuente demo no corresponde al perfil")
-                session = create_demo_session(profile, owner_id=request.user.pk)
+                session = create_demo_session(profile, owner_id=request.user.pk, expected_sha256=source_sha256)
             else:
                 raise ValueError("Seleccione un video o una fuente demo válida")
         except (ValueError, RuntimeError) as error:
@@ -205,6 +218,10 @@ class SessionZoneView(AnalysisView):
                     profile_config = read_profile(profile)
                 except (OSError, ValueError, KeyError):
                     return Response({"detail": "No se pudo leer la configuración del perfil"}, status=503)
+                if session.owner_id is not None:
+                    AnalysisSource.objects.filter(owner_id=session.owner_id, source_sha256=session.source_sha256).update(
+                        profile=profile, updated_at=timezone.now(),
+                    )
                 session.profile = profile
                 session.profile_config = profile_config
             if "polygon" in request.data:

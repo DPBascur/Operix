@@ -7,8 +7,9 @@ import uuid
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from config.test_clients import administrator_client
 
 from . import sessions
@@ -75,9 +76,10 @@ class AnalysisCandidateTransportTests(SimpleTestCase):
     OPERIX_ANALYSIS_MAX_SESSIONS=2,
     OPERIX_ANALYSIS_RETENTION_SECONDS=60,
 )
-class AnalysisSessionApiTests(SimpleTestCase):
+class AnalysisSessionApiTests(TransactionTestCase):
     def setUp(self):
         self.client = administrator_client()
+        self.client.force_authenticate(get_user_model().objects.create(username="analysis_admin", is_superuser=True))
         self.identities = []
         self.demo_directory = tempfile.TemporaryDirectory()
         demo_root = Path(self.demo_directory.name)
