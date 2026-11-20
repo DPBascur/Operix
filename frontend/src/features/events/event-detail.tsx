@@ -124,6 +124,7 @@ function Evidence({
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [attempt, setAttempt] = useState(0);
   const [clipError, setClipError] = useState(false);
+  const [clipReady, setClipReady] = useState(false);
   const [duration, setDuration] = useState<number | null>(null);
   const clip = evidenceClip(event, environment.apiBaseUrl);
   const transition = reducedMotion ? { duration: 0 } : controlTransition;
@@ -131,6 +132,7 @@ function Evidence({
 
   function selectView(index: number) {
     setView(index);
+    setClipReady(false);
     setClipError(false);
     setDuration(null);
   }
@@ -283,7 +285,12 @@ function Evidence({
           >
             {clip && !clipError ? (
               <>
-                <div className={styles.imageStage}>
+                <div className={styles.imageStage} aria-busy={!clipReady}>
+                  {!clipReady && (
+                    <span className={styles.imageLoading}>
+                      <OperixScanLoader size="small" message="Cargando clip…" />
+                    </span>
+                  )}
                   <video
                     aria-label="Clip anotado del evento"
                     controls
@@ -291,6 +298,7 @@ function Evidence({
                     preload="metadata"
                     src={clip.url}
                     onLoadedMetadata={({ currentTarget }) => {
+                      setClipReady(true);
                       if (
                         Number.isFinite(currentTarget.duration) &&
                         currentTarget.duration > 0
@@ -329,7 +337,10 @@ function Evidence({
                   <Button
                     className={styles.action}
                     variant="outline"
-                    onClick={() => setClipError(false)}
+                    onClick={() => {
+                      setClipReady(false);
+                      setClipError(false);
+                    }}
                   >
                     <RefreshCw size={16} aria-hidden="true" /> Reintentar clip
                   </Button>
@@ -654,7 +665,7 @@ export function EventDetail({
       ) : !event ? (
         <section className={styles.loadState}>
           <PageTitle>Detalle del evento</PageTitle>
-          <OperixScanLoader message="Consultando el registro…" />
+          <OperixScanLoader variant="panel" message="Consultando el registro…" />
         </section>
       ) : (
         <EventContent event={event} />

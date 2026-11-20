@@ -9,13 +9,14 @@ export function OperixScanLoader({
 }: {
   message?: string;
   size?: "small" | "medium" | "large";
-  variant?: "inline" | "panel";
+  variant?: "inline" | "panel" | "process";
   className?: string;
   announce?: boolean;
 }) {
   return (
     <span
       className={`${styles.root} ${styles[size]} ${styles[variant]} ${className}`}
+      data-operix-loading={variant}
       role={message && announce ? "status" : undefined}
     >
       <svg viewBox="0 0 64 64" fill="none" aria-hidden="true" focusable="false">

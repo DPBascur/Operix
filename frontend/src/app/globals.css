@@ -919,32 +919,6 @@ a {
   border-top: 1px solid var(--border);
   padding-top: 1rem;
 }
-.event-loading {
-  border-top: 1px solid var(--border);
-}
-.event-loading span {
-  position: relative;
-  display: block;
-  height: 3rem;
-  border-bottom: 1px solid var(--border);
-}
-.event-loading span::before,
-.event-loading span::after {
-  content: "";
-  position: absolute;
-  top: 1rem;
-  height: 0.7rem;
-  border-radius: 0.2rem;
-  background: var(--surface-muted);
-}
-.event-loading span::before {
-  left: 0.75rem;
-  width: 18%;
-}
-.event-loading span::after {
-  left: 31%;
-  width: 10%;
-}
 .event-ledger table th {
   font-size: 0.64rem;
   letter-spacing: 0.08em;
@@ -2149,6 +2123,8 @@ a {
 .analysis-toolbar > label {
   display: none;
 }
+.button [data-operix-loading] { --operix-scan-color: currentColor; }
+.analysis-toolbar [data-operix-loading] { --operix-scan-color: #60bfff; }
 .analysis-toolbar-status {
   display: grid;
   min-width: 15rem;

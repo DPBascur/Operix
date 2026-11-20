@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { motion, useReducedMotion } from "motion/react";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, Clock3, FileVideo, MapPin, Layers3 } from "lucide-react";
 import { EventCount } from "@/components/motion/event-count";
 import { enterTransition, sectionEntrance } from "@/lib/motion/presets";
 import { eventTypeName } from "@/services/event-contract";
@@ -33,6 +33,7 @@ export function IndicatorMetrics({
   const metrics = [
     {
       title: "Zona con más registros",
+      Icon: MapPin,
       label: zone?.label,
       count: zone?.count,
       tied: zone && summary.zones[1]?.count === zone.count,
@@ -40,6 +41,7 @@ export function IndicatorMetrics({
     },
     {
       title: "Tipo predominante",
+      Icon: Layers3,
       label: type && eventTypeName(type.label),
       count: type?.count,
       tied: type && summary.types[1]?.count === type.count,
@@ -47,6 +49,7 @@ export function IndicatorMetrics({
     },
     {
       title: "Hora más frecuente · Santiago",
+      Icon: Clock3,
       label: busiest.count ? hour : undefined,
       count: busiest.count || undefined,
       tied: summary.hours.some(
@@ -55,6 +58,7 @@ export function IndicatorMetrics({
     },
     {
       title: "Video con más registros",
+      Icon: FileVideo,
       label: video?.name,
       count: video?.count,
       tied: video && summary.videos[1]?.count === video.count,
@@ -105,14 +109,17 @@ export function IndicatorMetrics({
       </motion.div>
       {summary.total > 0 && (
         <div className={styles.secondaryMetrics}>
-          {metrics.map(({ title, label, count, href, tied }) => (
+          {metrics.map(({ title, label, count, href, tied, Icon }) => (
             <motion.div
               key={title}
               className={styles.metricCard}
               variants={sectionEntrance}
               transition={enterTransition}
             >
-              <h3>{title}</h3>
+              <h3>
+                <Icon size={15} aria-hidden="true" />
+                {title}
+              </h3>
               {href ? (
                 <Link className={styles.metricValue} href={href} title={label}>
                   <span>{label}</span>
@@ -155,15 +162,19 @@ export function IndicatorRanking({
   total,
   caption,
   empty,
+  appearance = "bars",
 }: {
   title: string;
   rows: RankingRow[];
   total: number;
   caption?: string;
   empty?: string;
+  appearance?: "bars" | "shares" | "files";
 }) {
   return (
-    <section className={`insight-panel ${styles.contextCard}`}>
+    <section
+      className={`insight-panel ${styles.contextCard} ${styles[appearance]}`}
+    >
       <div className="panel-heading">
         <h3>{title}</h3>
       </div>
@@ -172,15 +183,28 @@ export function IndicatorRanking({
           {rows.map(({ key, label, detail, count, href }) => (
             <li key={key}>
               <Link href={href} title={detail ? `${label} · ${detail}` : label}>
+                {appearance === "files" && (
+                  <FileVideo size={15} aria-hidden="true" />
+                )}
                 <span>
                   {label}
                   {detail && <small> · {detail}</small>}
                 </span>
                 <strong>{count}</strong>
+                {appearance === "shares" && (
+                  <small>
+                    {new Intl.NumberFormat("es-CL", {
+                      style: "percent",
+                      maximumFractionDigits: 1,
+                    }).format(count / total)}
+                  </small>
+                )}
               </Link>
-              <div className={styles.rankingTrack} aria-hidden="true">
-                <span style={{ width: `${(count / total) * 100}%` }} />
-              </div>
+              {appearance !== "shares" && (
+                <div className={styles.rankingTrack} aria-hidden="true">
+                  <span style={{ width: `${(count / total) * 100}%` }} />
+                </div>
+              )}
             </li>
           ))}
         </ol>

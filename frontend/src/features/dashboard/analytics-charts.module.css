@@ -65,10 +65,10 @@
   z-index: 1;
 }
 .bar {
-  width: min(73%, 2rem);
+  width: min(62%, 1.55rem);
   min-width: 2px;
   background: var(--primary);
-  border-radius: 0.2rem 0.2rem 0 0;
+  border-radius: 0.28rem 0.28rem 0 0;
   transform-origin: center bottom;
 }
 .day {
@@ -129,7 +129,7 @@
   color: var(--foreground);
   background: color-mix(
     in srgb,
-    var(--primary) var(--intensity, 0%),
+    var(--heat-accent, var(--primary)) var(--intensity, 0%),
     var(--surface-muted)
   );
 }
@@ -252,6 +252,7 @@
   justify-self: end;
   min-height: 2.5rem;
   white-space: nowrap;
+  min-width: 8.4rem;
 }
 
 .kpis,
@@ -565,6 +566,143 @@ a.metricValue:is(:hover, :focus-visible),
 
 @media (prefers-reduced-motion: reduce) {
   .totalHeading a {
+    transition: none;
+  }
+}
+
+.indicators .boardLoading {
+  min-height: clamp(14rem, 22cqi, 23rem);
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--bento-radius);
+}
+
+:global([data-theme="dark"]) .indicators {
+  --analytics-panel: #151b24;
+  --analytics-hover: #1a2431;
+  --analytics-line: #293443;
+  --analytics-ink: #8ab9ff;
+  --heat-accent: #49a8de;
+}
+
+.indicators.indicators .patterns > :global(.insight-panel),
+.metricCard {
+  background: var(--analytics-panel, var(--surface));
+  border-color: var(--analytics-line, var(--border));
+}
+
+.totalCard {
+  background: linear-gradient(148deg, #2856c5, #172e71 82%);
+  border-color: rgb(187 216 255 / 23%);
+}
+
+.totalCard:hover {
+  border-color: rgb(187 216 255 / 48%);
+}
+
+.totalValue {
+  font-size: clamp(2.85rem, 4.55cqi, 4.65rem);
+}
+
+.miniChart > div {
+  background: repeating-linear-gradient(
+    to top,
+    transparent 0 calc(50% - 1px),
+    rgb(218 235 255 / 16%) calc(50% - 1px) 50%
+  );
+}
+
+.metricCard {
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease;
+}
+
+.metricCard:is(:hover, :focus-within) {
+  background: var(--analytics-hover, var(--surface-muted));
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+}
+
+.metricCard h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.metricCard h3 svg,
+.files .ranking svg {
+  color: var(--analytics-ink, var(--primary));
+  flex: none;
+}
+
+.zoneShare {
+  display: flex;
+  height: 0.55rem;
+  gap: 2px;
+  border-radius: 1rem;
+  overflow: hidden;
+  margin: 1.05rem 0 1.35rem;
+}
+.zoneShare span {
+  flex-basis: 0;
+  background: var(--primary);
+}
+.zoneShare span:nth-child(even) {
+  background: var(--analytics-ink, #809ce2);
+}
+.zoneShare span:nth-child(3n) {
+  background: color-mix(in srgb, var(--primary) 46%, var(--surface-muted));
+}
+
+.heatTable {
+  border-spacing: 0.3rem;
+}
+.heatTable td {
+  padding-block: 0.43rem;
+  border: 1px solid var(--analytics-line, var(--border));
+  border-radius: 0.45rem;
+}
+.heatTable td[data-empty] {
+  color: var(--text-secondary);
+}
+.heatTable td:hover,
+.hours :global(.heat-cell):hover {
+  outline: 1px solid var(--analytics-ink, var(--accent));
+  outline-offset: -1px;
+}
+.hours {
+  --heat-accent: var(--primary);
+}
+.hours :global(.hour-heatmap) {
+  gap: 0.55rem 0.4rem;
+}
+
+.ranking a {
+  padding-block: 0.12rem;
+}
+.shares .ranking li + li {
+  border-top: 1px solid var(--analytics-line, var(--border));
+  padding-top: 0.65rem;
+}
+.shares .ranking a > span,
+.files .ranking a > span {
+  flex: 1;
+}
+.shares .ranking a > small {
+  text-align: end;
+  min-width: 3.2rem;
+  font-variant-numeric: tabular-nums;
+}
+.files .rankingTrack {
+  margin-inline-start: 1.6rem;
+  height: 0.15rem;
+}
+.indicators.indicators .patterns > .spatial:not(:has(.spatialGrid)) {
+  border-style: dashed;
+}
+@media (prefers-reduced-motion: reduce) {
+  .metricCard {
     transition: none;
   }
 }

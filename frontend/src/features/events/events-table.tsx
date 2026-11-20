@@ -297,11 +297,7 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
       <div className="mt-4 flex min-h-11 items-center justify-between gap-3">
         <p role="status" className="text-xs text-text-secondary">
           {loading ? (
-            <OperixScanLoader
-              size="small"
-              message="Cargando eventos…"
-              announce={false}
-            />
+            null
           ) : error ? (
             "Eventos no disponibles"
           ) : (
@@ -315,11 +311,7 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
         )}
       </div>
       {loading && (
-        <div className="event-loading" aria-hidden="true">
-          {Array.from({ length: 5 }, (_, index) => (
-            <span key={index} />
-          ))}
-        </div>
+        <OperixScanLoader variant="panel" className="dashboard-loading" message="Cargando eventos…" />
       )}
       {error && (
         <div role="alert" className="mb-4 text-sm text-danger">

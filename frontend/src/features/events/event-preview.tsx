@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
 import { useEffect, useState } from "react";
 import { environment } from "@/config/environment";
 import { apiFetch } from "@/services/browser-session";
@@ -39,14 +40,12 @@ export function EventThumbnail({
           onError={() => setState("error")}
         />
       )}
-      {(!url || state !== "ready") && (
-        <span>
-          {!url
-            ? "Sin PNG"
-            : state === "error"
-              ? "PNG no disponible"
-              : "Cargando PNG…"}
-        </span>
+      {!url || state === "error" ? (
+        <span>{url ? "PNG no disponible" : "Sin PNG"}</span>
+      ) : (
+        state === "loading" && (
+          <OperixScanLoader size="small" className="event-thumbnail-scan" />
+        )
       )}
     </figure>
   );
@@ -119,14 +118,14 @@ export function EventPreview({
             aria-label="Clip anotado del evento"
             onError={() => setClipError(true)}
           />
-        ) : (
+        ) : error || detail ? (
           <p role="status">
             {error
               ? "No se pudo consultar el clip."
-              : detail
-                ? "Este evento no tiene clip."
-                : "Consultando disponibilidad…"}
+              : "Este evento no tiene clip."}
           </p>
+        ) : (
+          <OperixScanLoader variant="panel" message="Consultando evidencia…" />
         )}
         {clipError && <p role="status">No se pudo reproducir el clip.</p>}
       </div>

@@ -12,7 +12,13 @@
   align-content: center;
   text-align: center;
 }
+.process {
+  justify-content: flex-start;
+  gap: 0.7rem;
+}
 .root svg {
+  /* Keep the slot and announce the text immediately. Brief requests never flash. */
+  animation: reveal-scan 180ms step-end both;
   width: var(--scan-size);
   height: var(--scan-size);
   flex: none;
@@ -22,7 +28,7 @@
   --scan-size: 1.5rem;
 }
 .small svg {
-  color: inherit;
+  color: var(--operix-scan-color, var(--accent));
 }
 .medium {
   --scan-size: 3.5rem;
@@ -53,6 +59,14 @@
   }
   .detection {
     animation: detect 1.8s ease-in-out infinite;
+  }
+}
+@keyframes reveal-scan {
+  from {
+    visibility: hidden;
+  }
+  to {
+    visibility: visible;
   }
 }
 @keyframes scan {

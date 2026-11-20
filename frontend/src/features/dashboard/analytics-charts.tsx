@@ -181,6 +181,7 @@ export function TemporalHeatmap({ matrix }: { matrix: number[][] }) {
                 {row.map((count, i) => (
                   <td
                     key={slots[i]}
+                    data-empty={count === 0 || undefined}
                     style={intensity(count, max)}
                     title={`${weekdays[day]}, ${slots[i]} h · ${count} eventos`}
                   >

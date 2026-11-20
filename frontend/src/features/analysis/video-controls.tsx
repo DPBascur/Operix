@@ -8,6 +8,7 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
+import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
 import { useEffect, useState, type RefObject } from "react";
 
 function clock(seconds: number) {
@@ -18,8 +19,10 @@ function clock(seconds: number) {
 
 export function VideoControls({
   videoRef,
+  loadingMessage = "Cargando video…",
 }: {
   videoRef: RefObject<HTMLVideoElement | null>;
+  loadingMessage?: string;
 }) {
   const [media, setMedia] = useState({
     time: 0,
@@ -28,6 +31,8 @@ export function VideoControls({
     muted: false,
     volume: 1,
     fullscreen: false,
+    loading: true,
+    failed: false,
   });
   const [message, setMessage] = useState("");
 
@@ -42,9 +47,12 @@ export function VideoControls({
         muted: video.muted,
         volume: video.volume,
         fullscreen: document.fullscreenElement === video.parentElement,
+        loading: video.readyState < HTMLMediaElement.HAVE_METADATA && !video.error,
+        failed: Boolean(video.error),
       });
     const events = [
       "loadedmetadata",
+      "error",
       "durationchange",
       "timeupdate",
       "play",
@@ -67,6 +75,11 @@ export function VideoControls({
       role="group"
       aria-label="Controles del video"
     >
+      {media.failed ? (
+        <p role="status">No se pudo cargar el video.</p>
+      ) : media.loading && (
+        <OperixScanLoader size="small" variant="process" message={loadingMessage} />
+      )}
       <input
         className="operix-video-timeline"
         type="range"

@@ -329,6 +329,10 @@
   padding: 0.1rem 0.25rem;
 }
 
+.event-thumbnail .event-thumbnail-scan {
+  background: transparent;
+  --operix-scan-color: #60bfff;
+}
 .event-thumbnail.is-expanded {
   width: 100%;
   background: var(--analysis-background);

@@ -131,6 +131,7 @@ export function AnalysisWorkspace({
   const [demoSource, setDemoSource] = useState<DemoVideoSource | null>(null);
   const [session, setSession] = useState<AnalysisSessionStatus | null>(null);
   const [busy, setBusy] = useState(true);
+  const [operation, setOperation] = useState("Consultando perfiles y sesión…");
   const [loadRevision, setLoadRevision] = useState(0);
   const [newPoint, setNewPoint] = useState({ x: "50", y: "50" });
   const [error, setError] = useState<string | null>(null);
@@ -224,6 +225,7 @@ export function AnalysisWorkspace({
         );
         if (!initial?.default_demo_video) return;
         setBusy(true);
+        setOperation("Preparando video del perfil…");
         const created = await analysisService.createDemoSession(
           initialProfileRef.current,
           initial.default_demo_video.id,
@@ -312,6 +314,7 @@ export function AnalysisWorkspace({
     if (!selected) return;
     const current = ++generation.current;
     let selectedLocally = false;
+    setOperation("Preparando video…");
     setBusy(true);
     setError(null);
     try {
@@ -400,6 +403,7 @@ export function AnalysisWorkspace({
     if (!session) return;
     videoRef.current?.pause();
     if (videoRef.current) videoRef.current.currentTime = 0;
+    setOperation("Iniciando análisis…");
     const current = ++generation.current;
     setBusy(true);
     setError(null);
@@ -434,6 +438,7 @@ export function AnalysisWorkspace({
 
   async function stop() {
     if (!session) return;
+    setOperation("Deteniendo análisis…");
     const current = ++generation.current;
     setBusy(true);
     try {
@@ -462,6 +467,7 @@ export function AnalysisWorkspace({
     }
     setBusy(true);
     setError(null);
+    setOperation("Guardando zona…");
     await applyZoneRequest(
       generation,
       () => analysisService.updateZone(session.id, { polygon: draft }),
@@ -489,6 +495,7 @@ export function AnalysisWorkspace({
     )
       return;
     changingProfile.current = true;
+    setOperation("Aplicando perfil…");
     setBusy(true);
     setError(null);
     try {
@@ -536,6 +543,7 @@ export function AnalysisWorkspace({
 
   async function clearSession() {
     if (!session) return;
+    setOperation("Limpiando sesión…");
     generation.current += 1;
     setBusy(true);
     setError(null);
@@ -770,7 +778,12 @@ export function AnalysisWorkspace({
                     />
                   </div>
                 )}
-                {!sourceName && !switchingDemo && (
+                {!sourceName && !switchingDemo && busy && (
+                  <div className="analysis-source-loading">
+                    <OperixScanLoader variant="panel" message={operation} />
+                  </div>
+                )}
+                {!sourceName && !switchingDemo && !busy && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-white/80">
                     <Upload size={30} aria-hidden="true" />
                     <p className="text-lg font-semibold">
@@ -841,6 +854,7 @@ export function AnalysisWorkspace({
                   <VideoControls
                     key={`${session.id}-${session.run}-controls`}
                     videoRef={resultVideoRef}
+                    loadingMessage="Cargando resultado anotado…"
                   />
                 )}
                 {showReference && referenceUrl && !editing && !showStream && (
@@ -942,18 +956,21 @@ export function AnalysisWorkspace({
             </div>
 
             <div className="analysis-toolbar">
+              {busy && sourceName && !showStream && !switchingDemo && (
+                <OperixScanLoader variant="process" size="small" message={operation} />
+              )}
               {session &&
                 ["preparing", "processing"].includes(session.state) && (
                   <div className="analysis-toolbar-status">
-                    <strong>
-                      {session.state === "preparing"
-                        ? "Preparando"
-                        : "Procesando"}{" "}
-                      ·{" "}
-                      {percent == null
-                        ? "En preparación"
-                        : `${percent.toFixed(1)} %`}
-                    </strong>
+                    <OperixScanLoader
+                      variant="process"
+                      size="small"
+                      announce={false}
+                      message={session.state === "preparing"
+                        ? "Preparando modelos y video…"
+                        : "Procesando fotogramas…"}
+                    />
+                    {percent !== null && <strong>{percent.toFixed(1)} %</strong>}
                     <span>
                       {session.state === "preparing"
                         ? (session.detail ??
@@ -1212,7 +1229,7 @@ export function AnalysisWorkspace({
             className={`analysis-feedback ${visibleError ? "has-error" : ""}`}
           >
             {busy && !showStream
-              ? "Preparando sesión…"
+              ? null
               : session
                 ? labels[session.state]
                 : sourceName
@@ -1238,6 +1255,7 @@ export function AnalysisWorkspace({
               variant="outline"
               disabled={busy}
               onClick={() => {
+                setOperation("Recuperando análisis…");
                 setBusy(true);
                 setError(null);
                 setLoadRevision((value) => value + 1);
@@ -1283,6 +1301,7 @@ export function AnalysisWorkspace({
                     variant="outline"
                     disabled={busy}
                     onClick={() => {
+                      setOperation("Guardando eventos…");
                       setBusy(true);
                       void analysisService
                         .retryEventPersistence(session.id)

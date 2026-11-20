@@ -332,10 +332,16 @@ export function HistoricalDashboard({
         )}
         <Button
           variant="outline"
-          loading={loading}
+          loading={loading && frequencies?.key === queryKey}
+          disabled={loading}
           onClick={() => setRevision((r) => r + 1)}
         >
-          <RefreshCw size={15} /> {loading ? "Actualizando…" : "Actualizar"}
+          {!(loading && frequencies?.key === queryKey) && (
+            <RefreshCw size={15} />
+          )}
+          {loading && frequencies?.key === queryKey
+            ? "Actualizando…"
+            : "Actualizar"}
         </Button>
       </div>
       <p className="history-source-caption">
@@ -345,9 +351,11 @@ export function HistoricalDashboard({
       </p>
       {!error && frequencies?.key !== queryKey ? (
         <OperixScanLoader
-          className="dashboard-loading"
+          className={`dashboard-loading ${overview ? "" : styles.boardLoading}`}
           variant="panel"
-          message="Consultando el histórico…"
+          message={
+            overview ? "Consultando el histórico…" : "Cargando indicadores…"
+          }
         />
       ) : error ? (
         <div className="feedback-panel" role="alert">
@@ -476,6 +484,11 @@ export function HistoricalDashboard({
                         </p>
                       </div>
                     </div>
+                    <div className={styles.zoneShare} aria-hidden="true">
+                      {summary.zones.map(({ label, count }) => (
+                        <span key={label} style={{ flexGrow: count }} />
+                      ))}
+                    </div>
                     <ol className="zone-ranking">
                       {summary.zones.map((z, i) => (
                         <motion.li
@@ -581,6 +594,7 @@ export function HistoricalDashboard({
                   />
                   <IndicatorRanking
                     title="Eventos por procedencia"
+                    appearance="shares"
                     rows={summary.sources.map(({ label, count }) => ({
                       key: label,
                       label: sourceNames[label as keyof typeof sourceNames],
@@ -591,6 +605,7 @@ export function HistoricalDashboard({
                   />
                   <IndicatorRanking
                     title="Videos con más registros"
+                    appearance="files"
                     rows={summary.videos
                       .slice(0, 10)
                       .map(({ sha, name, count }) => ({
