@@ -211,10 +211,7 @@ test(
           mobile: false,
         });
       sessionId = (
-        await call("Target.attachToTarget", {
-          targetId: target.id,
-          flatten: true,
-        })
+        await call("Target.attachToTarget", { targetId: target.id, flatten: true })
       ).sessionId;
       await call("Page.enable");
       await viewport(1440);
@@ -286,6 +283,7 @@ test(
       await click("Restablecer");
       await wait(text("Contraseña restablecida."));
       await go("/analysis?source=manual");
+      if (await evaluate(text("Descubre cómo funciona Operix"))) await click("Omitir");
       await click("Perfil B Demo B");
       await wait(text("TEST_DATA_B.mp4"));
       await wait(
@@ -322,102 +320,88 @@ test(
       await click("Detalles");
       await wait(text("REGLAS DEL PRÓXIMO ANÁLISIS"));
       await click("Detalles");
+      const beforeConfiguration = await control({ assignedPolicy: true });
       await click("Zonas, calibración y reglas");
       await wait(text("Configuración preparada de esta fuente"));
-      await wait(text("En sesi\u00f3n: configuraci\u00f3n inicial"));
-      assert.equal(
-        await evaluate(
-          "[...document.querySelectorAll('button')].find(b=>b.innerText.includes('Iniciar análisis'))?.disabled",
-        ),
-        true,
-      );
-      await wait(
-        "document.querySelector('[aria-label=\"Zona seleccionada\"]') !== null",
-      );
+      await wait(text("Configuración inicial"));
+      const tab = async (name) => {
+        const selector = `[...document.querySelectorAll('[role=tab]')].find(b=>b.textContent.trim()===${JSON.stringify(name)})`;
+        await wait(`!!(${selector})`);
+        await evaluate(`(${selector}).click()`);
+      };
+      const toggle = `document.querySelector('[aria-label="Configuración espacial"] button[aria-expanded]')`;
+      assert.equal(await evaluate(`(${toggle}).getAttribute('aria-expanded')`), "true");
+      assert.equal(await evaluate("[...document.querySelectorAll('button')].find(b=>b.innerText.includes('Iniciar análisis'))?.disabled"), true);
+      assert.equal(await evaluate("document.querySelectorAll('[role=tabpanel]:not([hidden])').length"), 1);
+      await tab("Zonas");
+      assert.equal(await evaluate("[...document.querySelectorAll('summary')].find(s=>s.textContent.trim()==='Coordenadas avanzadas').parentElement.open"), false);
       await checkButtonThemes(evaluate);
-      await click("Guardar configuración");
-      await wait(text("Configuración guardada para el próximo análisis."));
-      await wait(text("En sesi\u00f3n: revisi\u00f3n 1"));
-      await evaluate(
-        "[...document.querySelectorAll('.spatial-step summary')].find(s=>s.textContent.trim()==='Calibración del suelo').click()",
-      );
-      await click("Calibrar / recalibrar");
-      await wait(
-        text(
-          "Confirmo cámara fija, referencias medidas y zonas revisadas para este encuadre",
-        ),
-      );
-      await wait(
-        "document.querySelector('video[aria-label=\"Referencia de configuración\"]')?.readyState >= 2",
-      );
+      await tab("Calibración");
+      await click("Usar un rectángulo medido");
+      await wait(`document.querySelector('video[aria-label="Referencia de configuración"]')?.readyState >= 2`);
+      assert.equal(await evaluate(`document.querySelector('video[aria-label="Referencia de configuración"]').controls`), false);
       await click("Capturar primer fotograma");
-      await wait(
-        "!!document.querySelector('img[alt=\"Fotograma de la fuente para configuración espacial\"]')",
-      );
-      await evaluate(
-        "document.querySelector('img[alt=\"Fotograma de la fuente para configuración espacial\"]').decode()",
-      );
+      const image = `document.querySelector('img[alt="Fotograma de la fuente para configuración espacial"]')`;
+      await wait(`!!(${image})`);
+      await evaluate(`(${image}).decode()`);
       assert.equal(
-        await evaluate(
-          `(() => {const img=document.querySelector('img[alt="Fotograma de la fuente para configuración espacial"]');const c=document.createElement('canvas');c.width=16;c.height=16;const ctx=c.getContext('2d');ctx.drawImage(img,0,0,16,16);return ctx.getImageData(0,0,16,16).data.some((v,i)=>i%4===3 && v>0);})()`,
-        ),
+        await evaluate(`(() => {const img=${image};const c=document.createElement('canvas');c.width=16;c.height=16;const ctx=c.getContext('2d');ctx.drawImage(img,0,0,16,16);return ctx.getImageData(0,0,16,16).data.some((v,i)=>i%4===3 && v>0);})()`),
         true,
-        "La referencia capturada debe contener imagen, no transparencia",
+        "La referencia capturada contiene una imagen opaca",
       );
-      await evaluate(
-        `(() => {const select=[...document.querySelectorAll('select')].find(s=>[...s.options].some(o=>o.value==='calibration'));select.value='calibration';select.dispatchEvent(new Event('change',{bubbles:true}));})()`,
-      );
-      for (const [x, y] of [
-        [0.1, 0.1],
-        [0.9, 0.1],
-        [0.9, 0.9],
-        [0.1, 0.9],
-      ]) {
-        await evaluate(
-          `(() => {const svg=document.querySelector('svg[aria-label="Editor de puntos"]');const r=svg.getBoundingClientRect();svg.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,clientX:r.left+r.width*${x},clientY:r.top+r.height*${y}}));})()`,
-        );
+      for (const [x, y] of [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]]) {
+        await evaluate(`(() => {const svg=document.querySelector('svg[aria-label="Editor de puntos"]');const r=svg.getBoundingClientRect();svg.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,clientX:r.left+r.width*${x},clientY:r.top+r.height*${y}}));})()`);
       }
-      await wait(text("Referencia 4"));
-      const previousTheme = await evaluate(
-        "document.documentElement.dataset.theme",
-      );
-      await evaluate("document.documentElement.dataset.theme='light'");
-      await viewport(390);
-      assert.equal(
-        await evaluate("document.documentElement.scrollWidth <= innerWidth"),
-        true,
-      );
+      await wait(text("4 de 4 referencias marcadas"));
+      await evaluate(`void (window.videoBeforeToggle = document.querySelector('.analysis-stage video'))`);
+      await evaluate(`(${toggle}).focus()`);
+      assert.equal(await evaluate(`document.activeElement === (${toggle})`), true);
+      for (const expanded of ["false", "true"]) {
+        await call("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", text: "\r", windowsVirtualKeyCode: 13 });
+        await call("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+        await wait(`(${toggle}).getAttribute('aria-expanded')===${JSON.stringify(expanded)}`);
+        assert.equal(await evaluate(`document.activeElement === (${toggle})`), true);
+        assert.equal(await evaluate("window.videoBeforeToggle === document.querySelector('.analysis-stage video')"), true);
+      }
+      await wait(text("4 de 4 referencias marcadas"));
+      await click("Introducir medidas");
+      const setField = async (label, value) => {
+        await evaluate(`(() => { const input=[...document.querySelectorAll('label')].find(l=>l.textContent.trim()===${JSON.stringify(label)}).querySelector('input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(value)}); input.dispatchEvent(new Event('input',{bubbles:true})); })()`);
+      };
+      await setField("Ancho, lado 1–2 (m)", "4");
+      await setField("Fondo, lado 2–3 (m)", "6");
+      await click("Revisar área de medición");
+      await wait(text("Área de referencia propuesta"));
+      assert.equal(await evaluate("[...document.querySelectorAll('button')].find(b=>b.textContent==='Continuar al guardado').disabled"), true);
+      await evaluate("[...document.querySelectorAll('label')].find(l=>l.textContent.includes('Confirmo cámara fija')).querySelector('input').click()");
+      await evaluate("[...document.querySelectorAll('label')].find(l=>l.textContent.includes('Comprobar el encuadre automáticamente')).querySelector('input').click()");
+      await click("Continuar al guardado");
+      await click("Ir a revisión final");
+      await wait(text("Política fixture · versión 3"));
+      await wait(text("Ingreso observado · v2 · Habilitada"));
+      await wait(text("Reglas locales de respaldo"));
+      assert.equal((await control()).configurationReads, beforeConfiguration.configurationReads + 1);
+      const previousTheme = await evaluate("document.documentElement.dataset.theme");
       for (const width of [390, 1440]) {
         await viewport(width);
-        await evaluate(
-          "document.querySelector('[aria-label=\"Configuración espacial\"]').scrollIntoView({block:'start'})",
-        );
+        await evaluate(`document.documentElement.dataset.theme=${JSON.stringify(width === 390 ? "light" : "dark")}`);
+        await pause(350);
+        assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth"), true);
+        await evaluate("document.querySelector('[aria-label=\"Configuración espacial\"]').scrollIntoView({block:'start'})");
         if (process.env.OPERIX_BROWSER_ARTIFACT_DIR) {
           const shot = await call("Page.captureScreenshot", { format: "png" });
-          await writeFile(
-            path.join(
-              process.env.OPERIX_BROWSER_ARTIFACT_DIR,
-              `spatial-editor-${width}.png`,
-            ),
-            Buffer.from(shot.data, "base64"),
-          );
+          await writeFile(path.join(process.env.OPERIX_BROWSER_ARTIFACT_DIR, `spatial-editor-${width}.png`), Buffer.from(shot.data, "base64"));
         }
       }
-      await evaluate(
-        `document.documentElement.dataset.theme=${JSON.stringify(previousTheme)}`,
-      );
-      const discard = new Promise((resolve) => {
-        discardConfirmation = resolve;
-      });
-      const cancelEdit = click("Cancelar edición");
-      const confirmation = await Promise.race([discard, cancelEdit.then(() => null)]);
-      if (confirmation) {
-        assert.equal(confirmation.type, "confirm");
-        assert.equal(confirmation.message, "¿Descartar los cambios espaciales sin guardar?");
-        await call("Page.handleJavaScriptDialog", { accept: true });
-      }
-      await cancelEdit;
-      discardConfirmation = undefined;
+      await evaluate(previousTheme ? `document.documentElement.dataset.theme=${JSON.stringify(previousTheme)}` : "delete document.documentElement.dataset.theme");
+      await click("Guardar configuración");
+      await wait(text("Configuración guardada para el próximo análisis."));
+      const configured = (await control()).ids.at(-1);
+      const geometry = await evaluate(`fetch("/api/v1/analysis/sessions/${configured}/configuration/").then(r => r.json())`);
+      assert.deepEqual(geometry.document.calibration.ground_points_m, [[0, 0], [4, 0], [4, 6], [0, 6]]);
+      assert.equal(geometry.document.calibration.framing_reference, "first_frame_orb_affine_v1");
+      await click("Zonas, calibración y reglas");
+      await control({ assignedPolicy: false });
       // Demo → archivo propio: la API entrega una zona vacía, sin polígonos ocultos.
       await evaluate(
         `(async()=>{const video=document.querySelector('video'); const blob=await (await fetch(video.src)).blob(); const dt=new DataTransfer();dt.items.add(new File([blob], 'TEST_DATA_custom.mp4', {type:'video/mp4'}));const input=document.querySelector('input[type=file]');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`,
@@ -502,8 +486,12 @@ test(
       assert.equal(await evaluate("window.sidebarVideo === document.querySelector('.analysis-stage video')"), true);
       assert.equal((await control()).created, sizingSession.created);
       assert.equal((await control()).deleted, sizingSession.deleted);
-      await evaluate("document.querySelector('#operix-sidebar a[href=\"/analysis\"]').focus()");
-      await wait("document.querySelector('[role=tooltip]')?.textContent==='Análisis'");
+      await call("Page.bringToFront");
+      const compactAnalysisLink = "document.querySelector('#operix-sidebar a[href=\"/analysis\"]')";
+      await evaluate("document.querySelector('button[aria-label=\"Expandir barra lateral\"]').focus()");
+      await evaluate(`${compactAnalysisLink}.focus()`);
+      await wait(`document.activeElement===${compactAnalysisLink}`);
+      await wait("[...document.querySelectorAll('[role=tooltip]')].some(tooltip=>tooltip.textContent==='Análisis')");
       await wait("document.querySelector('#operix-sidebar a[aria-current=page]')?.pathname==='/analysis'");
       await evaluate(`(${accountTrigger}).click()`);
       await wait("!!document.querySelector('#operix-sidebar a[href=\"/account\"]')");
@@ -540,6 +528,7 @@ test(
       await wait("document.querySelector('video').currentTime<.1");
       await click("Editar zona");
       await click("Nueva zona");
+      await evaluate("[...document.querySelectorAll('summary')].find(s=>s.offsetParent && s.textContent.trim()==='Coordenadas avanzadas').click()");
       await checkButtonThemes(evaluate);
       const input = async (label, value) => {
         await evaluate(
@@ -843,13 +832,48 @@ test(
       await credentials("TEST_ONLY_PASSWORD");
       await wait("location.pathname==='/'");
       assert.equal(await evaluate("location.origin"), new URL(base).origin);
+      // Fuentes y Zonas identifican la sesión y la huella de forma independiente.
+      await evaluate("sessionStorage.clear()");
+      await go("/analysis?profile=B");
+      await wait("document.querySelector('.analysis-stage video')?.readyState >= 1");
+      const beforeRequest = await control();
+      const previous = beforeRequest.ids.at(-1);
+      await click("Iniciar análisis");
+      await wait(text("Preparando modelos y video"));
+      const expectedSha = "0".repeat(64);
+      await go(`/analysis?profile=C&configure=1&sha=${expectedSha}`);
+      await wait(text("Perfil C solicitado."));
+      await wait(`document.querySelector('.analysis-profile[aria-pressed="true"]')?.textContent.includes('Perfil B')`);
+      assert.equal((await control()).deleted, beforeRequest.deleted);
+      assert.equal(await evaluate(`!!document.querySelector('[aria-label="Configuración espacial"] button[aria-expanded="true"]')`), false);
+      await click("Preparar perfil C");
+      await wait(`document.querySelector('.analysis-profile[aria-pressed="true"]')?.textContent.includes('Perfil C')`);
+      await wait(`(${toggle})?.getAttribute('aria-expanded') === 'true'`);
+      const prepared = await control();
+      assert.ok(prepared.ids.includes(previous), "Preparar la fuente pedida conserva la sesión anterior");
+      const chosen = prepared.ids.at(-1);
+      assert.equal(prepared.requestedSourceSha, expectedSha);
+      await go(`/analysis?profile=B&configure=1&session=${previous}&sha=${expectedSha}`);
+      await wait(`document.querySelector('.analysis-profile[aria-pressed="true"]')?.textContent.includes('Perfil B')`);
+      await wait(`(${toggle})?.getAttribute('aria-expanded') === 'true'`);
+      assert.ok((await control()).ids.includes(chosen), "Cambiar la referencia de la pestaña conserva la otra sesión");
+      await go(`/analysis?profile=C&configure=1&source=manual&sha=${"1".repeat(64)}`);
+      await wait(text("Selecciona el video original de la revisión"));
+      const beforeMismatch = await control();
+      await evaluate(`(async()=>{const video=document.querySelector('video');const blob=await(await fetch(video.src)).blob();const dt=new DataTransfer();dt.items.add(new File([blob], 'TEST_WRONG_SOURCE.mp4', {type:'video/mp4'}));const input=document.querySelector('input[type=file]');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+      await wait(text("El archivo elegido corresponde a otra fuente"));
+      const afterMismatch = await control();
+      assert.deepEqual(afterMismatch.ids, beforeMismatch.ids);
+      assert.equal(afterMismatch.deleted, beforeMismatch.deleted + 1);
+      assert.equal(afterMismatch.requestedSourceSha, "1".repeat(64));
+      assert.equal(await evaluate(`(${toggle})?.getAttribute('aria-expanded')`), "false");
       await control({ demoCMissing: true });
       await evaluate("sessionStorage.clear()");
       await go("/analysis?profile=B");
       await wait("!!document.querySelector('.analysis-stage video')");
       const beforeMissingDemo = await control();
       await evaluate("document.querySelectorAll('.analysis-profiles button')[2].click()");
-      await wait(text("El Perfil C no tiene una demo disponible"));
+      await wait(text("El Perfil C no tiene una demo configurada"));
       assert.equal((await control()).deleted, beforeMissingDemo.deleted);
       assert.equal(await evaluate(
         "document.querySelectorAll('.analysis-profiles button')[1].getAttribute('aria-pressed')",

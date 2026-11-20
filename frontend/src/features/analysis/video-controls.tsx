@@ -11,6 +11,8 @@ import {
 import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
 import { useEffect, useState, type RefObject } from "react";
 
+import styles from "./analysis.module.css";
+
 function clock(seconds: number) {
   const total = Math.floor(seconds);
   const minutes = Math.floor(total / 60);
@@ -47,11 +49,16 @@ export function VideoControls({
         muted: video.muted,
         volume: video.volume,
         fullscreen: document.fullscreenElement === video.parentElement,
-        loading: video.readyState < HTMLMediaElement.HAVE_METADATA && !video.error,
+        loading:
+          video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA && !video.error,
         failed: Boolean(video.error),
       });
     const events = [
+      "loadstart",
       "loadedmetadata",
+      "loadeddata",
+      "canplay",
+      "emptied",
       "error",
       "durationchange",
       "timeupdate",
@@ -71,14 +78,22 @@ export function VideoControls({
 
   return (
     <div
-      className="operix-video-controls"
+      className={`operix-video-controls ${styles.mediaControls}`}
       role="group"
       aria-label="Controles del video"
     >
       {media.failed ? (
-        <p role="status">No se pudo cargar el video.</p>
-      ) : media.loading && (
-        <OperixScanLoader size="small" variant="process" message={loadingMessage} />
+        <p role="status">
+          No se pudo leer el video. Prueba otra fuente o vuelve a cargarlo.
+        </p>
+      ) : (
+        media.loading && (
+          <OperixScanLoader
+            size="small"
+            variant="process"
+            message={loadingMessage}
+          />
+        )
       )}
       <input
         className="operix-video-timeline"
@@ -104,6 +119,7 @@ export function VideoControls({
         <button
           type="button"
           aria-label={media.playing ? "Pausar video" : "Reproducir video"}
+          disabled={media.loading || media.failed}
           onClick={() => {
             const video = videoRef.current;
             if (!video) return;
@@ -124,6 +140,7 @@ export function VideoControls({
           <button
             type="button"
             aria-label={media.muted ? "Activar sonido" : "Silenciar video"}
+            disabled={media.failed}
             onClick={() => {
               if (videoRef.current)
                 videoRef.current.muted = !videoRef.current.muted;
@@ -138,6 +155,7 @@ export function VideoControls({
           <input
             type="range"
             aria-label="Volumen del video"
+            disabled={media.failed}
             min={0}
             max={1}
             step={0.05}

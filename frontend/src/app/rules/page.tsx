@@ -1,5 +1,6 @@
 "use client";
 
+import { PolicyEditor } from "@/features/operations/policy-editor";
 import { PageTitle } from "@/components/layout/page-title";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -34,17 +35,22 @@ export default function RulesPage() {
     <div className="page-wrap operational-page">
       <header className="compact-page-header app-page-heading">
         <div>
-          <PageTitle>Reglas por perfil</PageTitle>
+          <PageTitle>Reglas operacionales</PageTitle>
           <p className="compact-page-copy">
-            Configuración base del servidor. Consulta en{" "}
+            Crea plantillas, combínalas en conjuntos y asígnalos a una fuente.
+            Consulta en{" "}
             <Link href="/analysis" className="underline">
               Análisis
             </Link>{" "}
-            el snapshot asociado a la fuente y ejecución.
+            la configuración asociada a cada ejecución.
           </p>
         </div>
-        <span className="source-indicator">Solo lectura</span>
       </header>
+      <PolicyEditor />
+      <h2 className="mt-6 text-lg font-semibold">Reglas por perfil</h2>
+      <p className="text-sm text-text-secondary">
+        Configuración base cuando no hay un conjunto asignado.
+      </p>
       {failed && (
         <p role="alert">No se pudo consultar la configuración del servidor.</p>
       )}

@@ -1,0 +1,84 @@
+.navigation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block-end: 1rem;
+}
+
+.columns {
+  display: grid;
+  gap: 1rem;
+  align-items: start;
+}
+
+.panel {
+  min-width: 0;
+  padding: clamp(1rem, 2.25vw, 1.5rem);
+  overflow-wrap: anywhere;
+}
+
+.list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.rows {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.rows li + li {
+  border-top: 1px solid var(--border);
+}
+
+.row {
+  padding-block: 0.7rem;
+  display: flex;
+  gap: 0.5rem 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.form {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.form label {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.form input:not([type="checkbox"]),
+.form select {
+  min-width: 0;
+  width: 100%;
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  gap: 0.75rem;
+}
+
+.choices {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+}
+
+.choices label {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.5rem;
+}
+
+@media (min-width: 1000px) {
+  .columns {
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  }
+}

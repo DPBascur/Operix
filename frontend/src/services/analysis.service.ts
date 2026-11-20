@@ -195,10 +195,15 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 export const analysisService = {
   getOverview: () => dataClient.getAnalysisOverview(),
   getDashboardSummary: () => dataClient.getDashboardSummary(),
-  createSession(video: File, profile: AnalysisProfile) {
+  createSession(
+    video: File,
+    profile: AnalysisProfile,
+    expectedSha256?: string,
+  ) {
     const body = new FormData();
     body.append("video", video);
     body.append("profile", profile);
+    if (expectedSha256) body.append("source_sha256", expectedSha256);
     return request<AnalysisSessionStatus>(sessionUrl(), {
       method: "POST",
       body,
@@ -209,11 +214,19 @@ export const analysisService = {
       `${apiBaseUrl()}/analysis/profiles/`,
     );
   },
-  createDemoSession(profile: AnalysisProfile, demoSourceId: string) {
+  createDemoSession(
+    profile: AnalysisProfile,
+    demoSourceId: string,
+    expectedSha256?: string,
+  ) {
     return request<AnalysisSessionStatus>(sessionUrl(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ profile, demo_source_id: demoSourceId }),
+      body: JSON.stringify({
+        profile,
+        demo_source_id: demoSourceId,
+        source_sha256: expectedSha256,
+      }),
     });
   },
   getAnalysisStatus(id: string) {

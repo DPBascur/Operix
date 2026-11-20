@@ -63,6 +63,9 @@ export async function startFixtureApi(port = 8000) {
   let directory = [adminRow];
   const directoryPasswords = new Map();
   let demoCMissing = false;
+  let assignedPolicy = false;
+  let configurationReads = 0;
+  let requestedSourceSha = null;
   const csrf = "TEST_ONLY_CSRF";
   const run = "00000000-0000-4000-8000-000000000055";
   const event = {
@@ -161,9 +164,14 @@ export async function startFixtureApi(port = 8000) {
           deleted = 0;
           failNext = false;
           demoCMissing = false;
+          assignedPolicy = false;
+          configurationReads = 0;
+          requestedSourceSha = null;
         }
         if (typeof body.demoCMissing === "boolean")
           demoCMissing = body.demoCMissing;
+        if (typeof body.assignedPolicy === "boolean")
+          assignedPolicy = body.assignedPolicy;
         if (body.failNext) failNext = true;
         if (body.expire) signedIn = false;
         if (body.failHistory) failHistory = true;
@@ -176,6 +184,8 @@ export async function startFixtureApi(port = 8000) {
           created: sequence,
           deleted,
           waitingStatus,
+          configurationReads,
+          requestedSourceSha,
           waitingZones: pendingZones.length,
           ids: [...sessions.keys()],
         });
@@ -316,6 +326,10 @@ export async function startFixtureApi(port = 8000) {
           body.profile ??
           raw.match(/name="profile"\r\n\r\n([ABC])/)?.[1] ??
           "A";
+        requestedSourceSha =
+          body.source_sha256 ??
+          raw.match(/name="source_sha256"\r\n\r\n([a-f0-9]{64})/)?.[1] ??
+          null;
         const session = {
           id,
           state: "ready",
@@ -385,9 +399,28 @@ export async function startFixtureApi(port = 8000) {
               revision: session.spatial_revision,
             });
           }
+          configurationReads++;
           return send({
             document,
             saved: session.spatialDocument ?? null,
+            ...(assignedPolicy
+              ? {
+                  policy: {
+                    rule_set: { name: "Política fixture", version: 3 },
+                  },
+                  effective_rules: [
+                    {
+                      rule_id: "regla_fixture_asignada",
+                      version: 2,
+                      enabled: true,
+                      parameters: {
+                        kind: "zone_entry",
+                        zone_id: session.zone.zone_id,
+                      },
+                    },
+                  ],
+                }
+              : { policy: null, effective_rules: document.rules }),
             revision: session.spatial_revision ?? 0,
           });
         }

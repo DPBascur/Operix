@@ -1,0 +1,400 @@
+.editor {
+  display: grid;
+  gap: 0.75rem;
+  width: min(100%, 75rem);
+  margin: 1rem auto 0;
+}
+
+.editor [hidden],
+.editor[hidden] {
+  display: none;
+}
+
+.editorHeader,
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+}
+
+.trigger svg:last-child {
+  rotate: 0deg;
+}
+
+.trigger[aria-expanded="true"] svg:last-child {
+  rotate: 180deg;
+}
+
+.draftStatus,
+.contextFacts {
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+}
+
+.contextFacts {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.editorBody {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}
+
+.editorBody h2 {
+  margin: 0;
+  padding: 1rem clamp(0.75rem, 3vw, 1.5rem) 0.5rem;
+  font-weight: 650;
+  font-size: 1.05rem;
+}
+
+.tasks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  padding: 0 clamp(0.75rem, 3vw, 1.5rem);
+  border-bottom: 1px solid var(--border);
+}
+
+.tasks button {
+  min-height: 2.75rem;
+  padding: 0.25rem 0.3rem;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: start;
+  cursor: pointer;
+}
+
+.tasks button:hover {
+  color: var(--foreground);
+  background: var(--surface-muted);
+}
+
+.tasks button[aria-selected="true"] {
+  border-color: var(--primary);
+  color: var(--foreground);
+}
+
+.taskFieldset {
+  min-inline-size: 0;
+  padding: clamp(0.75rem, 3vw, 1.5rem);
+}
+
+.taskBody,
+.coordinates {
+  display: grid;
+  min-width: 0;
+  gap: 0.75rem;
+}
+
+.taskBody h3 {
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.taskBody p,
+.notice,
+.error,
+.resultLegend p,
+.request p {
+  max-width: 70ch;
+  overflow-wrap: anywhere;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.taskBody input:not([type="checkbox"], [type="range"]),
+.taskBody select {
+  display: block;
+  width: 100%;
+  max-width: 36rem;
+  margin-top: 0.25rem;
+}
+
+.taskBody label,
+.coordinates label {
+  min-width: 0;
+  font-size: 0.875rem;
+}
+
+.fieldGrid {
+  display: grid;
+  gap: 0.6rem 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr));
+  max-width: 36rem;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
+  gap: 0.75rem 1rem;
+  margin: 0;
+}
+
+.facts dt {
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+}
+
+.facts dd {
+  margin: 0.2rem 0 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.advanced,
+.legacyCoordinates,
+.resultLegend {
+  border-top: 1px solid var(--border);
+}
+
+.advanced summary,
+.legacyCoordinates summary,
+.resultLegend summary {
+  cursor: pointer;
+  padding: 0.65rem 0.25rem;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.coordinates {
+  padding: 0.25rem 0.25rem 0.65rem;
+}
+
+.legacyCoordinates,
+.resultLegend {
+  margin: 0.5rem 0;
+  padding-inline: 0.65rem;
+}
+
+.request,
+.notice,
+.error {
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--surface-muted);
+  color: var(--foreground);
+}
+
+.request {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin-block: 0.75rem;
+}
+
+.error,
+.notice {
+  margin-block: 0.65rem 0.25rem;
+}
+
+.error {
+  border-color: var(--danger);
+}
+
+.guideSteps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.9rem;
+  margin: 0;
+  padding: 0 0 0.6rem;
+  list-style: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+}
+
+.guideSteps [aria-current] {
+  color: var(--foreground);
+  font-weight: 700;
+}
+
+.check {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.plan {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.plan svg {
+  display: block;
+  width: min(100%, 28rem);
+  height: 9rem;
+  margin-block: 0.4rem;
+  background: var(--surface-muted);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+}
+
+.frameEditor {
+  display: grid;
+  justify-items: start;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.referencePlayer,
+.stillFrame {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+  background: #080b0e;
+  overflow: hidden;
+  border-radius: var(--radius-panel);
+}
+
+.referencePlayer video,
+.stillFrame img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: min(58dvh, 36rem);
+  object-fit: contain;
+}
+
+.referencePlayer > :global(.operix-video-controls) {
+  position: relative;
+  background: #111418;
+}
+
+.referencePlayer:fullscreen {
+  width: 100%;
+  height: 100%;
+}
+
+.referencePlayer:fullscreen video {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+}
+
+.referencePlayer:fullscreen > :global(.operix-video-controls) {
+  position: absolute;
+}
+
+.pointOverlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.floorArea,
+.otherZone {
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+  stroke-width: 2px;
+  fill: rgb(47 209 200 / 0.16);
+  stroke: #2fd1c8;
+}
+
+.otherZone {
+  stroke: #afbbc7;
+  fill: none;
+  stroke-dasharray: 3 4;
+}
+
+.vertex {
+  cursor: grab;
+  fill: white;
+  stroke: #087c79;
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+}
+
+.vertex:hover,
+.vertex[data-selected="true"],
+.vertex:focus-visible {
+  fill: #2fd1c8;
+  stroke: #111418;
+}
+
+.referenceMarker {
+  pointer-events: none;
+}
+
+.referenceMarker text {
+  font-size: 4px;
+  font-weight: 700;
+  text-anchor: middle;
+  fill: white;
+  stroke: #0a0c0e;
+  stroke-width: 0.75px;
+  paint-order: stroke;
+}
+
+.editor :focus-visible,
+.resultLegend :focus-visible,
+.legacyCoordinates :focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+:global(.analysis-toolbar) .editZone:global(.button) {
+  background: var(--surface);
+  color: var(--foreground);
+  border-color: var(--border-strong);
+}
+
+:global(.analysis-toolbar) .editZone:global(.button):enabled:hover {
+  background: color-mix(in srgb, var(--surface) 88%, var(--primary));
+  border-color: var(--primary);
+  color: var(--foreground);
+}
+
+:global(.analysis-toolbar) .editZone:global(.button):enabled:active {
+  background: color-mix(in srgb, var(--surface) 78%, var(--primary));
+}
+
+:global(.analysis-toolbar) .editZone:global(.button):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
+:global(.analysis-toolbar) .editZone:global(.button):disabled {
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  border-color: var(--border);
+  cursor: not-allowed;
+}
+
+.mediaControls :is(button, input):focus-visible {
+  outline: 2px solid #93b7ff;
+  outline-offset: 2px;
+}
+
+.mediaControls button:disabled,
+.mediaControls input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.stage:fullscreen :is(video, .zoneOverlay) {
+  inset: 50% auto auto 50%;
+  width: min(100vw, calc(100dvh * var(--analysis-source-ratio)));
+  height: min(100dvh, calc(100vw / var(--analysis-source-ratio)));
+  transform: translate(-50%, -50%);
+}
+
+.policyReview {
+  display: grid;
+  gap: 0.5rem;
+  padding-block: 0.85rem;
+  border-block: 1px solid var(--border);
+}

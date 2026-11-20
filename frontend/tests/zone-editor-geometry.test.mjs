@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   pointInFrame,
   removeVertex,
+  validPolygon,
 } from "../src/features/analysis/zone-editor-geometry.ts";
 
 const sample = (clientX, clientY, width = 200, height = 100) => ({
@@ -60,4 +61,51 @@ test("protege el mínimo de tres puntos e ignora selecciones inválidas", () => 
   const square = [...triangle, [0.5, 0.5]];
   for (const index of [null, -1, 4, 0.5])
     assert.equal(removeVertex(square, index), square);
+});
+
+test("rechaza coordenadas incompletas, cruces y lados que tocan un vértice ajeno", () => {
+  assert.equal(
+    validPolygon([
+      [0, 0],
+      [1, 0],
+      [1, 1],
+      [0, 1],
+    ]),
+    true,
+  );
+  assert.equal(
+    validPolygon([
+      [0, 0],
+      [1, 1],
+      [0, 1],
+      [1, 0],
+    ]),
+    false,
+  );
+  assert.equal(
+    validPolygon([
+      [0, 0],
+      [1, 0],
+      [0.5, 0],
+      [1, 1],
+      [0, 1],
+    ]),
+    false,
+  );
+  assert.equal(
+    validPolygon([
+      [0, 0],
+      [1, 0],
+      [Number.NaN, 1],
+    ]),
+    false,
+  );
+  assert.equal(
+    validPolygon([
+      [0, 0],
+      [1.1, 0],
+      [1, 1],
+    ]),
+    false,
+  );
 });

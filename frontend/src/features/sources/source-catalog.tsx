@@ -86,6 +86,7 @@ export function SourceCatalog({ compact = false }: { compact?: boolean }) {
   const [profiles, setProfiles] = useState<AnalysisProfileDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -104,7 +105,7 @@ export function SourceCatalog({ compact = false }: { compact?: boolean }) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [attempt]);
 
   const demoSources = useMemo(
     () =>
@@ -144,7 +145,7 @@ export function SourceCatalog({ compact = false }: { compact?: boolean }) {
             </p>
           </div>
           <div className="analysis-launch-actions">
-            {(["A", "B", "C"] as AnalysisProfile[]).map((profile) => (
+            {demoSources.map(({ profile }) => (
               <Link key={profile} href={`/analysis?profile=${profile}`}>
                 <Play aria-hidden="true" /> Demo {profile}
               </Link>
@@ -175,14 +176,43 @@ export function SourceCatalog({ compact = false }: { compact?: boolean }) {
         {loading ? (
           <OperixScanLoader variant="panel" message="Cargando fuentes…" />
         ) : error ? (
-          <p className="inline-message is-error" role="alert">
-            {error}
-          </p>
+          <div className="inline-message is-error">
+            <p role="alert">{error}</p>
+            <button
+              type="button"
+              className="button button-outline"
+              onClick={() => {
+                setError(null);
+                setLoading(true);
+                setAttempt((attempt) => attempt + 1);
+              }}
+            >
+              Reintentar consulta
+            </button>
+          </div>
         ) : (
           <div className="source-grid">
             {demoSources.map(({ source, profile }) => (
               <SourceCard key={source.id} source={source} profile={profile} />
             ))}
+            {!compact &&
+              profiles
+                .filter((profile) => !profile.default_demo_video)
+                .map((profile) => (
+                  <article
+                    className="surface-card grid gap-2 p-4"
+                    key={profile.id}
+                  >
+                    <h3 className="font-semibold">
+                      Demo {profile.id} · {profile.display_name}
+                    </h3>
+                    <p className="text-text-secondary">
+                      El servidor no tiene un archivo de demostración disponible
+                      para este perfil. Puedes cargar un video compatible desde
+                      Análisis.
+                    </p>
+                  </article>
+                ))}
             {!compact && <SourceCard source={localSource} />}
           </div>
         )}

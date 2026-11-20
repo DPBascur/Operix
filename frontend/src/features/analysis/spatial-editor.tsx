@@ -1,13 +1,12 @@
 "use client";
-/* eslint-disable @next/next/no-img-element -- Fotograma local capturado del video autorizado. */
+
 import { useEffect, useId, useRef, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ChevronDown, Waypoints } from "lucide-react";
-import { enterTransition } from "@/lib/motion/presets";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/services/browser-session";
 import {
   analysisService,
+  AnalysisRequestError,
   type AnalysisSessionStatus,
   type MotionSettings,
   type RelationSettings,
@@ -15,6 +14,20 @@ import {
 import { environment } from "@/config/environment";
 
 import { MotionConfiguration } from "./motion-configuration";
+import { RuleConfiguration } from "./rule-configuration";
+import {
+  CalibrationGuide,
+  calibrationCheck,
+  type Calibration,
+} from "./calibration-guide";
+import { SpatialFrame } from "./spatial-frame";
+import { analysisError } from "./analysis-feedback";
+import {
+  pointInFrame,
+  removeVertex,
+  validPolygon,
+} from "./zone-editor-geometry";
+import styles from "./analysis.module.css";
 
 type Point = [number, number];
 type Zone = {
@@ -30,19 +43,6 @@ type Rule = {
   enabled: boolean;
   parameters: Record<string, string | number>;
 };
-type Calibration = {
-  image_points: Point[];
-  ground_points_m: Point[];
-  status: string;
-  source_sha256: string;
-  version: number;
-  calibrated_at: string;
-  units: string;
-  zones_reviewed: boolean;
-  framing_reference?: "first_frame_orb_affine_v1";
-  homography?: number[][];
-  max_reference_error_m?: number;
-};
 type Document = {
   schema_version: number;
   view_id: string;
@@ -53,7 +53,13 @@ type Document = {
   motion?: MotionSettings;
   relations?: RelationSettings;
 };
-type Loaded = { document: Document; saved: Document | null; revision: number };
+type Loaded = {
+  document: Document;
+  saved: Document | null;
+  revision: number;
+  effective_rules?: Rule[];
+  policy?: { rule_set: { name: string; version: number } } | null;
+};
 const purposes = {
   observation: "Observación",
   restricted: "Área restringida",
@@ -68,75 +74,57 @@ const kinds = {
   zone_coexistence: "Presencia simultánea",
 };
 
-function GroundPreview({ calibration }: { calibration: Calibration }) {
-  const h = calibration.homography;
-  if (!h || calibration.status !== "valid") return null;
-  const projected = calibration.image_points.map(([x, y]) => {
-    const [px, py, w] = h.map((row) => row[0] * x + row[1] * y + row[2]);
-    return [px / w, py / w];
-  });
-  if (projected.length < 4 || projected.some((p) => !p.every(Number.isFinite)))
-    return null;
-  const xs = projected.map(([x]) => x);
-  const ys = projected.map(([, y]) => -y);
-  const left = Math.min(...xs);
-  const top = Math.min(...ys);
-  const width = Math.max(...xs) - left;
-  const height = Math.max(...ys) - top;
-  const marker = Math.max(width, height) / 40;
-  if (!(marker > 0)) return null;
-  return (
-    <figure className="m-0 grid gap-2 text-sm">
-      <figcaption>
-        Vista en planta de las referencias guardadas (m)
-        {calibration.max_reference_error_m != null &&
-          ` · Residuo máximo del ajuste: ${calibration.max_reference_error_m.toFixed(3)} m`}
-      </figcaption>
-      <svg
-        role="img"
-        aria-label="Proyección de las referencias numeradas sobre el plano del suelo"
-        className="h-40 w-full max-w-md rounded-control border border-border text-primary"
-        viewBox={`${left - marker * 3} ${top - marker * 3} ${width + marker * 6} ${height + marker * 6}`}
-      >
-        {projected.map((_, i) => (
-          <g key={i} fill="currentColor">
-            <circle cx={xs[i]} cy={ys[i]} r={marker * 0.5} />
-            <text x={xs[i] + marker} y={ys[i]} fontSize={marker * 1.6}>
-              {i + 1}
-            </text>
-          </g>
-        ))}
-      </svg>
-    </figure>
-  );
-}
+const tasks = [
+  "Escenario",
+  "Zonas",
+  "Calibración",
+  "Reglas",
+  "Revisar configuración",
+] as const;
 
 export function SpatialEditor({
   session,
   onSaved,
   onEditingChange,
+  onDirtyChange,
+  unavailable,
+  autoOpen,
+  onAutoOpen,
 }: {
   session: AnalysisSessionStatus;
   onSaved: (s: AnalysisSessionStatus) => void;
   onEditingChange: (editing: boolean) => void;
+  onDirtyChange: (dirty: boolean) => void;
+  unavailable: boolean;
+  autoOpen: boolean;
+  onAutoOpen: () => void;
 }) {
   const [data, setData] = useState<Loaded | null>(null);
   const panelId = useId();
   const trigger = useRef<HTMLButtonElement>(null);
-  const reducedMotion = useReducedMotion();
   const [dirty, setDirty] = useState(false);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [task, setTask] = useState(0);
+  const [message, setMessage] = useState("");
+  const [selected, setSelected] = useState(0);
+  const [vertex, setVertex] = useState<number | null>(null);
+  const [undo, setUndo] = useState<Point[][]>([]);
+  const drag = useRef<number | null>(null);
+  const tabs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [initial, setInitial] = useState<Document | null>(null);
+  const [editorRevision, setEditorRevision] = useState(0);
+
   useEffect(() => {
     onEditingChange(open);
     return () => onEditingChange(false);
   }, [open, onEditingChange]);
-  const [message, setMessage] = useState("");
-  const [frame, setFrame] = useState("");
-  const [firstFrame, setFirstFrame] = useState(false);
-  const [selected, setSelected] = useState(0);
-  const [mode, setMode] = useState("zone");
-  const video = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    onDirtyChange(dirty);
+    return () => onDirtyChange(false);
+  }, [dirty, onDirtyChange]);
+
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
@@ -153,9 +141,12 @@ export function SpatialEditor({
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(30000),
     });
-    const value = await response.json();
-    if (!response.ok)
-      throw new Error(value.detail ?? "No se pudo guardar la configuración.");
+    const value = await response.json().catch(() => null);
+    if (!response.ok || !value)
+      throw new AnalysisRequestError(
+        value?.detail ?? "El servicio no devolvió la configuración.",
+        response.status,
+      );
     return value;
   }
   function update(next: Document) {
@@ -192,661 +183,729 @@ export function SpatialEditor({
   }
   const doc = data?.document;
   const zone = doc?.zones[selected];
-  const locked = busy || ["preparing", "processing"].includes(session.state);
+  const originalZone = initial?.zones.find((z) => z.zone_id === zone?.zone_id);
+  const locked = busy || unavailable;
+  const zonesProblem =
+    doc &&
+    (!doc.zones.length
+      ? "Crea al menos una zona."
+      : doc.zones.some((z) => !validPolygon(z.polygon))
+        ? "Revisa las zonas. Cada polígono necesita al menos tres vértices y no puede cruzarse."
+        : null);
+  const problem =
+    zonesProblem ??
+    (doc?.calibration && calibrationCheck(doc.calibration)) ??
+    ((doc?.rules.some((r) => r.enabled && r.parameters.distance_unit === "m") ||
+      doc?.motion?.unit === "m") &&
+    !doc.calibration
+      ? "Revisa las reglas y el movimiento en metros o calibra esta fuente."
+      : null);
+
+  function changePolygon(polygon: Point[], remember = true) {
+    if (!doc || !zone || locked) return;
+    if (remember) setUndo((history) => [...history.slice(-31), zone.polygon]);
+    update({
+      ...doc,
+      zones: doc.zones.map((z, i) => (i === selected ? { ...z, polygon } : z)),
+    });
+  }
+
   async function load() {
+    setLoading(true);
+    setMessage("");
+    try {
+      const loaded: Loaded = await request("GET");
+      if (!mounted.current) return;
+      setInitial(loaded.document);
+      setData(loaded);
+    } catch (cause) {
+      if (mounted.current)
+        setMessage(
+          analysisError(
+            cause,
+            "No se pudo cargar la configuración. Reintenta.",
+          ),
+        );
+    } finally {
+      if (mounted.current) setLoading(false);
+    }
+  }
+
+  // Abrir desde un enlace usa el mismo panel y no reemplaza la sesión.
+  useEffect(() => {
+    if (!autoOpen || unavailable) return;
+    const frame = requestAnimationFrame(() => {
+      if (trigger.current?.getAttribute("aria-expanded") === "false") {
+        trigger.current.focus();
+        trigger.current.click();
+      }
+      onAutoOpen();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [autoOpen, unavailable, onAutoOpen]);
+
+  function chooseTask(next: number, focus = false) {
+    setTask(next);
+    if (focus) tabs.current[next]?.focus();
+  }
+
+  function replaceDraft(document: Document, nextDirty: boolean) {
+    setData((current) => current && { ...current, document });
+    setDirty(nextDirty);
+    setSelected(0);
+    setVertex(null);
+    setUndo([]);
+    setEditorRevision((value) => value + 1);
+  }
+
+  async function save() {
+    if (!doc || !data || problem || locked) return;
     setBusy(true);
     setMessage("");
     try {
-      const loaded = await request("GET");
+      const result: { document: Document; revision: number } = await request(
+        "PUT",
+        { document: doc, revision: data.revision },
+      );
       if (!mounted.current) return;
-      setData(loaded);
+      setInitial(result.document);
+      setData({ ...data, ...result, saved: result.document });
       setDirty(false);
-      setOpen(true);
-    } catch (e) {
-      setMessage(String(e instanceof Error ? e.message : e));
+      setUndo([]);
+      setMessage("Configuración guardada para el próximo análisis.");
+      try {
+        const status = await analysisService.getAnalysisStatus(session.id);
+        if (mounted.current) onSaved(status);
+      } catch {
+        if (mounted.current)
+          setMessage(
+            "Configuración guardada. El estado de la sesión se actualizará al reconectar.",
+          );
+      }
+    } catch (cause) {
+      if (mounted.current)
+        setMessage(
+          analysisError(
+            cause,
+            "No se pudo guardar. Revisa el borrador y vuelve a intentarlo.",
+          ),
+        );
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   }
+
   return (
-    <section className="spatial-editor" aria-label="Configuración espacial">
-      <Button
-        ref={trigger}
-        variant="outline"
-        className="spatial-editor-trigger"
-        disabled={locked || open}
-        aria-expanded={open}
-        aria-controls={open ? panelId : undefined}
-        onClick={() => void load()}
-      >
-        <Waypoints size={17} aria-hidden="true" />
-        Zonas, calibración y reglas
-        <ChevronDown size={16} aria-hidden="true" />
-      </Button>
-      <AnimatePresence initial={false}>
-        {open && data && doc && (
-          <motion.div
-            id={panelId}
-            key="spatial-configuration"
-            className="spatial-editor-disclosure"
-            initial={reducedMotion ? false : { height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={
-              reducedMotion
-                ? { duration: 0 }
-                : { ...enterTransition, duration: 0.28 }
-            }
-          >
-            <div className="spatial-editor-content">
-              <h2>Configuración preparada de esta fuente</h2>
-              <p className="text-sm">
-                En sesión:{" "}
-                {session.spatial_revision
-                  ? `revisión ${session.spatial_revision}`
-                  : "configuración inicial"}
-                .
-                {data.saved
-                  ? ` Última guardada para esta fuente: revisión ${data.revision}.`
-                  : " No hay configuración guardada para esta fuente."}{" "}
-                Guarde y cierre el editor antes de iniciar. Solo los cambios
-                guardados se aplican al próximo análisis. Los resultados
-                anteriores conservan su snapshot.
-              </p>
-              <video
-                ref={video}
-                src={analysisService.getAnalysisSourceUrl(session.id)}
-                controls
-                preload="metadata"
-                className="max-h-80 w-full"
-                aria-label="Referencia de configuración"
-              />
-              <Button
-                variant="secondary"
-                disabled={locked}
-                onClick={async () => {
-                  const v = video.current;
-                  if (!v || v.readyState < 2 || locked) {
-                    setMessage("Espere a que cargue el video.");
-                    return;
+    <section
+      className={styles.editor}
+      aria-label="Configuración espacial"
+      hidden={unavailable && !open}
+    >
+      <div className={styles.editorHeader}>
+        <Button
+          ref={trigger}
+          variant="outline"
+          className={styles.trigger}
+          disabled={unavailable || busy}
+          aria-expanded={open}
+          aria-controls={panelId}
+          onClick={() => {
+            setOpen(!open);
+            if (!open && !data && !loading) void load();
+          }}
+        >
+          <Waypoints size={17} aria-hidden="true" />
+          Zonas, calibración y reglas
+          <ChevronDown size={16} aria-hidden="true" />
+        </Button>
+        {dirty && (
+          <span className={styles.draftStatus}>Borrador sin guardar</span>
+        )}
+      </div>
+      <div id={panelId} hidden={!open}>
+        {!doc && loading && (
+          <p className={styles.notice} role="status">
+            Cargando configuración…
+          </p>
+        )}
+        {!doc && !loading && (
+          <Button variant="outline" onClick={() => void load()}>
+            Reintentar carga
+          </Button>
+        )}
+        {doc && data && (
+          <div className={styles.editorBody}>
+            <h2>Configuración preparada de esta fuente</h2>
+            <div
+              className={styles.tasks}
+              role="tablist"
+              aria-label="Tareas de configuración"
+            >
+              {tasks.map((label, index) => (
+                <button
+                  key={label}
+                  ref={(element) => {
+                    tabs.current[index] = element;
+                  }}
+                  type="button"
+                  role="tab"
+                  id={`${panelId}-tab-${index}`}
+                  aria-controls={`${panelId}-task-${index}`}
+                  aria-selected={task === index}
+                  tabIndex={task === index ? 0 : -1}
+                  data-guide={
+                    index === 2
+                      ? "calibration"
+                      : index === 3
+                        ? "rules"
+                        : undefined
                   }
-                  setBusy(true);
-                  setMessage("");
-                  try {
-                    v.pause();
-                    // readyState puede ser 4 sin haber entregado un frame al canvas.
-                    // Seek a la misma posición fuerza decodificación sin reproducir.
-                    await new Promise<void>((resolve, reject) => {
-                      const finish = () => {
-                        clearTimeout(timer);
-                        v.removeEventListener("seeked", done);
-                      };
-                      const done = () => {
-                        finish();
-                        resolve();
-                      };
-                      const timer = setTimeout(() => {
-                        finish();
-                        reject(
-                          new Error("No se pudo decodificar el fotograma."),
-                        );
-                      }, 5000);
-                      v.addEventListener("seeked", done, { once: true });
-                      v.currentTime =
-                        mode === "calibration" ? 0 : v.currentTime;
-                    });
-                    if (!mounted.current) return;
-                    const canvas = document.createElement("canvas");
-                    canvas.width = v.videoWidth;
-                    canvas.height = v.videoHeight;
-                    const context = canvas.getContext("2d");
-                    if (!context)
-                      throw new Error("No se pudo preparar la referencia.");
-                    context.drawImage(v, 0, 0);
-                    if (!context.getImageData(0, 0, 1, 1).data[3])
-                      throw new Error(
-                        "El fotograma no está disponible. Cambie de posición y vuelva a capturar.",
-                      );
-                    setFrame(canvas.toDataURL());
-                    setFirstFrame(mode === "calibration");
-                  } catch (error) {
-                    if (mounted.current)
-                      setMessage(
-                        error instanceof Error
-                          ? error.message
-                          : "No se pudo capturar el fotograma.",
-                      );
-                  } finally {
-                    if (mounted.current) setBusy(false);
-                  }
-                }}
-              >
-                {mode === "calibration"
-                  ? "Capturar primer fotograma"
-                  : "Capturar fotograma de referencia"}
-              </Button>
-              <label>
-                Editar sobre imagen
-                <select
-                  className="input"
-                  value={mode}
-                  onChange={(e) => setMode(e.target.value)}
+                  onClick={() => chooseTask(index)}
+                  onKeyDown={(event) => {
+                    const next = {
+                      ArrowLeft: (index + tasks.length - 1) % tasks.length,
+                      ArrowRight: (index + 1) % tasks.length,
+                      Home: 0,
+                      End: tasks.length - 1,
+                    }[event.key];
+                    if (next === undefined) return;
+                    event.preventDefault();
+                    chooseTask(next, true);
+                  }}
                 >
-                  <option value="zone">Vértices de zona</option>
-                  <option value="calibration">Referencias del suelo</option>
-                </select>
-              </label>
-              {frame && (
-                <div className="relative">
-                  <img
-                    src={frame}
-                    alt="Fotograma de la fuente para configuración espacial"
-                    className="block w-full"
-                  />
-                  <svg
-                    className="absolute inset-0 h-full w-full"
-                    viewBox="0 0 1 1"
-                    preserveAspectRatio="none"
-                    role="img"
-                    aria-label="Editor de puntos"
-                    onPointerDown={(e) => {
-                      if (locked) return;
-                      const r = e.currentTarget.getBoundingClientRect();
-                      const p: Point = [
-                        Math.max(
-                          0,
-                          Math.min(1, (e.clientX - r.left) / r.width),
-                        ),
-                        Math.max(
-                          0,
-                          Math.min(1, (e.clientY - r.top) / r.height),
-                        ),
-                      ];
-                      if (mode === "zone" && zone && zone.polygon.length < 32)
-                        update({
-                          ...doc,
-                          zones: doc.zones.map((z, i) =>
-                            i === selected
-                              ? { ...z, polygon: [...z.polygon, p] }
-                              : z,
-                          ),
-                        });
-                      if (
-                        mode === "calibration" &&
-                        doc.calibration &&
-                        firstFrame &&
-                        doc.calibration.image_points.length < 16
-                      )
-                        update({
-                          ...doc,
-                          calibration: {
-                            ...doc.calibration,
-                            image_points: [...doc.calibration.image_points, p],
-                            ground_points_m: [
-                              ...doc.calibration.ground_points_m,
-                              [0, 0],
-                            ],
-                          },
-                        });
+                  {label}
+                </button>
+              ))}
+            </div>
+            <fieldset disabled={locked} className={styles.taskFieldset}>
+              <legend className="sr-only">Configuración de la fuente</legend>
+              <div
+                role="tabpanel"
+                id={`${panelId}-task-0`}
+                aria-labelledby={`${panelId}-tab-0`}
+                hidden={task !== 0}
+                tabIndex={0}
+              >
+                <div className={styles.taskBody}>
+                  <dl className={styles.facts}>
+                    <div>
+                      <dt>Fuente</dt>
+                      <dd>{session.filename}</dd>
+                    </div>
+                    <div>
+                      <dt>Perfil</dt>
+                      <dd>Perfil {session.profile}</dd>
+                    </div>
+                    <div>
+                      <dt>En sesión</dt>
+                      <dd>
+                        {session.spatial_revision
+                          ? `Revisión ${session.spatial_revision}`
+                          : "Configuración inicial"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Última guardada</dt>
+                      <dd>
+                        {data.saved
+                          ? `Revisión ${data.revision}`
+                          : "Sin revisión guardada"}
+                      </dd>
+                    </div>
+                  </dl>
+                  <p>
+                    Configura las zonas, verifica si necesitas calibrar y revisa
+                    las reglas antes de guardar.
+                  </p>
+                  <div className={styles.actions}>
+                    <Button
+                      variant="outline"
+                      onClick={() => chooseTask(1, true)}
+                    >
+                      Configurar zonas
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              <div
+                role="tabpanel"
+                id={`${panelId}-task-1`}
+                aria-labelledby={`${panelId}-tab-1`}
+                hidden={task !== 1}
+              >
+                <div className={styles.taskBody}>
+                  <p>
+                    Elige el área del video donde quieres aplicar una regla.
+                  </p>
+                  <select
+                    className="input"
+                    aria-label="Zona seleccionada"
+                    value={selected}
+                    onChange={(e) => {
+                      setSelected(Number(e.target.value));
+                      setVertex(null);
+                      setUndo([]);
                     }}
                   >
                     {doc.zones.map((z, i) => (
-                      <polygon
-                        key={i}
-                        points={z.polygon.map((p) => p.join(",")).join(" ")}
-                        fill="rgba(30,110,220,.12)"
-                        stroke={i === selected ? "#2876cf" : "#778899"}
-                        strokeWidth=".003"
-                      />
+                      <option key={i} value={i}>
+                        {z.name}
+                      </option>
                     ))}
-                    {(mode === "calibration"
-                      ? (doc.calibration?.image_points ?? [])
-                      : (zone?.polygon ?? [])
-                    ).map((p, i) => (
-                      <g key={i}>
-                        <circle cx={p[0]} cy={p[1]} r=".008" fill="#2876cf" />
-                        <text
-                          x={p[0] + 0.01}
-                          y={p[1]}
-                          fontSize=".025"
-                          fill="white"
-                        >
-                          {i + 1}
-                        </text>
-                      </g>
-                    ))}
-                  </svg>
-                </div>
-              )}
-              <fieldset disabled={locked} className="spatial-sections">
-                <legend className="sr-only">Configuración de la fuente</legend>
-                <details className="spatial-step" open>
-                  <summary>Zonas operacionales</summary>
-                  <div className="spatial-step-body">
-                    <p>
-                      Elige el área del video donde quieres aplicar una regla.
-                    </p>
-                    <select
-                      className="input"
-                      aria-label="Zona seleccionada"
-                      value={selected}
-                      onChange={(e) => setSelected(Number(e.target.value))}
-                    >
-                      {doc.zones.map((z, i) => (
-                        <option key={i} value={i}>
-                          {z.name}
-                        </option>
-                      ))}
-                    </select>
-                    {zone && (
-                      <>
-                        <label>
-                          Identificador
-                          <input
-                            className="input"
-                            value={zone.zone_id}
-                            onChange={(e) => {
-                              const id = e.target.value;
-                              update({
-                                ...doc,
-                                zones: doc.zones.map((z, i) =>
-                                  i === selected ? { ...z, zone_id: id } : z,
-                                ),
-                                rules: doc.rules.map((r) =>
-                                  r.parameters.zone_id === zone.zone_id
-                                    ? {
-                                        ...r,
-                                        parameters: {
-                                          ...r.parameters,
-                                          zone_id: id,
-                                        },
-                                      }
-                                    : r,
-                                ),
-                              });
-                            }}
-                          />
-                        </label>
-                        <label>
-                          Nombre
-                          <input
-                            className="input"
-                            value={zone.name}
-                            onChange={(e) =>
-                              update({
-                                ...doc,
-                                zones: doc.zones.map((z, i) =>
-                                  i === selected
-                                    ? { ...z, name: e.target.value }
-                                    : z,
-                                ),
-                              })
-                            }
-                          />
-                        </label>
-                        <label>
-                          Finalidad
-                          <select
-                            className="input"
-                            value={zone.purpose ?? "observation"}
-                            onChange={(e) =>
-                              update({
-                                ...doc,
-                                zones: doc.zones.map((z, i) =>
-                                  i === selected
-                                    ? { ...z, purpose: e.target.value }
-                                    : z,
-                                ),
-                              })
-                            }
-                          >
-                            {Object.entries(purposes).map(([id, name]) => (
-                              <option key={id} value={id}>
-                                {name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={zone.enabled !== false}
-                            onChange={(e) =>
-                              update({
-                                ...doc,
-                                zones: doc.zones.map((z, i) =>
-                                  i === selected
-                                    ? { ...z, enabled: e.target.checked }
-                                    : z,
-                                ),
-                              })
-                            }
-                          />{" "}
-                          Zona habilitada
-                        </label>
-                        {zone.polygon.map((p, i) => (
-                          <div key={i} className="flex flex-wrap gap-2">
-                            {p.map((v, axis) => (
-                              <label key={axis}>
-                                Vértice {i + 1} · {axis ? "y" : "x"}
-                                <input
-                                  type="number"
-                                  className="input"
-                                  step=".001"
-                                  min="0"
-                                  max="1"
-                                  value={v}
-                                  onChange={(e) =>
-                                    update({
-                                      ...doc,
-                                      zones: doc.zones.map((z, j) =>
-                                        j === selected
-                                          ? {
-                                              ...z,
-                                              polygon: z.polygon.map((p, k) =>
-                                                k === i
-                                                  ? (p.map((v, a) =>
-                                                      a === axis
-                                                        ? Number(e.target.value)
-                                                        : v,
-                                                    ) as Point)
-                                                  : p,
-                                              ),
-                                            }
-                                          : z,
-                                      ),
-                                    })
-                                  }
-                                />
-                              </label>
-                            ))}
-                            <Button
-                              variant="ghost"
-                              onClick={() =>
-                                update({
-                                  ...doc,
-                                  zones: doc.zones.map((z, j) =>
-                                    j === selected
-                                      ? {
-                                          ...z,
-                                          polygon: z.polygon.filter(
-                                            (_, k) => k !== i,
-                                          ),
-                                        }
-                                      : z,
-                                  ),
-                                })
-                              }
-                            >
-                              Quitar vértice {i + 1}
-                            </Button>
-                          </div>
-                        ))}
-                        <Button
-                          variant="outline"
-                          onClick={() => {
-                            if (
-                              doc.rules.some(
-                                (r) => r.parameters.zone_id === zone.zone_id,
-                              )
-                            ) {
-                              setMessage(
-                                "Retire primero las reglas asociadas.",
-                              );
-                              return;
-                            }
+                  </select>
+                  {zone && (
+                    <>
+                      <label>
+                        Identificador
+                        <input
+                          className="input"
+                          value={zone.zone_id}
+                          onChange={(e) => {
+                            const id = e.target.value;
                             update({
                               ...doc,
-                              zones: doc.zones.filter((_, i) => i !== selected),
-                            });
-                            setSelected(0);
-                          }}
-                        >
-                          Eliminar zona
-                        </Button>
-                      </>
-                    )}
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setSelected(doc.zones.length);
-                        update({
-                          ...doc,
-                          zones: [
-                            ...doc.zones,
-                            {
-                              zone_id: `zona_${Date.now()}`,
-                              name: "Nueva zona",
-                              polygon: [],
-                              enabled: true,
-                              purpose: "observation",
-                            },
-                          ],
-                        });
-                      }}
-                    >
-                      Crear zona
-                    </Button>
-                  </div>
-                </details>
-                <details className="spatial-step">
-                  <summary data-guide="calibration">
-                    Calibración del suelo
-                  </summary>
-                  <div className="spatial-step-body">
-                    <p className="text-sm">
-                      Metros aproximados, válidos solo para cámara fija, suelo
-                      plano y referencias medidas. Los bordes de las cajas
-                      aproximan el contacto. No garantizan distancia de
-                      seguridad.
-                    </p>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setMode("calibration");
-                        setFrame("");
-                        setFirstFrame(false);
-                        update({
-                          ...doc,
-                          calibration: {
-                            image_points: [],
-                            ground_points_m: [],
-                            status: "valid",
-                            source_sha256: session.source_sha256,
-                            version: (doc.calibration?.version ?? 0) + 1,
-                            calibrated_at: new Date().toISOString(),
-                            units: "m",
-                            zones_reviewed: false,
-                          },
-                        });
-                      }}
-                    >
-                      Calibrar / recalibrar
-                    </Button>
-                    {data.saved?.calibration && (
-                      <GroundPreview calibration={data.saved.calibration} />
-                    )}
-                    {doc.calibration && (
-                      <>
-                        <p>
-                          {doc.calibration.status === "invalid"
-                            ? "Calibración invalidada."
-                            : doc.calibration.zones_reviewed
-                              ? "Referencias y zonas confirmadas."
-                              : "Borrador pendiente de revisión."}{" "}
-                          Seleccione al menos cuatro referencias distribuidas y
-                          escriba sus coordenadas medidas sobre el suelo.
-                        </p>
-                        {doc.calibration.framing_reference ? (
-                          <p className="text-sm">
-                            Capture el primer fotograma en «Referencias del
-                            suelo». El Motor comprobará el fondo durante el
-                            análisis y suspenderá la geometría si pierde la
-                            referencia.
-                          </p>
-                        ) : (
-                          <p className="text-sm">
-                            Esta revisión usa invalidación manual del encuadre.
-                            Si cambió la cámara, revise las zonas y vuelva a
-                            calibrar.
-                          </p>
-                        )}
-                        {doc.calibration.status === "valid" && (
-                          <label>
-                            <input
-                              type="checkbox"
-                              checked={Boolean(
-                                doc.calibration.framing_reference,
-                              )}
-                              disabled={
-                                !doc.calibration.framing_reference &&
-                                !firstFrame
-                              }
-                              onChange={(event) => {
-                                const calibration = doc.calibration!;
-                                update({
-                                  ...doc,
-                                  calibration: {
-                                    ...calibration,
-                                    framing_reference: event.target.checked
-                                      ? "first_frame_orb_affine_v1"
-                                      : undefined,
-                                    zones_reviewed: false,
-                                  },
-                                });
-                              }}
-                            />{" "}
-                            Comprobar el encuadre automáticamente (experimental)
-                          </label>
-                        )}
-                        {doc.calibration.ground_points_m.map((p, i) => (
-                          <div key={i} className="flex flex-wrap gap-2">
-                            {p.map((v, a) => (
-                              <label key={a}>
-                                Referencia {i + 1} · {a ? "Y" : "X"} (m)
-                                <input
-                                  className="input"
-                                  type="number"
-                                  step=".01"
-                                  value={v}
-                                  onChange={(e) =>
-                                    update({
-                                      ...doc,
-                                      calibration: {
-                                        ...doc.calibration!,
-                                        ground_points_m:
-                                          doc.calibration!.ground_points_m.map(
-                                            (q, j) =>
-                                              j === i
-                                                ? (q.map((n, k) =>
-                                                    k === a
-                                                      ? Number(e.target.value)
-                                                      : n,
-                                                  ) as Point)
-                                                : q,
-                                          ),
+                              zones: doc.zones.map((z, i) =>
+                                i === selected ? { ...z, zone_id: id } : z,
+                              ),
+                              rules: doc.rules.map((r) =>
+                                r.parameters.zone_id === zone.zone_id
+                                  ? {
+                                      ...r,
+                                      parameters: {
+                                        ...r.parameters,
+                                        zone_id: id,
                                       },
-                                    })
-                                  }
-                                />
-                              </label>
-                            ))}
-                            <Button
-                              variant="ghost"
-                              onClick={() =>
-                                update({
-                                  ...doc,
-                                  calibration: {
-                                    ...doc.calibration!,
-                                    image_points:
-                                      doc.calibration!.image_points.filter(
-                                        (_, j) => j !== i,
-                                      ),
-                                    ground_points_m:
-                                      doc.calibration!.ground_points_m.filter(
-                                        (_, j) => j !== i,
-                                      ),
-                                  },
-                                })
-                              }
-                            >
-                              Quitar referencia {i + 1}
-                            </Button>
-                          </div>
-                        ))}
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={doc.calibration.zones_reviewed}
-                            onChange={(e) =>
-                              update({
-                                ...doc,
-                                calibration: {
-                                  ...doc.calibration!,
-                                  zones_reviewed: e.target.checked,
-                                },
-                              })
-                            }
-                          />{" "}
-                          Confirmo cámara fija, referencias medidas y zonas
-                          revisadas para este encuadre
-                        </label>
-                        <Button
-                          variant="outline"
-                          onClick={() =>
+                                    }
+                                  : r,
+                              ),
+                            });
+                          }}
+                        />
+                      </label>
+                      <label>
+                        Nombre
+                        <input
+                          className="input"
+                          value={zone.name}
+                          onChange={(e) =>
                             update({
                               ...doc,
-                              calibration: {
-                                ...doc.calibration!,
-                                status: "invalid",
-                              },
-                              zones: doc.zones.map((z) => ({
-                                ...z,
-                                enabled: false,
-                              })),
+                              zones: doc.zones.map((z, i) =>
+                                i === selected
+                                  ? { ...z, name: e.target.value }
+                                  : z,
+                              ),
+                            })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Finalidad
+                        <select
+                          className="input"
+                          value={zone.purpose ?? "observation"}
+                          onChange={(e) =>
+                            update({
+                              ...doc,
+                              zones: doc.zones.map((z, i) =>
+                                i === selected
+                                  ? { ...z, purpose: e.target.value }
+                                  : z,
+                              ),
                             })
                           }
                         >
-                          Marcar encuadre inválido en el borrador
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </details>
-                <details className="spatial-step">
-                  <summary data-guide="rules">Reglas</summary>
-                  <div className="spatial-step-body">
-                    <p>
-                      Elige qué condición debe cumplirse para registrar un
-                      evento y en qué zona se evalúa.
-                    </p>
-                    <MotionConfiguration
-                      motion={doc.motion}
-                      relations={doc.relations}
-                      metricAvailable={doc.calibration?.status === "valid"}
-                      onMotion={(motion) => {
-                        if (
-                          !motion &&
-                          doc.rules.some(
-                            (r) =>
-                              r.enabled &&
-                              r.parameters.motion_condition === "moving",
-                          )
-                        ) {
-                          setMessage(
-                            "Deshabilite o cambie primero las reglas que requieren movimiento.",
-                          );
-                          return;
-                        }
-                        update({ ...doc, motion });
-                      }}
-                      onRelations={(relations) => update({ ...doc, relations })}
-                    />
-                    {doc.rules.map((rule, i) => (
-                      <div
-                        key={i}
-                        className="grid gap-2 rounded-xl border border-border p-3"
+                          {Object.entries(purposes).map(([id, name]) => (
+                            <option key={id} value={id}>
+                              {name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={zone.enabled !== false}
+                          onChange={(e) =>
+                            update({
+                              ...doc,
+                              zones: doc.zones.map((z, i) =>
+                                i === selected
+                                  ? { ...z, enabled: e.target.checked }
+                                  : z,
+                              ),
+                            })
+                          }
+                        />{" "}
+                        Zona habilitada
+                      </label>
+                      <p>
+                        Captura el fotograma y marca puntos sobre la imagen.
+                        Arrastra un vértice para ajustarlo.
+                      </p>
+                      <SpatialFrame
+                        key={editorRevision}
+                        sessionId={session.id}
+                        active={open && task === 1}
+                        locked={locked}
                       >
+                        <svg
+                          viewBox="0 0 100 100"
+                          preserveAspectRatio="none"
+                          className={styles.pointOverlay}
+                          aria-label="Editor gráfico de zona"
+                          onPointerDown={(e) => {
+                            if (
+                              e.target !== e.currentTarget ||
+                              zone.polygon.length >= 32
+                            )
+                              return;
+                            const point = pointInFrame(e);
+                            if (point) {
+                              changePolygon([...zone.polygon, point]);
+                              setVertex(zone.polygon.length);
+                            }
+                          }}
+                          onPointerMove={(e) => {
+                            if (drag.current === null) return;
+                            const point = pointInFrame(e);
+                            if (point)
+                              changePolygon(
+                                zone.polygon.map((p, i) =>
+                                  i === drag.current ? point : p,
+                                ),
+                                false,
+                              );
+                          }}
+                          onPointerUp={() => {
+                            drag.current = null;
+                          }}
+                          onPointerCancel={() => {
+                            drag.current = null;
+                          }}
+                        >
+                          {doc.zones.map((z, i) => (
+                            <polygon
+                              key={i}
+                              className={
+                                i === selected
+                                  ? styles.floorArea
+                                  : styles.otherZone
+                              }
+                              points={z.polygon
+                                .filter((p) => p.every(Number.isFinite))
+                                .map(([x, y]) => `${x * 100},${y * 100}`)
+                                .join(" ")}
+                            />
+                          ))}
+                          {zone.polygon.map(
+                            ([x, y], i) =>
+                              Number.isFinite(x) &&
+                              Number.isFinite(y) && (
+                                <circle
+                                  key={i}
+                                  cx={x * 100}
+                                  cy={y * 100}
+                                  r="1.2"
+                                  tabIndex={locked ? -1 : 0}
+                                  role="button"
+                                  aria-label={`Vértice ${i + 1}`}
+                                  className={styles.vertex}
+                                  data-selected={vertex === i}
+                                  onFocus={() => setVertex(i)}
+                                  onPointerDown={(e) => {
+                                    if (locked) return;
+                                    e.stopPropagation();
+                                    e.currentTarget.focus();
+                                    e.currentTarget.setPointerCapture(
+                                      e.pointerId,
+                                    );
+                                    drag.current = i;
+                                    setUndo((history) => [
+                                      ...history.slice(-31),
+                                      zone.polygon,
+                                    ]);
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (
+                                      e.key === "Delete" ||
+                                      e.key === "Backspace"
+                                    ) {
+                                      e.preventDefault();
+                                      if (zone.polygon.length > 3) {
+                                        changePolygon(
+                                          removeVertex(zone.polygon, i),
+                                        );
+                                        setVertex(null);
+                                      }
+                                      return;
+                                    }
+                                    const delta = {
+                                      ArrowLeft: [-1, 0],
+                                      ArrowRight: [1, 0],
+                                      ArrowUp: [0, -1],
+                                      ArrowDown: [0, 1],
+                                    }[e.key];
+                                    if (!delta) return;
+                                    e.preventDefault();
+                                    const [dx, dy] = delta.map(
+                                      (value) =>
+                                        value * (e.shiftKey ? 0.01 : 0.005),
+                                    );
+                                    const clamp = (value: number) =>
+                                      Math.min(1, Math.max(0, value));
+                                    changePolygon(
+                                      zone.polygon.map((p, j) =>
+                                        j === i
+                                          ? [clamp(x + dx), clamp(y + dy)]
+                                          : p,
+                                      ),
+                                    );
+                                  }}
+                                />
+                              ),
+                          )}
+                        </svg>
+                      </SpatialFrame>
+                      <div className={styles.actions}>
+                        <Button
+                          variant="secondary"
+                          disabled={!zone.polygon.length}
+                          onClick={() => {
+                            changePolygon([]);
+                            setVertex(null);
+                          }}
+                        >
+                          Dibujar de nuevo
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          disabled={vertex === null || zone.polygon.length <= 3}
+                          onClick={() => {
+                            changePolygon(removeVertex(zone.polygon, vertex));
+                            setVertex(null);
+                          }}
+                        >
+                          Eliminar vértice
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          disabled={!undo.length}
+                          onClick={() => {
+                            changePolygon(undo[undo.length - 1], false);
+                            setUndo(undo.slice(0, -1));
+                            setVertex(null);
+                          }}
+                        >
+                          Deshacer
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          disabled={!originalZone}
+                          onClick={() => {
+                            if (!originalZone) return;
+                            changePolygon(originalZone.polygon);
+                            setVertex(null);
+                          }}
+                        >
+                          Restablecer vértices
+                        </Button>
+                      </div>
+                      <p role="status">
+                        {zone.polygon.length} vértices ·{" "}
+                        {validPolygon(zone.polygon)
+                          ? "Polígono válido"
+                          : "Polígono pendiente de ajuste"}
+                      </p>
+                      <details className={styles.advanced}>
+                        <summary>Coordenadas avanzadas</summary>
+                        <div className={styles.coordinates}>
+                          <p>
+                            Usa valores de 0 a 1 desde la esquina superior
+                            izquierda.
+                          </p>
+                          {zone.polygon.map((point, i) => (
+                            <div key={i} className={styles.fieldGrid}>
+                              {point.map((value, axis) => (
+                                <label key={axis}>
+                                  Vértice {i + 1} · {axis ? "Y" : "X"}
+                                  <input
+                                    type="number"
+                                    className="input"
+                                    min="0"
+                                    max="1"
+                                    step="any"
+                                    value={Number.isFinite(value) ? value : ""}
+                                    onChange={(e) =>
+                                      changePolygon(
+                                        zone.polygon.map((p, j) =>
+                                          j !== i
+                                            ? p
+                                            : axis === 0
+                                              ? [e.target.valueAsNumber, p[1]]
+                                              : [p[0], e.target.valueAsNumber],
+                                        ),
+                                      )
+                                    }
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                          ))}
+                          <div className={styles.actions}>
+                            <Button
+                              variant="outline"
+                              disabled={zone.polygon.length >= 32}
+                              onClick={() =>
+                                changePolygon([...zone.polygon, [NaN, NaN]])
+                              }
+                            >
+                              Añadir vértice por coordenadas
+                            </Button>
+                          </div>
+                        </div>
+                      </details>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          if (
+                            doc.rules.some(
+                              (r) => r.parameters.zone_id === zone.zone_id,
+                            )
+                          ) {
+                            setMessage("Retire primero las reglas asociadas.");
+                            return;
+                          }
+                          update({
+                            ...doc,
+                            zones: doc.zones.filter((_, i) => i !== selected),
+                          });
+                          setSelected(0);
+                          setVertex(null);
+                          setUndo([]);
+                        }}
+                      >
+                        Eliminar zona
+                      </Button>
+                    </>
+                  )}
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setSelected(doc.zones.length);
+                      setVertex(null);
+                      setUndo([]);
+                      update({
+                        ...doc,
+                        zones: [
+                          ...doc.zones,
+                          {
+                            zone_id: `zona_${Date.now()}`,
+                            name: "Nueva zona",
+                            polygon: [],
+                            enabled: true,
+                            purpose: "observation",
+                          },
+                        ],
+                      });
+                    }}
+                  >
+                    Crear zona
+                  </Button>
+                </div>
+              </div>
+              <div
+                role="tabpanel"
+                id={`${panelId}-task-2`}
+                aria-labelledby={`${panelId}-tab-2`}
+                hidden={task !== 2}
+              >
+                <CalibrationGuide
+                  key={editorRevision}
+                  calibration={doc.calibration}
+                  sessionId={session.id}
+                  sourceHash={session.source_sha256}
+                  locked={locked}
+                  active={open && task === 2}
+                  onChange={(calibration) => update({ ...doc, calibration })}
+                  onReview={() => chooseTask(4, true)}
+                />
+                {doc.calibration?.status === "valid" &&
+                  doc.calibration.homography && (
+                    <div className={styles.actions}>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          if (
+                            !doc.calibration ||
+                            !window.confirm(
+                              "¿Invalidar el encuadre y desactivar las zonas en el borrador?",
+                            )
+                          )
+                            return;
+                          update({
+                            ...doc,
+                            calibration: {
+                              ...doc.calibration,
+                              status: "invalid",
+                            },
+                            zones: doc.zones.map((z) => ({
+                              ...z,
+                              enabled: false,
+                            })),
+                          });
+                        }}
+                      >
+                        Invalidar encuadre
+                      </Button>
+                    </div>
+                  )}
+              </div>
+              <div
+                role="tabpanel"
+                id={`${panelId}-task-3`}
+                aria-labelledby={`${panelId}-tab-3`}
+                hidden={task !== 3}
+              >
+                <div className={styles.taskBody}>
+                  <p>
+                    {data.policy
+                      ? "Edita las reglas de respaldo que se usarán si la fuente queda sin conjunto asignado."
+                      : "Elige qué condición se observará y en qué zona."}
+                  </p>
+                  <MotionConfiguration
+                    motion={doc.motion}
+                    relations={doc.relations}
+                    metricAvailable={
+                      doc.calibration?.status === "valid" &&
+                      Boolean(doc.calibration.homography)
+                    }
+                    onMotion={(motion) => {
+                      if (
+                        !motion &&
+                        doc.rules.some(
+                          (r) =>
+                            r.enabled &&
+                            r.parameters.motion_condition === "moving",
+                        )
+                      ) {
+                        setMessage(
+                          "Deshabilite o cambie primero las reglas que requieren movimiento.",
+                        );
+                        return;
+                      }
+                      update({ ...doc, motion });
+                    }}
+                    onRelations={(relations) => update({ ...doc, relations })}
+                  />
+                  {doc.rules.map((rule, i) => (
+                    <details key={i} className={styles.advanced}>
+                      <summary>
+                        {kinds[rule.parameters.kind as keyof typeof kinds] ??
+                          rule.rule_id}{" "}
+                        · {rule.enabled ? "Activa" : "Desactivada"}
+                      </summary>
+                      <div className={styles.coordinates}>
                         <label>
                           ID de regla
                           <input
@@ -1130,117 +1189,166 @@ export function SpatialEditor({
                           Eliminar regla
                         </Button>
                       </div>
-                    ))}
-                    <Button
-                      variant="outline"
-                      onClick={() =>
-                        update({
-                          ...doc,
-                          rules: [
-                            ...doc.rules,
-                            {
-                              rule_id: `regla_${Date.now()}`,
-                              version: 1,
-                              enabled: true,
-                              parameters: {
-                                kind: "zone_dwell",
-                                class_name: "person",
-                                zone_id: zone?.zone_id ?? "",
-                                min_duration_s: 2,
-                              },
-                            },
-                          ],
-                        })
-                      }
-                    >
-                      Crear regla
-                    </Button>
-                  </div>
-                </details>
-                <p>
-                  Condición configurada satisfecha; requiere revisión humana, no
-                  confirma un incidente.
-                </p>
-                <div className="flex flex-wrap gap-3">
-                  <Button
-                    onClick={async () => {
-                      setBusy(true);
-                      setMessage("");
-                      try {
-                        const result = await request("PUT", {
-                          document: doc,
-                          revision: data.revision,
-                        });
-                        setData({ ...data, ...result, saved: result.document });
-                        setDirty(false);
-                        const response = await apiFetch(
-                          `${base}/analysis/sessions/${session.id}/status/`,
-                        );
-                        if (!response.ok)
-                          throw new Error("No se pudo actualizar el estado");
-                        const status = await response.json();
-                        if (!mounted.current) return;
-                        onSaved(status);
-                        setMessage(
-                          "Configuración guardada para el próximo análisis.",
-                        );
-                      } catch (e) {
-                        setMessage(e instanceof Error ? e.message : String(e));
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                  >
-                    Guardar configuración
-                  </Button>
+                    </details>
+                  ))}
                   <Button
                     variant="outline"
-                    disabled={!data.saved}
-                    onClick={() => {
-                      if (data.saved) {
-                        // Revisión inmutable de esta misma fuente, no una edición geométrica.
-                        setData({
-                          ...data,
-                          document: structuredClone(data.saved),
-                        });
-                        setDirty(true);
-                        setMessage(
-                          "Revisión cargada en el borrador. Guarde para aplicarla a la sesión.",
-                        );
-                      }
-                    }}
+                    onClick={() =>
+                      update({
+                        ...doc,
+                        rules: [
+                          ...doc.rules,
+                          {
+                            rule_id: `regla_${Date.now()}`,
+                            version: 1,
+                            enabled: true,
+                            parameters: {
+                              kind: "zone_dwell",
+                              class_name: "person",
+                              zone_id: zone?.zone_id ?? "",
+                              min_duration_s: 2,
+                            },
+                          },
+                        ],
+                      })
+                    }
                   >
-                    Recuperar guardada
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      if (
-                        dirty &&
-                        !window.confirm(
-                          "¿Descartar los cambios espaciales sin guardar?",
-                        )
-                      )
-                        return;
-                      setOpen(false);
-                      setData(null);
-                      setFrame("");
-                      setFirstFrame(false);
-                      setSelected(0);
-                      requestAnimationFrame(() => trigger.current?.focus());
-                    }}
-                  >
-                    {dirty ? "Cancelar edición" : "Cerrar configuración"}
+                    Crear regla
                   </Button>
                 </div>
-              </fieldset>
-            </div>
-          </motion.div>
+              </div>
+              <div
+                role="tabpanel"
+                id={`${panelId}-task-4`}
+                aria-labelledby={`${panelId}-tab-4`}
+                hidden={task !== 4}
+              >
+                <div className={styles.taskBody}>
+                  <dl className={styles.facts}>
+                    <div>
+                      <dt>Zonas habilitadas</dt>
+                      <dd>
+                        {doc.zones
+                          .filter((z) => z.enabled !== false)
+                          .map((z) => z.name)
+                          .join(", ") || "Ninguna"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>
+                        {data.policy
+                          ? "Reglas locales de respaldo"
+                          : "Reglas activas"}
+                      </dt>
+                      <dd>
+                        {doc.rules
+                          .filter((r) => r.enabled)
+                          .map(
+                            (r) =>
+                              kinds[r.parameters.kind as keyof typeof kinds] ??
+                              r.rule_id,
+                          )
+                          .join(", ") || "Ninguna"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Calibración</dt>
+                      <dd>
+                        {!doc.calibration
+                          ? "Sin metros"
+                          : doc.calibration.status === "invalid"
+                            ? "Encuadre invalidado"
+                            : doc.calibration.homography &&
+                                doc.calibration.zones_reviewed
+                              ? `Validada · versión ${doc.calibration.version}`
+                              : "Pendiente de validación al guardar"}
+                      </dd>
+                    </div>
+                  </dl>
+                  {data.policy && (
+                    <section
+                      className={styles.policyReview}
+                      aria-label="Política asignada"
+                    >
+                      <h3>Conjunto asignado</h3>
+                      <p>
+                        <strong>{data.policy.rule_set.name}</strong> · versión{" "}
+                        {data.policy.rule_set.version}
+                      </p>
+                      <p>
+                        Estas reglas tienen prioridad para la próxima ejecución.
+                        Las reglas editables de esta fuente sirven de respaldo.
+                      </p>
+                      <RuleConfiguration
+                        snapshot={{ rules: data.effective_rules }}
+                      />
+                    </section>
+                  )}
+                  <p>
+                    La revisión guardada se aplicará al próximo análisis de esta
+                    fuente.
+                  </p>
+                  {problem && (
+                    <p role="status" className={styles.notice}>
+                      {problem}
+                    </p>
+                  )}
+                  <div className={styles.actions}>
+                    <Button
+                      disabled={Boolean(problem)}
+                      onClick={() => void save()}
+                    >
+                      Guardar configuración
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={!data.saved}
+                      onClick={() => {
+                        if (
+                          !data.saved ||
+                          (dirty &&
+                            !window.confirm(
+                              "¿Reemplazar el borrador con la revisión guardada?",
+                            ))
+                        )
+                          return;
+                        replaceDraft(structuredClone(data.saved), true);
+                        setMessage(
+                          "Revisión cargada en el borrador. Guarda para aplicarla a la sesión.",
+                        );
+                      }}
+                    >
+                      Recuperar guardada
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={!dirty}
+                      onClick={() => {
+                        if (
+                          !initial ||
+                          !window.confirm(
+                            "¿Descartar los cambios espaciales sin guardar?",
+                          )
+                        )
+                          return;
+                        replaceDraft(initial, false);
+                        setMessage("Borrador descartado.");
+                      }}
+                    >
+                      Descartar borrador
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </fieldset>
+          </div>
         )}
-      </AnimatePresence>
-      <p role="status" className="spatial-editor-message text-sm">
-        {message}
-      </p>
+      </div>
+      {message && (
+        <p role="status" className={styles.notice}>
+          {message}
+        </p>
+      )}
     </section>
   );
 }

@@ -38,7 +38,13 @@ import {
   type DemoVideoSource,
   type NormalizedVertex,
 } from "@/services/analysis.service";
-import { pointInFrame, removeVertex } from "./zone-editor-geometry";
+import {
+  pointInFrame,
+  removeVertex,
+  validPolygon,
+} from "./zone-editor-geometry";
+import { analysisError } from "./analysis-feedback";
+import styles from "./analysis.module.css";
 import { environment } from "@/config/environment";
 import {
   analysisPercent,
@@ -77,53 +83,29 @@ const labels = {
   cancelled: "Análisis detenido.",
 } as const;
 
-function validPolygon(vertices: NormalizedVertex[]): boolean {
-  if (vertices.length < 3) return false;
-  const cross = (
-    a: NormalizedVertex,
-    b: NormalizedVertex,
-    c: NormalizedVertex,
-  ) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
-  const area = vertices.reduce((sum, p, i) => {
-    const q = vertices[(i + 1) % vertices.length];
-    return sum + p[0] * q[1] - q[0] * p[1];
-  }, 0);
-  if (Math.abs(area) < 1e-8) return false;
-  for (let i = 0; i < vertices.length; i++) {
-    const a = vertices[i];
-    const b = vertices[(i + 1) % vertices.length];
-    if (Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-8) return false;
-    for (let j = i + 1; j < vertices.length; j++) {
-      if (j === i + 1 || (i === 0 && j === vertices.length - 1)) continue;
-      const c = vertices[j];
-      const d = vertices[(j + 1) % vertices.length];
-      if (
-        cross(a, b, c) * cross(a, b, d) < 0 &&
-        cross(c, d, a) * cross(c, d, b) < 0
-      )
-        return false;
-    }
-  }
-  return true;
-}
-
-function readableError(message: string): string {
-  if (/timeout|timed out|aborted/i.test(message)) {
-    return "El servicio tardó demasiado en responder. Revise la conexión y vuelva a intentarlo.";
-  }
-  if (/failed to fetch|networkerror|load failed/i.test(message)) {
-    return "No se pudo conectar con el servicio de análisis.";
-  }
-  return message;
-}
-
 export function AnalysisWorkspace({
   initialProfile = "A",
   initialManual = false,
+  profileRequested = false,
+  initialConfigure = false,
+  requestedSessionId,
+  requestedSourceSha,
 }: {
   initialProfile?: AnalysisProfile;
   initialManual?: boolean;
+  profileRequested?: boolean;
+  initialConfigure?: boolean;
+  requestedSessionId?: string;
+  requestedSourceSha?: string;
 }) {
+  const requestedProfile = profileRequested ? initialProfile : null;
+  const requestedSha = requestedSourceSha?.toLowerCase();
+  const configurationRequest = JSON.stringify([
+    initialConfigure,
+    requestedProfile,
+    requestedSha,
+    requestedSessionId,
+  ]);
   const [file, setFile] = useState<File | null>(null);
   const [localUrl, setLocalUrl] = useState<string | null>(null);
   const [profile, setProfile] = useState<AnalysisProfile>(initialProfile);
@@ -164,10 +146,40 @@ export function AnalysisWorkspace({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const localUrlRef = useRef<string | null>(null);
   const [spatialEditing, setSpatialEditing] = useState(false);
+  const [spatialDirty, setSpatialDirty] = useState(false);
+  const [zoneRevision, setZoneRevision] = useState(0);
+  const [autoOpened, setAutoOpened] = useState("");
+  const [replacementRequest, setReplacementRequest] = useState("");
+  const [zoneUndo, setZoneUndo] = useState<
+    { polygon: NormalizedVertex[]; closed: boolean }[]
+  >([]);
+  const zoneChanged =
+    editing && JSON.stringify(draft) !== JSON.stringify(session?.zone.polygon);
+  const hasDraft = spatialDirty || zoneChanged;
+  const rememberZone = () =>
+    setZoneUndo((history) => [
+      ...history.slice(-31),
+      { polygon: draft, closed },
+    ]);
+
+  useEffect(() => {
+    if (!hasDraft) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = true;
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [hasDraft]);
+
+  function confirmDraftLoss() {
+    return (
+      !hasDraft ||
+      window.confirm("¿Descartar el borrador sin guardar y cambiar la sesión?")
+    );
+  }
   const generation = useRef(0);
   const pollFailed = useRef(false);
-  const initialProfileRef = useRef(initialProfile);
-  const initialManualRef = useRef(initialManual);
   const sessionId = session?.id;
 
   useEffect(() => {
@@ -190,12 +202,35 @@ export function AnalysisWorkspace({
     Promise.allSettled([
       analysisService.getProfiles(),
       saved ? analysisService.getAnalysisStatus(saved) : Promise.resolve(null),
+      requestedSessionId && requestedSessionId !== saved
+        ? analysisService.getAnalysisStatus(requestedSessionId)
+        : Promise.resolve(null),
     ])
-      .then(async ([catalogResult, restored]) => {
+      .then(async ([catalogResult, restored, requested]) => {
         if (!isCurrent()) return;
         const catalog =
           catalogResult.status === "fulfilled" ? catalogResult.value : [];
         setProfiles(catalog);
+        const candidate =
+          requested.status === "fulfilled" ? requested.value : null;
+        if (
+          candidate &&
+          (!requestedSha || candidate.source_sha256 === requestedSha) &&
+          (!requestedProfile || candidate.profile === requestedProfile)
+        ) {
+          setSession(candidate);
+          setProfile(candidate.profile);
+          setDraft(candidate.zone.polygon);
+          setVideoInfo(sessionVideoInfo(candidate));
+          setClosed(candidate.zone.polygon.length >= 3);
+          setFile(null);
+          setLocalUrl(null);
+          setDemoSource(null);
+          if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current);
+          localUrlRef.current = null;
+          setEditing(false);
+          return;
+        }
         if (saved) {
           if (restored.status === "rejected") {
             if (
@@ -219,15 +254,14 @@ export function AnalysisWorkspace({
           }
         }
         if (catalogResult.status === "rejected") throw catalogResult.reason;
-        if (initialManualRef.current) return;
-        const initial = catalog.find(
-          (item) => item.id === initialProfileRef.current,
-        );
+        setProfile(initialProfile);
+        if (initialManual || requestedSha || requestedSessionId) return;
+        const initial = catalog.find((item) => item.id === initialProfile);
         if (!initial?.default_demo_video) return;
         setBusy(true);
         setOperation("Preparando video del perfil…");
         const created = await analysisService.createDemoSession(
-          initialProfileRef.current,
+          initialProfile,
           initial.default_demo_video.id,
         );
         if (!isCurrent()) {
@@ -236,15 +270,18 @@ export function AnalysisWorkspace({
         }
         setDemoSource(initial.default_demo_video);
         setSession(created);
+        setProfile(created.profile);
+        setError(null);
         setDraft(created.zone.polygon);
-        setClosed(true);
+        setClosed(created.zone.polygon.length >= 3);
       })
       .catch((cause: unknown) => {
         if (isCurrent()) {
           setError(
-            cause instanceof Error
-              ? cause.message
-              : "No se pudieron cargar los perfiles.",
+            analysisError(
+              cause,
+              "No se pudo preparar Análisis. Vuelve a intentarlo.",
+            ),
           );
         }
       })
@@ -254,7 +291,14 @@ export function AnalysisWorkspace({
     return () => {
       active = false;
     };
-  }, [loadRevision]);
+  }, [
+    initialManual,
+    initialProfile,
+    loadRevision,
+    requestedProfile,
+    requestedSessionId,
+    requestedSha,
+  ]);
 
   useEffect(() => {
     const id = session?.id;
@@ -289,9 +333,10 @@ export function AnalysisWorkspace({
               return;
             }
             setError(
-              cause instanceof Error
-                ? cause.message
-                : "No se pudo consultar el estado.",
+              analysisError(
+                cause,
+                "No se pudo consultar el estado. Reintentando…",
+              ),
             );
           }
         })
@@ -311,86 +356,119 @@ export function AnalysisWorkspace({
   }, [session?.id, session?.state]);
 
   async function selectVideo(selected: File | undefined) {
-    if (!selected) return;
-    const current = ++generation.current;
-    let selectedLocally = false;
+    if (!selected || busy || !canChangeSource || !confirmDraftLoss()) return;
+    const current = generation.current;
     setOperation("Preparando video…");
     setBusy(true);
     setError(null);
+    let created: AnalysisSessionStatus | null = null;
     try {
+      created = await analysisService.createSession(
+        selected,
+        requestedProfile ?? profile,
+        requestedSha,
+      );
+      if (generation.current !== current) {
+        await analysisService.closeAnalysisSession(created.id);
+        return;
+      }
+      if (requestedSha && created.source_sha256 !== requestedSha) {
+        await analysisService.closeAnalysisSession(created.id);
+        created = null;
+        setError(
+          "El archivo elegido corresponde a otra fuente. Selecciona el video original de la revisión.",
+        );
+        return;
+      }
       if (session?.state === "completed") {
         setSuspendResult(true);
         await new Promise<void>((resolve) =>
           requestAnimationFrame(() => resolve()),
         );
       }
-      if (session) await analysisService.closeAnalysisSession(session.id);
-      if (generation.current !== current) return;
-      writeSessionReference(tabStorage(), referenceKey, null);
-      if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current);
-      const url = URL.createObjectURL(selected);
-      localUrlRef.current = url;
-      setLocalUrl(url);
-      setFile(selected);
-      setDemoSource(null);
-      setSession(null);
-      selectedLocally = true;
-      setEditing(false);
-      const created = await analysisService.createSession(selected, profile);
+      if (session && !requestedSha)
+        await analysisService.closeAnalysisSession(session.id);
       if (generation.current !== current) {
         await analysisService.closeAnalysisSession(created.id);
         return;
       }
+      ++generation.current;
+      if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current);
+      const url = URL.createObjectURL(selected);
+      localUrlRef.current = url;
+      setLocalUrl(url);
+      if (pendingRequest)
+        setReplacementRequest(`${configurationRequest}:${created.id}`);
+      setFile(selected);
+      setDemoSource(null);
       setSession(created);
+      setProfile(created.profile);
       setDraft(created.zone.polygon);
       setClosed(created.zone.polygon.length >= 3);
       setSelectedVertex(null);
+      setEditing(false);
     } catch (cause) {
-      if (generation.current === current) {
-        if (selectedLocally) {
-          if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current);
-          localUrlRef.current = null;
-          setLocalUrl(null);
-          setFile(null);
-          setSession(null);
-        }
+      if (created)
+        await analysisService
+          .closeAnalysisSession(created.id)
+          .catch(() => undefined);
+      if (generation.current === current)
         setError(
-          cause instanceof Error
-            ? cause.message
-            : "No se pudo crear la sesión.",
+          analysisError(
+            cause,
+            "No se pudo preparar el video. Vuelve a intentarlo.",
+          ),
         );
-      }
     } finally {
-      if (generation.current === current) {
-        setSuspendResult(false);
-        setBusy(false);
-      }
+      setSuspendResult(false);
+      setBusy(false);
     }
   }
 
-  async function selectProfileDemo(next: AnalysisProfile) {
-    const definition = profiles.find((item) => item.id === next);
-    const demo = definition?.default_demo_video;
-    if (!demo) {
-      throw new Error("Este perfil no tiene un video demo disponible.");
-    }
-    const current = ++generation.current;
+  async function selectProfileDemo(
+    next: AnalysisProfile,
+    target?: { sourceSha?: string },
+  ) {
+    const demo = profiles.find((item) => item.id === next)?.default_demo_video;
+    if (!demo)
+      throw new Error(
+        "Este perfil no tiene un video demo disponible. Selecciona un archivo local.",
+      );
+    const current = generation.current;
     setSwitchingDemo(true);
-    if (session) await analysisService.closeAnalysisSession(session.id);
-    if (generation.current !== current) return;
-    writeSessionReference(tabStorage(), referenceKey, null);
+    const created = await analysisService.createDemoSession(
+      next,
+      demo.id,
+      target?.sourceSha,
+    );
+    try {
+      if (generation.current !== current) {
+        await analysisService.closeAnalysisSession(created.id);
+        return;
+      }
+      if (target?.sourceSha && created.source_sha256 !== target.sourceSha)
+        throw new Error(
+          "La demo corresponde a otra fuente. Selecciona el video original de la revisión.",
+        );
+      if (session && !target)
+        await analysisService.closeAnalysisSession(session.id);
+      if (generation.current !== current) {
+        await analysisService.closeAnalysisSession(created.id);
+        return;
+      }
+    } catch (cause) {
+      await analysisService
+        .closeAnalysisSession(created.id)
+        .catch(() => undefined);
+      throw cause;
+    }
+    ++generation.current;
     if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current);
     localUrlRef.current = null;
     setLocalUrl(null);
     setFile(null);
-    setDemoSource(null);
-    setSession(null);
-    const created = await analysisService.createDemoSession(next, demo.id);
-    if (generation.current !== current) {
-      await analysisService.closeAnalysisSession(created.id);
-      return;
-    }
     setDemoSource(demo);
+    if (target) setReplacementRequest(`${configurationRequest}:${created.id}`);
     setSession(created);
     setProfile(created.profile);
     setDraft(created.zone.polygon);
@@ -400,7 +478,7 @@ export function AnalysisWorkspace({
   }
 
   async function start() {
-    if (!session) return;
+    if (!session || spatialEditing || spatialDirty) return;
     videoRef.current?.pause();
     if (videoRef.current) videoRef.current.currentTime = 0;
     setOperation("Iniciando análisis…");
@@ -427,7 +505,9 @@ export function AnalysisWorkspace({
       } catch {
         // El error original es más útil; la sesión puede haberse cerrado.
       }
-      setError(cause instanceof Error ? cause.message : "No se pudo iniciar.");
+      setError(
+        analysisError(cause, "No se pudo iniciar. Vuelve a intentarlo."),
+      );
     } finally {
       if (generation.current === current) {
         setSuspendResult(false);
@@ -441,6 +521,7 @@ export function AnalysisWorkspace({
     setOperation("Deteniendo análisis…");
     const current = ++generation.current;
     setBusy(true);
+    setError(null);
     try {
       const updated = await analysisService.stopAnalysisSession(session.id);
       if (generation.current !== current) return;
@@ -454,7 +535,9 @@ export function AnalysisWorkspace({
       } catch {
         // El error original es más útil; la sesión puede haberse cerrado.
       }
-      setError(cause instanceof Error ? cause.message : "No se pudo detener.");
+      setError(
+        analysisError(cause, "No se pudo detener. Vuelve a intentarlo."),
+      );
     } finally {
       if (generation.current === current) setBusy(false);
     }
@@ -475,23 +558,31 @@ export function AnalysisWorkspace({
         applied: (updated) => {
           setSession(updated);
           setEditing(false);
+          setZoneRevision((value) => value + 1);
         },
         failed: (cause) =>
           setError(
-            cause instanceof Error
-              ? cause.message
-              : "No se pudo aplicar la zona.",
+            analysisError(
+              cause,
+              "No se pudo aplicar la zona. Revisa el polígono y reintenta.",
+            ),
           ),
         settled: () => setBusy(false),
       },
     );
   }
 
-  async function changeProfile(next: AnalysisProfile, useDemo = false) {
+  async function changeProfile(
+    next: AnalysisProfile,
+    useDemo = false,
+    target?: { sourceSha?: string },
+  ) {
     if (
       busy ||
       changingProfile.current ||
-      (next === profile && !useDemo && session)
+      !canChangeSource ||
+      (next === profile && !useDemo && session) ||
+      !confirmDraftLoss()
     )
       return;
     changingProfile.current = true;
@@ -499,7 +590,7 @@ export function AnalysisWorkspace({
     setBusy(true);
     setError(null);
     try {
-      if (session?.source_kind === "manual" && !useDemo) {
+      if (session?.source_kind === "manual" && !useDemo && !target) {
         const current = ++generation.current;
         const updated = await analysisService.updateZone(session.id, {
           profile: next,
@@ -516,10 +607,12 @@ export function AnalysisWorkspace({
           (item) => item.id === next,
         )?.default_demo_video;
         if (nextDemo) {
-          await selectProfileDemo(next);
+          await selectProfileDemo(next, target);
         } else {
           if (session) {
-            setError(`El Perfil ${next} no tiene una demo disponible en este entorno. Carga un video local compatible y vuelve a seleccionar el perfil. La fuente actual sigue preparada.`);
+            setError(
+              `El Perfil ${next} no tiene una demo configurada. Carga un video compatible para preparar ese perfil.`,
+            );
             return;
           }
           setProfile(next);
@@ -530,9 +623,10 @@ export function AnalysisWorkspace({
       }
     } catch (cause) {
       setError(
-        cause instanceof Error
-          ? cause.message
-          : "No se pudo cambiar el perfil.",
+        analysisError(
+          cause,
+          "No se pudo preparar el perfil. Vuelve a intentarlo.",
+        ),
       );
     } finally {
       changingProfile.current = false;
@@ -542,7 +636,7 @@ export function AnalysisWorkspace({
   }
 
   async function clearSession() {
-    if (!session) return;
+    if (!session || !canChangeSource || !confirmDraftLoss()) return;
     setOperation("Limpiando sesión…");
     generation.current += 1;
     setBusy(true);
@@ -566,9 +660,10 @@ export function AnalysisWorkspace({
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (cause) {
       setError(
-        cause instanceof Error
-          ? cause.message
-          : "No se pudo limpiar la sesión.",
+        analysisError(
+          cause,
+          "No se pudo limpiar la sesión. Vuelve a intentarlo.",
+        ),
       );
     } finally {
       setSuspendResult(false);
@@ -591,6 +686,26 @@ export function AnalysisWorkspace({
     !!session &&
     ["ready", "completed", "cancelled", "error"].includes(session.state) &&
     !busy;
+  const matchesRequest =
+    !!session &&
+    (!requestedProfile || session.profile === requestedProfile) &&
+    (!requestedSha || session.source_sha256 === requestedSha) &&
+    (!requestedSessionId ||
+      session.id === requestedSessionId ||
+      Boolean(requestedSha) ||
+      replacementRequest === `${configurationRequest}:${session.id}`);
+  const pendingRequest =
+    Boolean(requestedSha || requestedProfile || requestedSessionId) &&
+    !matchesRequest;
+  const requestDemo = profiles.find(
+    (item) => item.id === requestedProfile,
+  )?.default_demo_video;
+  const canChangeSource = !spatialEditing && (!session || canEdit);
+  const autoOpenKey = `${configurationRequest}:${session?.id}`;
+  const consumeAutoOpen = useCallback(
+    () => setAutoOpened(autoOpenKey),
+    [autoOpenKey],
+  );
   const showStream =
     !!session && ["preparing", "processing"].includes(session.state);
   const showResult =
@@ -607,20 +722,24 @@ export function AnalysisWorkspace({
     !!referenceUrl &&
     !showResult;
   const visibleError = error
-    ? readableError(error)
+    ? analysisError(
+        error,
+        "No se pudo completar la acción. Vuelve a intentarlo.",
+      )
     : session?.persistence?.state === "failed"
       ? "El análisis puede estar completo, pero sus eventos no quedaron guardados íntegramente. Puede reintentar el guardado sin analizar de nuevo."
       : session?.state === "error" && session.detail
-        ? readableError(session.detail)
+        ? analysisError(
+            session.detail,
+            "El análisis se interrumpió. Puedes volver a intentarlo.",
+          )
         : null;
   const contextState =
     session?.state === "completed" && session.persistence?.state === "failed"
       ? "Análisis completado · eventos pendientes de guardado"
-      : visibleError
-        ? "No fue posible completar la operación"
-        : session
-          ? labels[session.state]
-          : "Sin fuente preparada";
+      : session
+        ? labels[session.state]
+        : "Sin fuente preparada";
   const percent = session
     ? analysisPercent(session.state, session.percent)
     : null;
@@ -631,6 +750,7 @@ export function AnalysisWorkspace({
   ) {
     if (event.key === "Delete" || event.key === "Backspace") {
       event.preventDefault();
+      if (draft.length > 3) rememberZone();
       setDraft((points) => removeVertex(points, index));
       setSelectedVertex(null);
       dragging.current = null;
@@ -647,6 +767,7 @@ export function AnalysisWorkspace({
     if (!delta) return;
     event.preventDefault();
     setSelectedVertex(index);
+    rememberZone();
     setDraft((current) =>
       current.map((point, currentIndex) =>
         currentIndex === index
@@ -680,6 +801,20 @@ export function AnalysisWorkspace({
               ? `${sourceName} · ${sourceKind === "demo" ? "demo incluida" : "video manual"}`
               : "Seleccione una demo o un video local para comenzar."}
           </p>
+          {session && (
+            <p className={styles.contextFacts}>
+              {session.spatial_revision
+                ? `Revisión ${session.spatial_revision}`
+                : "Configuración inicial"}
+              {session.configuration &&
+                ` · ${session.configuration.rules.filter((rule) => rule.enabled).length} reglas activas`}
+              {session.configuration?.calibration?.status === "valid"
+                ? " · Calibración guardada"
+                : session.configuration?.calibration?.status === "invalid"
+                  ? " · Encuadre invalidado"
+                  : " · Sin calibración métrica"}
+            </p>
+          )}
         </div>
         <div className="analysis-context-actions">
           <div
@@ -704,8 +839,16 @@ export function AnalysisWorkspace({
                   type="button"
                   className={`analysis-profile ${profile === item ? "is-active" : ""}`}
                   aria-pressed={profile === item}
-                  disabled={busy || (!!session && !canEdit)}
-                  onClick={() => void changeProfile(item)}
+                  disabled={busy || !canChangeSource}
+                  onClick={() =>
+                    void changeProfile(
+                      item,
+                      false,
+                      pendingRequest && item === requestedProfile
+                        ? { sourceSha: requestedSha }
+                        : undefined,
+                    )
+                  }
                 >
                   {profile === item && (
                     <motion.span
@@ -728,7 +871,7 @@ export function AnalysisWorkspace({
             <Upload size={16} aria-hidden="true" /> Cambiar fuente
             <input
               type="file"
-              disabled={busy || (!!session && !canEdit)}
+              disabled={busy || !canChangeSource}
               accept=".mp4,.mov,.avi,video/mp4"
               className="sr-only"
               onChange={(event) => {
@@ -751,6 +894,39 @@ export function AnalysisWorkspace({
         </div>
       </section>
 
+      {!busy && pendingRequest && (
+        <div className={styles.request}>
+          <p>
+            {requestedProfile
+              ? `Perfil ${requestedProfile} solicitado.`
+              : "Fuente solicitada."}{" "}
+            {session &&
+              `Sesión actual: ${session.filename} (Perfil ${session.profile}). `}
+            {showStream
+              ? "Puedes cambiar de fuente cuando termine el análisis."
+              : requestedSha
+                ? "Selecciona el video original de la revisión para preparar esta fuente."
+                : requestDemo
+                  ? "Prepara el perfil para cambiar de fuente."
+                  : requestedSessionId
+                    ? "La sesión solicitada no está disponible. Selecciona un video local."
+                    : "Selecciona un video local para preparar la fuente."}
+          </p>
+          {!showStream && requestedProfile && requestDemo && !initialManual && (
+            <Button
+              variant="outline"
+              disabled={!canChangeSource}
+              onClick={() =>
+                void changeProfile(requestedProfile, true, {
+                  sourceSha: requestedSha,
+                })
+              }
+            >
+              Preparar perfil {requestedProfile}
+            </Button>
+          )}
+        </div>
+      )}
       <div
         className={`analysis-layout ${session || inspectorOpen || switchingDemo || (busy && !initialManual) ? "has-telemetry" : ""}`}
       >
@@ -765,7 +941,7 @@ export function AnalysisWorkspace({
           >
             <div className="analysis-media-stage">
               <div
-                className={`analysis-stage ${sourceName || switchingDemo ? "has-source" : "is-empty"}`}
+                className={`analysis-stage ${styles.stage} ${sourceName || switchingDemo ? "has-source" : "is-empty"}`}
                 style={{
                   aspectRatio: `${videoInfo.width} / ${videoInfo.height}`,
                 }}
@@ -787,12 +963,14 @@ export function AnalysisWorkspace({
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-white/80">
                     <Upload size={30} aria-hidden="true" />
                     <p className="text-lg font-semibold">
-                      {profiles.length > 0 && !selectedProfile?.default_demo_video
+                      {profiles.length > 0 &&
+                      !selectedProfile?.default_demo_video
                         ? `Perfil ${profile} · demo no disponible`
                         : "Sin fuente de video"}
                     </p>
                     <p className="max-w-sm text-sm opacity-75">
-                      {profiles.length > 0 && !selectedProfile?.default_demo_video
+                      {profiles.length > 0 &&
+                      !selectedProfile?.default_demo_video
                         ? "Selecciona un archivo MP4, MOV o AVI desde Cambiar fuente."
                         : "Seleccione un archivo o use una demo."}
                     </p>
@@ -867,7 +1045,7 @@ export function AnalysisWorkspace({
                   <svg
                     viewBox="0 0 100 100"
                     preserveAspectRatio="none"
-                    className={`absolute inset-0 h-full w-full ${editing ? "touch-none cursor-crosshair" : "pointer-events-none"}`}
+                    className={`absolute inset-0 h-full w-full ${styles.zoneOverlay} ${editing ? "touch-none cursor-crosshair" : "pointer-events-none"}`}
                     aria-label={
                       editing
                         ? "Editor de polígono normalizado"
@@ -881,7 +1059,10 @@ export function AnalysisWorkspace({
                       )
                         return;
                       const point = pointInFrame(event);
-                      if (point) setDraft((current) => [...current, point]);
+                      if (point && draft.length < 32) {
+                        rememberZone();
+                        setDraft((current) => [...current, point].slice(0, 32));
+                      }
                     }}
                     onPointerMove={(event) => {
                       const draggedVertex = dragging.current;
@@ -939,9 +1120,11 @@ export function AnalysisWorkspace({
                           onPointerDown={(event) => {
                             event.stopPropagation();
                             if (!closed && index === 0 && draft.length >= 3) {
+                              rememberZone();
                               setClosed(true);
                               return;
                             }
+                            rememberZone();
                             dragging.current = index;
                             setSelectedVertex(index);
                             event.currentTarget.setPointerCapture(
@@ -957,7 +1140,11 @@ export function AnalysisWorkspace({
 
             <div className="analysis-toolbar">
               {busy && sourceName && !showStream && !switchingDemo && (
-                <OperixScanLoader variant="process" size="small" message={operation} />
+                <OperixScanLoader
+                  variant="process"
+                  size="small"
+                  message={operation}
+                />
               )}
               {session &&
                 ["preparing", "processing"].includes(session.state) && (
@@ -966,11 +1153,15 @@ export function AnalysisWorkspace({
                       variant="process"
                       size="small"
                       announce={false}
-                      message={session.state === "preparing"
-                        ? "Preparando modelos y video…"
-                        : "Procesando fotogramas…"}
+                      message={
+                        session.state === "preparing"
+                          ? "Preparando modelos y video…"
+                          : "Procesando fotogramas…"
+                      }
                     />
-                    {percent !== null && <strong>{percent.toFixed(1)} %</strong>}
+                    {percent !== null && (
+                      <strong>{percent.toFixed(1)} %</strong>
+                    )}
                     <span>
                       {session.state === "preparing"
                         ? (session.detail ??
@@ -987,7 +1178,7 @@ export function AnalysisWorkspace({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  disabled={busy || (!!session && !canEdit)}
+                  disabled={busy || !canChangeSource}
                   accept=".mp4,.mov,.avi,video/mp4"
                   className="sr-only"
                   onChange={(event) => {
@@ -1000,7 +1191,7 @@ export function AnalysisWorkspace({
                 selectedProfile?.default_demo_video && (
                   <Button
                     variant="secondary"
-                    disabled={busy || !canEdit}
+                    disabled={busy || !canChangeSource}
                     onClick={() => void changeProfile(profile, true)}
                   >
                     Usar video demo
@@ -1015,6 +1206,7 @@ export function AnalysisWorkspace({
                     !session ||
                     !validPolygon(session.zone.polygon) ||
                     spatialEditing ||
+                    spatialDirty ||
                     session.configuration?.calibration?.status === "invalid"
                   }
                   variant="primary"
@@ -1045,11 +1237,14 @@ export function AnalysisWorkspace({
                 <Button
                   onClick={() => {
                     videoRef.current?.pause();
+                    setZoneUndo([]);
                     setClosed((session?.zone.polygon.length ?? 0) >= 3);
                     setSelectedVertex(null);
                     setEditing(true);
                   }}
                   variant="outline"
+                  className={styles.editZone}
+                  disabled={spatialEditing || spatialDirty}
                 >
                   <Waypoints size={16} aria-hidden="true" />{" "}
                   {session && session.zone.polygon.length < 3
@@ -1057,7 +1252,7 @@ export function AnalysisWorkspace({
                     : "Editar zona"}
                 </Button>
               )}
-              {session && canEdit && (
+              {session && canChangeSource && (
                 <details className="analysis-more">
                   <summary aria-label="Más opciones">
                     <MoreHorizontal size={18} aria-hidden="true" />
@@ -1087,6 +1282,7 @@ export function AnalysisWorkspace({
                 <Button
                   variant="secondary"
                   onClick={() => {
+                    rememberZone();
                     setDraft([]);
                     setClosed(false);
                     setSelectedVertex(null);
@@ -1096,7 +1292,10 @@ export function AnalysisWorkspace({
                 </Button>
                 <Button
                   variant="secondary"
-                  onClick={() => setClosed(true)}
+                  onClick={() => {
+                    rememberZone();
+                    setClosed(true);
+                  }}
                   disabled={closed || draft.length < 3}
                 >
                   Cerrar polígono
@@ -1104,6 +1303,7 @@ export function AnalysisWorkspace({
                 <Button
                   variant="secondary"
                   onClick={() => {
+                    rememberZone();
                     setDraft((points) => removeVertex(points, selectedVertex));
                     setSelectedVertex(null);
                   }}
@@ -1113,7 +1313,37 @@ export function AnalysisWorkspace({
                 </Button>
                 <Button
                   variant="secondary"
+                  disabled={!zoneUndo.length}
                   onClick={() => {
+                    const previous = zoneUndo[zoneUndo.length - 1];
+                    setDraft(previous.polygon);
+                    setClosed(previous.closed);
+                    setSelectedVertex(null);
+                    setZoneUndo(zoneUndo.slice(0, -1));
+                  }}
+                >
+                  Deshacer
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    rememberZone();
+                    const polygon = session?.zone.polygon ?? [];
+                    setDraft(polygon);
+                    setClosed(polygon.length >= 3);
+                    setSelectedVertex(null);
+                  }}
+                >
+                  Restablecer
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    if (
+                      zoneChanged &&
+                      !window.confirm("¿Descartar los cambios de la zona?")
+                    )
+                      return;
                     setDraft(session?.zone.polygon ?? []);
                     setEditing(false);
                   }}
@@ -1138,70 +1368,79 @@ export function AnalysisWorkspace({
               </div>
             )}
             {editing && (
-              <form
-                className="analysis-vertex-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const x = Number(newPoint.x),
-                    y = Number(newPoint.y);
-                  if (
-                    !newPoint.x.trim() ||
-                    !newPoint.y.trim() ||
-                    !Number.isFinite(x) ||
-                    !Number.isFinite(y) ||
-                    x < 0 ||
-                    x > 100 ||
-                    y < 0 ||
-                    y > 100
-                  )
-                    return;
-                  setDraft((points) => [...points, [x / 100, y / 100]]);
-                  setSelectedVertex(draft.length);
-                }}
-              >
-                <p id="vertex-help">
-                  Desde «Nueva zona», añada vértices por coordenadas o marque
-                  puntos sobre el video. Origen: esquina superior izquierda.
-                </p>
-                <label>
-                  X (%)
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.1"
-                    required
-                    value={newPoint.x}
-                    onChange={(event) =>
-                      setNewPoint({ ...newPoint, x: event.target.value })
-                    }
-                    disabled={closed}
-                    aria-describedby="vertex-help"
-                  />
-                </label>
-                <label>
-                  Y (%)
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.1"
-                    required
-                    value={newPoint.y}
-                    onChange={(event) =>
-                      setNewPoint({ ...newPoint, y: event.target.value })
-                    }
-                    disabled={closed}
-                  />
-                </label>
-                <Button type="submit" variant="outline" disabled={closed}>
-                  Añadir vértice
-                </Button>
-                <span role="status">
-                  {draft.length} {draft.length === 1 ? "vértice" : "vértices"}
-                  {closed ? " · polígono cerrado" : " · polígono abierto"}
-                </span>
-              </form>
+              <details className={styles.legacyCoordinates}>
+                <summary>Coordenadas avanzadas</summary>
+                <form
+                  className="analysis-vertex-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const x = Number(newPoint.x),
+                      y = Number(newPoint.y);
+                    if (
+                      draft.length >= 32 ||
+                      !newPoint.x.trim() ||
+                      !newPoint.y.trim() ||
+                      !Number.isFinite(x) ||
+                      !Number.isFinite(y) ||
+                      x < 0 ||
+                      x > 100 ||
+                      y < 0 ||
+                      y > 100
+                    )
+                      return;
+                    rememberZone();
+                    setDraft((points) => [...points, [x / 100, y / 100]]);
+                    setSelectedVertex(draft.length);
+                  }}
+                >
+                  <p id="vertex-help">
+                    Desde «Nueva zona», añada vértices por coordenadas o marque
+                    puntos sobre el video. Origen: esquina superior izquierda.
+                  </p>
+                  <label>
+                    X (%)
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      required
+                      value={newPoint.x}
+                      onChange={(event) =>
+                        setNewPoint({ ...newPoint, x: event.target.value })
+                      }
+                      disabled={closed}
+                      aria-describedby="vertex-help"
+                    />
+                  </label>
+                  <label>
+                    Y (%)
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      required
+                      value={newPoint.y}
+                      onChange={(event) =>
+                        setNewPoint({ ...newPoint, y: event.target.value })
+                      }
+                      disabled={closed}
+                    />
+                  </label>
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    disabled={closed || draft.length >= 32}
+                  >
+                    Añadir vértice
+                  </Button>
+                  <span role="status">
+                    {draft.length} {draft.length === 1 ? "vértice" : "vértices"}
+                    {closed ? " · polígono cerrado" : " · polígono abierto"}
+                  </span>
+                </form>
+              </details>
             )}
             {editing && closed && !validPolygon(draft) && (
               <p role="status" className="analysis-result-help">
@@ -1210,11 +1449,17 @@ export function AnalysisWorkspace({
               </p>
             )}
           </div>
-          {session && canEdit && !editing && (
+          {session && (
             <SpatialEditor
-              key={session.id}
+              key={`${session.id}:${session.profile}:${zoneRevision}`}
               session={session}
+              unavailable={!canEdit || editing}
+              autoOpen={
+                initialConfigure && matchesRequest && autoOpened !== autoOpenKey
+              }
+              onAutoOpen={consumeAutoOpen}
               onEditingChange={setSpatialEditing}
+              onDirtyChange={setSpatialDirty}
               onSaved={(next) => {
                 setSession((current) =>
                   current?.id === next.id ? next : current,
@@ -1224,32 +1469,29 @@ export function AnalysisWorkspace({
               }}
             />
           )}
-          <p
-            role={visibleError ? "alert" : undefined}
-            className={`analysis-feedback ${visibleError ? "has-error" : ""}`}
-          >
-            {busy && !showStream
-              ? null
-              : session
-                ? labels[session.state]
-                : sourceName
-                  ? "Video listo para preparar."
-                  : "No hay un análisis en curso."}
-            {session && !editing && session.zone.polygon.length < 3 && (
-              <span> Cree y aplique una zona para iniciar el análisis.</span>
+          {visibleError && (
+            <p role="alert" className={styles.error}>
+              {visibleError}
+            </p>
+          )}
+          {session && !editing && session.zone.polygon.length < 3 && (
+            <p className={styles.notice}>
+              Crea y aplica una zona para iniciar el análisis.
+            </p>
+          )}
+          {spatialDirty && !spatialEditing && (
+            <p className={styles.notice}>
+              Abre la configuración para guardar o descartar el borrador antes
+              de analizar.
+            </p>
+          )}
+          {canEdit &&
+            session?.configuration?.calibration?.status === "invalid" && (
+              <p className={styles.notice}>
+                Encuadre invalidado. Revisa la calibración y guarda la
+                configuración para iniciar.
+              </p>
             )}
-            {canEdit &&
-              session?.configuration?.calibration?.status === "invalid" && (
-                <span>
-                  {" "}
-                  Encuadre invalidado. Abra Zonas, calibración y reglas para
-                  revisar, recalibrar y guardar antes de analizar.
-                </span>
-              )}
-            {visibleError && (
-              <span className="analysis-error-message">{visibleError}</span>
-            )}
-          </p>
           {!session && visibleError && (
             <Button
               variant="outline"
@@ -1264,10 +1506,9 @@ export function AnalysisWorkspace({
               Reconectar y recuperar sesión
             </Button>
           )}
-          {session && (
+          {showStream && (
             <p className="analysis-result-help">
-              Puede navegar y volver a Análisis sin detener esta sesión. El
-              servidor la conserva temporalmente; «Limpiar sesión» la elimina.
+              Puedes navegar sin detener la sesión.
             </p>
           )}
           {session &&
@@ -1309,7 +1550,10 @@ export function AnalysisWorkspace({
                         .catch((cause: unknown) =>
                           setError(
                             cause instanceof Error
-                              ? readableError(cause.message)
+                              ? analysisError(
+                                  cause,
+                                  "No se pudo guardar los eventos. Reintenta.",
+                                )
                               : "No se pudo reintentar el guardado.",
                           ),
                         )
@@ -1362,15 +1606,15 @@ export function AnalysisWorkspace({
             </p>
           )}
           {(showStream || showResult) && (
-            <p className="analysis-result-help">
-              En las anotaciones de proximidad, P# identifica a la persona y F#
-              al montacargas. «d» indica la distancia observada y «max» el
-              umbral configurado. «norm» corresponde a imagen normalizada; «m
-              approx» a metros aproximados de suelo, solo con calibración
-              válida. Las distancias observadas sin umbral no evalúan una
-              regla de proximidad. Condición configurada satisfecha; requiere revisión
-              humana, no confirma un incidente.
-            </p>
+            <details className={styles.resultLegend}>
+              <summary>Cómo leer las anotaciones</summary>
+              <p>
+                P# identifica a la persona y F# al montacargas. «d» es la
+                distancia observada y «max», el umbral de la regla. «norm» usa
+                la escala de la imagen. «m approx» indica metros aproximados
+                sobre suelo calibrado. Un evento requiere revisión humana.
+              </p>
+            </details>
           )}
         </section>
 
