@@ -64,9 +64,11 @@ anteriores describen el modelo de aquella fecha y no se modifican.
 `OPERIX_INPUT_HOST` apunta solo a demos autorizadas; por defecto `assets/demo`.
 No montar `Operix-experiments`, PERSON_FINAL_HOLDOUT_V2, TEST2, REAL_HOLDOUT_V2
 ni sus directorios padre. No se copia ningún video o peso al contexto/imagen.
-La carga manual desde la Web conserva el comportamiento nativo. La demo C es
-opcional y requiere incorporación expresa al directorio autorizado y su ruta
-interna en `OPERIX_DOCKER_DEMO_C`; no se busca ni monta automáticamente.
+La carga manual desde la Web conserva el comportamiento nativo. Para activar la
+demo C, coloca el [video Box Pickup autorizado](../../assets/demo/v0.2.0/README.md#input-y-configuración)
+como `warehouse_box_pickup.mp4` en `OPERIX_INPUT_HOST`. Docker lo busca en
+`/data/input/warehouse_box_pickup.mp4`; `OPERIX_DOCKER_DEMO_C` admite otra ruta
+interna explícita. Recrea el servicio `backend` para aplicar el cambio.
 
 ## Persistencia y límites
 
