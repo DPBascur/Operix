@@ -41,6 +41,8 @@ function AccountMenu({
   const panelId = useId();
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const position = useRef<HTMLDivElement>(null);
+  const signingOut = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -52,7 +54,16 @@ function AccountMenu({
     return () => document.removeEventListener("pointerdown", dismiss);
   }, [open]);
 
+  useEffect(() => {
+    const panel = position.current;
+    if (open && panel?.closest(".mobile-navigation-panel")) {
+      panel.scrollIntoView({ block: "nearest" });
+    }
+  }, [open]);
+
   async function logOut() {
+    if (signingOut.current) return;
+    signingOut.current = true;
     setBusy(true);
     setFailed(false);
     try {
@@ -61,6 +72,7 @@ function AccountMenu({
     } catch {
       setFailed(true);
     } finally {
+      signingOut.current = false;
       setBusy(false);
     }
   }
@@ -102,7 +114,7 @@ function AccountMenu({
         </span>
         <ChevronDown size={15} aria-hidden="true" className={styles.chevron} />
       </button>
-      <div id={panelId} className={styles.panelPosition}>
+      <div id={panelId} className={styles.panelPosition} ref={position}>
         <AnimatePresence initial={false}>
           {open && (
             <AccountActions key="account-options">
@@ -113,22 +125,20 @@ function AccountMenu({
               <button
                 type="button"
                 aria-disabled={busy}
-                onClick={() => {
-                  if (!busy) void logOut();
-                }}
+                onClick={() => void logOut()}
               >
                 <LogOut size={16} aria-hidden="true" />{" "}
                 {busy ? "Cerrando sesión…" : "Cerrar sesión"}
               </button>
+              {failed && (
+                <p className={styles.error} role="alert">
+                  No se pudo cerrar la sesión. Vuelve a intentarlo.
+                </p>
+              )}
             </AccountActions>
           )}
         </AnimatePresence>
       </div>
-      {failed && (
-        <p className={styles.error} role="alert">
-          No se pudo cerrar la sesión. Vuelve a intentarlo.
-        </p>
-      )}
     </div>
   );
 }

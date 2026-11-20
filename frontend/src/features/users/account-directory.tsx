@@ -11,9 +11,10 @@ import {
 import {
   ChevronRight,
   KeyRound,
+  Search,
   UserMinus,
   UserPlus,
-  Users,
+  X,
 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
@@ -29,6 +30,7 @@ import {
   roleLabels,
   type OperixUser,
 } from "@/services/browser-session";
+import styles from "./account-directory.module.css";
 
 type Role = OperixUser["role"];
 type Account = {
@@ -44,6 +46,19 @@ type Account = {
 
 type AccountPage = { accounts: Account[]; next: number | null };
 type Editor = { mode: "create" } | { mode: "edit"; account: Account };
+
+function searchKey(value: string) {
+  return value.toLocaleLowerCase("es").normalize("NFD").replace(/\p{M}/gu, "");
+}
+
+function initials(account: Account) {
+  return (account.display_name.trim() || account.username)
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => Array.from(part)[0])
+    .join("")
+    .toLocaleUpperCase("es");
+}
 
 async function directoryRequest<T>(
   path: string,
@@ -85,10 +100,12 @@ function passwordInput(id: string) {
 
 function AccountEditor({
   editor,
+  message,
   onSaved,
   onClose,
 }: {
   editor: Editor;
+  message: string;
   onSaved: (account: Account, message: string) => void;
   onClose: () => void;
 }) {
@@ -97,12 +114,31 @@ function AccountEditor({
   const inFlight = useRef(false);
   const [error, setError] = useState("");
   const [reset, setReset] = useState(false);
+  const [activeState, setActiveState] = useState(
+    String(account?.is_active ?? true),
+  );
+  const deactivating = account?.is_active && activeState === "false" && !reset;
   const reactivating = Boolean(account && !account.is_active && reset);
-  const [retireError, setRetireError] = useState("");
+  const [retiring, setRetiring] = useState(false);
   const reduceMotion = useReducedMotion();
-  const retirement = useRef<HTMLDialogElement>(null);
+  const panel = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => heading.current?.focus(), []);
+  useEffect(() => {
+    const dialog = panel.current;
+    dialog?.showModal();
+    return () => dialog?.close();
+  }, []);
+  useEffect(() => heading.current?.focus(), [reset, retiring]);
+
+  function cancel() {
+    if (inFlight.current) return;
+    if (retiring) {
+      setRetiring(false);
+      setError("");
+    } else {
+      onClose();
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -165,16 +201,15 @@ function AccountEditor({
     if (!account || inFlight.current) return;
     inFlight.current = true;
     setPending(true);
-    setRetireError("");
+    setError("");
     try {
       const updated = await directoryRequest<Account>(account.id + "/retire/", {
         method: "POST",
         signal: AbortSignal.timeout(15000),
       });
-      retirement.current?.close();
       onSaved(updated, `Cuenta @${updated.username} dada de baja.`);
     } catch (cause) {
-      setRetireError(
+      setError(
         cause instanceof Error
           ? cause.message
           : "No se pudo dar de baja la cuenta.",
@@ -186,183 +221,73 @@ function AccountEditor({
   }
 
   return (
-    <motion.section
-      className="identity-panel directory-editor"
+    <dialog
+      ref={panel}
+      className={styles.drawer}
       aria-labelledby="directory-editor-title"
-      initial={reduceMotion ? false : "hidden"}
-      animate="visible"
-      variants={sectionEntrance}
-      transition={enterTransition}
+      aria-describedby={retiring ? "retirement-consequences" : undefined}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) cancel();
+      }}
+      onCancel={(event) => {
+        event.preventDefault();
+        cancel();
+      }}
     >
-      <h2 id="directory-editor-title" tabIndex={-1} ref={heading}>
-        {reactivating
-          ? "Reactivar cuenta"
-          : reset
-            ? "Restablecer contraseña"
-            : account
-              ? "Editar cuenta"
-              : "Nueva cuenta"}
-      </h2>
-      {account && (
-        <p className="directory-selected">
-          {account.display_name || account.username} · @{account.username}
-        </p>
-      )}
-      {account?.role_review_required && !reset && (
-        <p className="directory-notice">
-          Esta cuenta usaba el perfil Usuario. Confirma Visualizador o asigna un
-          rol operativo acorde a su función.
-        </p>
-      )}
-      <form method="post" key={String(reset)} onSubmit={submit}>
-        <fieldset disabled={pending}>
-          {!account && (
-            <>
-              <label htmlFor="directory-username">Usuario</label>
-              <input
-                className="input"
-                id="directory-username"
-                name="username"
-                autoComplete="off"
-                maxLength={150}
-                required
-              />
-              <label htmlFor="directory-display-name">Nombre visible</label>
-              <input
-                className="input"
-                id="directory-display-name"
-                name="display_name"
-                autoComplete="off"
-                maxLength={150}
-                required
-              />
-            </>
-          )}
-          {!reset && (
-            <>
-              <label htmlFor="directory-role">Rol</label>
-              <select
-                id="directory-role"
-                name="role"
-                className="select-control"
-                defaultValue={account?.role ?? "viewer"}
-              >
-                {Object.entries(roleLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-              <label htmlFor="directory-state">Estado</label>
-              <select
-                id="directory-state"
-                name="is_active"
-                className="select-control"
-                defaultValue={String(account?.is_active ?? true)}
-              >
-                <option
-                  value="true"
-                  disabled={Boolean(account && !account.is_active)}
-                >
-                  Activa
-                </option>
-                <option value="false">Desactivada</option>
-              </select>
-              <p className="field-help">
-                Una cuenta desactivada pierde acceso a Operix.
+      <motion.div
+        className={styles.editor}
+        initial={reduceMotion ? false : "hidden"}
+        animate="visible"
+        variants={sectionEntrance}
+        transition={enterTransition}
+      >
+        <header className={styles.editorHeading}>
+          <div>
+            <h2 id="directory-editor-title" tabIndex={-1} ref={heading}>
+              {retiring
+                ? "Dar de baja"
+                : reactivating
+                  ? "Reactivar cuenta"
+                  : reset
+                    ? "Restablecer contraseña"
+                    : account
+                      ? "Editar cuenta"
+                      : "Nueva cuenta"}
+            </h2>
+            {account ? (
+              <p className="directory-selected">
+                {account.display_name || account.username} · @{account.username}
               </p>
-            </>
-          )}
-          {(!account || reset) && passwordInput("directory-password")}
-        </fieldset>
-        {reset && (
-          <p className="directory-notice">
-            La operación cierra las sesiones anteriores de esta cuenta.
-          </p>
-        )}
-        {error && (
-          <p className="form-error" role="alert">
-            {error}
-          </p>
-        )}
-        <div className="identity-actions">
-          <Button type="submit" disabled={pending}>
-            {pending
-              ? "Guardando…"
-              : reset
-                ? reactivating
-                  ? "Confirmar reactivación"
-                  : "Restablecer"
-                : account
-                  ? "Guardar cambios"
-                  : "Crear cuenta"}
-          </Button>
+            ) : (
+              <p>Asigna un rol y define la contraseña inicial.</p>
+            )}
+          </div>
           <Button
-            type="button"
-            variant="outline"
-            disabled={pending}
-            onClick={() => {
-              if (reset) {
-                setReset(false);
-                setError("");
-              } else onClose();
-            }}
-          >
-            {reset ? "Volver" : "Cerrar"}
-          </Button>
-        </div>
-      </form>
-      {account && !reset && (
-        <div className="directory-secondary-actions">
-          <Button
-            type="button"
             variant="ghost"
+            size="icon"
+            aria-label={retiring ? "Cancelar baja" : "Cerrar editor"}
             disabled={pending}
-            onClick={() => {
-              setReset(true);
-              setError("");
-            }}
+            onClick={cancel}
           >
-            <KeyRound size={16} aria-hidden="true" />{" "}
-            {account.is_active ? "Restablecer contraseña" : "Reactivar cuenta"}
+            <X size={19} aria-hidden="true" />
           </Button>
-          <Button
-            variant="destructive"
-            aria-haspopup="dialog"
-            disabled={pending}
-            onClick={() => {
-              setRetireError("");
-              retirement.current?.showModal();
-            }}
-          >
-            <UserMinus size={16} aria-hidden="true" /> Dar de baja
-          </Button>
-          <dialog
-            ref={retirement}
-            className="directory-retirement surface-card"
-            aria-labelledby="retirement-title"
-            aria-describedby="retirement-consequences"
-            onCancel={(event) => {
-              if (inFlight.current) event.preventDefault();
-            }}
-          >
-            <h3 id="retirement-title">Dar de baja a @{account.username}</h3>
+        </header>
+        {retiring ? (
+          <div className={styles.retirement}>
             <p id="retirement-consequences">
-              Se revocará el acceso y se cerrarán las sesiones de la cuenta. La
-              baja es permanente en Operix, a diferencia de la desactivación
-              temporal. La cuenta y sus registros históricos se conservan.
+              La baja revoca el acceso de forma permanente y cierra las
+              sesiones. La cuenta y sus registros históricos se conservan.
             </p>
-            {retireError && (
+            {error && (
               <p className="form-error" role="alert">
-                {retireError}
+                {error}
               </p>
             )}
             <div className="identity-actions">
-              <Button
-                variant="outline"
-                disabled={pending}
-                onClick={() => retirement.current?.close()}
-              >
+              <Button variant="outline" disabled={pending} onClick={cancel}>
                 Cancelar
               </Button>
               <Button
@@ -373,10 +298,176 @@ function AccountEditor({
                 {pending ? "Procesando…" : "Confirmar baja"}
               </Button>
             </div>
-          </dialog>
-        </div>
-      )}
-    </motion.section>
+          </div>
+        ) : (
+          <>
+            {account?.role_review_required && !reset && (
+              <p className="directory-notice">
+                Esta cuenta usaba el perfil Usuario. Confirma Visualizador o
+                asigna un rol operativo acorde a su función.
+              </p>
+            )}
+            <form
+              method="post"
+              key={String(reset)}
+              onSubmit={submit}
+              className={styles.form}
+            >
+              <fieldset disabled={pending}>
+                {!account && (
+                  <div className={styles.fieldPair}>
+                    <div>
+                      <label htmlFor="directory-username">Usuario</label>
+                      <input
+                        className="input"
+                        id="directory-username"
+                        name="username"
+                        autoComplete="off"
+                        maxLength={150}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="directory-display-name">
+                        Nombre visible
+                      </label>
+                      <input
+                        className="input"
+                        id="directory-display-name"
+                        name="display_name"
+                        autoComplete="off"
+                        maxLength={150}
+                        required
+                      />
+                    </div>
+                  </div>
+                )}
+                {!reset && (
+                  <>
+                    <div className={styles.fieldPair}>
+                      <div>
+                        <label htmlFor="directory-role">Rol</label>
+                        <select
+                          id="directory-role"
+                          name="role"
+                          className="select-control"
+                          defaultValue={account?.role ?? "viewer"}
+                        >
+                          {Object.entries(roleLabels).map(([value, label]) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="directory-state">Estado</label>
+                        <select
+                          id="directory-state"
+                          name="is_active"
+                          className="select-control"
+                          value={activeState}
+                          onChange={(event) =>
+                            setActiveState(event.target.value)
+                          }
+                        >
+                          <option
+                            value="true"
+                            disabled={Boolean(account && !account.is_active)}
+                          >
+                            Activa
+                          </option>
+                          <option value="false">Desactivada</option>
+                        </select>
+                      </div>
+                    </div>
+                    {deactivating && (
+                      <label className={styles.confirmation}>
+                        <input type="checkbox" required />
+                        <span>
+                          Confirmo que @{account.username} perderá el acceso a
+                          Operix.
+                        </span>
+                      </label>
+                    )}
+                  </>
+                )}
+                {(!account || reset) && passwordInput("directory-password")}
+              </fieldset>
+              {reset && (
+                <p className="directory-notice">
+                  La operación cierra las sesiones anteriores de esta cuenta.
+                </p>
+              )}
+              {error && (
+                <p className="form-error" role="alert">
+                  {error}
+                </p>
+              )}
+              <div className="identity-actions">
+                <Button type="submit" disabled={pending}>
+                  {pending
+                    ? "Guardando…"
+                    : reset
+                      ? reactivating
+                        ? "Confirmar reactivación"
+                        : "Restablecer"
+                      : account
+                        ? "Guardar cambios"
+                        : "Crear cuenta"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={pending}
+                  onClick={() => {
+                    if (reset) {
+                      setReset(false);
+                      setError("");
+                    } else onClose();
+                  }}
+                >
+                  {reset ? "Volver" : "Cerrar"}
+                </Button>
+              </div>
+              {message && (
+                <p className={styles.feedback} role="status">
+                  {message}
+                </p>
+              )}
+            </form>
+            {account && !reset && (
+              <div className="directory-secondary-actions">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={pending}
+                  onClick={() => {
+                    setReset(true);
+                    setError("");
+                  }}
+                >
+                  <KeyRound size={16} aria-hidden="true" />{" "}
+                  {account.is_active
+                    ? "Restablecer contraseña"
+                    : "Reactivar cuenta"}
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={pending}
+                  onClick={() => {
+                    setError("");
+                    setRetiring(true);
+                  }}
+                >
+                  <UserMinus size={16} aria-hidden="true" /> Dar de baja
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </motion.div>
+    </dialog>
   );
 }
 
@@ -390,11 +481,27 @@ export function AccountDirectory() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [archive, setArchive] = useState(false);
-  const visibleAccounts = accounts.filter((account) =>
-    archive ? !account.is_active : account.is_active,
+  const [search, setSearch] = useState("");
+  const [role, setRole] = useState("");
+  const query = searchKey(search.trim());
+  const visibleAccounts = accounts.filter(
+    (account) =>
+      account.is_active !== archive &&
+      (!role || account.role === role) &&
+      searchKey(`${account.display_name} @${account.username}`).includes(query),
   );
   const archivedCount = accounts.filter((account) => !account.is_active).length;
+  const showCounts = accounts.length > 0 || (!loading && !error);
   const create = useRef<HTMLButtonElement>(null);
+  const opener = useRef<HTMLButtonElement>(null);
+
+  function closeEditor() {
+    setEditor(null);
+    requestAnimationFrame(() => {
+      const target = opener.current;
+      (target?.isConnected ? target : create.current)?.focus();
+    });
+  }
 
   const load = useCallback(
     async (after?: number, signal = AbortSignal.timeout(10000)) => {
@@ -449,15 +556,17 @@ export function AccountDirectory() {
   }, [load]);
 
   return (
-    <section className="page-wrap identity-page">
-      <header className="identity-heading directory-heading app-page-heading">
+    <section className={styles.directory}>
+      <header className={styles.heading}>
         <div>
           <PageTitle>Cuentas de Operix</PageTitle>
           <p>Administra quién puede acceder y qué puede hacer en Operix.</p>
         </div>
         <Button
           ref={create}
-          onClick={() => {
+          aria-haspopup="dialog"
+          onClick={(event) => {
+            opener.current = event.currentTarget;
             setMessage("");
             setEditor({ mode: "create" });
           }}
@@ -465,7 +574,7 @@ export function AccountDirectory() {
           <UserPlus size={17} aria-hidden="true" /> Nueva cuenta
         </Button>
       </header>
-      <p className="identity-feedback" role="status">
+      <p className={styles.feedback} role="status">
         {message && (
           <motion.span
             key={message}
@@ -477,56 +586,82 @@ export function AccountDirectory() {
           </motion.span>
         )}
       </p>
-      <div className="directory-grid">
-        <section
-          className="identity-panel directory-list"
-          aria-label="Cuentas registradas"
-          aria-busy={loading}
-        >
-          <h3>
-            <Users size={18} aria-hidden="true" />{" "}
-            {archive ? "Cuentas archivadas" : "Cuentas activas"}
-          </h3>
+      <section
+        className={styles.listPanel}
+        aria-labelledby="directory-list-title"
+        aria-busy={loading}
+      >
+        <div className={styles.listHeader}>
+          <h2 id="directory-list-title">Directorio de cuentas</h2>
           <div
-            className="identity-actions"
+            className={styles.tabs}
             role="group"
-            aria-label="Estado de cuentas cargadas"
+            aria-label="Estado de la cuenta"
           >
-            <Button
-              variant={archive ? "outline" : "primary"}
+            <button
+              type="button"
               aria-pressed={!archive}
-              onClick={() => {
-                setArchive(false);
-                setEditor(null);
-              }}
+              onClick={() => setArchive(false)}
             >
-              Activas ({accounts.length - archivedCount})
-            </Button>
-            <Button
-              variant={archive ? "primary" : "outline"}
+              Activas{" "}
+              {showCounts && <span>{accounts.length - archivedCount}</span>}
+            </button>
+            <button
+              type="button"
               aria-pressed={archive}
-              onClick={() => {
-                setArchive(true);
-                setEditor(null);
-              }}
+              onClick={() => setArchive(true)}
             >
-              Archivadas ({archivedCount})
-            </Button>
+              Archivadas {showCounts && <span>{archivedCount}</span>}
+            </button>
           </div>
-          {next && (
-            <p className="field-help">
-              Los recuentos corresponden a las cuentas cargadas.
+          <div className={styles.filters}>
+            <label>
+              Buscar cuenta
+              <span className={styles.search}>
+                <Search size={16} aria-hidden="true" />
+                <input
+                  className="input"
+                  type="search"
+                  value={search}
+                  placeholder="Nombre o usuario"
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+              </span>
+            </label>
+            <label>
+              Rol
+              <select
+                className="select-control"
+                value={role}
+                onChange={(event) => setRole(event.target.value)}
+              >
+                <option value="">Todos los roles</option>
+                {Object.entries(roleLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {next !== null && (
+            <p className={styles.listNote}>
+              Los filtros y recuentos se aplican a las cuentas cargadas.
             </p>
           )}
-          {loading && !accounts.length && (
-            <OperixScanLoader size="small" message="Cargando cuentas…" />
-          )}
-          {error && (
+        </div>
+        {loading && !accounts.length && (
+          <OperixScanLoader
+            className={styles.listState}
+            size="small"
+            message="Cargando cuentas…"
+          />
+        )}
+        {error && (
+          <div className={styles.listState}>
             <p className="form-error" role="alert">
               {error}
             </p>
-          )}
-          {error && (
             <Button
               variant="outline"
               disabled={loading}
@@ -534,126 +669,144 @@ export function AccountDirectory() {
             >
               Reintentar
             </Button>
-          )}
-          {!loading && !error && !visibleAccounts.length && (
-            <p>
-              {next
-                ? "No hay coincidencias en las cuentas cargadas."
+          </div>
+        )}
+        {!loading && !error && !visibleAccounts.length && (
+          <div className={styles.listState} role="status">
+            <strong>
+              {query || role || next !== null
+                ? "No hay cuentas que coincidan"
                 : archive
-                  ? "No hay cuentas archivadas."
-                  : "No hay cuentas activas."}
-            </p>
-          )}
-          <motion.ul
-            key={String(archive)}
-            initial={reduceMotion ? false : { opacity: 0.8 }}
-            animate={{ opacity: 1 }}
-            transition={controlTransition}
-          >
-            {visibleAccounts.map((account) => {
-              const self = account.username === user?.username;
-              const selected =
-                editor?.mode === "edit" && editor.account.id === account.id;
-              return (
-                <li key={account.id}>
-                  <div className="directory-name">
-                    <strong>{account.display_name || account.username}</strong>
-                    {(account.display_name || self) && (
-                      <small>
-                        @{account.username}
-                        {self ? " · Tu cuenta" : ""}
-                      </small>
-                    )}
-                    <small>
-                      {account.role ? roleLabels[account.role] : "Sin rol"} ·{" "}
+                  ? "No hay cuentas archivadas"
+                  : "No hay cuentas activas"}
+            </strong>
+            {(query || role) && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSearch("");
+                  setRole("");
+                }}
+              >
+                Limpiar filtros
+              </Button>
+            )}
+          </div>
+        )}
+        {visibleAccounts.length > 0 && (
+          <>
+            <div className={styles.columns} aria-hidden="true">
+              <span>Usuario</span>
+              <span>Rol</span>
+              <span>Estado</span>
+              <span>Acciones</span>
+            </div>
+            <ul className={styles.accounts} role="list">
+              {visibleAccounts.map((account) => {
+                const self = account.username === user?.username;
+                return (
+                  <li key={account.id} className={styles.account}>
+                    <div className={styles.identity}>
+                      <span className={styles.avatar} aria-hidden="true">
+                        {initials(account)}
+                      </span>
+                      <div>
+                        <strong>
+                          {account.display_name || account.username}
+                        </strong>
+                        <small>
+                          @{account.username}
+                          {self ? " · Tu cuenta" : ""}
+                        </small>
+                      </div>
+                    </div>
+                    <div className={styles.role}>
+                      {account.role ? roleLabels[account.role] : "Sin rol"}
+                      {account.role_review_required && (
+                        <small>Revisar rol anterior</small>
+                      )}
+                    </div>
+                    <span
+                      className={styles.status}
+                      data-active={account.is_active}
+                    >
                       {account.retired
                         ? "Dada de baja"
                         : account.is_active
                           ? "Activa"
                           : "Desactivada"}
-                    </small>
-                    {account.role_review_required && (
-                      <span className="directory-review">
-                        Revisar rol anterior
-                      </span>
-                    )}
-                  </div>
-                  {!self && !account.protected && !account.retired ? (
-                    <Button
-                      variant="outline"
-                      size="small"
-                      aria-label={"Editar " + account.username}
-                      aria-pressed={selected}
-                      onClick={() => {
-                        setMessage("");
-                        setEditor({ mode: "edit", account });
-                      }}
-                    >
-                      Editar <ChevronRight size={15} aria-hidden="true" />
-                    </Button>
-                  ) : (
-                    account.protected && (
-                      <small className="directory-locked">
-                        Cuenta de Django
-                      </small>
-                    )
-                  )}
-                </li>
-              );
-            })}
-          </motion.ul>
-          {next && !error && (
+                    </span>
+                    <div className={styles.rowAction}>
+                      {!self && !account.protected && !account.retired ? (
+                        <Button
+                          variant="outline"
+                          aria-label={"Editar " + account.username}
+                          aria-haspopup="dialog"
+                          onClick={(event) => {
+                            opener.current = event.currentTarget;
+                            setMessage("");
+                            setEditor({ mode: "edit", account });
+                          }}
+                        >
+                          Editar <ChevronRight size={15} aria-hidden="true" />
+                        </Button>
+                      ) : (
+                        account.protected && <small>Cuenta de Django</small>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+        {next !== null && !error && (
+          <div className={styles.pagination}>
             <Button
               variant="outline"
-              disabled={loading}
+              loading={loading}
               onClick={() => loadPage(next)}
             >
-              Cargar más
+              {loading ? "Cargando…" : "Cargar más"}
             </Button>
-          )}
-        </section>
-        {editor && (
-          <AccountEditor
-            key={
-              editor.mode === "edit"
-                ? [
-                    editor.account.id,
-                    editor.account.role,
-                    editor.account.is_active,
-                  ].join(":")
-                : "create"
-            }
-            editor={editor}
-            onClose={() => {
-              setEditor(null);
-              create.current?.focus();
-            }}
-            onSaved={(updated, success) => {
-              setAccounts((current) =>
-                current.some((item) => item.id === updated.id)
-                  ? current.map((item) =>
-                      item.id === updated.id ? updated : item,
-                    )
-                  : [...current, updated],
-              );
-              setMessage(success);
-              if (updated.retired) create.current?.focus();
-              setEditor((current) => {
-                if (
-                  editor.mode === "edit" &&
-                  current?.mode === "edit" &&
-                  current.account.id === updated.id
-                ) {
-                  return updated.retired || updated.is_active === archive
-                    ? null
-                    : { mode: "edit", account: updated };
-                }
-                return current === editor ? null : current;
-              });
-            }}
-          />
+          </div>
         )}
-      </div>
+      </section>
+      {editor && (
+        <AccountEditor
+          key={
+            editor.mode === "edit"
+              ? [
+                  editor.account.id,
+                  editor.account.role,
+                  editor.account.is_active,
+                ].join(":")
+              : "create"
+          }
+          editor={editor}
+          message={message}
+          onClose={closeEditor}
+          onSaved={(updated, success) => {
+            setAccounts((current) =>
+              current.some((item) => item.id === updated.id)
+                ? current.map((item) =>
+                    item.id === updated.id ? updated : item,
+                  )
+                : [...current, updated],
+            );
+            setMessage(success);
+            if (
+              editor.mode === "create" ||
+              updated.retired ||
+              updated.is_active === archive
+            ) {
+              closeEditor();
+            } else {
+              setEditor({ mode: "edit", account: updated });
+            }
+          }}
+        />
+      )}
     </section>
   );
 }

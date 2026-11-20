@@ -2,7 +2,7 @@
   position: relative;
   padding-block: 0.6rem 0.35rem;
   border-top: 1px solid rgb(255 255 255 / 12%);
-  color: #eef1f6;
+  color: var(--sidebar-foreground);
 }
 
 .trigger {
@@ -14,7 +14,7 @@
   min-height: 48px;
   padding: 0.4rem;
   border: 1px solid transparent;
-  border-radius: 0.75rem;
+  border-radius: var(--radius-button);
   color: inherit;
   text-align: left;
   cursor: pointer;
@@ -60,12 +60,12 @@
   font-size: 0.8125rem;
 }
 .identity small {
-  color: #b9c3d0;
+  color: var(--sidebar-muted);
   font-size: 0.75rem;
 }
 
 .chevron {
-  color: #b9c3d0;
+  color: var(--sidebar-muted);
   transition: rotate var(--interaction-duration) var(--interaction-ease);
 }
 
@@ -77,16 +77,20 @@
   position: absolute;
   z-index: 2;
   inset-inline: 0;
-  bottom: calc(100% + 0.35rem);
+  bottom: calc(100% + 0.4rem);
 }
 
 .panel {
   display: grid;
-  padding: 0.35rem;
-  background: #252a30;
-  border: 1px solid #454e59;
-  border-radius: 0.85rem;
-  box-shadow: 0 9px 18px -9px rgb(0 0 0 / 60%);
+  gap: 0.15rem;
+  max-block-size: calc(100dvh - 5.5rem);
+  overflow-y: auto;
+  padding: 0.45rem;
+  background: var(--surface);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 12px 28px rgb(0 0 0 / 22%);
 }
 
 .panel :is(a, button) {
@@ -95,7 +99,7 @@
   gap: 0.55rem;
   padding: 0.5rem 0.65rem;
   min-height: 44px;
-  border-radius: 0.55rem;
+  border-radius: var(--radius-button);
   color: inherit;
   font-size: 0.875rem;
   text-align: left;
@@ -105,36 +109,38 @@
 }
 
 .panel :is(a, button):hover {
-  background: rgb(255 255 255 / 8%);
+  background: var(--surface-muted);
 }
-.panel button {
-  color: #f5ccca;
+
+.panel :is(a, button):active {
+  background: var(--accent-soft, var(--surface-muted));
 }
+
 .panel button[aria-disabled="true"] {
   opacity: 0.7;
   cursor: progress;
 }
 .divider {
-  border-top: 1px solid rgb(255 255 255 / 12%);
-  margin: 0.15rem 0.45rem;
+  border-top: 1px solid var(--border);
+  margin: 0.1rem 0.45rem;
 }
 .error {
-  margin-top: 0.5rem;
-  color: #f5ccca;
+  padding: 0.3rem 0.65rem 0.45rem;
   font-size: 0.8125rem;
 }
 
-.trigger:focus-visible,
-.panel :is(a, button):focus-visible {
+.trigger:focus-visible {
   outline: 2px solid #9cbaff;
-  outline-offset: 2px;
+  outline-offset: 1px;
+}
+
+.panel :is(a, button):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 :global(.mobile-navigation-panel) .root {
-  background: var(--sidebar);
-  padding: 0.35rem;
-  border: 0;
-  border-radius: 0.85rem;
+  padding-block: 0.45rem 0;
 }
 
 :global(.mobile-navigation-panel) .panelPosition {
@@ -142,7 +148,12 @@
 }
 
 :global(.mobile-navigation-panel) .panelPosition:not(:empty) {
-  margin-top: 0.35rem;
+  margin-top: 0.45rem;
+}
+
+:global(.mobile-navigation-panel) .panel {
+  max-block-size: none;
+  box-shadow: none;
 }
 
 @media (min-width: 1200px) {

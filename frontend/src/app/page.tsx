@@ -1,7 +1,7 @@
-import { HistoricalDashboard } from "@/features/dashboard/historical-dashboard";
+import { OperationalOverview } from "@/features/home/operational-overview";
 
 export const metadata = { title: { absolute: "Centro operativo · Operix" } };
 
 export default function HomePage() {
-  return <HistoricalDashboard overview />;
+  return <OperationalOverview />;
 }

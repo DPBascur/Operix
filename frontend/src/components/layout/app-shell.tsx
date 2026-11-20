@@ -17,7 +17,13 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
-import { useState, useSyncExternalStore, type ReactNode } from "react";
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { ThemeSelector } from "@/components/ui/theme-selector";
 import { MobileNavigation } from "./mobile-navigation";
@@ -131,6 +137,45 @@ function Brand({
   );
 }
 
+type NavigationHint = { label: string; target: HTMLElement };
+
+function SidebarTooltip({ label, target }: NavigationHint) {
+  const tooltip = useRef<HTMLSpanElement>(null);
+
+  useLayoutEffect(() => {
+    const element = tooltip.current;
+    if (!element) return;
+    const place = () => {
+      const bounds = target.getBoundingClientRect();
+      element.style.left = `${bounds.right + 12}px`;
+      element.style.top = `${bounds.top + bounds.height / 2}px`;
+    };
+    place();
+
+    const sidebar = target.closest("aside");
+    const observer = new ResizeObserver(place);
+    observer.observe(target);
+    if (sidebar) observer.observe(sidebar);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [target]);
+
+  return createPortal(
+    <span
+      ref={tooltip}
+      className={styles.tooltip}
+      role="tooltip"
+      aria-hidden="true"
+    >
+      {label}
+    </span>,
+    document.body,
+  );
+}
+
 function Navigation({
   activePath,
   scope,
@@ -142,11 +187,9 @@ function Navigation({
 }) {
   const { user } = useSession();
   const reduceMotion = useReducedMotion();
-  const [hint, setHint] = useState<{ label: string; left: number; top: number } | null>(null);
-  function showHint(target: HTMLElement, label: string) {
-    if (!compact) return;
-    const bounds = target.getBoundingClientRect();
-    setHint({ label, left: bounds.right + 12, top: bounds.top + bounds.height / 2 });
+  const [hint, setHint] = useState<NavigationHint | null>(null);
+  function trackHint(target: HTMLElement, label: string) {
+    if (scope === "desktop-nav") setHint({ label, target });
   }
   const groups = navigationGroups
     .map((group) => ({
@@ -173,8 +216,8 @@ function Navigation({
                     aria-current={activePath === href ? "page" : undefined}
                     className="navigation-item"
                     href={href}
-                    onMouseEnter={(event) => showHint(event.currentTarget, label)}
-                    onFocus={(event) => showHint(event.currentTarget, label)}
+                    onMouseEnter={(event) => trackHint(event.currentTarget, label)}
+                    onFocus={(event) => trackHint(event.currentTarget, label)}
                     onMouseLeave={(event) => { if (document.activeElement !== event.currentTarget) setHint(null); }}
                     onBlur={(event) => { if (!event.currentTarget.matches(":hover")) setHint(null); }}
                     onClick={() => setHint(null)}
@@ -203,10 +246,7 @@ function Navigation({
           </section>
         ))}
       </nav>
-      {compact && hint && createPortal(
-        <span className={styles.tooltip} role="tooltip" aria-hidden="true" style={{ left: hint.left, top: hint.top }}>{hint.label}</span>,
-        document.body,
-      )}
+      {compact && hint && <SidebarTooltip {...hint} />}
     </LayoutGroup>
   );
 }
@@ -240,19 +280,25 @@ export function AppShell({ children }: { children: ReactNode }) {
         Saltar al contenido
       </a>
       <aside id="operix-sidebar" className={`app-sidebar fixed inset-y-0 left-0 z-30 flex-col bg-[var(--sidebar)] ${styles.sidebar}`}>
-        <div className="brand-lockup">
+        <div className={styles.brandHeader}>
           <Brand onDark showDescriptor />
+          <button
+            type="button"
+            aria-label={
+              compact ? "Expandir barra lateral" : "Contraer barra lateral"
+            }
+            aria-expanded={compact == null ? undefined : !compact}
+            aria-controls="operix-sidebar"
+            className={styles.collapse}
+            onClick={() => changeSidebarPreference(!compact)}
+          >
+            {compact ? (
+              <PanelLeftOpen size={17} aria-hidden="true" />
+            ) : (
+              <PanelLeftClose size={17} aria-hidden="true" />
+            )}
+          </button>
         </div>
-        <button
-          type="button"
-          aria-label={compact ? "Expandir barra lateral" : "Contraer barra lateral"}
-          aria-expanded={compact == null ? undefined : !compact}
-          aria-controls="operix-sidebar"
-          className={styles.collapse}
-          onClick={() => changeSidebarPreference(!compact)}
-        >
-          {compact ? <PanelLeftOpen size={17} aria-hidden="true" /> : <PanelLeftClose size={17} aria-hidden="true" />}
-        </button>
         <div className={styles.navigationViewport}>
           <Navigation activePath={activePath} scope="desktop-nav" compact={compact ?? false} />
         </div>

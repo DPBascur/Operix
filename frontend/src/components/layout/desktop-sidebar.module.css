@@ -7,40 +7,53 @@
     --live-sidebar-width: 4.625rem;
   }
 
-  .shell > .sidebar {
+  .shell:global(.refresh-shell) > .sidebar {
     width: var(--live-sidebar-width);
     overflow: visible;
   }
 
-  .shell > :global(.app-content) {
+  .shell:global(.refresh-shell) > :global(.app-content) {
     margin-inline-start: calc(var(--live-sidebar-width) + 1.5rem);
   }
 
-  .sidebar :global(.brand-lockup) {
-    height: 4.7rem;
+  .brandHeader {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.25rem;
+    min-height: 4.7rem;
+    padding-block: 0.35rem 0.65rem;
+    border-bottom: 1px solid rgb(255 255 255 / 10%);
   }
 
-  .sidebar :global(.brand) {
+  .sidebar .brandHeader :global(.brand) {
+    gap: 0.35rem;
+    min-width: 0;
     overflow: hidden;
   }
 
-  .sidebar :global(.brand-copy) {
-    white-space: nowrap;
+  .sidebar .brandHeader :global(.brand-symbol) {
+    width: 3.3rem;
+    height: 2.65rem;
   }
 
-  .sidebar :global(.brand-descriptor) {
-    white-space: normal;
+  .sidebar .brandHeader :global(.brand-name) {
+    font-size: 1.18rem;
+  }
+
+  .sidebar .brandHeader :global(.brand-descriptor) {
+    line-height: 1.3;
   }
 
   .collapse {
     display: grid;
     place-items: center;
-    align-self: flex-end;
     flex: none;
     width: 44px;
     height: 44px;
     color: #bcc8d6;
-    margin-inline-end: 0.17rem;
+    border-radius: var(--radius-button);
     transition:
       background-color var(--interaction-duration) var(--interaction-ease),
       color var(--interaction-duration) var(--interaction-ease);
@@ -56,12 +69,13 @@
     overflow-y: auto;
     overflow-x: hidden;
     scrollbar-width: thin;
-    padding-block: 0.4rem;
+    padding-block: 0.75rem 0.4rem;
     padding-inline: 0.23rem;
     margin-inline: -0.23rem;
   }
 
   .collapse:focus-visible,
+  .sidebar .brandHeader :global(.brand):focus-visible,
   .sidebar :global(.navigation-item):focus-visible {
     outline: 2px solid #a6beff;
     outline-offset: -2px;
@@ -106,9 +120,10 @@
       :global(:root[data-sidebar-preference="compact"])
         .shell:not([data-sidebar])
     )
-    .sidebar
-    :global(.brand-lockup) {
-    padding-inline: 0;
+    .brandHeader {
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.15rem;
   }
 
   :is(
@@ -116,10 +131,20 @@
       :global(:root[data-sidebar-preference="compact"])
         .shell:not([data-sidebar])
     )
-    .sidebar
+    .brandHeader
+    :global(.brand) {
+    justify-content: center;
+    width: 100%;
+  }
+
+  :is(
+      .shell[data-sidebar="compact"],
+      :global(:root[data-sidebar-preference="compact"])
+        .shell:not([data-sidebar])
+    )
+    .brandHeader
     :global(.brand-symbol) {
     width: 3.15rem;
-    margin-inline: 0.04rem;
   }
 
   :is(
