@@ -190,6 +190,39 @@ Las pruebas de otros perfiles aceptan `--width`, `--height` y `--fps`.
 Los recursos de GPU son muestras del total del host, con la carga del
 escritorio y otras aplicaciones incluida.
 
+### Medición desde la emisión RTSP hasta el historial
+
+`benchmark-emission.py` usa una copia con marcas de los videos aprobados.
+Requiere Python, Requests, Pillow y FFmpeg con libx264. Verifica el hash
+original y todos los ordinales decodificados antes de emitir. `media.json`
+conserva la atribución CC BY 4.0, los cambios y los hashes.
+
+En una instancia de laboratorio aislada, detén el publicador normal para la
+cámara elegida e inicia un run nuevo con una regla aplicable al video. Usa
+las variables del lector de seguridad de `smoke.py`. `$rtspUrl` debe ser
+una ruta RTSP/TCP privada para ese ensayo y `$runId` el UUID de ese run.
+
+```powershell
+./engine/.venv/Scripts/python.exe -B deployment/rtsp-lab/benchmark-emission.py measure `
+  --media-dir ../Operix-Docker/rtsp-lab-media --camera lab-cam-01 `
+  --rtsp-url $rtspUrl --run-id $runId --base-url http://127.0.0.1:13000 `
+  --passes 3 --poll 0.15 --output ../tmp/operix-emission
+```
+
+`report.json` delimita la disponibilidad HTTP entre la última consulta sin
+el evento y la primera respuesta completa que lo contiene. El origen es la
+entrega local a TCP del último paquete RTP del fotograma, en el mismo reloj
+monótono. El token y ordinal del PNG confirman la correspondencia entre el
+fotograma y el evento aunque el PNG se publique después. Se conservan las
+observaciones sin correspondencia y se excluyen del cálculo. Informa el
+intervalo de sondeo y los casos sin verificar junto con las estadísticas.
+
+El Motor también mide desde la entrega del decodificador hasta el resultado,
+el registro, el PNG y el clip. Estas métricas usan otro punto de partida.
+En versiones anteriores a la publicación por etapas, `arrival_to_publication`
+incluía la espera del contexto posterior y la carga del PNG. Para el flujo
+nuevo, usa `arrival_to_registration`, `arrival_to_png` y `arrival_to_clip`.
+
 ### Preparación de una cámara autorizada
 
 Para una prueba en Embonor, acuerda primero la cámara fija, la ventana de
