@@ -79,6 +79,9 @@ class EventListCreateView(PublisherWriteMixin, generics.ListCreateAPIView):
                 or source.get("spatial_configuration") != run.snapshot.configuration
             ):
                 raise ValidationError("El evento no corresponde al snapshot de cámara.")
+            ground = values.get("observations", {}).get("ground")
+            if ground and ground["calibration"] != run.snapshot.configuration.get("calibration"):
+                raise ValidationError("La observación no usa la calibración confirmada de esta ejecución.")
         identity_fields = (
             "analysis_run_id", "view_id", "frame_index", "rule_id",
             "rule_version", "track_id", "class_name", "zone_id",

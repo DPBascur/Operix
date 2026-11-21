@@ -31,7 +31,9 @@ class SpatialConfigurationView(AnalysisView):
         session = self.owned_session(request, pk)
         if session is None or session.owner_id != request.user.pk:
             return Response({"detail":"Sesión inexistente"}, status=404)
-        data = request.data
+        return self.save(request, session, request.data)
+
+    def save(self, request, session, data, *, pattern_confirmed=False):
         if not isinstance(data, dict) or set(data) != {"document","revision"} or type(data["revision"]) is not int:
             return Response({"detail":"Indique documento y revisión"}, status=400)
         with session._guard:
@@ -58,7 +60,15 @@ class SpatialConfigurationView(AnalysisView):
                 calibration = document.get("calibration")
                 old_calibration = saved.document.get("calibration") if saved else None
                 if calibration:
-                    keys = ("image_points", "ground_points_m", "status", "zones_reviewed", "framing_reference")
+                    if calibration.get("pattern_evidence") and not pattern_confirmed:
+                        compatible = old_calibration and all(
+                            calibration.get(key) == old_calibration.get(key) for key in (
+                                "pattern_evidence", "image_points", "ground_points_m", "framing_reference",
+                            )
+                        )
+                        if not compatible or (old_calibration["status"] == "invalid" and calibration["status"] == "valid"):
+                            return Response({"detail": "Confirme una nueva propuesta de patrón."}, status=400)
+                    keys = ("image_points", "ground_points_m", "status", "zones_reviewed", "framing_reference", "pattern_evidence")
                     same = old_calibration and all(calibration.get(k) == old_calibration.get(k) for k in keys)
                     calibration["version"] = old_calibration["version"] if same else calibration_version + 1
                     if same:

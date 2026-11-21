@@ -232,6 +232,31 @@ Usa credenciales de solo lectura, fuera de Git, y una red aislada. Verifica
 códec, resolución, FPS, timestamps, latencia y recuperación con la fuente
 autorizada. Registra por separado las referencias físicas, zonas y reglas
 aprobadas para ese encuadre y la cobertura de cada corrida. El perfil
-experimental sigue usando distancia normalizada. La habilitación de
-mediciones métricas en una cámara real requiere validar sus referencias
-y el soporte del flujo que las utiliza.
+puede usar distancia normalizada o una calibración confirmada para esa cámara.
+
+### Calibración con patrones en el suelo
+
+Coloca de tres a ocho marcadores ArUco `DICT_4X4_50` con IDs únicos, borde
+blanco libre y suficiente separación en el área de trabajo. Mide en el
+suelo la posición de la esquina superior izquierda **del código impreso**, el
+lado del cuadrado negro y su orientación respecto del mismo sistema de ejes.
+Usa esa posición como origen del cuadrado y el giro desde sus ejes locales.
+Registra cómo obtuviste las medidas. Las referencias deben estar en el plano
+que se va a medir.
+
+Detén la cámara y captura una propuesta. Revisa las etiquetas, el área de
+cobertura y las zonas. Luego marca los dos extremos de un segmento distinto
+de las referencias y compruébalo con una distancia medida en el suelo y su
+tolerancia. La cuadrícula queda limitada a la envolvente de las referencias.
+La reproyección, la consistencia temporal y la sensibilidad de un píxel son
+diagnósticos del ajuste. Conserva la comparación con medidas físicas
+independientes para evaluar la exactitud en terreno.
+
+Mantén los marcadores de referencia visibles durante el monitoreo. Si la
+verificación periódica pierde el patrón o detecta un cambio, el análisis pasa
+a imagen y suspende las reglas espaciales. Al invalidarse el encuadre de
+forma sostenida, una nueva ejecución requiere una propuesta confirmada.
+Cambiar de fuente o dimensiones también requiere revisar la calibración.
+Los videos de archivo conservan su asistente de rectángulo medido y los
+controles manuales. Las pruebas con patrones generados se pueden repetir con
+`python -m unittest discover -s engine/tests -p 'test_calibration_patterns.py'`.

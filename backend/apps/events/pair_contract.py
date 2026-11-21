@@ -86,10 +86,14 @@ def validate_pair(attrs):
     distance = number(observations["normalized_distance"], "normalized_distance")
     if parameters.get("distance_unit") == "m":
         ground = observations.get("ground", {})
+        source = attrs.get("source", {})
+        source_key = source.get("video_sha256")
+        if source.get("kind") == "lab":
+            source_key = hashlib.sha256(f"operix:camera:{source.get('camera_id')}".encode()).hexdigest()
         if (not isinstance(ground, dict) or ground.get("method") != "ground_plane_contact_edges_v1"
                 or ground.get("units") != "m" or not isinstance(ground.get("calibration"), dict)
                 or ground["calibration"].get("status") != "valid"
-                or ground["calibration"].get("source_sha256") != attrs.get("source",{}).get("video_sha256")):
+                or ground["calibration"].get("source_sha256") != source_key):
             raise ValidationError("Medición métrica sin calibración válida")
         distance = number(ground.get("distance"), "ground.distance")
         calibration = ground["calibration"]

@@ -14,6 +14,7 @@ from django.db import close_old_connections, connection, transaction
 from django.http import FileResponse, Http404
 from django.urls import reverse
 from django.utils.timezone import now
+from django.utils.crypto import salted_hmac
 from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -127,6 +128,7 @@ def camera_json(request, camera):
         "kind": "lab", "provenance": camera.provenance, "profile": camera.profile,
         "expected_fps": camera.expected_fps, "width": camera.width, "height": camera.height,
         "status": state, "metrics": metrics, "configuration": document, "revision": revision,
+        "calibration_requires_reconfirmation": bool(calibration_issue(camera, document, run, metrics)),
         "policy": policy, "run_id": str(run.pk) if run else None,
         "preview_url": reverse("lab-camera-preview", args=[camera.id]) if preview and preview.is_file() else None,
         "last_frame_at": runtime.get("last_frame_at") if runtime else None,
@@ -142,15 +144,51 @@ def scheduler_lock():
         cursor.execute("SELECT pg_advisory_xact_lock(%s)", [1782460449])
 
 
+def camera_capture_signature(camera):
+    source = urlsplit(camera.url)
+    identity = [camera.id, source.hostname, source.port or 554, source.path, source.query,
+                camera.width, camera.height, (camera.provenance or {}).get("sha256")]
+    return salted_hmac("operix.camera-calibration", json.dumps(identity), algorithm="sha256").hexdigest()
+
+
+def camera_worker_destination(camera):
+    parsed = urlsplit(camera.url)
+    if parsed.hostname != "mediamtx":
+        return parsed.hostname, camera.url
+    # Resolve only the fixed Docker DNS name and pin the worker to its IP.
+    try:
+        ip = socket.gethostbyname("mediamtx")
+    except OSError:
+        raise CameraConflict("El servidor RTSP interno no está accesible.") from None
+    return ip, f"rtsp://{ip}:8554/{camera.id}"
+
+
+def calibration_issue(camera, document, run, metrics):
+    calibration = document.get("calibration")
+    if not calibration:
+        return None
+    if calibration.get("pattern_evidence", {}).get("capture_signature") != camera_capture_signature(camera):
+        return "Cambió la fuente o el encuadre configurado. Vuelva a calibrar la cámara."
+    prior = (run.snapshot.configuration.get("calibration") or {}) if run else {}
+    if (prior.get("sha256") == calibration.get("sha256")
+            and (metrics.get("framing") or {}).get("state") == "INVALID"):
+        return "El encuadre invalidó esta calibración. Confirme una nueva propuesta antes de volver a usarla."
+    return None
+
+
 def checked_document(camera, document):
     if not isinstance(document, dict) or document.get("view_id") != camera.id:
         raise ValidationError("La configuración debe pertenecer a esta cámara.")
-    if document.get("calibration") is not None:
-        raise ValidationError("El laboratorio requiere referencias físicas verificadas antes de usar calibración.")
     try:
-        return validate_spatial(document, camera.spatial_key, ROOT)
+        checked = validate_spatial(document, camera.spatial_key, ROOT)
     except ValueError as exc:
         raise ValidationError(str(exc)) from None
+    calibration = checked.get("calibration")
+    if calibration is not None:
+        evidence = calibration.get("pattern_evidence")
+        if not evidence:
+            raise ValidationError("Confirme una propuesta de patrón para esta cámara.")
+    return checked
 
 
 class CameraInventoryView(APIView):
@@ -180,8 +218,10 @@ class CameraDetailView(CameraView):
 
     @transaction.atomic
     def put(self, request, camera_id):
-        camera = self.camera(camera_id)
-        body = request.data
+        return self.save(request, self.camera(camera_id), request.data)
+
+    def save(self, request, camera, body, *, pattern_confirmed=False):
+        camera_id = camera.id
         if not isinstance(body, dict) or set(body) != {"revision", "document"} or type(body["revision"]) is not int:
             raise ValidationError("Indique documento y revisión.")
         document = checked_document(camera, body["document"])
@@ -193,6 +233,10 @@ class CameraDetailView(CameraView):
         previous, revision = document_for(camera)
         if body["revision"] != revision:
             raise CameraConflict("Recupere la revisión vigente.")
+        calibration = document.get("calibration")
+        prior_calibration = previous.get("calibration")
+        if calibration and not pattern_confirmed and calibration != prior_calibration:
+            raise ValidationError("Confirme una nueva propuesta de patrón para cambiar la calibración.")
         previous_rules = {rule["rule_id"]: rule for rule in previous["rules"]}
         versions = {}
         for item in CameraRevision.objects.filter(camera_id=camera_id).values_list("document", flat=True).iterator():
@@ -201,7 +245,8 @@ class CameraDetailView(CameraView):
         for rule in document["rules"]:
             old = previous_rules.get(rule["rule_id"])
             changed = (not old or any(old[k] != rule[k] for k in ("enabled", "parameters"))
-                       or previous["zones"] != document["zones"] or previous.get("motion") != document.get("motion"))
+                       or previous["zones"] != document["zones"] or previous.get("motion") != document.get("motion")
+                       or prior_calibration != calibration)
             version = max(versions.get(rule["rule_id"], 0), old["version"] if old else 0)
             rule["version"] = version + 1 if changed else old["version"]
         CameraRevision.objects.create(camera_id=camera_id, revision=revision + 1,
@@ -226,16 +271,7 @@ class CameraStartView(CameraView):
                     probe.connect(inference_socket)
             except OSError:
                 raise CameraConflict("El Motor de inferencia compartida aún no está disponible.") from None
-        try:
-            parsed = urlsplit(camera.url)
-            if parsed.hostname == "mediamtx":
-                # Resolve only the fixed Docker DNS name and bind each worker to its IP.
-                ip = socket.gethostbyname("mediamtx")
-                url = f"rtsp://{ip}:8554/{camera_id}"
-            else:
-                ip, url = parsed.hostname, camera.url
-        except (ValueError, OSError):
-            raise CameraConflict("El servidor RTSP interno no está accesible.") from None
+        ip, url = camera_worker_destination(camera)
         scheduler_lock()
         active = 0
         for run in CameraRun.objects.filter(active=True).select_for_update():
@@ -249,6 +285,11 @@ class CameraStartView(CameraView):
         document, revision = document_for(camera)
         document, policy = effective(camera, document, request.user.pk)
         checked_document(camera, document)
+        if document.get("calibration"):
+            last = last_run(camera_id, lock=True)
+            _, metrics, _ = status_for(last)
+            if issue := calibration_issue(camera, document, last, metrics):
+                raise CameraConflict(issue)
         run_id = uuid4()
         snapshot = rule_snapshot(document)
         stored = AnalysisRunSnapshot.objects.create(
