@@ -18,6 +18,13 @@ import {
   type CameraDocument,
   type LabCamera,
 } from "@/services/camera-lab.service";
+import {
+  cameraAnalysisRate,
+  cameraCoverage,
+  cameraFrameTime,
+  cameraNumber,
+  cameraTechnicalMetrics,
+} from "./camera-diagnostics";
 
 const statusLabels: Record<string, string> = {
   available: "Disponible",
@@ -25,6 +32,7 @@ const statusLabels: Record<string, string> = {
   transmitting: "Transmitiendo",
   analyzing: "Analizando",
   no_signal: "Sin señal",
+  overloaded: "Inferencia saturada",
   reconnecting: "Reconectando",
   stopped: "Detenida",
   error: "Error",
@@ -35,6 +43,7 @@ const monitoring = new Set([
   "transmitting",
   "analyzing",
   "no_signal",
+  "overloaded",
   "reconnecting",
 ]);
 
@@ -99,15 +108,9 @@ function LoadError({ error, retry }: { error: Error; retry: () => void }) {
   );
 }
 
-function number(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? new Intl.NumberFormat("es-CL", { maximumFractionDigits: 2 }).format(value)
-    : null;
-}
-
 export function CameraLab() {
   const { data, error, retry } = useCameraData(cameraLabService.list, 5000);
-  const max = number(data?.capacity);
+  const max = cameraNumber(data?.capacity);
   return (
     <section
       id="laboratorio-camaras"
@@ -133,7 +136,7 @@ export function CameraLab() {
         <div className="surface-card grid gap-3 p-4">
           {max !== null && (
             <p className="text-sm text-text-secondary">
-              Capacidad máxima de monitoreo simultáneo · {max}
+              Límite configurado de monitoreos simultáneos · {max}
             </p>
           )}
           {data.cameras.length ? (
@@ -146,10 +149,19 @@ export function CameraLab() {
                   <div className="min-w-0 break-words">
                     <h3 className="font-semibold">{camera.name}</h3>
                     <p className="text-sm text-text-secondary">
+                      Conexión ·{" "}
                       {error
                         ? "Estado sin actualizar"
                         : statusLabel(camera.status)}
                     </p>
+                    {!error && (
+                      <p className="text-sm text-text-secondary">
+                        Última cobertura informada (5 s) ·{" "}
+                        <span className="font-medium tabular-nums text-foreground">
+                          {cameraCoverage(camera.metrics) ?? "Sin datos"}
+                        </span>
+                      </p>
+                    )}
                   </div>
                   <Link
                     className="button button-outline"
@@ -552,6 +564,125 @@ function Configuration({
   );
 }
 
+function CameraDiagnostics({
+  camera,
+  stale,
+}: {
+  camera: LabCamera;
+  stale: boolean;
+}) {
+  const rate = cameraAnalysisRate(camera.metrics);
+  const coverage = cameraCoverage(camera.metrics);
+  const groups = cameraTechnicalMetrics(camera.metrics);
+  const frameAge = cameraNumber(camera.metrics?.last_frame_age_ms, " ms");
+  const latency = cameraNumber(camera.metrics?.p95_arrival_to_result_ms, " ms");
+  const width = cameraNumber(camera.width);
+  const height = cameraNumber(camera.height);
+  const expected = cameraNumber(camera.expected_fps, " FPS");
+  const hasReading =
+    coverage !== null || rate.value !== null || groups.length > 0;
+
+  return (
+    <section
+      className="surface-card grid gap-3 p-4"
+      aria-labelledby="camera-diagnostics"
+    >
+      <h2 id="camera-diagnostics" className="font-semibold">
+        Cobertura del análisis
+      </h2>
+      {stale ? (
+        <p className="text-sm text-text-secondary">Datos sin actualizar.</p>
+      ) : hasReading && idle.has(camera.status) ? (
+        <p className="text-sm text-text-secondary">
+          Última lectura de la ejecución.
+        </p>
+      ) : null}
+      <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div>
+          <dt className="text-sm text-text-secondary">
+            Fotogramas observados (5 s)
+          </dt>
+          <dd className="text-lg font-semibold tabular-nums">
+            {coverage ?? "Sin datos"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-sm text-text-secondary">{rate.label}</dt>
+          <dd className="text-lg font-semibold tabular-nums">
+            {rate.value ?? "Sin datos"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-sm text-text-secondary">Latencia local p95</dt>
+          <dd className="text-lg font-semibold tabular-nums">
+            {latency ?? "Sin datos"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-sm text-text-secondary">
+            Antigüedad al actualizar
+          </dt>
+          <dd className="text-lg font-semibold tabular-nums">
+            {frameAge ?? "Sin datos"}
+          </dd>
+        </div>
+      </dl>
+      <p className="text-sm text-text-secondary">
+        La cobertura indica qué proporción de los fotogramas decodificados se
+        analizó.
+      </p>
+      <details className="border-t border-border text-sm">
+        <summary className="min-h-11 cursor-pointer py-3 font-medium text-primary">
+          Detalles técnicos
+        </summary>
+        <div className="grid gap-4 pb-1">
+          <p className="text-text-secondary">
+            Los tiempos desde la recepción se miden localmente a partir de la
+            decodificación.
+          </p>
+          {groups.length === 0 && (
+            <p className="text-text-secondary">
+              Sin mediciones técnicas informadas.
+            </p>
+          )}
+          {groups.map(({ title, rows }) => (
+            <div key={title} className="grid gap-1">
+              <h3 className="font-medium">{title}</h3>
+              <dl className="divide-y divide-border">
+                {rows.map(([label, value]) => (
+                  <div
+                    key={label}
+                    className="flex justify-between gap-3 py-1.5"
+                  >
+                    <dt className="text-text-secondary">{label}</dt>
+                    <dd className="shrink-0 text-right font-medium tabular-nums">
+                      {value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          ))}
+          <dl className="grid grid-cols-2 gap-3">
+            <div>
+              <dt className="text-text-secondary">Resolución esperada</dt>
+              <dd className="font-medium tabular-nums">
+                {width && height ? `${width} × ${height}` : "Sin datos"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-text-secondary">Velocidad esperada</dt>
+              <dd className="font-medium tabular-nums">
+                {expected ?? "Sin datos"}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </details>
+    </section>
+  );
+}
+
 export function CameraLabDetail({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [stoppingRun, setStoppingRun] = useState<string>();
@@ -597,25 +728,7 @@ export function CameraLabDetail({ id }: { id: string }) {
   const canStart = camera && idle.has(camera.status);
   const canStop = camera && monitoring.has(camera.status);
   const stopping = canStop && camera.run_id === stoppingRun;
-  const fps = number(camera?.expected_fps);
-  const width = number(camera?.width);
-  const height = number(camera?.height);
-  const metrics = [
-    ["Recepción", number(camera?.metrics?.received_fps), " FPS"],
-    [
-      "Velocidad de análisis",
-      number(camera?.metrics?.analysis_fps ?? camera?.metrics?.effective_fps),
-      " FPS",
-    ],
-    [
-      "Latencia local p95",
-      number(camera?.metrics?.p95_arrival_to_result_ms),
-      " ms",
-    ],
-    ["Fotogramas descartados", number(camera?.metrics?.frames_dropped), ""],
-    ["Fotogramas analizados", number(camera?.metrics?.frames_processed), ""],
-    ["Eventos publicados", number(camera?.metrics?.events_published), ""],
-  ];
+  const frameTime = cameraFrameTime(camera?.last_frame_at);
   const provenance = [
     camera?.provenance?.title,
     camera?.provenance?.author,
@@ -666,6 +779,7 @@ export function CameraLabDetail({ id }: { id: string }) {
               </h2>
               <div className="flex flex-wrap items-center gap-3">
                 <p role="status" className="font-medium">
+                  Conexión ·{" "}
                   {error ? "Estado sin actualizar" : statusLabel(camera.status)}
                 </p>
                 {canEdit && (canStart || canStop) && (
@@ -698,12 +812,10 @@ export function CameraLabDetail({ id }: { id: string }) {
                   </Button>
                 )}
               </div>
-              {camera.last_frame_at && (
+              {frameTime && camera.last_frame_at && (
                 <p className="text-sm text-text-secondary">
-                  Última recepción ·{" "}
-                  {new Date(camera.last_frame_at).toLocaleTimeString("es-CL", {
-                    timeZone: "America/Santiago",
-                  })}
+                  Recepción local del último fotograma analizado ·{" "}
+                  <time dateTime={camera.last_frame_at}>{frameTime}</time>
                 </p>
               )}
               {camera.status === "error" && (
@@ -735,30 +847,17 @@ export function CameraLabDetail({ id }: { id: string }) {
                   </div>
                 )}
               </figure>
-              <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
-                {[
-                  [
-                    "Resolución esperada",
-                    width && height ? `${width} × ${height}` : null,
-                    "",
-                  ],
-                  ["Velocidad esperada", fps, " FPS"],
-                  ...metrics.filter(([, value]) => value !== null),
-                ].map(([label, value, unit]) => (
-                  <div key={label}>
-                    <dt className="text-text-secondary">{label}</dt>
-                    <dd className="font-medium tabular-nums">
-                      {value === null ? "No informada" : `${value}${unit}`}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
               {provenance && (
                 <p className="break-words text-sm text-text-secondary">
                   Procedencia · {provenance}
                 </p>
               )}
             </section>
+            <CameraDiagnostics
+              key={camera.run_id}
+              camera={camera}
+              stale={Boolean(error)}
+            />
             <section
               className="surface-card grid gap-2 p-4"
               aria-labelledby="camera-events"
