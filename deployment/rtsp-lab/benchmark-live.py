@@ -180,9 +180,16 @@ def status_snapshot(folder, feeds):
     rows = {}
     for feed in feeds:
         alias = feed["alias"]
-        try:
-            row = json.loads((folder / alias / "status.json").read_text(encoding="utf-8"))
-        except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+        status_path = folder / alias / "status.json"
+        for attempt in range(3):
+            try:
+                row = json.loads(status_path.read_text(encoding="utf-8"))
+                break
+            except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+                # A Docker bind mount can briefly hide a replacement from the host reader.
+                if attempt < 2:
+                    time.sleep(.02)
+        else:
             continue
         if row["state"] in ("error", "stopped", "completed"):
             raise RuntimeError(f"{alias} ended early: {row.get('termination_reason')}")
