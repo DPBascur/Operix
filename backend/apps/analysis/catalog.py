@@ -154,6 +154,11 @@ def validate_target(owner_id, document):
 
     target = text_value(document["target_id"], 64)
     scope = document["target_type"]
+    if scope == "camera":
+        from .camera_registry import inventory
+
+        if target in inventory():
+            return
     if scope == "profile" and target in PROFILES:
         return
     if scope == "demo" and any(target == demo for demo, _ in PROFILE_DEMO_SETTINGS.values()):
@@ -228,13 +233,13 @@ def save_entry(owner_id, kind, data, pk=None):
     return entry
 
 
-def resolve_policy(entries, *, profile, demo_source_id, source_sha256):
+def resolve_policy(entries, *, profile, demo_source_id, source_sha256, camera_id=None):
     active = {
         (entry.document["target_type"], entry.document["target_id"]): entry
         for entry in entries.values()
         if entry.kind == Kind.ASSIGNMENT and entry.document["enabled"]
     }
-    for target in (("source", source_sha256), ("demo", demo_source_id), ("profile", profile)):
+    for target in (("camera", camera_id), ("source", source_sha256), ("demo", demo_source_id), ("profile", profile)):
         assignment = active.get(target)
         if assignment is None:
             continue

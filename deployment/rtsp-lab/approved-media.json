@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "verified_on": "2026-11-21",
+  "source": {
+    "title": "Video Dataset for Safe and Unsafe Behaviours",
+    "authors": [
+      "Oğuzhan Önal",
+      "Emre Dandıl"
+    ],
+    "footage_provider": "Kafaoğlu Metal Plastik Makine San. ve Tic. A.Ş., Eskişehir, Türkiye",
+    "version": 1,
+    "doi": "10.17632/xjmtb22pff.1",
+    "original_publication_url": "https://data.mendeley.com/datasets/xjmtb22pff/1",
+    "mirror_url": "https://huggingface.co/datasets/Voxel51/Safe_and_Unsafe_Behaviours",
+    "mirror_revision": "7369ff1830b5f6c00f7d7383eeeaa90704bfc5b5",
+    "mirror_metadata_url": "https://huggingface.co/datasets/Voxel51/Safe_and_Unsafe_Behaviours/blob/7369ff1830b5f6c00f7d7383eeeaa90704bfc5b5/samples.json",
+    "license": "CC BY 4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/legalcode.en",
+    "attribution": "Oğuzhan Önal and Emre Dandıl, Video Dataset for Safe and Unsafe Behaviours, Mendeley Data, V1, DOI 10.17632/xjmtb22pff.1. https://data.mendeley.com/datasets/xjmtb22pff/1. CC BY 4.0. Lab copies renamed.",
+    "conditions": "Credit the creators, retain a source and license link, and identify changes when sharing. The original release records company and employee permission for collection. The mirror describes permission for academic use. People may be identifiable. The copies were obtained for local thesis lab validation. Separate privacy and publicity rights can apply to further use."
+  },
+  "clips": [
+    {
+      "camera_id": "lab-cam-01",
+      "filename": "lab-cam-01.mp4",
+      "source_filename": "4_te5.mp4",
+      "source_file_url": "https://huggingface.co/datasets/Voxel51/Safe_and_Unsafe_Behaviours/blob/7369ff1830b5f6c00f7d7383eeeaa90704bfc5b5/data/4_te5.mp4",
+      "download_url": "https://huggingface.co/datasets/Voxel51/Safe_and_Unsafe_Behaviours/resolve/7369ff1830b5f6c00f7d7383eeeaa90704bfc5b5/data/4_te5.mp4",
+      "source_label": "Safe Walkway",
+      "mirror_split": "test",
+      "scenario": "A pedestrian follows a marked factory walkway. Another worker is partially visible by production machinery.",
+      "footage": "real industrial CCTV",
+      "changes": "Lab filename only. Original mirror bytes retained.",
+      "size_bytes": 4217183,
+      "sha256": "e1625075af049a642505e815cbf3243499fcdc136422c2ecf5725cab5c4bc9eb",
+      "duration_seconds": 10.43961,
+      "average_fps": 25.09672392972615,
+      "frame_count": 262,
+      "width": 1920,
+      "height": 1080,
+      "codec": "H.264",
+      "audio": false
+    },
+    {
+      "camera_id": "lab-cam-02",
+      "filename": "lab-cam-02.mp4",
+      "source_filename": "7_tr4.mp4",
+      "source_file_url": "https://huggingface.co/datasets/Voxel51/Safe_and_Unsafe_Behaviours/blob/7369ff1830b5f6c00f7d7383eeeaa90704bfc5b5/data/7_tr4.mp4",
+      "download_url": "https://huggingface.co/datasets/Voxel51/Safe_and_Unsafe_Behaviours/resolve/7369ff1830b5f6c00f7d7383eeeaa90704bfc5b5/data/7_tr4.mp4",
+      "source_label": "Safe Carrying",
+      "mirror_split": "train",
+      "scenario": "A loaded forklift crosses the production floor. Workers are visible near machinery. The source label describes load handling.",
+      "footage": "real industrial CCTV",
+      "changes": "Lab filename only. Original mirror bytes retained.",
+      "size_bytes": 4545049,
+      "sha256": "47deef759545ae785cf9e9c028f89b91bc665abf095c512e9a369ba51cf54696",
+      "duration_seconds": 8.134453,
+      "average_fps": 25.078514420722044,
+      "frame_count": 204,
+      "width": 1920,
+      "height": 1080,
+      "codec": "H.264",
+      "audio": false
+    }
+  ],
+  "verification": "FFmpeg 7.1 decoded every frame and successfully encoded both clips using H.264 at 960×540 and 12 fps. Precise duration and average frame rate are from the pinned mirror metadata and agree with FFmpeg display precision.",
+  "coverage": "The two camera views provide pedestrian and forklift activity for concurrent playback. Distances and forklift–pedestrian near misses are unverified.",
+  "other_sources": [
+    {
+      "title": "Forklift-Pedestrian Proximity & Collision-Risk Detection",
+      "url": "https://github.com/sounak-sarkar-gwc/Forklift-pedestrian-proximity",
+      "clip_url": "https://github.com/sounak-sarkar-gwc/Forklift-pedestrian-proximity/blob/main/data/test_clip_nearmiss.mp4",
+      "finding": "The repository lists and describes the MP4. Clip-specific reuse rights were unverified, so the clip was excluded."
+    },
+    {
+      "title": "NVIDIA PhysicalAI SDG-Warehouse",
+      "url": "https://huggingface.co/datasets/nvidia/PhysicalAI-WorldModel-Synthetic-Warehouse-Operations-Scenes",
+      "license": "OpenMDW 1.1",
+      "license_url": "https://openmdw.ai/",
+      "finding": "NVIDIA documents simulation in Isaac Sim. The dataset was excluded from the real-footage selection."
+    }
+  ]
+}

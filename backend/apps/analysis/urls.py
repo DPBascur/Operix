@@ -1,3 +1,4 @@
+from .cameras import CameraDetailView, CameraInventoryView, CameraPreviewView, CameraStartView, CameraStopView
 from django.urls import path
 
 from .catalog_views import CatalogEntryView, CatalogHistoryView, CatalogListView, RunSnapshotView
@@ -13,6 +14,11 @@ from .views import (
 )
 
 urlpatterns = [
+    path("analysis/cameras/", CameraInventoryView.as_view(), name="lab-camera-list"),
+    path("analysis/cameras/<slug:camera_id>/", CameraDetailView.as_view(), name="lab-camera-detail"),
+    path("analysis/cameras/<slug:camera_id>/start/", CameraStartView.as_view(), name="lab-camera-start"),
+    path("analysis/cameras/<slug:camera_id>/stop/", CameraStopView.as_view(), name="lab-camera-stop"),
+    path("analysis/cameras/<slug:camera_id>/preview/", CameraPreviewView.as_view(), name="lab-camera-preview"),
     path("analysis/sources/", SourceListView.as_view(), name="analysis-source-list"),
     path("analysis/sources/<str:source_sha256>/", SourceDetailView.as_view(), name="analysis-source-detail"),
     path("analysis/run-snapshots/<uuid:pk>/", RunSnapshotView.as_view(), name="analysis-run-snapshot"),

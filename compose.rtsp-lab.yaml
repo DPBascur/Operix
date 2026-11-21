@@ -1,0 +1,102 @@
+# Opt in with -f compose.yaml [-f compose.gpu.yaml] -f compose.rtsp-lab.yaml.
+x-lab-runtime: &lab-runtime
+  # This upstream variant supplies both MediaMTX and FFmpeg. The digest pins both.
+  image: bluenviron/mediamtx:1.21.4-ffmpeg@sha256:1fa0abbefb6f181bf0da075c65a75505ee43bb9996e4a4b5fd30a4ab7dea01e6
+  networks: [rtsp-lab]
+  user: "65534:65534"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+
+x-lab-media: &lab-media
+  type: bind
+  source: ${OPERIX_CAMERA_LAB_MEDIA_HOST:?Set the approved camera lab media directory}
+  target: /data/rtsp-lab
+  read_only: true
+  bind:
+    create_host_path: false
+
+x-lab-publisher: &lab-publisher
+  <<: *lab-runtime
+  init: true
+  entrypoint: ["/bin/sh", "/lab/publish.sh"]
+  depends_on:
+    mediamtx:
+      condition: service_healthy
+  volumes:
+    - *lab-media
+    - type: bind
+      source: ./deployment/rtsp-lab/publish.sh
+      target: /lab/publish.sh
+      read_only: true
+      bind:
+        create_host_path: false
+  healthcheck:
+    test:
+      - CMD-SHELL
+      - >-
+        ffmpeg -nostdin -hide_banner -loglevel error -abort_on empty_output
+        -rtsp_transport tcp -timeout 3000000 -analyzeduration 500000
+        -i "rtsp://mediamtx:8554/$$CAMERA_PATH" -map 0:v:0 -frames:v 1 -f null -
+    interval: 5s
+    timeout: 5s
+    retries: 4
+    start_period: 10s
+
+x-publisher-settings: &publisher-settings
+  VIDEO_WIDTH: &lab-width ${OPERIX_CAMERA_LAB_WIDTH:-960}
+  VIDEO_HEIGHT: &lab-height ${OPERIX_CAMERA_LAB_HEIGHT:-540}
+  VIDEO_FPS: &lab-fps ${OPERIX_CAMERA_LAB_FPS:-12}
+  LOOP_GAP_SECONDS: ${OPERIX_CAMERA_LAB_LOOP_GAP_SECONDS:-2}
+
+services:
+  backend:
+    environment:
+      OPERIX_CAMERA_LAB_ENABLED: "1"
+      OPERIX_CAMERA_LAB_MANIFEST: /data/rtsp-lab/${OPERIX_CAMERA_LAB_MANIFEST_FILE:-manifest.json}
+      OPERIX_LAB_CAM01_WIDTH: *lab-width
+      OPERIX_LAB_CAM01_HEIGHT: *lab-height
+      OPERIX_LAB_CAM01_FPS: *lab-fps
+      OPERIX_LAB_CAM02_WIDTH: *lab-width
+      OPERIX_LAB_CAM02_HEIGHT: *lab-height
+      OPERIX_LAB_CAM02_FPS: *lab-fps
+    networks: [default, rtsp-lab]
+    volumes:
+      - *lab-media
+
+  mediamtx:
+    <<: *lab-runtime
+    command: [/mediamtx.yml]
+    volumes:
+      - type: bind
+        source: ./deployment/rtsp-lab/mediamtx.yml
+        target: /mediamtx.yml
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: [CMD, wget, -q, -T, "2", -O, /dev/null, "http://127.0.0.1:9997/v3/paths/list"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  lab-publisher-01:
+    <<: *lab-publisher
+    environment:
+      <<: *publisher-settings
+      CAMERA_PATH: lab-cam-01
+      VIDEO_FILE: ${OPERIX_CAMERA_LAB_VIDEO_01:-lab-cam-01.mp4}
+      VIDEO_SHA256: ${OPERIX_CAMERA_LAB_SHA256_01:-e1625075af049a642505e815cbf3243499fcdc136422c2ecf5725cab5c4bc9eb}
+
+  lab-publisher-02:
+    <<: *lab-publisher
+    environment:
+      <<: *publisher-settings
+      CAMERA_PATH: lab-cam-02
+      VIDEO_FILE: ${OPERIX_CAMERA_LAB_VIDEO_02:-lab-cam-02.mp4}
+      VIDEO_SHA256: ${OPERIX_CAMERA_LAB_SHA256_02:-47deef759545ae785cf9e9c028f89b91bc665abf095c512e9a369ba51cf54696}
+
+networks:
+  rtsp-lab:
+    internal: true

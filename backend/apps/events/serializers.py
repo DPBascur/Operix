@@ -122,10 +122,35 @@ class EventSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("source debe ser un objeto.")
         allowed = {"filename", "kind", "video_sha256", "config_sha256", "person_weights_sha256",
                    "forklift_weights_sha256", "timestamp_basis", "session_id", "session_run", "perception",
-                   "spatial_configuration", "spatial_revision", "epoch"}
+                   "spatial_configuration", "spatial_revision", "epoch", "camera_id", "capture"}
         if set(value) - allowed:
             raise serializers.ValidationError("Metadata de fuente no admitida.")
+        if value.get("kind") == "lab":
+            if not {"camera_id", "capture", "video_sha256", "config_sha256"} <= value.keys():
+                raise serializers.ValidationError("Trazabilidad de laboratorio incompleta.")
+            if value.get("timestamp_basis") != "LAB_RECEPTION_UTC":
+                raise serializers.ValidationError("Base temporal de laboratorio inválida.")
+        elif "camera_id" in value or "capture" in value:
+            raise serializers.ValidationError("Metadata de captura reservada al laboratorio.")
         for key, item in value.items():
+            if key == "capture":
+                fields = {"received_at", "processed_at", "source_pts_s", "time_basis"}
+                if not isinstance(item, dict) or set(item) != fields:
+                    raise serializers.ValidationError("Tiempos de captura incompletos.")
+                utc = serializers.DateTimeField()
+                if any(not has_timezone(item[field]) for field in ("received_at", "processed_at")):
+                    raise serializers.ValidationError("Los tiempos de captura requieren zona horaria.")
+                received = utc.run_validation(item["received_at"])
+                processed = utc.run_validation(item["processed_at"])
+                pts = item["source_pts_s"]
+                if (processed < received or item["time_basis"] not in ("source_pts", "local_arrival")
+                        or (pts is not None and (type(pts) not in (int, float) or not 0 <= pts <= 1e12))):
+                    raise serializers.ValidationError("Tiempos de captura incompatibles.")
+                continue
+            if key == "camera_id" and (
+                not isinstance(item, str) or not re.fullmatch(r"lab-cam-[0-9]{2}", item)
+            ):
+                raise serializers.ValidationError("Identidad de cámara inválida.")
             if key == "spatial_configuration":
                 if not isinstance(item, dict) or set(item) - {"schema_version","view_id","coordinate_system","zones","rules","calibration","motion","relations"}:
                     raise serializers.ValidationError("Snapshot espacial inválido")
@@ -162,7 +187,8 @@ class EventSerializer(serializers.ModelSerializer):
 class EventFilterSerializer(serializers.Serializer):
     event_type = serializers.ChoiceField(choices=EVENT_TYPES, required=False)
     zone_id = serializers.CharField(max_length=64, trim_whitespace=False, required=False)
-    source_kind = serializers.ChoiceField(choices=("demo", "manual", "unknown"), required=False)
+    source_kind = serializers.ChoiceField(choices=("demo", "manual", "unknown", "lab"), required=False)
+    camera_id = serializers.RegexField(r"^lab-cam-[0-9]{2}$", required=False)
     source_sha256 = serializers.RegexField(r"^[a-f0-9]{64}$", required=False)
     occurred_after = serializers.DateTimeField(required=False)
     occurred_before = serializers.DateTimeField(required=False)

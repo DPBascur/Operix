@@ -73,3 +73,30 @@ class AnalysisRunSnapshot(models.Model):
     config_sha256 = models.CharField(max_length=64)
     policy = models.JSONField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class CameraRevision(models.Model):
+    camera_id = models.CharField(max_length=64)
+    revision = models.PositiveIntegerField()
+    document = models.JSONField()
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=("camera_id", "revision"),
+                                                name="unique_lab_camera_revision")]
+
+
+class CameraRun(models.Model):
+    snapshot = models.OneToOneField(AnalysisRunSnapshot, primary_key=True, on_delete=models.PROTECT)
+    camera_id = models.CharField(max_length=64, db_index=True)
+    active = models.BooleanField(default=True)
+    terminal_state = models.CharField(max_length=16, blank=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    ended_at = models.DateTimeField(null=True)
+    metrics = models.JSONField(default=dict)
+    provenance = models.JSONField(default=dict)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=("camera_id",), condition=models.Q(active=True),
+                                                name="unique_active_lab_camera")]

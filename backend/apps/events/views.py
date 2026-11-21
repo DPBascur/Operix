@@ -64,6 +64,20 @@ class EventListCreateView(PublisherWriteMixin, generics.ListCreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         values = serializer.validated_data
+        source = values.get("source", {})
+        if source.get("kind") == "lab":
+            from apps.analysis.models import CameraRun
+
+            run = CameraRun.objects.select_related("snapshot").filter(
+                pk=values["analysis_run_id"], camera_id=source["camera_id"],
+            ).first()
+            if (
+                run is None or source["config_sha256"] != run.snapshot.config_sha256
+                or source["video_sha256"] != run.provenance.get("sha256")
+                or values["view_id"] != run.camera_id
+                or source.get("spatial_configuration") != run.snapshot.configuration
+            ):
+                raise ValidationError("El evento no corresponde al snapshot de cámara.")
         identity_fields = (
             "analysis_run_id", "view_id", "frame_index", "rule_id",
             "rule_version", "track_id", "class_name", "zone_id",
@@ -115,7 +129,8 @@ class EventClipView(APIView):
 
 def filtered_events(queryset, query_params):
     """Comparte el contrato de filtros y sus límites inclusivos con la lista."""
-    unknown = set(query_params) - {"event_type", "zone_id", "occurred_after", "occurred_before", "source_kind", "source_sha256"}
+    unknown = set(query_params) - {"event_type", "zone_id", "occurred_after", "occurred_before",
+                                    "source_kind", "source_sha256", "camera_id"}
     if unknown:
         raise ValidationError({"filters": f"Parámetros desconocidos: {', '.join(sorted(unknown))}."})
     filters = EventFilterSerializer(data=query_params)
@@ -129,8 +144,13 @@ def filtered_events(queryset, query_params):
         queryset = queryset.filter(occurred_at__gte=data["occurred_after"])
     if "occurred_before" in data:
         queryset = queryset.filter(occurred_at__lte=data["occurred_before"])
+    if "camera_id" in data:
+        queryset = queryset.filter(source__kind="lab", source__camera_id=data["camera_id"])
+    elif "source_kind" not in data:
+        # Lab runs cannot inflate operational aggregates through repetitive replay.
+        queryset = queryset.filter(Q(source__kind__isnull=True) | ~Q(source__kind="lab"))
     if data.get("source_kind") == "unknown":
-        known = Q(source__kind="demo") | Q(source__kind="manual")
+        known = Q(source__kind="demo") | Q(source__kind="manual") | Q(source__kind="lab")
         queryset = queryset.filter(Q(source__kind__isnull=True) | ~known)
     elif "source_kind" in data:
         queryset = queryset.filter(source__kind=data["source_kind"])
