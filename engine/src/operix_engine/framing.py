@@ -5,6 +5,8 @@ import math
 import cv2
 import numpy as np
 
+from .pattern_framing import PatternFramingGuard
+
 
 REFERENCE = "first_frame_orb_affine_v1"
 SAMPLE_SECONDS = .25
@@ -20,16 +22,23 @@ class RecordedFraming:
     def __init__(self, calibration):
         self.calibration = calibration
         self.manually_invalid = bool(calibration and calibration["status"] == "invalid")
+        evidence = calibration.get("pattern_evidence") if calibration and not self.manually_invalid else None
+        self.pattern = PatternFramingGuard(evidence) if evidence else None
         self.guard = FramingGuard() if (
-            calibration and not self.manually_invalid and calibration.get("framing_reference") == REFERENCE
+            calibration and not self.manually_invalid and self.pattern is None
+            and calibration.get("framing_reference") == REFERENCE
         ) else None
 
     def update(self, frame, frame_index, timestamp_s, boxes):
+        if self.pattern is not None:
+            return self.pattern.update(frame, frame_index, timestamp_s) == "VALID"
         if self.guard is not None:
             return self.guard.update(frame, frame_index, timestamp_s, boxes) == "VALID"
         return not self.manually_invalid
 
     def status(self):
+        if self.pattern is not None:
+            return self.pattern.status()
         if self.guard is not None:
             return self.guard.status()
         if self.manually_invalid:

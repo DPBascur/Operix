@@ -32,6 +32,7 @@ from operix_engine.event_publishing import (
     report_evidence_with_retries, upload_evidence_with_retries,
 )
 from operix_engine.operational_config import load_operational_config
+from operix_engine.pattern_framing import PatternFramingGuard
 from operix_engine.rtsp_inference import InferenceBusy, InferenceClient, InferenceError, InferenceTimeout
 from operix_engine.rtsp_lab_clips import ClipStore, JpegRing
 from operix_engine.rtsp_pilot import Capture, Epoch
@@ -80,7 +81,13 @@ def load_context(output, config_path):
     if (config_path.read_bytes() != snapshot
             or hashlib.sha256(snapshot).hexdigest() != source["config_sha256"].lower()):
         raise ValueError("La configuración no coincide con el contexto")
-    if config.calibration or (config.motion and config.motion.unit == "m"):
+    if config.calibration:
+        camera_id = source.get("camera_id")
+        if (camera_id != config.view_id or not config.calibration.get("pattern_evidence")
+                or config.calibration["source_sha256"]
+                != hashlib.sha256(f"operix:camera:{camera_id}".encode()).hexdigest()):
+            raise ValueError("La calibración RTSP requiere un patrón confirmado de esta cámara")
+    elif config.motion and config.motion.unit == "m":
         raise ValueError("RTSP lab requiere configuración de imagen sin calibración ligada a un archivo")
     context = EventContext(UUID(document["analysis_run_id"]), config.view_id,
                            datetime.fromisoformat(document["analysis_started_at"]), source)
@@ -130,6 +137,8 @@ class WorkerStatus:
         self.last_frame_at = None
         self.last_frame_received = None
         self.epoch = 0
+        self.framing = None
+        self.last_framing_state = None
         self.inference_drops = Counter()
         self.inference_batch_sizes = Counter()
 
@@ -142,7 +151,13 @@ class WorkerStatus:
 
     def write(self, state, reason=None):
         now = monotonic()
-        if reason is None and state == self.state and now - self.last_update < STATUS_INTERVAL:
+        framing_state = None
+        if self.framing is not None:
+            if state in {"reconnecting", "error", "completed", "stopped"}:
+                self.framing.suspend("capture_unavailable")
+            framing_state = (self.framing.state, self.framing.reason)
+        if (reason is None and state == self.state and framing_state == self.last_framing_state
+                and now - self.last_update < STATUS_INTERVAL):
             return
         elapsed = now - self.started
         capture_counts = {}
@@ -204,14 +219,25 @@ class WorkerStatus:
                 "width": self.args.width, "height": self.args.height, "capture": capture_counts,
                 "epoch": self.epoch, "epochs": dict(self.epochs), "preview_frame": self.preview_frame,
                 "event_limit": MAX_EVENTS,
+                **({"framing": self.framing.status()} if self.framing is not None else {}),
             },
         }
         _write_atomic(self.args.output / "status.json", json.dumps(document, allow_nan=False).encode("utf-8"))
         self.last_update, self.state = now, state
+        self.last_framing_state = framing_state
 
 
 class LabPipeline:
     def __init__(self, config, args, *, infer_remotely=False):
+        self.dimensions = args.width, args.height
+        calibration = config.calibration
+        self.framing = None
+        invalidated = False
+        if calibration is not None:
+            invalidated = calibration["status"] == "invalid"
+            self.framing = PatternFramingGuard(
+                calibration["pattern_evidence"], dimensions=self.dimensions, operator_invalidated=invalidated,
+            )
         person = forklift = None
         if not infer_remotely:
             if not torch.cuda.is_available():
@@ -229,20 +255,24 @@ class LabPipeline:
                                     synchronize=torch.cuda.synchronize)
         self.analyzer = SpatiotemporalAnalyzer(
             width=args.width, height=args.height, fps=args.fps, zones=config.zones,
-            proximity_roles=config.proximity_roles, motion=config.motion, observe_occupants=config.observe_occupants,
+            proximity_roles=config.proximity_roles, calibration=calibration, motion=config.motion,
+            observe_occupants=config.observe_occupants,
         )
-        self.rules = RuleEngine(config)
+        self.rules = None if invalidated else RuleEngine(config)
         self.zones = tuple(zone for zone in config.zones if zone.enabled)
         visual = VisualizationConfig(max_trajectory_points=60, inactive_retention_frames=30, relations=config.relations)
         self.renderer = OpenCvRenderer(visual)
         self.histories = {name: TrajectoryAccumulator(visual) for name in ("person", "forklift")}
-        self.dimensions = args.width, args.height
 
     def reset(self, epoch):
         self.perception.person.reset()
         self.perception.forklift.reset()
-        self.analyzer.reset(epoch=epoch)
-        self.rules.reset()
+        # Image-only transitions can advance the spatial epoch on their own.
+        self.analyzer.reset(epoch=max(epoch, self.analyzer.epoch + 1))
+        if self.rules is not None:
+            self.rules.reset()
+        if self.framing is not None:
+            self.framing.suspend("awaiting_pattern_match")
         for history in self.histories.values():
             history.reset()
 
@@ -256,14 +286,18 @@ class LabPipeline:
                                        self.perception.forklift.track(detected.forklift))
         rules_started = monotonic()
         tracks, _, _ = _visible_tracks(observed.person_tracks + observed.forklift_tracks, *self.dimensions)
-        spatial = self.analyzer.update(frame.index, tracks, timestamp_s=timestamp)
-        result = self.rules.evaluate(spatial)
+        spatial_allowed = (
+            self.framing is None or self.framing.update(frame.image, frame.index, frame.received) == "VALID"
+        )
+        spatial = self.analyzer.update(frame.index, tracks, timestamp_s=timestamp, image_only=not spatial_allowed)
+        result = self.rules.evaluate(spatial) if spatial_allowed else None
+        candidates = result.candidates if result is not None else ()
         rules_ms = (monotonic() - rules_started) * 1000
         annotated = frame.image
         occupied = []
         boxes = [track.bounding_box for track in tracks]
-        active_zones = {item.zone_id for item in result.candidates}
-        for zone in self.zones:
+        active_zones = {item.zone_id for item in candidates}
+        for zone in self.zones if spatial_allowed else ():
             annotated = self.renderer.render_zone(
                 annotated, zone, event=zone.zone_id in active_zones, occupied=occupied, object_boxes=boxes,
             )
@@ -272,8 +306,10 @@ class LabPipeline:
             annotated = self.renderer.render_tracks(
                 annotated, class_tracks, history.update(frame.index, class_tracks), occupied=occupied, object_boxes=boxes,
             )
-        annotated = self.renderer.render_proximity(annotated, spatial, result, metric_expected=False, occupied=occupied)
-        return annotated, result.candidates, inference_ms, rules_ms
+        annotated = self.renderer.render_proximity(
+            annotated, spatial, result, metric_expected=self.framing is not None, occupied=occupied,
+        )
+        return annotated, candidates, inference_ms, rules_ms
 
 
 def evidence_png(image):
@@ -470,6 +506,8 @@ def run(args, status, stop_reason):
         inference = InferenceClient(inference_socket, camera_id=context.source["camera_id"], run_id=status.run_id)
         status.inference_mode = "shared"
     pipeline = LabPipeline(config, args, infer_remotely=inference is not None)
+    if config is not None and config.calibration is not None:
+        status.framing = pipeline.framing
     if reason := stop_reason():
         return reason
     epoch, ring = Epoch(args.fps), JpegRing(args.fps)

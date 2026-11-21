@@ -14,6 +14,60 @@ from .framing import REFERENCE
 METHOD = "ground_plane_contact_edges_v1"
 
 
+def _normalized_point(point):
+    return (isinstance(point, list) and len(point) == 2
+            and all(type(axis) in (int, float) and 0 <= axis <= 1 for axis in point))
+
+
+def _confirmed_pattern(snapshot, evidence):
+    fields = {"dictionary", "width", "height", "marker_corners", "capture_signature",
+              "preview_sha256", "provenance", "layout", "quality", "control", "image_transform"}
+    if not isinstance(evidence, dict) or set(evidence) != fields:
+        raise ValueError("Trazabilidad del patrón incompleta")
+    if (evidence["image_transform"] != "native_frame"
+            or any(type(evidence[key]) is not int or not 16 <= evidence[key] <= 4096 for key in ("width", "height"))):
+        raise ValueError("Dimensiones de la referencia inválidas")
+    if any(not isinstance(evidence[key], str) or not re.fullmatch(r"[a-f0-9]{64}", evidence[key])
+           for key in ("capture_signature", "preview_sha256")):
+        raise ValueError("Huella de captura inválida")
+    if not isinstance(evidence["provenance"], str) or not 1 <= len(evidence["provenance"].strip()) <= 250:
+        raise ValueError("Registre cómo se midió la disposición del patrón")
+    markers = evidence["marker_corners"]
+    if (not isinstance(markers, dict) or not 3 <= len(markers) <= 4
+            or not all(isinstance(key, str) and re.fullmatch(r"0|[1-9][0-9]{0,2}", key)
+                       and isinstance(corners, list) and len(corners) == 4
+                       and all(_normalized_point(p) for p in corners) for key, corners in markers.items())):
+        raise ValueError("Esquinas del patrón inválidas")
+    if (not isinstance(evidence["layout"], dict) or not isinstance(evidence["quality"], dict)
+            or not isinstance(evidence["dictionary"], str) or len(evidence["dictionary"]) > 32):
+        raise ValueError("Disposición o indicadores del patrón inválidos")
+    control = evidence["control"]
+    inputs = {"image_points", "distance_m", "tolerance_m", "provenance"}
+    if not isinstance(control, dict) or not inputs <= control.keys():
+        raise ValueError("Declare una distancia de comprobación medida de forma independiente")
+    points = control["image_points"]
+    distance, tolerance = control["distance_m"], control["tolerance_m"]
+    provenance = control["provenance"]
+    if (not isinstance(points, list) or len(points) != 2 or not all(map(_normalized_point, points))
+            or points[0] == points[1] or type(distance) not in (float, int) or not 0 < distance <= 10000
+            or type(tolerance) not in (float, int) or not 0 < tolerance < distance
+            or not isinstance(provenance, str) or not 1 <= len(provenance.strip()) <= 250):
+        raise ValueError("Medida, tolerancia o puntos de comprobación inválidos")
+    if not contacts_in_calibrated_area(snapshot, points):
+        raise ValueError("La medida de comprobación debe quedar dentro del área calibrada")
+    dimensions = np.array([evidence["width"], evidence["height"]])
+    offsets = (np.asarray(points)[:, None] - np.asarray(snapshot["image_points"])) * dimensions
+    if np.min(np.linalg.norm(offsets, axis=2)) < 3:
+        raise ValueError("Use puntos de comprobación distintos de las referencias del patrón")
+    a, b = (project(snapshot, point) for point in points)
+    observed = float(np.linalg.norm(a - b))
+    error = abs(observed - distance)
+    if error > tolerance:
+        raise ValueError(f"La medida de comprobación difiere {error:.3f} m y supera la tolerancia declarada")
+    return {**evidence, "control": {**{key: control[key] for key in inputs},
+            "observed_m": observed, "absolute_error_m": error, "relative_error": error / distance}}
+
+
 def calibration_snapshot(data):
     if not isinstance(data, dict) or data.get("status") not in {"valid", "invalid"}:
         raise ValueError("Estado de calibración inválido")
@@ -62,6 +116,9 @@ def calibration_snapshot(data):
         if data["framing_reference"] != REFERENCE:
             raise ValueError("Referencia de encuadre no soportada")
         result["framing_reference"] = REFERENCE
+    if "pattern_evidence" in data:
+        result["pattern_evidence"] = _confirmed_pattern(result, data["pattern_evidence"])
+        result["validity_policy"] = "GROUND_PATTERN_CONTROL_HUMAN_CONFIRMED"
     result["sha256"] = hashlib.sha256(json.dumps(result, sort_keys=True, allow_nan=False).encode()).hexdigest()
     return result
 
