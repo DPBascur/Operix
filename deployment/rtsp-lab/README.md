@@ -127,3 +127,78 @@ cuando existe. La latencia del Motor mide desde la recepción local hasta
 el resultado. La persistencia incluye el contexto posterior y la publicación.
 Las fuentes virtuales carecen de referencias físicas validadas, así que
 sus mediciones se expresan en unidades de imagen normalizada.
+
+## Inferencia compartida experimental
+
+El perfil estándar mantiene el procesamiento por cámara. En la matriz
+540p/12 de cuatro fuentes, el perfil dedicado procesó cerca de 47 FPS
+en total frente a 38,5 FPS del candidato compartido con tope de lote 2.
+Con dos fuentes ambos se acercaron al ritmo de entrada, con menor p95
+local en el perfil dedicado. Las ventanas cortas no certifican capacidad
+para cuatro cámaras reales. Para ensayar un
+solo proceso GPU con ambos modelos congelados, añade
+`-f compose.rtsp-inference.yaml` al arreglo `$stack`. Ejecuta primero
+`docker @stack build backend` y luego
+`docker @stack up -d --wait --wait-timeout 90` con el perfil ampliado.
+El servicio de inferencia usa un socket Unix privado y pesos de solo lectura.
+No recibe URLs de cámaras, credenciales de publicación ni evidencias.
+
+El Motor de cada cámara conserva captura, épocas, tracking, reglas y
+publicación. El proceso GPU acepta un cuadro en curso por cámara y ejecución.
+Agrupa solamente cuadros de igual resolución, limita la espera y devuelve
+resultados a la solicitud original. Un cuadro vencido no avanza el tracker ni
+las reglas. Si se reinicia el proceso GPU, vuelve a iniciar los monitores
+afectados. Para volver al perfil estándar, detén los monitores, detén
+`rtsp-inference` con el perfil ampliado y recrea `backend` con los tres
+archivos Compose originales. Mantén los volúmenes.
+
+`OPERIX_RTSP_BATCH_CAP` admite 1, 2 o 4 y
+`OPERIX_RTSP_BATCH_WAIT_MS` admite 0 a 20. La configuración predeterminada
+del perfil experimental es 2 y 6 ms. Un lote grande acelera inferencia
+cuando hay suficientes cuadros listos. Mide la distribución real de tamaños,
+la antigüedad, los descartes y la cobertura antes de cambiar el perfil.
+
+La página de cámara distingue el ritmo de análisis y la fracción de
+fotogramas decodificados que llegaron a análisis en la ventana reciente.
+Un período sin señal puede tener cobertura sin datos. Los tiempos p50 y
+p95 son muestras locales recientes, a partir de la entrega del decodificador.
+El laboratorio carece de un reloj de emisión común a las fuentes.
+
+### Comparación reproducible
+
+Usa `deployment/rtsp-lab/benchmark_gpu.py` para medir lotes 1, 2 y 4
+sobre los mismos fotogramas y comparar detecciones. El parámetro opcional
+`--fp16` evalúa paridad y rendimiento sin cambiar los pesos.
+`benchmark-live.py` mide en una red Docker temporal con replay continuo,
+sin escribir en PostgreSQL. Ejecuta primero sin `--execute` para comprobar
+el plan y con `--help` para ver rutas y opciones. Usa una imagen de línea
+base construida desde `7c2bdbd` y los mismos checkpoints para todas las etapas:
+
+```powershell
+python -B deployment/rtsp-lab/benchmark-live.py --feeds 1 2 3 4 `
+  --media-dir ../Operix-Docker/rtsp-lab-media --output ../tmp/comparacion-rtsp `
+  --worker-image operix-backend:rtsp-baseline-7c2bdbd --candidate-root . `
+  --person-weights <ruta-person.pt> --forklift-weights <ruta-forklift.pt> `
+  --warmup 15 --seconds 60 --batch-cap 2 --batch-wait-ms 6 --resources --execute
+```
+
+Los alias tercero y cuarto repiten material aprobado. La medición de carga
+no amplía el inventario de cámaras del producto. El smoke autenticado
+valida PostgreSQL, publicación, reconexión y evidencias con el perfil
+que esté en ejecución. Añade `--shared` para exigir el perfil compartido.
+Las pruebas de otros perfiles aceptan `--width`, `--height` y `--fps`.
+Los recursos de GPU son muestras del total del host, con la carga del
+escritorio y otras aplicaciones incluida.
+
+### Preparación de una cámara autorizada
+
+Para una prueba en Embonor, acuerda primero la cámara fija, la ventana de
+captura, la retención y quién puede consultar originales y evidencias.
+El inventario del servidor debe controlar la IP privada y la ruta RTSP.
+Usa credenciales de solo lectura, fuera de Git, y una red aislada. Verifica
+códec, resolución, FPS, timestamps, latencia y recuperación con la fuente
+autorizada. Registra por separado las referencias físicas, zonas y reglas
+aprobadas para ese encuadre y la cobertura de cada corrida. El perfil
+experimental sigue usando distancia normalizada. La habilitación de
+mediciones métricas en una cámara real requiere validar sus referencias
+y el soporte del flujo que las utiliza.

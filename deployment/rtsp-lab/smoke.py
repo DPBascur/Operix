@@ -3,19 +3,30 @@ import argparse
 from pathlib import Path
 from time import monotonic, sleep
 import hashlib, json, os, subprocess
+from urllib.parse import urlsplit
 import requests
 
 arguments = argparse.ArgumentParser(description=__doc__)
 arguments.add_argument("--output", required=True, type=Path)
+arguments.add_argument("--base-url", default="http://127.0.0.1:13000")
+arguments.add_argument("--project", default="operix")
+arguments.add_argument("--env-file", default="../Operix-Docker/operix.env")
+arguments.add_argument("--shared", action="store_true", help="Require the shared inference profile")
 args = arguments.parse_args()
+origin = urlsplit(args.base_url)
+if (origin.scheme != "http" or origin.hostname != "127.0.0.1" or origin.netloc != f"127.0.0.1:{origin.port}"
+        or origin.path or origin.query or origin.fragment):
+    arguments.error("--base-url must be a local 127.0.0.1 origin with an explicit port")
 root = args.output.resolve()
 root.mkdir(parents=True, exist_ok=False)
 os.chdir(Path(__file__).resolve().parents[2])
-base="http://127.0.0.1:13000"
+base=args.base_url
 api="/api/v1"
 camera_api=f"{api}/analysis/cameras/"
 ids=["lab-cam-01","lab-cam-02"]
-compose=["docker","compose","--env-file","../Operix-Docker/operix.env","-p","operix","-f","compose.yaml","-f","compose.gpu.yaml","-f","compose.rtsp-lab.yaml"]
+compose=["docker","compose","--env-file",args.env_file,"-p",args.project,"-f","compose.yaml","-f","compose.gpu.yaml","-f","compose.rtsp-lab.yaml"]
+if args.shared:
+    compose += ["-f", "compose.rtsp-inference.yaml"]
 
 def request(client, method, path, code=200, **options):
     response=client.request(method,base+path,timeout=30,**options)
@@ -87,6 +98,9 @@ try:
     for ident in ids:
         data=camera(ident)
         assert data["preview_url"]
+        if args.shared:
+            assert data["metrics"]["inference_mode"] == "shared"
+            assert sum(data["metrics"]["inference_batch_sizes"].values()) > 0
         receipt["dual"][ident]=data
         preview=request(safety,"GET",data["preview_url"])
         request(anon,"GET",data["preview_url"],401)
@@ -111,6 +125,11 @@ try:
         assert event["source"]["camera_id"]==ident
         assert event["source"]["timestamp_basis"]=="LAB_RECEPTION_UTC"
         assert event["source"]["capture"]["received_at"] and event["source"]["capture"]["processed_at"]
+        if args.shared:
+            for role, model_id in (("person", "YOLO11M_COCO_PERSON"), ("forklift", "FORKLIFT_SPECIALIST_V2")):
+                model = event["source"]["perception"][role]
+                assert model["model_id"] == model_id
+                assert model["weights_sha256"] == event["source"][f"{role}_weights_sha256"]
         if not event["evidence_clip"]:
             event=wait(lambda:(e if (e:=request(admin,"GET",f"{api}/events/{candidates[0]['id']}/").json())["evidence_clip"] else None),"sin clip")
         for suffix,url in [("png",event["evidence_url"]),("mp4",event["evidence_clip"]["url"])]:
