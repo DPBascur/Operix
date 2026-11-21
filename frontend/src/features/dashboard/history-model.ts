@@ -12,17 +12,21 @@ export interface HistoryEvent {
     filename?: unknown;
     config_sha256?: unknown;
     epoch?: unknown;
+    camera_id?: unknown;
   };
 }
 
 export const sourceNames = {
   demo: "Demo declarada",
   manual: "Carga manual",
+  lab: "Cámara de laboratorio",
   unknown: "Sin clasificación",
 } as const;
 
 export function sourceKind(kind: unknown): keyof typeof sourceNames {
-  return kind === "demo" || kind === "manual" ? kind : "unknown";
+  return kind === "demo" || kind === "manual" || kind === "lab"
+    ? kind
+    : "unknown";
 }
 
 export function historyHref(

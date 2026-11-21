@@ -1878,28 +1878,14 @@ a {
   background: var(--surface-muted);
   color: var(--accent);
 }
-.local-source-row h3,
-.camera-empty h3 {
+.local-source-row h3 {
   margin: 0;
   font-size: 1rem;
 }
-.local-source-row p,
-.camera-empty p {
+.local-source-row p {
   margin: 0.3rem 0 0;
   color: var(--text-secondary);
   font-size: 0.875rem;
-}
-.camera-empty {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  border: 1px dashed var(--border-strong);
-  border-radius: 0.75rem;
-  padding: 2rem;
-}
-.camera-empty > svg {
-  width: 1.5rem;
-  color: var(--text-secondary);
 }
 .recent-activity {
   padding-top: 0.5rem;

@@ -2,7 +2,6 @@
 
 import {
   ArrowRight,
-  Camera,
   Clapperboard,
   FileVideo,
   MonitorUp,
@@ -18,6 +17,7 @@ import {
   type AnalysisProfileDefinition,
 } from "@/services/analysis.service";
 import type { VideoSource } from "@/types/operix";
+import { CameraLab } from "./camera-lab";
 
 const fallbackNames: Record<AnalysisProfile, string> = {
   A: "Warehouse fire",
@@ -250,27 +250,7 @@ export function SourceCatalog({ compact = false }: { compact?: boolean }) {
             </div>
           </section>
 
-          <section
-            className="source-section"
-            aria-labelledby="camera-source-title"
-          >
-            <div className="section-intro">
-              <div>
-                <span className="eyebrow">Próxima capacidad</span>
-                <h2 id="camera-source-title">Cámaras</h2>
-              </div>
-            </div>
-            <div className="camera-empty">
-              <Camera aria-hidden="true" />
-              <div>
-                <h3>Aún no hay cámaras configuradas</h3>
-                <p>
-                  Las futuras fuentes IP aparecerán aquí cuando esa capacidad
-                  esté disponible.
-                </p>
-              </div>
-            </div>
-          </section>
+          <CameraLab />
         </>
       )}
     </div>

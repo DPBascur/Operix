@@ -129,6 +129,7 @@ export function eventProximityGeometry(event: OperationalEvent) {
 export function eventTime(event: OperationalEvent) {
   const basis = record(event.source).timestamp_basis;
   const proxy = basis === "ANALYSIS_START_PROXY_NOT_RECORDING_TIME";
+  const reception = basis === "LAB_RECEPTION_UTC";
   return {
     iso: event.occurred_at,
     formatted: new Intl.DateTimeFormat("es-CL", {
@@ -139,12 +140,16 @@ export function eventTime(event: OperationalEvent) {
     }).format(new Date(event.occurred_at)),
     label: proxy
       ? "Referencia del análisis · UTC"
-      : "Referencia del evento · UTC",
+      : reception
+        ? "Recepción en el laboratorio · UTC"
+        : "Referencia del evento · UTC",
     explanation: proxy
       ? "Inicio del análisis más tiempo del video; no es la fecha de grabación."
-      : typeof basis === "string" && basis.trim()
-        ? `Base temporal registrada: ${basis}.`
-        : "Base temporal no registrada; no se puede deducir la fecha de grabación.",
+      : reception
+        ? "Hora en la que el laboratorio recibió el fotograma."
+        : typeof basis === "string" && basis.trim()
+          ? `Base temporal registrada: ${basis}.`
+          : "Base temporal no registrada; no se puede deducir la fecha de grabación.",
   };
 }
 export function evidenceHref(

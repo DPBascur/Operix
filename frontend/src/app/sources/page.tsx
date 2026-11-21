@@ -10,7 +10,7 @@ export default function SourcesPage() {
         <div>
           <span className="eyebrow">Catálogo operacional</span>
           <PageTitle>Fuentes</PageTitle>
-          <p>Videos, demos y futuras cámaras disponibles para análisis.</p>
+          <p>Videos, demos y cámaras de laboratorio para análisis.</p>
         </div>
       </header>
       <SourceCatalog />

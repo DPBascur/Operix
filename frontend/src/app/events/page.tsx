@@ -17,6 +17,11 @@ export default async function EventsPage({
       : undefined;
   };
   const initial: EventQuery = {
+    cameraId:
+      typeof params.camera_id === "string" &&
+      /^lab-cam-[0-9]{2}$/.test(params.camera_id)
+        ? params.camera_id
+        : undefined,
     zoneId:
       typeof params.zone_id === "string" &&
       params.zone_id.length > 0 &&
@@ -40,6 +45,7 @@ export default async function EventsPage({
     sourceKind:
       params.source_kind === "demo" ||
       params.source_kind === "manual" ||
+      params.source_kind === "lab" ||
       params.source_kind === "unknown"
         ? params.source_kind
         : undefined,

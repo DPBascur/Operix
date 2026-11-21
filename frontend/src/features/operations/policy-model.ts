@@ -8,7 +8,7 @@ export const ruleTypes = {
 };
 
 export type RuleType = keyof typeof ruleTypes;
-export type TargetType = "profile" | "demo" | "source";
+export type TargetType = "profile" | "demo" | "source" | "camera";
 export type PolicyKind = "template" | "set" | "assignment";
 export type PolicyParameters = {
   kind: RuleType;

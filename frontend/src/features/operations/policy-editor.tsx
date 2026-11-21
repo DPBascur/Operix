@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  cameraLabService,
+  type LabCamera,
+} from "@/services/camera-lab.service";
+
 import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
@@ -415,6 +420,7 @@ export function PolicyEditor() {
   const [canEdit, setCanEdit] = useState(false);
   const [entries, setEntries] = useState<PolicyEntry[]>([]);
   const [sources, setSources] = useState<RegisteredSource[]>([]);
+  const [cameras, setCameras] = useState<LabCamera[]>([]);
   const [profiles, setProfiles] = useState<AnalysisProfileDefinition[]>([]);
   const [kind, setKind] = useState<PolicyKind>("template");
   const [editing, setEditing] = useState<PolicyEntry | null>(null);
@@ -430,6 +436,15 @@ export function PolicyEditor() {
 
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
+    cameraLabService
+      .list(controller.signal)
+      .then((catalog) => {
+        if (active) setCameras(catalog.cameras);
+      })
+      .catch(() => {
+        if (active) setCameras([]);
+      });
     Promise.all([
       Promise.all(
         kinds.map(({ id }) =>
@@ -460,6 +475,7 @@ export function PolicyEditor() {
       });
     return () => {
       active = false;
+      controller.abort();
     };
   }, [attempt]);
 
@@ -468,26 +484,28 @@ export function PolicyEditor() {
   const selectedSet = sets.find((entry) => entry.id === value.rule_set_id);
   const templates = entries.filter((entry) => entry.kind === "template");
   const targets =
-    value.target_type === "source"
-      ? sources.map((source) => [
-          source.source_sha256,
-          source.filename ?? source.source_sha256.slice(0, 12),
-        ])
-      : value.target_type === "demo"
-        ? profiles.flatMap((profile) =>
-            profile.default_demo_video
-              ? [
-                  [
-                    profile.default_demo_video.id,
-                    `Demo ${profile.id} · ${profile.display_name}`,
-                  ],
-                ]
-              : [],
-          )
-        : profiles.map((profile) => [
-            profile.id,
-            `Perfil ${profile.id} · ${profile.display_name}`,
-          ]);
+    value.target_type === "camera"
+      ? cameras.map((camera) => [camera.id, camera.name])
+      : value.target_type === "source"
+        ? sources.map((source) => [
+            source.source_sha256,
+            source.filename ?? source.source_sha256.slice(0, 12),
+          ])
+        : value.target_type === "demo"
+          ? profiles.flatMap((profile) =>
+              profile.default_demo_video
+                ? [
+                    [
+                      profile.default_demo_video.id,
+                      `Demo ${profile.id} · ${profile.display_name}`,
+                    ],
+                  ]
+                : [],
+            )
+          : profiles.map((profile) => [
+              profile.id,
+              `Perfil ${profile.id} · ${profile.display_name}`,
+            ]);
 
   function select(next: PolicyKind, entry: PolicyEntry | null = null) {
     setKind(next);
@@ -732,6 +750,10 @@ export function PolicyEditor() {
                         <option value="profile">Perfil</option>
                         <option value="demo">Demo</option>
                         <option value="source">Fuente registrada</option>
+                        {(cameras.length > 0 ||
+                          value.target_type === "camera") && (
+                          <option value="camera">Cámara de laboratorio</option>
+                        )}
                       </select>
                     </label>
                     <label>

@@ -11,7 +11,11 @@ import type {
   Zone,
 } from "@/types/operix";
 
-import type { EventQuery, FrontendDataAdapter } from "./frontend-data.adapter";
+import {
+  eventQueryParams,
+  type EventQuery,
+  type FrontendDataAdapter,
+} from "./frontend-data.adapter";
 import { MockAdapter } from "./mock.adapter";
 import {
   isOperationalEvent,
@@ -27,15 +31,7 @@ export class ApiAdapter implements FrontendDataAdapter {
       throw new Error("Falta NEXT_PUBLIC_API_BASE_URL para consultar la API.");
     }
     const url = `${environment.apiBaseUrl.replace(/\/$/, "")}/events/`;
-    const params = new URLSearchParams();
-    if (filters.occurredAfter)
-      params.set("occurred_after", filters.occurredAfter);
-    if (filters.occurredBefore)
-      params.set("occurred_before", filters.occurredBefore);
-    if (filters.eventType) params.set("event_type", filters.eventType);
-    if (filters.sourceKind) params.set("source_kind", filters.sourceKind);
-    if (filters.sourceSha256) params.set("source_sha256", filters.sourceSha256);
-    if (filters.zoneId) params.set("zone_id", filters.zoneId);
+    const params = eventQueryParams(filters);
     const response = await apiFetch(`${url}?${params}`, {
       cache: "no-store",
       signal: AbortSignal.timeout(15000),
