@@ -90,7 +90,7 @@ try:
         data=camera(ident)
         if data["status"]=="error":
             raise RuntimeError((ident,data))
-        return data if data["metrics"].get("frames_processed",0)>=minimum else None
+        return data if data["status"] == "analyzing" and data["metrics"].get("frames_processed",0)>=minimum else None
     start(ids[0])
     receipt["solo"][ids[0]]=wait(lambda:processed(ids[0],36),"Primera cámara sin suficientes frames")
     start(ids[1])
@@ -107,14 +107,18 @@ try:
         assert preview.content.startswith(b"\xff\xd8")
         (root/(ident+"-preview.jpg")).write_bytes(preview.content)
     second_before=camera(ids[1])["metrics"]["frames_processed"]
-    first_before=camera(ids[0])["metrics"]["frames_processed"]
     publish_control("stop","lab-publisher-01")
     publisher_interrupted = True
     receipt["interruption"]["down"]=wait(lambda:(value if (value:=camera(ids[0]))["status"] in {"no_signal","reconnecting"} else None),"Señal perdida no reflejada")
     receipt["interruption"]["other"]=wait(lambda:processed(ids[1],second_before+12),"Cámara sana no avanzó")
     publish_control("start","lab-publisher-01")
     publisher_interrupted = False
-    receipt["interruption"]["recovered"]=wait(lambda:processed(ids[0],first_before+12),"Primera cámara no reconectó")
+    interrupted = receipt["interruption"]["down"]["metrics"]
+    def recovered():
+        data = processed(ids[0], interrupted["frames_processed"] + 12)
+        return data if (data and data["run_id"] == runs[ids[0]]
+                        and data["metrics"]["epoch"] > interrupted["epoch"]) else None
+    receipt["interruption"]["recovered"] = wait(recovered,"Primera cámara no reconectó en una época nueva")
     for ident in ids:
         candidates=events(ident)
         if isinstance(candidates,dict):
