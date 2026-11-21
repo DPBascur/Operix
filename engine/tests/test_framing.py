@@ -114,11 +114,11 @@ class FramingTests(unittest.TestCase):
             with patch("operix_engine.visualization.cv2.putText", wraps=cv2.putText) as text:
                 renderer.render_proximity(frame, spatial, result, metric_expected=True)
             visible = [call.args[1] for call in text.call_args_list]
-            expected = "P#1/F#1  ~1,00 m" if allowed else "P#1/F#1  0,1 norm."
+            expected = "P1/F1  ~1,00 m" if allowed else "P1/F1  0,1 norm."
             self.assertIn(expected, visible)
             self.assertEqual(spatial.proximities[0].ground is not None, allowed)
             if not allowed:
-                self.assertTrue(any("Geometria suspendida" in label for label in visible))
+                self.assertTrue(any("Encuadre sin validar" in label for label in visible))
                 self.assertTrue(all(not obj.zones for obj in spatial.objects))
         self.assertEqual(framing.status()["state"], "INVALID")
         self.assertEqual(emitted, [5])
@@ -135,7 +135,7 @@ class FramingTests(unittest.TestCase):
         spatial = analyzer.update(0, tracks, image_only=True)
         with patch("operix_engine.visualization.cv2.putText", wraps=cv2.putText) as text:
             OpenCvRenderer().render_proximity(self.reference, spatial, None, metric_expected=True)
-        self.assertIn("P#1/F#1  0,1 norm.", [call.args[1] for call in text.call_args_list])
+        self.assertIn("P1/F1  0,1 norm.", [call.args[1] for call in text.call_args_list])
 
     def test_versioned_reference_preserves_legacy_snapshot(self):
         legacy = calibration()

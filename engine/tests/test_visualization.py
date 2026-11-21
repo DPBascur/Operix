@@ -135,7 +135,7 @@ class OpenCvRendererTest(unittest.TestCase):
                 self.frame, zone, event=True, rule_kind="zone_dwell", frame_index=60,
             )
         np.testing.assert_array_equal(
-            annotated[28, 90], self.renderer._ZONE_EVENT_COLOR,
+            annotated[28, 151], self.renderer._ZONE_EVENT_COLOR,
         )
         labels = [call.args[1] for call in put_text.call_args_list]
         self.assertEqual(labels, ["Area transito", "Regla: zone_dwell", "Frame 60"])
@@ -189,7 +189,7 @@ class OpenCvRendererTest(unittest.TestCase):
                         blend = cv2.addWeighted(expected, 0.92, np.full_like(expected, color), 0.08, 0)
                         expected[mask != 0] = blend[mask != 0]
                         cv2.polylines(expected, [points], True, color, 2, cv2.LINE_AA)
-                        self.renderer._draw_zone_label(expected, zone.name, points, None, None)
+                        self.renderer._draw_zone_labels(expected, zone.name, points, color, None, None, [], [])
                         np.testing.assert_array_equal(self.renderer.render_zone(frame, zone, event=event), expected)
                         np.testing.assert_array_equal(frame, original)
 

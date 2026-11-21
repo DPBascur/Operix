@@ -46,12 +46,14 @@ def _real_frame_png(
         track.track_id == candidate.track_id for track in tracks
     ):
         raise ValueError("El candidato no corresponde a un track del frame actual")
+    occupied = []
+    object_boxes = [track.bounding_box for track in tracks]
     annotated = renderer.render_zone(
         frame, zone, event=True,
         rule_kind=str(candidate.parameters.get("kind", candidate.rule_id)),
-        frame_index=frame_index,
+        frame_index=frame_index, occupied=occupied, object_boxes=object_boxes,
     )
-    annotated = renderer.render_tracks(annotated, tracks, trajectories)
+    annotated = renderer.render_tracks(annotated, tracks, trajectories, occupied=occupied)
     height, width = frame.shape[:2]
     # El endpoint acepta PNG hasta 2 MiB; una copia reducida conserva el frame real.
     if width > 960:

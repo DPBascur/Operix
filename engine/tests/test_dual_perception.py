@@ -382,8 +382,8 @@ class DualPerceptionTest(unittest.TestCase):
             image = renderer.render_tracks(self.frame, result.person_tracks, person_history)
             image = renderer.render_tracks(image, result.forklift_tracks, forklift_history)
         labels = [call.args[1] for call in put_text.call_args_list]
-        self.assertIn("Person P-1 0.90", labels)
-        self.assertIn("Forklift F-1 0.95", labels)
+        self.assertIn("P1", labels)
+        self.assertIn("F1", labels)
         self.assertGreater(np.count_nonzero(image), 0)
 
 

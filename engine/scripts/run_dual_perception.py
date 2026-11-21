@@ -177,6 +177,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     }, ensure_ascii=False) + "\n")
                     render_start = time.perf_counter()
                     annotated = frame
+                    occupied = []
+                    object_boxes = [track.bounding_box for track in visible_tracks]
                     for zone in config.zones if spatial_allowed else ():
                         if not zone.enabled:
                             continue
@@ -188,13 +190,16 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                             annotated, zone, event=event,
                             rule_kind=zone_candidate["candidate_kind"] if event else None,
                             frame_index=frame_index if event else None,
+                            occupied=occupied, object_boxes=object_boxes,
                         )
                     for name in ("person", "forklift"):
                         tracks = getattr(observed, f"{name}_tracks")
                         history = histories[name].update(frame_index, tracks)
-                        annotated = renderer.render_tracks(annotated, tracks, history)
+                        annotated = renderer.render_tracks(
+                            annotated, tracks, history, occupied=occupied, object_boxes=object_boxes,
+                        )
                     annotated = renderer.render_proximity(
-                        annotated, spatial, rule_result, metric_expected=config.calibration is not None,
+                        annotated, spatial, rule_result, metric_expected=config.calibration is not None, occupied=occupied,
                     )
                     times["rendering_s"] += time.perf_counter() - render_start
                     if frame_index in args.capture_frames and observed.person_tracks and observed.forklift_tracks:

@@ -22,6 +22,9 @@ from operix_engine.spatiotemporal import FrameSpatialState
 from operix_engine.proximity_geometry import PROXIMITY_GEOMETRY_VERSION
 
 
+OverlayRect = tuple[int, int, int, int]
+
+
 @dataclass(frozen=True, slots=True)
 class TrajectoryPoint:
     """Centro observado de un track en un frame específico."""
@@ -162,12 +165,14 @@ class OpenCvRenderer:
         self._validate_frame(frame)
         self._validate_items(detections, Detection, "detections")
         annotated = frame.copy()
+        boxes = self._object_rects(detection.bounding_box for detection in detections)
+        occupied: list[OverlayRect] = []
         for detection in detections:
             self._draw_box_and_label(
                 annotated,
                 detection.bounding_box,
                 f"{detection.class_name} {detection.confidence:.2f}",
-                self._DETECTION_COLOR,
+                self._DETECTION_COLOR, occupied, boxes,
             )
         return annotated
 
@@ -176,8 +181,11 @@ class OpenCvRenderer:
         frame: NDArray[np.uint8],
         tracks: tuple[Track, ...],
         trajectories: Mapping[int, Sequence[TrajectoryPoint]] | None = None,
+        *,
+        occupied: list[OverlayRect] | None = None,
+        object_boxes: Sequence[BoundingBox] | None = None,
     ) -> NDArray[np.uint8]:
-        """Dibuja trayectoria, ID, clase, confianza y caja para cada track activo."""
+        """Dibuja trayectoria, ID y caja para cada track activo."""
         self._validate_frame(frame)
         self._validate_items(tracks, Track, "tracks")
         trajectory_map = {} if trajectories is None else trajectories
@@ -191,24 +199,29 @@ class OpenCvRenderer:
                 trajectory_map.get(track.track_id, ()),
                 color,
             )
+        occupied = [] if occupied is None else occupied
+        boxes = self._object_rects(
+            object_boxes if object_boxes is not None else (track.bounding_box for track in tracks),
+        )
         for track in tracks:
             if track.class_name == "person":
-                label = f"Person P-{track.track_id} {track.confidence:.2f}"
+                label = f"P{track.track_id}"
             elif track.class_name == "forklift":
-                label = f"Forklift F-{track.track_id} {track.confidence:.2f}"
+                label = f"F{track.track_id}"
             else:
-                label = f"ID {track.track_id} {track.class_name} {track.confidence:.2f}"
+                label = f"{track.class_name} {track.track_id}"
             self._draw_box_and_label(
                 annotated,
                 track.bounding_box,
                 label,
-                self._track_color(track.track_id, track.class_name),
+                self._track_color(track.track_id, track.class_name), occupied, boxes,
             )
         return annotated
 
     def render_proximity(
         self, frame: NDArray[np.uint8], spatial: FrameSpatialState,
         result: RuleFrameResult | None, *, max_pairs: int | None = None, metric_expected: bool = False,
+        occupied: list[OverlayRect] | None = None,
     ) -> NDArray[np.uint8]:
         """Muestra una medición por par visible y el estado de sus reglas.
 
@@ -216,19 +229,20 @@ class OpenCvRenderer:
         visibles con la política activa. El conjunto visual no limita evaluaciones ni candidatos.
         """
         self._validate_frame(frame)
+        occupied = [] if occupied is None else occupied
         display = self.config.relations
         max_pairs = display.max_pairs if max_pairs is None else max_pairs
         if type(max_pairs) is not int or max_pairs <= 0:
             raise ValueError("max_pairs debe ser entero positivo")
         if result is None:
-            return self._render_observed_proximity(frame, spatial, max_pairs, metric_expected, suspended=True)
+            return self._render_observed_proximity(frame, spatial, max_pairs, metric_expected, occupied, suspended=True)
         if (spatial.frame_index, spatial.timestamp_s) != (result.frame_index, result.timestamp_s):
             raise ValueError("El overlay y las reglas deben pertenecer al mismo frame/tiempo")
         if spatial.epoch != result.epoch:
             raise ValueError("El overlay y las reglas deben pertenecer a la misma época")
         evaluations = [item for item in result.evaluations if isinstance(item, PairRuleEvaluation)]
         if not evaluations:
-            return self._render_observed_proximity(frame, spatial, max_pairs, metric_expected)
+            return self._render_observed_proximity(frame, spatial, max_pairs, metric_expected, occupied)
         objects = {obj.identity: obj for obj in spatial.objects}
         emitted = {candidate.episode_key for candidate in result.candidates if isinstance(candidate, PairEventCandidate)}
         if any((item.frame_index, item.timestamp_s, item.epoch) !=
@@ -261,7 +275,6 @@ class OpenCvRenderer:
         labels = []
         displayed = set()
         normalized = False
-        details = []
         for item in selected:
             if (item.proximity_geometry_version != PROXIMITY_GEOMETRY_VERSION
                     or item.person_anchor is None or item.equipment_target is None):
@@ -269,7 +282,7 @@ class OpenCvRenderer:
             person, forklift = item.interaction.person, item.interaction.forklift
             if person not in objects or forklift not in objects:
                 raise ValueError("La relación no corresponde a objetos presentes")
-            identity = f"P#{person.track_id}/F#{forklift.track_id}"
+            identity = f"P{person.track_id}/F{forklift.track_id}"
             ground = ground_by_pair.get(frozenset((person, forklift)), item.ground)
             color = self._ZONE_EVENT_COLOR if item.satisfied else self._ZONE_NORMAL_COLOR
             if item.interaction not in displayed:
@@ -279,40 +292,12 @@ class OpenCvRenderer:
                     annotated, identity, ground, (item.person_anchor, item.equipment_target),
                     item.observed_normalized_distance, color,
                 ))
-            state = {
-                "calibration_unavailable": "Metros no disponibles",
-                "outside_distance": "Fuera del umbral",
-                "outside_zone": "Fuera de zona",
-                "insufficient_duration": "Acumulando duracion",
-                "motion_unknown": "Movimiento indeterminado",
-                "equipment_stationary": "Equipo estacionario",
-            }.get(item.reason, "Condicion satisfecha" if item.satisfied else "En evaluacion")
-            motion = item.equipment_motion
-            motion_label = ""
-            if motion:
-                motion_label = " | " + {"MOVING": "En movimiento", "STATIONARY": "Estacionario", "UNKNOWN": "Movimiento indeterminado"}[motion["state"]]
-                if motion["speed"] is not None:
-                    motion_label += f" {motion['speed']:.4g} " + ("m/s approx" if motion["unit"] == "m_per_s" else "norm/s")
-            metric_rule = item.parameters.get("distance_unit") == "m"
-            if item.parameters.get("kind") == "zone_coexistence":
-                condition = "Presencia conjunta en zona"
-            elif metric_rule and item.ground is None:
-                condition = "Umbral metrico suspendido"
-            else:
-                unit = "m" if metric_rule else "norm."
-                condition = f"max {item.parameters['max_distance']:.4g} {unit}"
-            details.append((f"{identity} | {state} | {item.observed_duration_s:.4g} s"
-                            f" / min {item.parameters['minimum_duration_seconds']:.4g} s | {condition}"
-                            f" | {item.rule_id} v{item.rule_version}" + motion_label, color))
         total_pairs = len({item.interaction for item in relevant})
-        if len(labels) < total_pairs:
-            details.insert(0, (f"Relaciones visibles: {len(labels)}/{total_pairs}", self._ZONE_NORMAL_COLOR))
-        if normalized:
-            details.insert(0, (self._normalized_notice(metric_expected), self._ZONE_NORMAL_COLOR))
-        self._draw_pair_overlays(annotated, spatial, labels, details)
+        notice = self._normalized_notice(metric_expected) if normalized else None
+        self._draw_pair_overlays(annotated, spatial, labels, total_pairs, notice, occupied)
         return annotated
 
-    def _render_observed_proximity(self, frame, spatial, max_pairs, metric_expected, *, suspended=False):
+    def _render_observed_proximity(self, frame, spatial, max_pairs, metric_expected, occupied, *, suspended=False):
         # El analizador ya mide los pares con o sin una regla de proximidad activa.
         pairs = sorted(
             (pair for pair in spatial.proximities
@@ -330,26 +315,20 @@ class OpenCvRenderer:
             person, forklift = ((pair.track_id_a, pair.track_id_b) if person_first
                                 else (pair.track_id_b, pair.track_id_a))
             labels.append(self._draw_pair_line(
-                annotated, f"P#{person}/F#{forklift}", None if suspended else pair.ground,
+                annotated, f"P{person}/F{forklift}", None if suspended else pair.ground,
                 (pair.point_a, pair.point_b), pair.normalized_distance, color,
             ))
-        summary = f"Distancias observadas: {len(labels)}/{len(pairs)}" if labels else (
-            "Distancia no disponible: sin pares persona/montacargas con seguimiento"
-        )
-        details = [(summary, color)]
+        notice = None
         if suspended:
-            details.insert(0, ("Encuadre sin validar | Geometria suspendida", color))
-            if labels:
-                details.insert(1, ("norm. = distancia normalizada", color))
-        elif any(pair.ground is None for pair in pairs[:max_pairs]):
-            details.insert(0, (self._normalized_notice(metric_expected), color))
-        self._draw_pair_overlays(annotated, spatial, labels, details)
+            notice = "Encuadre sin validar"
+        elif any(pair.ground is None for pair in pairs[:max_pairs]) or not metric_expected:
+            notice = self._normalized_notice(metric_expected)
+        self._draw_pair_overlays(annotated, spatial, labels, len(pairs), notice, occupied)
         return annotated
 
     @staticmethod
     def _normalized_notice(metric_expected):
-        return ("norm. = distancia normalizada | Plano no aplicable a algunos pares" if metric_expected
-                else "norm. = distancia normalizada | Sin calibracion metrica")
+        return "Fuera del plano" if metric_expected else "Sin calibracion metrica"
 
     def _draw_pair_line(self, frame, identity, ground, normalized_points, normalized_distance, color):
         height, width = frame.shape[:2]
@@ -368,74 +347,116 @@ class OpenCvRenderer:
         for point in endpoints:
             cv2.circle(frame, point, 4, color, -1, self._LINE_TYPE)
         midpoint = tuple(round((a + b) / 2) for a, b in zip(*endpoints))
-        return f"{identity}  {measure}", midpoint, color
+        return f"{identity}  {measure}", midpoint, color, endpoints
 
-    def _draw_pair_overlays(self, frame, spatial, labels, details):
-        height, width = frame.shape[:2]
-        occupied = []
-        media_scale = max(1., max(width, height) / 640)
-        row_height = round(28 * media_scale)
-        # El encabezado usa como máximo un tercio del frame en escenas densas.
-        for index, (label, color) in enumerate(details[:max(2, height // (3 * row_height))], 1):
-            self._draw_label(frame, label, (round(8 * media_scale), index * row_height), color,
-                             fit_width=True, occupied=occupied, media_scale=media_scale)
-        boxes = [(box.x_min, box.y_min, box.x_max, box.y_max)
-                 for box in (obj.bounding_box for obj in spatial.objects)]
-        for label, midpoint, color in labels:
-            self._draw_pair_label(frame, label, midpoint, color, occupied, boxes)
+    def _draw_pair_overlays(self, frame, spatial, labels, total_pairs, notice, occupied):
+        boxes = self._object_rects(obj.bounding_box for obj in spatial.objects)
+        shown = 0
+        for label, midpoint, color, endpoints in labels:
+            shown += self._draw_tag(
+                frame, label, color, midpoint, occupied, boxes, placement="pair", line=endpoints,
+            )
+        if shown == total_pairs == 1:
+            summary = "1 par observado"
+        elif shown == total_pairs:
+            summary = f"{total_pairs} pares observados"
+        else:
+            summary = f"Pares visibles: {shown}/{total_pairs}"
+        # Una sola placa de estado, siempre después de las mediciones.
+        status = f"{notice} | {summary}" if notice else summary
+        if not self._draw_tag(frame, status, None, (0, 0), occupied, boxes, placement="hud") and notice:
+            self._draw_tag(frame, notice, None, (0, 0), occupied, boxes, placement="hud")
+            self._draw_tag(frame, summary, None, (0, 0), occupied, boxes, placement="hud")
 
     @staticmethod
-    def _overlaps(first, second):
+    def _object_rects(boxes):
+        return [(math.floor(box.x_min), math.floor(box.y_min),
+                 math.ceil(box.x_max) + 1, math.ceil(box.y_max) + 1) for box in boxes]
+
+    @staticmethod
+    def _overlaps(first: OverlayRect, second: OverlayRect) -> bool:
         x1, y1, x2, y2 = first
         left, top, right, bottom = second
-        return x1 <= right and x2 >= left and y1 <= bottom and y2 >= top
+        return x1 < right and x2 > left and y1 < bottom and y2 > top
 
-    def _draw_pair_label(self, frame, label, midpoint, color, occupied, boxes):
-        """Centra la placa junto a su línea y desplázala si coincide con otra."""
+    def _draw_tag(self, frame, label, color, anchor, occupied, boxes, *, placement="object", line=None):
         height, width = frame.shape[:2]
-        # El clip se reduce a 640 px. Escalar la placa con la imagen conserva su lectura.
-        scale = max(self.config.font_scale, .55 * max(width, height) / 640)
-        thickness = max(self.config.text_thickness, round(2 * scale / .55))
-        padding = max(3, round(scale * 6))
+        # Escala con el lado corto, de forma sublineal y acotada para UHD.
+        media_scale = max(.62, (min(width, height) / 490) ** .82)
+        scale = min(1.76, self.config.font_scale * media_scale)
+        if placement == "hud":
+            scale *= .88
+        thickness = min(3, max(1, round(scale * self.config.text_thickness * .78)))
+        pad_x, pad_y = max(2, round(5 * scale)), max(1, round(2.8 * scale))
+        gap = max(2, round(5 * scale))
+        inset = pad_x + (2 * pad_y + gap if color is not None else 0)
         (text_w, text_h), baseline = cv2.getTextSize(label, self._FONT, scale, thickness)
-        if text_w + 2 * padding >= width:
-            scale *= max(1, width - 2 * padding - thickness - 1) / text_w
-            thickness = max(1, round(2 * scale / .55))
-            (text_w, text_h), baseline = cv2.getTextSize(label, self._FONT, scale, thickness)
-        plaque_w = text_w + 2 * padding
-        plaque_h = text_h + baseline + 2 * padding
-        if plaque_w >= width or plaque_h >= height:
-            return
-        x, y = midpoint
-        max_left, max_top = width - 1 - plaque_w, height - 1 - plaque_h
-        center_left = x - plaque_w // 2
-        sides = (center_left, center_left - plaque_w // 2, center_left + plaque_w // 2,
-                 x - plaque_w - padding, x + padding, 0, max_left)
-        row_height = plaque_h + padding
-        rows = [top for offset in range(9)
-                for top in (y - plaque_h - padding - offset * row_height, y + padding + offset * row_height)]
-        positions = {(min(max_left, max(0, left)), min(max_top, max(0, top)))
-                     for left in sides for top in rows}
-        best = None
+        if placement == "zone":
+            available = min(width - 2 * gap, width // 2) - inset - pad_x
+            if text_w > available:
+                ellipsis = "..."
+                ellipsis_w = cv2.getTextSize(ellipsis, self._FONT, scale, thickness)[0][0]
+                label = label[:max(1, int(len(label) * max(0, available - ellipsis_w) / text_w))]
+                while label and cv2.getTextSize(label, self._FONT, scale, thickness)[0][0] > available - ellipsis_w:
+                    label = label[:-1]
+                label = label.rstrip() + ellipsis if label else ""
+                (text_w, text_h), baseline = cv2.getTextSize(label, self._FONT, scale, thickness)
+        tag_w, tag_h = text_w + inset + pad_x, text_h + baseline + 2 * pad_y
+        max_left, max_top = width - tag_w - gap, height - tag_h - gap
+        if not label or max_left < gap or max_top < gap:
+            return False
+
+        if placement == "hud":
+            positions = ((gap, gap), (max_left, gap), (gap, max_top), (max_left, max_top))
+        elif placement == "pair":
+            x, y = anchor
+            center = x - tag_w // 2
+            step = tag_h + gap
+            positions = (
+                (left, top)
+                for offset in range(5)
+                for left in (center, center - tag_w // 2, center + tag_w // 2, x - tag_w - gap, x + gap)
+                for top in (y + gap + offset * step, y - tag_h - gap - offset * step)
+            )
+        else:
+            left, top, right, bottom = anchor
+            positions = ((left, top - tag_h - gap), (left, bottom + gap),
+                         (right + gap, top), (left - tag_w - gap, top),
+                         (right + gap, bottom - tag_h), (left - tag_w - gap, bottom - tag_h))
+
         for left, top in positions:
-            rect = (left, top, left + plaque_w, top + plaque_h)
-            if any(self._overlaps(rect, other) for other in occupied):
+            left, top = min(max_left, max(gap, left)), min(max_top, max(gap, top))
+            rect = (left, top, left + tag_w, top + tag_h)
+            if any(self._overlaps(rect, other) for other in occupied) or any(
+                self._overlaps(rect, box) for box in boxes
+            ):
                 continue
-            dx = max(left - x, 0, x - rect[2])
-            dy = max(top - y, 0, y - rect[3])
-            # Favorecer el punto medio y penalizar las placas sobre los objetos.
-            score = (dx**2 + dy**2 + (left - center_left)**2
-                     + plaque_h**2 * any(self._overlaps(rect, box) for box in boxes),
-                     top, left)
-            if best is None or score < best[0]:
-                best = score, rect
-        if best is None:
-            return
-        left, top, right, bottom = best[1]
-        occupied.append(best[1])
-        cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 0), -1)
-        cv2.putText(frame, label, (left + padding, top + padding + text_h),
-                    self._FONT, scale, color, thickness, self._LINE_TYPE)
+            if line is not None and cv2.clipLine((left, top, tag_w, tag_h), *line)[0]:
+                continue
+            occupied.append(rect)
+            self._paint_tag(frame, rect, alpha=.70 if placement == "hud" else .78)
+            if color is not None:
+                cv2.circle(frame, (left + pad_x + pad_y, top + tag_h // 2), pad_y, color, -1, self._LINE_TYPE)
+            cv2.putText(frame, label, (left + inset, top + pad_y + text_h),
+                        self._FONT, scale, (245, 247, 250), thickness, self._LINE_TYPE)
+            return True
+        return False
+
+    @staticmethod
+    def _paint_tag(frame, rect: OverlayRect, *, alpha: float) -> None:
+        left, top, right, bottom = rect
+        region = frame[top:bottom, left:right]
+        h, w = region.shape[:2]
+        radius = max(2, h // 4)
+        mask = np.zeros((h, w), dtype=np.uint8)
+        cv2.rectangle(mask, (radius, 0), (w - 1 - radius, h - 1), 255, -1)
+        cv2.rectangle(mask, (0, radius), (w - 1, h - 1 - radius), 255, -1)
+        for x in (radius, w - 1 - radius):
+            for y in (radius, h - 1 - radius):
+                cv2.circle(mask, (x, y), radius, 255, -1)
+        solid = np.empty_like(region)
+        solid[:] = (25, 22, 19)
+        cv2.copyTo(cv2.addWeighted(region, 1 - alpha, solid, alpha, 0), mask, region)
 
     def render_zone(
         self,
@@ -445,6 +466,8 @@ class OpenCvRenderer:
         event: bool = False,
         rule_kind: str | None = None,
         frame_index: int | None = None,
+        occupied: list[OverlayRect] | None = None,
+        object_boxes: Sequence[BoundingBox] = (),
     ) -> NDArray[np.uint8]:
         """Dibuja una zona configurada sin cambiar su geometría ni el frame original."""
         self._validate_frame(frame)
@@ -486,55 +509,27 @@ class OpenCvRenderer:
         )
         cv2.copyTo(blended, mask, region)
         cv2.polylines(annotated, [points], True, color, 2, self._LINE_TYPE)
-        self._draw_zone_label(annotated, zone.name, points, rule_kind, frame_index)
+        self._draw_zone_labels(
+            annotated, zone.name, points, color, rule_kind, frame_index,
+            [] if occupied is None else occupied, self._object_rects(object_boxes),
+        )
         return annotated
 
-    def _draw_zone_label(
-        self,
-        frame: NDArray[np.uint8],
-        name: str,
-        points: NDArray[np.int32],
-        rule_kind: str | None,
-        frame_index: int | None,
-    ) -> None:
-        """Etiqueta pequeña, legible sin soporte de fuentes externas a OpenCV."""
-        height, width = frame.shape[:2]
-        if width < 100 or height < 50:
-            return
-        lines = [unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()]
-        details = []
+    def _draw_zone_labels(self, frame, name, points, color, rule_kind, frame_index, occupied, boxes):
+        name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+        lines = [name]
         if rule_kind is not None:
-            details.append(f"Regla: {rule_kind}")
+            lines.append(f"Regla: {rule_kind}")
         if frame_index is not None:
-            details.append(f"Frame {frame_index}")
-        scale = 0.65 if width >= 640 else 0.48
-        line_height = 23 if width >= 640 else 17
-        thickness = 1
-        max_text_width = width - 20
-        if details:
-            combined = " | ".join(details)
-            if cv2.getTextSize(combined, self._FONT, scale, thickness)[0][0] <= max_text_width:
-                lines.append(combined)
-            else:
-                lines.extend(details)
-        for index, line in enumerate(lines):
-            while line and cv2.getTextSize(line, self._FONT, scale, thickness)[0][0] > max_text_width:
-                line = line[:-1]
-            lines[index] = line
-        text_width = max(cv2.getTextSize(line, self._FONT, scale, thickness)[0][0] for line in lines)
-        plaque_width = text_width + 14
-        plaque_height = len(lines) * line_height + 8
-        left = min(max(4, int(points[:, 0].min()) + 8), width - plaque_width - 4)
-        top = min(max(4, int(points[:, 1].min()) + 8), height - plaque_height - 4)
-        cv2.rectangle(
-            frame, (left, top), (left + plaque_width, top + plaque_height),
-            (22, 24, 26), -1,
-        )
-        for index, line in enumerate(lines):
-            cv2.putText(
-                frame, line, (left + 7, top + line_height + index * line_height),
-                self._FONT, scale, (245, 245, 245), thickness, self._LINE_TYPE,
-            )
+            lines.append(f"Frame {frame_index}")
+        top_vertex = min(points, key=lambda point: (point[1], point[0]))
+        left, top = (int(value) for value in top_vertex)
+        anchor = (left, top, left, top)
+        for index, label in enumerate(lines):
+            placement = "zone" if index == 0 else "object"
+            if self._draw_tag(frame, label, color, anchor, occupied, boxes, placement=placement):
+                _, _, _, bottom = occupied[-1]
+                anchor = (left, bottom, left, bottom)
 
     @staticmethod
     def _validate_frame(frame: NDArray[np.uint8]) -> None:
@@ -600,6 +595,8 @@ class OpenCvRenderer:
         box: BoundingBox,
         label: str,
         color: tuple[int, int, int],
+        occupied: list[OverlayRect],
+        boxes: list[OverlayRect],
     ) -> None:
         height, width = frame.shape[:2]
         left = min(width - 1, max(0, round(box.x_min)))
@@ -613,65 +610,4 @@ class OpenCvRenderer:
             color,
             self.config.box_thickness,
         )
-        self._draw_label(frame, label, (left, top), color)
-
-    def _draw_label(
-        self,
-        frame: NDArray[np.uint8],
-        label: str,
-        anchor: tuple[int, int],
-        color: tuple[int, int, int],
-        *, fit_width: bool = False, occupied: list | None = None, media_scale: float = 1.,
-    ) -> None:
-        height, width = frame.shape[:2]
-        font_scale = self.config.font_scale * media_scale
-        thickness = round(self.config.text_thickness * media_scale)
-        padding = round(3 * media_scale)
-        (text_width, text_height), baseline = cv2.getTextSize(
-            label,
-            self._FONT,
-            font_scale,
-            thickness,
-        )
-        available_width = max(1, width - 2 * padding - round(8 * media_scale))
-        if fit_width and text_width > available_width:
-            ratio = available_width / text_width
-            font_scale *= ratio
-            thickness = max(1, round(thickness * ratio))
-            (text_width, text_height), baseline = cv2.getTextSize(
-                label, self._FONT, font_scale, thickness,
-            )
-        left = min(max(0, anchor[0]), max(0, width - text_width - 2 * padding))
-        if anchor[1] >= text_height + baseline + 2 * padding:
-            text_baseline = anchor[1] - padding - baseline
-        else:
-            text_baseline = anchor[1] + text_height + padding
-        text_baseline = min(
-            max(text_height + padding, text_baseline),
-            height - baseline - padding,
-        )
-        rectangle_top = max(0, text_baseline - text_height - padding)
-        rectangle_bottom = min(height - 1, text_baseline + baseline + padding)
-        rectangle_right = min(width - 1, left + text_width + 2 * padding)
-        if occupied is not None:
-            rect = (left, rectangle_top, rectangle_right, rectangle_bottom)
-            if any(self._overlaps(rect, other) for other in occupied):
-                return
-            occupied.append(rect)
-        cv2.rectangle(
-            frame,
-            (left, rectangle_top),
-            (rectangle_right, rectangle_bottom),
-            (0, 0, 0),
-            -1,
-        )
-        cv2.putText(
-            frame,
-            label,
-            (left + padding, text_baseline),
-            self._FONT,
-            font_scale,
-            color,
-            thickness,
-            self._LINE_TYPE,
-        )
+        self._draw_tag(frame, label, color, (left, top, right, bottom), occupied, boxes)

@@ -149,6 +149,7 @@ class MultipleRelationsTests(unittest.TestCase):
         self.assertTrue(all(c.interaction.forklift.track_id==2 for c in emitted.candidates))
 
     def test_visual_limit_never_filters_calculations_or_events(self):
+        import cv2
         import numpy as np
         from unittest.mock import patch
         from operix_engine.visualization import OpenCvRenderer,VisualizationConfig
@@ -163,9 +164,9 @@ class MultipleRelationsTests(unittest.TestCase):
         self.assertEqual(lines.call_count,1)
         self.assertEqual(len(result.candidates),4)
         doubled=replace(result,evaluations=result.evaluations+tuple(replace(e,rule_id="other") for e in result.evaluations))
-        with patch.object(renderer,"_draw_label") as labels:
+        with patch("operix_engine.visualization.cv2.putText", wraps=cv2.putText) as labels:
             renderer.render_proximity(np.zeros((100,100,3),dtype=np.uint8),spatial,doubled)
-        self.assertTrue(any(c.args[1]=="Relaciones visibles: 1/4" for c in labels.call_args_list))
+        self.assertTrue(any("Pares visibles: 1/4" in c.args[1] for c in labels.call_args_list))
         with self.assertRaises(ValueError):renderer.render_proximity(np.zeros((100,100,3),dtype=np.uint8),replace(spatial,epoch=1),result)
 
     def test_stationary_and_unknown_never_emit_moving_only(self):

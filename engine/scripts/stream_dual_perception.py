@@ -278,18 +278,23 @@ def process(args: argparse.Namespace) -> None:
                 rules_ms = (time.perf_counter_ns() - tick) / 1e6
                 tick = time.perf_counter_ns()
                 annotated = frame
+                occupied = []
+                object_boxes = [track.bounding_box for track in visible_tracks]
                 for zone in config.zones if result is not None else ():
                     if not zone.enabled:
                         continue
                     event = any(item.zone_id == zone.zone_id for item in result.candidates)
-                    annotated = renderer.render_zone(annotated, zone, event=event)
+                    annotated = renderer.render_zone(
+                        annotated, zone, event=event, occupied=occupied, object_boxes=object_boxes,
+                    )
                 for name in ("person", "forklift"):
                     tracks = getattr(observed, f"{name}_tracks")
                     annotated = renderer.render_tracks(
                         annotated, tracks, histories[name].update(frame_index, tracks),
+                        occupied=occupied, object_boxes=object_boxes,
                     )
                 annotated = renderer.render_proximity(
-                    annotated, spatial, result, metric_expected=config.calibration is not None,
+                    annotated, spatial, result, metric_expected=config.calibration is not None, occupied=occupied,
                 )
                 renderer_ms = (time.perf_counter_ns() - tick) / 1e6
                 if outbox is not None and result is not None and result.candidates:

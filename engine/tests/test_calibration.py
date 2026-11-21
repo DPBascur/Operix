@@ -52,11 +52,12 @@ class CalibrationTests(unittest.TestCase):
         renderer = OpenCvRenderer()
         with patch("operix_engine.visualization.cv2.putText", wraps=cv2.putText) as label, \
                 patch("operix_engine.visualization.cv2.line", wraps=cv2.line) as line:
-            renderer.render_proximity(np.zeros((100,100,3),dtype=np.uint8),state,engine.evaluate(state))
+            result = engine.evaluate(state)
+            renderer.render_proximity(np.zeros((100,100,3),dtype=np.uint8),state,result)
         labels = [call.args[1] for call in label.call_args_list]
-        self.assertEqual(labels.count("P#1/F#1  ~3,00 m"), 1)
-        self.assertTrue(any("max 3.1 m | metric" in text for text in labels))
-        self.assertTrue(any("max 0.31 norm. | normal" in text for text in labels))
+        self.assertEqual(labels.count("P1/F1  ~3,00 m"), 1)
+        self.assertEqual({evaluation.rule_id: evaluation.parameters["max_distance"]
+                          for evaluation in result.evaluations}, {"metric": 3.1, "normal": .31})
         self.assertEqual(line.call_args.args[1:3], ((10, 20), (40, 20)))
         line.assert_called_once()
 
@@ -83,9 +84,8 @@ class CalibrationTests(unittest.TestCase):
         line.assert_called_once()
         self.assertEqual(line.call_args.args[1:3], ((10, 20), (40, 20)))
         labels = [call.args[1] for call in label.call_args_list]
-        self.assertIn("P#1/F#1  0,3 norm.", labels)
-        self.assertTrue(any("Plano no aplicable" in text for text in labels))
-        self.assertTrue(any("Umbral metrico suspendido" in text for text in labels))
+        self.assertIn("P1/F1  0,3 norm.", labels)
+        self.assertTrue(any("Fuera del plano" in text for text in labels))
 
     def test_centimeters_and_meters_across_profiles_with_the_same_geometry(self):
         import cv2
@@ -115,7 +115,7 @@ class CalibrationTests(unittest.TestCase):
                     self.assertEqual(bool(result.candidates), emits)
                     with patch("operix_engine.visualization.cv2.putText", wraps=cv2.putText) as text:
                         renderer.render_proximity(frame, state, result)
-                    self.assertIn(f"P#1/F#1  {badge}", [call.args[1] for call in text.call_args_list])
+                    self.assertIn(f"P1/F1  {badge}", [call.args[1] for call in text.call_args_list])
 
     def test_each_visible_pair_uses_its_own_calibrated_area_eligibility(self):
         import cv2
@@ -136,8 +136,8 @@ class CalibrationTests(unittest.TestCase):
         with patch("operix_engine.visualization.cv2.putText", wraps=cv2.putText) as text:
             OpenCvRenderer().render_proximity(frame, state, result, metric_expected=True)
         labels = [call.args[1] for call in text.call_args_list]
-        self.assertIn("P#1/F#1  ~1,56 m", labels)
-        self.assertIn("P#2/F#1  0,25 norm.", labels)
+        self.assertIn("P1/F1  ~1,56 m", labels)
+        self.assertIn("P2/F1  0,25 norm.", labels)
 
     def test_projective_plane_known_distances_in_three_image_regions(self):
         # Plano virtual conocido, no GT físico de una cámara industrial.
