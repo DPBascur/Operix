@@ -2,13 +2,15 @@ import json
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient, APITestCase
 
 from .camera_registry import approved_destination
-from .cameras import default_document
+from .cameras import default_document, reap_run
+from .models import AnalysisRunSnapshot, CameraRun
 from .camera_registry import inventory
 
 
@@ -57,3 +59,22 @@ class CameraLabTests(APITestCase):
             self.assertEqual(conflict.status_code, 409)
             other = self.admin.put(self.endpoint + "lab-cam-02/", {"revision": 0, "document": doc}, format="json")
             self.assertEqual(other.status_code, 400)
+
+
+    def test_exited_worker_seals_run_without_an_http_poll(self):
+        camera = inventory()["lab-cam-01"]
+        snapshot = AnalysisRunSnapshot.objects.create(
+            pk=uuid4(), source_sha256=camera.spatial_key, profile=camera.profile,
+            configuration=default_document(camera), config_sha256="a" * 64,
+        )
+        run = CameraRun.objects.create(snapshot=snapshot, camera_id=camera.id)
+        process = Mock()
+        process.poll.return_value = 0
+        with patch("apps.analysis.cameras.close_old_connections"), patch.dict(
+            "apps.analysis.cameras._processes", {run.pk: process}
+        ):
+            reap_run(run.pk, process)
+        run.refresh_from_db()
+        self.assertFalse(run.active)
+        self.assertEqual(run.terminal_state, "error")
+        self.assertIsNotNone(run.ended_at)

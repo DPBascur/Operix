@@ -10,7 +10,7 @@ from threading import Lock, Thread
 from uuid import uuid4
 
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import close_old_connections, connection, transaction
 from django.http import FileResponse, Http404
 from django.urls import reverse
 from django.utils.timezone import now
@@ -270,7 +270,9 @@ class CameraStartView(CameraView):
                     "--forklift-weights", os.environ["OPERIX_FORKLIFT_WEIGHTS"],
                 ], cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 _processes[run_id] = process
-                Thread(target=watch_process, args=(process, 1900), daemon=True).start()
+                transaction.on_commit(
+                    lambda: Thread(target=reap_run, args=(run_id, process), daemon=True).start()
+                )
             except (OSError, KeyError):
                 CameraRun.objects.filter(pk=run_id).update(active=False, terminal_state="error", ended_at=now())
         data = camera_json(request, camera)
@@ -320,6 +322,17 @@ def watch_process(process, seconds):
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
+
+
+def reap_run(run_id, process):
+    watch_process(process, 1900)
+    close_old_connections()
+    try:
+        run = CameraRun.objects.filter(pk=run_id, active=True).first()
+        if run is not None:
+            status_for(run)
+    finally:
+        close_old_connections()
 
 
 @atexit.register
