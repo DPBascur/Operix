@@ -41,7 +41,7 @@ type Rule = {
   rule_id: string;
   version: number;
   enabled: boolean;
-  parameters: Record<string, string | number>;
+  parameters: Record<string, string | number | boolean>;
 };
 type Document = {
   schema_version: number;
@@ -1080,6 +1080,39 @@ export function SpatialEditor({
                                   Solo con movimiento confirmado
                                 </option>
                               </select>
+                            </label>
+                            <label>
+                              <input
+                                type="checkbox"
+                                checked={
+                                  rule.parameters.exclude_possible_occupant ===
+                                  true
+                                }
+                                disabled={
+                                  !doc.motion?.camera_fixed_confirmed &&
+                                  rule.parameters.exclude_possible_occupant !==
+                                    true
+                                }
+                                onChange={(e) =>
+                                  update({
+                                    ...doc,
+                                    rules: doc.rules.map((r, j) =>
+                                      j === i
+                                        ? {
+                                            ...r,
+                                            parameters: {
+                                              ...r.parameters,
+                                              exclude_possible_occupant:
+                                                e.target.checked,
+                                            },
+                                          }
+                                        : r,
+                                    ),
+                                  })
+                                }
+                              />{" "}
+                              Excluir posibles ocupantes de su propio vehículo
+                              (experimental)
                             </label>
                             <label>
                               Unidad

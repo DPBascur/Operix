@@ -15,7 +15,7 @@ import traceback
 from datetime import datetime
 from uuid import UUID
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import cv2
@@ -225,7 +225,7 @@ def process(args: argparse.Namespace) -> None:
             width=metadata.width, height=metadata.height,
             fps=metadata.declared_fps, zones=config.zones,
             proximity_roles=config.proximity_roles,
-            calibration=config.calibration, motion=config.motion,
+            calibration=config.calibration, motion=config.motion, observe_occupants=config.observe_occupants,
         )
         framing = RecordedFraming(config.calibration)
         rules = None if framing.manually_invalid else RuleEngine(config)
@@ -241,6 +241,8 @@ def process(args: argparse.Namespace) -> None:
         batch_size = getattr(args, "batch_size", 4)
         frames = iter(_analyzed_frames(source.frames(), perception, batch_size, torch.cuda.synchronize))
         last_preview = None
+        excluded_observations = 0
+        last_occupant_exclusion = None
         preview_fps = getattr(args, "preview_fps", 10.0)
         preview_dir = args.session_dir / "preview"
         preview_dir.mkdir(exist_ok=True)
@@ -275,6 +277,17 @@ def process(args: argparse.Namespace) -> None:
                 )
                 result = rules.evaluate(spatial) if spatial_allowed else None
                 frame_candidates = candidate_payloads(result.candidates) if result is not None else []
+                if config.observe_occupants and result is not None:
+                    for item in result.evaluations:
+                        if item.reason == "possible_occupant":
+                            excluded_observations += 1
+                            last_occupant_exclusion = {
+                                "frame_index": frame_index, "timestamp_s": timestamp, "epoch": spatial.epoch,
+                                "rule_id": item.rule_id, "rule_version": item.rule_version,
+                                "person_track_id": item.interaction.person.track_id,
+                                "forklift_track_id": item.interaction.forklift.track_id,
+                                "reason": item.reason, "association": asdict(item.occupant_association),
+                            }
                 rules_ms = (time.perf_counter_ns() - tick) / 1e6
                 tick = time.perf_counter_ns()
                 annotated = frame
@@ -346,6 +359,12 @@ def process(args: argparse.Namespace) -> None:
                     person_tracks=len(observed.person_tracks),
                     forklift_tracks=len(observed.forklift_tracks),
                     candidates=frame_candidates, persistence=persistence,
+                    **({"occupant_context": {
+                        "excluded_pair_rule_observations": excluded_observations,
+                        "last_exclusion": last_occupant_exclusion,
+                        "uncertain_pairs": sum(item.state == "UNCERTAIN"
+                                               for item in spatial.occupant_associations.values()),
+                    }} if config.observe_occupants else {}),
                     framing=framing.status(),
                     equipment_motion=[dict(track_id=o.track_id, class_name=o.class_name, **o.motion.to_dict())
                                       for o in spatial.objects if o.motion is not None],
@@ -407,6 +426,9 @@ def process(args: argparse.Namespace) -> None:
             if measured else None,
             model_identities={"person": model_identity(args.person_sha256),
                               "forklift": model_identity(args.forklift_sha256)},
+            **({"occupant_context": {"excluded_pair_rule_observations": excluded_observations,
+                                    "last_exclusion": last_occupant_exclusion}}
+               if config.observe_occupants else {}),
             profiling_frames=measured,
             performance={"detection_batch_size": batch_size, "preview_target_fps": preview_fps,
                          "detector_timing": "amortized batch milliseconds per frame"},

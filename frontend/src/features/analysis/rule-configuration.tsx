@@ -10,6 +10,7 @@ const labels: Record<string, string> = {
   minimum_duration_seconds: "Duración mínima (s)",
   max_distance: "Distancia máxima configurada",
   motion_condition: "Condición de movimiento",
+  exclude_possible_occupant: "Exclusión experimental de posibles ocupantes",
   distance_unit: "Unidad de distancia",
 };
 

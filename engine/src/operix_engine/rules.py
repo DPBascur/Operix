@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from operix_engine.operational_config import OperationalConfig, RuleConfig
+from operix_engine.occupants import OccupantObservation
 from operix_engine.spatiotemporal import FrameSpatialState, ObjectIdentity
 from operix_engine.zone_geometry import NormalizedPoint
 from operix_engine.proximity_geometry import PROXIMITY_GEOMETRY_VERSION, LEGACY_PROXIMITY_GEOMETRY_VERSION
@@ -109,6 +110,7 @@ class PairRuleEvaluation:
     ground: dict | None = None
     equipment_motion: dict | None = None
     epoch: int = 0
+    occupant_association: OccupantObservation | None = None
 
     @property
     def episode_key(self) -> tuple | None:
@@ -238,7 +240,7 @@ class _PairEpisode:
 def _validate_pair_rule(rule: RuleConfig, zone_ids: set[str]) -> _PairProximityRule:
     # No hay distancia/duración industrial por defecto: la configuración debe declararlas.
     required = {"kind", "zone_id", "max_distance", "minimum_duration_seconds"}
-    optional = {"person_class", "forklift_class", "distance_unit", "motion_condition"}
+    optional = {"person_class", "forklift_class", "distance_unit", "motion_condition", "exclude_possible_occupant"}
     values = dict(rule.parameters)
     if required - values.keys() or values.keys() - (required | optional):
         raise RuleEngineError(f"{rule.rule_id}: parámetros de proximidad faltantes o desconocidos")
@@ -263,6 +265,10 @@ def _validate_pair_rule(rule: RuleConfig, zone_ids: set[str]) -> _PairProximityR
         raise RuleEngineError("Condici\u00f3n de movimiento no soportada")
     if values["kind"] == "zone_coexistence" and values.get("motion_condition", "any") != "any":
         raise RuleEngineError("Coexistencia no implica movimiento")
+    if "exclude_possible_occupant" in values and (
+        values["kind"] != "person_forklift_proximity" or type(values["exclude_possible_occupant"]) is not bool
+    ):
+        raise RuleEngineError("La exclusión experimental es booleana y solo se admite para proximidad")
     return _PairProximityRule(
         rule, values["person_class"], values["forklift_class"], values["zone_id"],
         float(values["max_distance"]), float(values["minimum_duration_seconds"]),
@@ -334,12 +340,13 @@ class RuleEngine:
         frame: FrameSpatialState,
         previous: dict[tuple[str, int, InteractionIdentity, str], _PairEpisode],
         episodes: dict[tuple[str, int, InteractionIdentity, str], _PairEpisode],
+        objects: dict,
+        inside_by_zone: dict,
     ) -> tuple[list[PairRuleEvaluation], list[PairEventCandidate]]:
         """Consume membresías/distancias ya calculadas; no recalcula geometría."""
         evaluations, candidates = [], []
         if not rule.config.enabled:
             return evaluations, candidates
-        objects = {obj.identity: obj for obj in frame.objects}
         for proximity in frame.proximities:
             a, b = proximity.identity_a, proximity.identity_b
             if a.class_name == rule.person_class and b.class_name == rule.forklift_class:
@@ -354,24 +361,25 @@ class RuleEngine:
             person_anchor, equipment_target = (proximity.point_a, proximity.point_b)
             if a != interaction.person:
                 person_anchor, equipment_target = equipment_target, person_anchor
-            members = tuple(objects.get(identity) for identity in
-                            (interaction.person, interaction.forklift))
-            memberships = tuple(
-                next((zone for zone in obj.zones if zone.zone_id == rule.zone_id), None)
-                if obj is not None else None for obj in members
-            )
-            motion = members[1].motion if members[1] is not None else None
+            person = objects.get(interaction.person)
+            forklift = objects.get(interaction.forklift)
+            person_inside = inside_by_zone.get((interaction.person, rule.zone_id))
+            forklift_inside = inside_by_zone.get((interaction.forklift, rule.zone_id))
+            motion = forklift.motion if forklift is not None else None
             if motion is not None and (motion.frame_index != frame.frame_index or motion.epoch != frame.epoch
                                        or motion.timestamp_s != frame.timestamp_s):
                 raise RuleEngineError("Movimiento de otro frame o \u00e9poca")
+            association = frame.occupant_associations.get((interaction.person, interaction.forklift))
+            if association is None and rule.parameters.get("exclude_possible_occupant") is True:
+                association = OccupantObservation("UNCERTAIN", "cabin_geometry_unconfirmed", 0, 0.)
             motion_snapshot = motion.to_dict() if motion is not None else None
             metric = rule.parameters.get("distance_unit") == "m"
             distance = (proximity.ground["distance"] if proximity.ground else math.inf) if metric else proximity.normalized_distance
-            if any(obj is None for obj in members):
+            if person is None or forklift is None:
                 reason = "object_missing"
-            elif any(zone is None for zone in memberships):
+            elif person_inside is None or forklift_inside is None:
                 reason = "zone_missing"
-            elif not all(zone.inside for zone in memberships):
+            elif not (person_inside and forklift_inside):
                 reason = "outside_zone"
             elif metric and proximity.ground is None:
                 reason = "calibration_unavailable"
@@ -379,6 +387,9 @@ class RuleEngine:
                 reason = "outside_distance"
             elif rule.parameters.get("motion_condition", "any") == "moving" and (motion is None or motion.state != "MOVING"):
                 reason = "equipment_stationary" if motion is not None and motion.state == "STATIONARY" else "motion_unknown"
+            elif (rule.parameters.get("exclude_possible_occupant") is True and association is not None
+                  and association.state == "POSSIBLE_OCCUPANT"):
+                reason = "possible_occupant"
             else:
                 reason = None
             duration, satisfied = 0.0, False
@@ -408,7 +419,7 @@ class RuleEngine:
                 episode.started_frame_index if episode else None,
                 episode.started_timestamp_s if episode else None,
                 proximity.geometry_version, person_anchor, equipment_target,
-                proximity.ground if metric else None, motion_snapshot, frame.epoch,
+                proximity.ground if metric else None, motion_snapshot, frame.epoch, association,
             ))
         return evaluations, candidates
 
@@ -443,13 +454,14 @@ class RuleEngine:
         )
         previous_memberships = self._memberships if self._last_frame_index is not None and frame.frame_index == self._last_frame_index + 1 else {}
         memberships_now = {(obj.identity, z.zone_id): z.inside for obj in frame.objects for z in obj.zones}
+        objects = {obj.identity: obj for obj in frame.objects}
         episodes: dict[tuple[str, int, InteractionIdentity, str], _PairEpisode] = {}
         evaluations: list[RuleEvaluation | PairRuleEvaluation] = []
         candidates: list[EventCandidate | PairEventCandidate] = []
         for rule in self._rules:
             if isinstance(rule, _PairProximityRule):
                 pair_evaluations, pair_candidates = self._evaluate_pair_rule(
-                    rule, frame, previous_pairs, episodes,
+                    rule, frame, previous_pairs, episodes, objects, memberships_now,
                 )
                 evaluations.extend(pair_evaluations)
                 candidates.extend(pair_candidates)

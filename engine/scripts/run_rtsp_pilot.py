@@ -109,7 +109,7 @@ def run(args, url):
     run_id = str(uuid4())
     config_hash = hashlib.sha256(snapshot).hexdigest()
     analyzer = SpatiotemporalAnalyzer(width=args.width, height=args.height, fps=args.fps,
-                                      zones=config.zones, proximity_roles=config.proximity_roles, motion=config.motion)
+                                      zones=config.zones, proximity_roles=config.proximity_roles, motion=config.motion, observe_occupants=config.observe_occupants)
     rules, epoch = RuleEngine(config), Epoch(args.fps)
     epochs = Counter()
     samples, ages, services = (deque(maxlen=8192) for _ in range(3))

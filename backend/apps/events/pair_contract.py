@@ -26,7 +26,7 @@ def number(value, name):
 def validate_pair_parameters(parameters):
     expected = {"kind", "zone_id", "person_class", "forklift_class",
                 "max_distance", "minimum_duration_seconds"}
-    if expected-set(parameters) or set(parameters)-(expected|{"distance_unit","motion_condition"}):
+    if expected-set(parameters) or set(parameters)-(expected|{"distance_unit","motion_condition","exclude_possible_occupant"}):
         raise ValidationError({"rule_parameters": "Snapshot de parámetros por pares incompleto."})
     if not all(isinstance(parameters[k], str) and parameters[k].strip()
                for k in ("zone_id", "person_class", "forklift_class")):
@@ -37,6 +37,10 @@ def validate_pair_parameters(parameters):
         raise ValidationError("Condici\u00f3n de movimiento no soportada")
     if parameters["kind"]=="zone_coexistence" and parameters.get("motion_condition","any")!="any":
         raise ValidationError("Coexistencia no requiere movimiento")
+    if "exclude_possible_occupant" in parameters and (
+        parameters["kind"] != "person_forklift_proximity" or type(parameters["exclude_possible_occupant"]) is not bool
+    ):
+        raise ValidationError("La exclusión experimental es booleana y solo se admite para proximidad")
     number(parameters["max_distance"], "max_distance")
     # hypot(dx/width, dy/height): ambos ejes en [0,1], diagonal máxima sqrt(2).
     if parameters.get("distance_unit","normalized") not in {"normalized","m"}:

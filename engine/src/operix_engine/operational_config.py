@@ -122,6 +122,11 @@ class OperationalConfig:
     relations: RelationDisplayConfig | None = None
 
     @property
+    def observe_occupants(self) -> bool:
+        return any(rule.enabled and rule.parameters.get("exclude_possible_occupant") is True
+                   for rule in self.rules)
+
+    @property
     def proximity_roles(self) -> tuple[tuple[str, str], ...]:
         """Roles de clase para geometría, no una selección de algoritmos/umbrales."""
         pairs = ((rule.parameters.get("person_class", "person"), rule.parameters.get("forklift_class", "forklift"))

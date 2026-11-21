@@ -15,13 +15,19 @@ def validate_motion(attrs):
     expected = {"version","state","speed","unit","frame_index","timestamp_s","epoch",
                 "start_timestamp_s","duration_s","sample_count","position_residual","reason",
                 "configuration","calibration_sha256"}
+    version = motion.get("version") if isinstance(motion, dict) else None
+    confirmed = version == "bottom_center_window_motion_v2"
+    if confirmed:
+        expected.add("confirmation_started_at")
     if not isinstance(motion,dict) or set(motion) != expected:
         raise ValidationError("Snapshot de movimiento incompleto")
-    if motion["version"] != "bottom_center_window_motion_v1" or (not isinstance(motion["state"],str) or motion["state"] not in {"MOVING","STATIONARY","UNKNOWN"}):
+    if (not confirmed and version != "bottom_center_window_motion_v1") or (not isinstance(motion["state"],str) or motion["state"] not in {"MOVING","STATIONARY","UNKNOWN"}):
         raise ValidationError("Versión o estado de movimiento no soportado")
     cfg=motion["configuration"]
     keys={"unit","window_seconds","min_observations","max_gap_seconds","stationary_speed",
           "moving_speed","max_position_residual","camera_fixed_confirmed"}
+    if confirmed:
+        keys.add("confirmation_seconds")
     if not isinstance(cfg,dict) or set(cfg)!=keys or type(cfg["camera_fixed_confirmed"]) is not bool:
         raise ValidationError("Configuración de movimiento incompleta")
     def number(value):
@@ -53,6 +59,17 @@ def validate_motion(attrs):
         raise ValidationError("Ventana temporal incompleta")
     if motion["position_residual"] is not None:number(motion["position_residual"])
     if motion["speed"] is not None:number(motion["speed"])
+    if confirmed:
+        start = motion["confirmation_started_at"]
+        if not 0 < cfg["confirmation_seconds"] <= cfg["window_seconds"]:
+            raise ValidationError("Ventana de confirmación inválida")
+        elapsed = None if start is None else motion["timestamp_s"] - number(start)
+        if elapsed is not None and elapsed < 0:
+            raise ValidationError("Confirmación comienza en el futuro")
+        if motion["state"] != "UNKNOWN" and (
+            elapsed is None or elapsed < cfg["confirmation_seconds"] - 1e-9
+        ):
+            raise ValidationError("Estado de movimiento sin confirmación temporal")
     if motion["state"] != "UNKNOWN":
         if (not cfg["camera_fixed_confirmed"] or motion["speed"] is None
                 or motion["position_residual"] is None or motion["position_residual"]>cfg["max_position_residual"]+1e-12

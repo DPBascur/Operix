@@ -16,7 +16,7 @@ Kind = RuleCatalogEntry.Kind
 SHA256 = re.compile(r"[0-9a-f]{64}")
 ZONE_PARAMETERS = {"kind", "class_name", "zone_id", "min_duration_s"}
 PAIR_REQUIRED = {"kind", "zone_id", "max_distance", "minimum_duration_seconds"}
-PAIR_OPTIONAL = {"person_class", "forklift_class", "distance_unit", "motion_condition"}
+PAIR_OPTIONAL = {"person_class", "forklift_class", "distance_unit", "motion_condition", "exclude_possible_occupant"}
 OVERRIDABLE = {"zone_id", "min_duration_s", "max_distance", "minimum_duration_seconds",
                 "distance_unit", "motion_condition"}
 
@@ -82,6 +82,9 @@ def validate_parameters(parameters):
         motion = parameters.get("motion_condition", "any")
         if unit not in ("normalized", "m") or motion not in ("any", "moving"):
             raise ValidationError("Unidad de distancia o condición de movimiento inválida.")
+        if "exclude_possible_occupant" in parameters and (
+                kind != "person_forklift_proximity" or type(parameters["exclude_possible_occupant"]) is not bool):
+            raise ValidationError("La exclusión experimental es booleana y solo se admite para proximidad.")
         distance = parameters["max_distance"]
         nonnegative(distance, "max_distance")
         nonnegative(parameters["minimum_duration_seconds"], "minimum_duration_seconds")

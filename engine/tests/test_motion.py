@@ -57,6 +57,29 @@ class MotionTests(unittest.TestCase):
         self.assertEqual(noisy.reason,"noisy_observation")
         self.assertIsNone(noisy.speed)
 
+    def test_confirmation_requires_uninterrupted_evidence_and_loses_moving_on_noise(self):
+        cfg = config(confirmation_seconds=.5)
+        observations = self.series([.2, .25, .30, .35, .46, .40, .45, .50, .55], cfg)
+        self.assertEqual([item.state for item in observations],
+                         ["UNKNOWN", "UNKNOWN", "UNKNOWN", "MOVING",
+                          "UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN", "MOVING"])
+        ready = observations[3].to_dict()
+        self.assertEqual(ready["confirmation_started_at"], 1.)
+        self.assertEqual(ready["version"], "bottom_center_window_motion_v2")
+        legacy = self.series([.2,.25,.3])[-1].to_dict()
+        self.assertNotIn("confirmation_started_at", legacy)
+        self.assertNotIn("confirmation_seconds", legacy["configuration"])
+
+    def test_slow_motion_then_acceleration_and_vibration(self):
+        cfg = config(confirmation_seconds=.5, stationary_speed=.005, moving_speed=.02)
+        slow = self.series([.2,.211,.222,.233], cfg)
+        self.assertEqual(slow[-1].state, "MOVING")
+        accelerating = self.series([.2,.2,.2,.2,.21,.235,.27,.315], cfg)
+        self.assertEqual(accelerating[3].state, "STATIONARY")
+        self.assertEqual(accelerating[-1].state, "MOVING")
+        vibration = self.series([.2,.201,.199,.2,.201,.199], cfg)
+        self.assertEqual(vibration[-1].state, "STATIONARY")
+
     def test_metres_require_valid_fixed_calibration_and_referenced_area(self):
         cfg=config(unit="m",stationary_speed=.1,moving_speed=.5,max_position_residual=.1)
         measured=self.series([.2,.25,.3],cfg,calibration=calibration())[-1]

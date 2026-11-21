@@ -37,6 +37,22 @@ class MotionEventTests(APITestCase):
             self.assertEqual(event[field],data[field])
         self.assertEqual(self.post(data).status_code,200)
 
+    def test_v2_confirmation_persists_and_rejects_premature_or_future_start(self):
+        data = motion_payload()
+        data["rule_parameters"]["exclude_possible_occupant"] = True
+        motion = data["observations"]["equipment_motion"]
+        motion.update(version="bottom_center_window_motion_v2", confirmation_started_at=1.8)
+        motion["configuration"]["confirmation_seconds"] = .4
+        self.assertEqual(self.post(data).status_code, 400)
+        motion["confirmation_started_at"] = 2.1
+        self.assertEqual(self.post(data).status_code, 400)
+        motion["confirmation_started_at"] = 1.5
+        response = self.post(data)
+        self.assertEqual(response.status_code, 201, response.data)
+        event = self.client.get(f"/api/v1/events/{response.data['id']}/").data
+        self.assertEqual(event["observations"]["equipment_motion"], motion)
+        self.assertIs(event["rule_parameters"]["exclude_possible_occupant"], True)
+
     def test_rejects_missing_unknown_stationary_or_mismatched_frame_epoch(self):
         for changes in ({"state":"UNKNOWN","reason":"insufficient_observations"},{"state":"STATIONARY"},
                         {"frame_index":61},{"epoch":2},{"unit":"m_per_s"},{"duration_s":0},

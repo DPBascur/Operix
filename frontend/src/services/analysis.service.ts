@@ -31,6 +31,7 @@ export interface MotionSettings {
   moving_speed: number;
   max_position_residual: number;
   camera_fixed_confirmed: boolean;
+  confirmation_seconds?: number;
 }
 export interface RelationSettings {
   max_pairs: number;

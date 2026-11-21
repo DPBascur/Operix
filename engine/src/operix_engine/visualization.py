@@ -258,7 +258,7 @@ class OpenCvRenderer:
                         if item.episode_key is not None or item.reason == "calibration_unavailable"]
             if not relevant:
                 relevant = [item for item in evaluations if item.reason in {
-                    "outside_distance", "outside_zone", "motion_unknown", "equipment_stationary",
+                    "outside_distance", "outside_zone", "motion_unknown", "equipment_stationary", "possible_occupant",
                 }]
         else:
             relevant = [item for item in evaluations

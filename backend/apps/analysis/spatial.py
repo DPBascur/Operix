@@ -68,7 +68,16 @@ class SpatialConfigurationView(AnalysisView):
                 for rule in document["rules"]:
                     old = old_rules.get(rule["rule_id"])
                     if old:
-                        changed = any(old[k] != rule[k] for k in ("parameters","enabled")) or saved.document["zones"] != document["zones"] or saved.document.get("calibration") != document.get("calibration") or (rule["parameters"].get("motion_condition") == "moving" and saved.document.get("motion") != document.get("motion"))
+                        uses_motion = (
+                            rule["parameters"].get("motion_condition") == "moving"
+                            or rule["parameters"].get("exclude_possible_occupant") is True
+                        )
+                        changed = (
+                            any(old[k] != rule[k] for k in ("parameters", "enabled"))
+                            or saved.document["zones"] != document["zones"]
+                            or saved.document.get("calibration") != document.get("calibration")
+                            or (uses_motion and saved.document.get("motion") != document.get("motion"))
+                        )
                     else:
                         changed = True
                     if changed:

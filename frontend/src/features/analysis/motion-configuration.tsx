@@ -5,7 +5,10 @@ import type {
 } from "@/services/analysis.service";
 
 const fields: [
-  keyof Omit<MotionSettings, "unit" | "camera_fixed_confirmed">,
+  keyof Omit<
+    MotionSettings,
+    "unit" | "camera_fixed_confirmed" | "confirmation_seconds"
+  >,
   string,
   number,
 ][] = [
@@ -111,6 +114,24 @@ export function MotionConfiguration({
                 </label>
               ))}
             </div>
+            <label>
+              Confirmación continua (s)
+              <input
+                className="input"
+                type="number"
+                min="0"
+                max={motion.window_seconds}
+                step={0.1}
+                placeholder="Sin espera adicional"
+                value={motion.confirmation_seconds ?? ""}
+                onChange={(e) =>
+                  onMotion({
+                    ...motion,
+                    confirmation_seconds: e.target.valueAsNumber || undefined,
+                  })
+                }
+              />
+            </label>
             <p className="text-sm">
               El mínimo en movimiento debe superar el máximo estacionario. Entre
               ambos, ante ruido o datos insuficientes, el estado será

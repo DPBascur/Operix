@@ -8,6 +8,7 @@ import math
 from collections import deque
 from dataclasses import dataclass, field
 
+from operix_engine.occupants import OccupantEstimator, OccupantObservation
 from operix_engine.motion import MotionConfig, MotionEstimator, MotionObservation
 from operix_engine.detection import BoundingBox
 from operix_engine.operational_config import Zone
@@ -102,6 +103,7 @@ class FrameSpatialState:
     objects: tuple[ObjectSpatialState, ...]
     proximities: tuple[PairwiseProximity, ...]
     epoch: int = 0
+    occupant_associations: dict[tuple[ObjectIdentity, ObjectIdentity], OccupantObservation] = field(default_factory=dict)
 
 
 class SpatiotemporalAnalyzer:
@@ -118,6 +120,7 @@ class SpatiotemporalAnalyzer:
         proximity_roles: tuple[tuple[str, str], ...] = (("person", "forklift"),),
         calibration: dict | None = None,
         motion: MotionConfig | None = None,
+        observe_occupants: bool = False,
     ) -> None:
         if type(width) is not int or width <= 0 or type(height) is not int or height <= 0:
             raise ValueError("width y height deben ser enteros positivos")
@@ -136,6 +139,7 @@ class SpatiotemporalAnalyzer:
         self.zones = tuple(zone for zone in zones if zone.enabled)
         self.calibration = calibration
         self.motion = MotionEstimator(motion) if motion is not None else None
+        self.occupants = OccupantEstimator() if observe_occupants else None
         self.max_trajectory_points = max_trajectory_points
         if (not isinstance(proximity_roles, tuple) or any(
                 not isinstance(pair, tuple) or len(pair) != 2 or pair[0] == pair[1]
@@ -176,6 +180,8 @@ class SpatiotemporalAnalyzer:
         self._image_only = False
         if self.motion is not None:
             self.motion.reset()
+        if self.occupants is not None:
+            self.occupants.reset()
         self._last_frame_index: int | None = None
         self._last_timestamp_s: float | None = None
         self._last_seen: dict[ObjectIdentity, int] = {}
@@ -204,6 +210,7 @@ class SpatiotemporalAnalyzer:
         zones = () if image_only else self.zones
         calibration = None if image_only else self.calibration
         motion = None if image_only else self.motion
+        occupants = None if image_only else self.occupants
 
         # Validar todas las cajas y zonas antes de cambiar el estado interno.
         prepared = tuple(
@@ -281,4 +288,5 @@ class SpatiotemporalAnalyzer:
         )
         self._last_frame_index = frame_index
         self._last_timestamp_s = timestamp_s
-        return FrameSpatialState(frame_index, timestamp_s, tuple(objects), proximities, self.epoch)
+        associations = occupants.update(objects, frame_index, timestamp_s) if occupants is not None else {}
+        return FrameSpatialState(frame_index, timestamp_s, tuple(objects), proximities, self.epoch, associations)

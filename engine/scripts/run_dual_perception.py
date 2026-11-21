@@ -118,7 +118,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             width=metadata.width, height=metadata.height,
             fps=metadata.declared_fps, zones=config.zones,
             proximity_roles=config.proximity_roles,
-            calibration=config.calibration, motion=config.motion,
+            calibration=config.calibration, motion=config.motion, observe_occupants=config.observe_occupants,
         )
         framing = RecordedFraming(config.calibration)
         rules = None if framing.manually_invalid else RuleEngine(config)
@@ -165,6 +165,18 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     jsonl.write(json.dumps({
                         "frame_index": frame_index,
                         "candidates": frame_candidates,
+                        "equipment_motion": {str(obj.track_id): obj.motion.state
+                                             for obj in spatial.objects if obj.motion is not None},
+                        "occupant_associations": [
+                            {"person": person.track_id, "forklift": forklift.track_id, **asdict(association)}
+                            for (person, forklift), association in spatial.occupant_associations.items()
+                        ],
+                        "occupant_exclusions": [
+                            {"person": item.interaction.person.track_id, "forklift": item.interaction.forklift.track_id,
+                             "rule_id": item.rule_id, "rule_version": item.rule_version, "reason": item.reason}
+                            for item in (rule_result.evaluations if rule_result is not None else ())
+                            if item.reason == "possible_occupant"
+                        ],
                         "detections": {
                             name: [asdict(item) for item in getattr(observed, f"{name}_detections")]
                             for name in ("person", "forklift")
