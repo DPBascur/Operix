@@ -58,6 +58,13 @@ _lock = threading.RLock()
 logger = logging.getLogger(__name__)
 
 
+def frozen_perception():
+    return {
+        "person": {"model_id": PERSON_MODEL_ID, "weights_sha256": PERSON_SHA256,
+                   "class_filter": "person", "imgsz": 640, "confidence": .10, "nms_iou": .70},
+        "forklift": {"model_id": FORKLIFT_MODEL_ID, "weights_sha256": FORKLIFT_SHA256,
+                     "class_filter": "forklift", "imgsz": 640, "confidence": .45, "nms_iou": .55},
+    }
 def local_event_api_url():
     value = settings.OPERIX_EVENT_API_BASE_URL
     parsed = urlparse(value)
@@ -628,10 +635,7 @@ def _start_session(session: AnalysisSession) -> None:
             "source_sha256": session.source_sha256,
             "person_model_sha256": PERSON_SHA256,
             "forklift_model_sha256": FORKLIFT_SHA256,
-            "person": {"model_id": PERSON_MODEL_ID, "weights_sha256": PERSON_SHA256,
-                       "class_filter": "person", "imgsz": 640, "confidence": 0.10, "nms_iou": 0.70},
-            "forklift": {"model_id": FORKLIFT_MODEL_ID, "weights_sha256": FORKLIFT_SHA256,
-                         "class_filter": "forklift", "imgsz": 640, "confidence": 0.45, "nms_iou": 0.55},
+            **frozen_perception(),
             "tracker": "ByteTrack independiente por clase",
             "run": session.run,
             "analysis_run_id": run_id,

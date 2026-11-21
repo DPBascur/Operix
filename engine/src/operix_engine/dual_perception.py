@@ -39,10 +39,10 @@ class PerceptionTiming:
 class ClassPerceptionChannel:
     """Filtra una única clase ANTES de entregarla a su propio tracker."""
 
-    def __init__(self, class_name: str, detector: Detector, tracker: Tracker) -> None:
+    def __init__(self, class_name: str, detector: Detector | None, tracker: Tracker) -> None:
         if class_name not in ("person", "forklift"):
             raise ValueError("Canal de percepción no soportado")
-        if class_name not in detector.class_names.values():
+        if detector is not None and class_name not in detector.class_names.values():
             raise ValueError(f"El modelo no declara la clase {class_name}")
         self.class_name = class_name
         self.detector = detector
@@ -52,6 +52,8 @@ class ClassPerceptionChannel:
         self._local_ids: dict[int, int] = {}
 
     def detect(self, frame: NDArray[np.uint8]) -> tuple[Detection, ...]:
+        if self.detector is None:
+            raise RuntimeError("El canal requiere detecciones externas")
         return tuple(item for item in self.detector.detect(frame) if item.class_name == self.class_name)
 
     def track(self, detections: tuple[Detection, ...]) -> tuple[Track, ...]:

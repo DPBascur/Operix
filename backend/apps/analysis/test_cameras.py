@@ -47,6 +47,18 @@ class CameraLabTests(APITestCase):
             with self.assertRaises(ValueError):
                 approved_destination("lab-cam-01")
 
+    def test_shared_broker_unavailable_leaves_no_camera_run(self):
+        with (self.settings(EVENT_POST_ENABLED=True),
+              patch.dict(os.environ, {"OPERIX_RTSP_INFERENCE_SOCKET": "/private/worker.sock"}),
+              patch("apps.analysis.cameras.socket.socket") as socket_factory,
+              patch("apps.analysis.cameras.subprocess.Popen") as process):
+            socket_factory.return_value.__enter__.return_value.connect.side_effect = ConnectionRefusedError
+            response = self.admin.post(self.camera + "start/", {}, format="json")
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("inferencia compartida", response.data["detail"])
+        self.assertFalse(CameraRun.objects.exists())
+        process.assert_not_called()
+
     def test_camera_config_is_isolated_and_optimistically_versioned(self):
         doc = default_document(inventory()["lab-cam-01"])
         doc["zones"][0]["name"] = "Pasillo uno"

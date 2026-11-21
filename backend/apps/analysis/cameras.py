@@ -24,11 +24,13 @@ from config.access import CanAnalyze, request_role
 from . import camera_registry
 from .catalog import load_catalog, resolve_policy
 from .models import AnalysisRunSnapshot, CameraRevision, CameraRun
-from .sessions import ROOT, config_bytes, local_event_api_url, rule_snapshot
+from .sessions import (
+    FORKLIFT_SHA256, PERSON_SHA256, ROOT, config_bytes, frozen_perception, local_event_api_url, rule_snapshot,
+)
 from .validation import validate_spatial
 
 TERMINAL = {"stopped", "error"}
-ACTIVE = {"connecting", "transmitting", "analyzing", "no_signal", "reconnecting"}
+ACTIVE = {"connecting", "transmitting", "analyzing", "no_signal", "reconnecting", "overloaded"}
 _lock = Lock()
 _processes = {}
 
@@ -212,6 +214,14 @@ class CameraStartView(CameraView):
         worker = ROOT / "engine/scripts/run_rtsp_lab.py"
         if not (camera.provenance and worker.is_file() and settings.EVENT_POST_ENABLED):
             raise CameraConflict("La fuente, su procedencia o el Motor aún no están habilitados.")
+        inference_socket = os.environ.get("OPERIX_RTSP_INFERENCE_SOCKET")
+        if inference_socket:
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+                    probe.settimeout(.25)
+                    probe.connect(inference_socket)
+            except OSError:
+                raise CameraConflict("El Motor de inferencia compartida aún no está disponible.") from None
         try:
             parsed = urlsplit(camera.url)
             if parsed.hostname == "mediamtx":
@@ -251,6 +261,8 @@ class CameraStartView(CameraView):
             "kind": "lab", "camera_id": camera_id, "filename": camera_id + ".mp4",
             "video_sha256": camera.provenance["sha256"], "config_sha256": stored.config_sha256,
             "spatial_configuration": document, "timestamp_basis": "LAB_RECEPTION_UTC",
+            "person_weights_sha256": PERSON_SHA256, "forklift_weights_sha256": FORKLIFT_SHA256,
+            "perception": frozen_perception(),
             "session_id": str(run_id), "session_run": 1,
             **({"spatial_revision": revision} if revision else {}),
         }
@@ -260,7 +272,7 @@ class CameraStartView(CameraView):
         env = event_publisher_environment()
         env.update(OPERIX_RTSP_URL=url, OPERIX_RTSP_ALLOWED_IP=ip, OPERIX_EVENT_API_BASE_URL=local_event_api_url(),
                    OPERIX_MEDIA_ROOT=str(settings.MEDIA_ROOT),
-                   OPERIX_RTSP_LAB_CAMERA_ID=camera.id)
+                   OPERIX_RTSP_LAB_CAMERA_ID=camera.id, OPERIX_WORKER_PARENT_PIPE="1")
         with _lock:
             try:
                 process = subprocess.Popen([
@@ -268,11 +280,10 @@ class CameraStartView(CameraView):
                     "--fps", str(camera.expected_fps), "--width", str(camera.width), "--height", str(camera.height),
                     "--person-weights", os.environ["OPERIX_PERSON_WEIGHTS"],
                     "--forklift-weights", os.environ["OPERIX_FORKLIFT_WEIGHTS"],
-                ], cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                ], cwd=ROOT, env=env, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 _processes[run_id] = process
-                transaction.on_commit(
-                    lambda: Thread(target=reap_run, args=(run_id, process), daemon=True).start()
-                )
+                Thread(target=reap_run, args=(run_id, process), daemon=True).start()
+                transaction.on_commit(lambda: confirm_worker_start(process))
             except (OSError, KeyError):
                 CameraRun.objects.filter(pk=run_id).update(active=False, terminal_state="error", ended_at=now())
         data = camera_json(request, camera)
@@ -324,14 +335,27 @@ def watch_process(process, seconds):
             process.wait()
 
 
+def confirm_worker_start(process):
+    # La primera publicación requiere que el snapshot sea visible en otra conexión.
+    try:
+        process.stdin.write(b"\x01")
+        process.stdin.flush()
+    except (OSError, ValueError):
+        pass  # El reaper recoge el proceso aunque haya terminado antes del commit.
+
+
 def reap_run(run_id, process):
     watch_process(process, 1900)
+    if process.stdin is not None:
+        process.stdin.close()
     close_old_connections()
     try:
         run = CameraRun.objects.filter(pk=run_id, active=True).first()
         if run is not None:
             status_for(run)
     finally:
+        with _lock:
+            _processes.pop(run_id, None)
         close_old_connections()
 
 

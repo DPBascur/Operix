@@ -80,7 +80,8 @@ class ClipStore:
         event_id = str(UUID(event_id))
         run_id = str(UUID(payload["analysis_run_id"]))
         event_frame = payload["frame_index"]
-        if not frames or not frames[0][0] <= event_frame <= frames[-1][0]:
+        if (not frames or not frames[0][0] <= event_frame <= frames[-1][0]
+                or any(index != frames[0][0] + offset for offset, (index, _) in enumerate(frames))):
             return "unavailable"
         destination = self.root / event_id / run_id
         if destination.exists():

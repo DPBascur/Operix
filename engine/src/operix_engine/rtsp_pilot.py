@@ -33,6 +33,7 @@ class Capture:
         self.counts = Counter()
         self.depth = 0
         self.connection = 0
+        self.connected = False
         self.thread = Thread(target=self._read, name="rtsp-capture", daemon=True)
 
     def _read(self):
@@ -45,6 +46,7 @@ class Capture:
                 reader = self.open_source()
                 with self.ready:
                     self.connection += 1
+                    self.connected = True
                     self.counts["connections"] += 1
                     if self.trace:
                         self.trace("open", self.connection, monotonic(), started=opening)
@@ -81,6 +83,7 @@ class Capture:
             except (OSError, ValueError):
                 if not self.stop.is_set():
                     with self.ready:
+                        self.connected = False
                         failure = "read_failure" if reader else "open_failure"
                         self.counts[failure] += 1
                         if self.trace:
@@ -89,6 +92,7 @@ class Capture:
                 if reader is not None:
                     reader.close()
                 with self.ready:
+                    self.connected = False
                     while self.queue:
                         self._discard("shutdown_drop" if self.stop.is_set() else "disconnect_drop")
             failures += 1
@@ -117,6 +121,10 @@ class Capture:
                 self.ready.notify()
         return None
 
+    def is_current(self, frame):
+        with self.ready:
+            return self.connected and self.connection == frame.connection
+
     def __exit__(self, *_):
         self.stop.set()
         with self.ready:
@@ -136,25 +144,28 @@ class Epoch:
         self.origin = 0
         self.uses_pts = False
 
-    def advance(self, frame):
+    def discontinuity(self, frame):
         previous = self.previous
-        reason = None
         if previous is None:
-            reason = "initial"
-        elif previous.connection != frame.connection:
-            reason = "reconnect"
-        elif previous.index + 1 != frame.index:
-            reason = "queue_gap"
-        elif previous.pts is not None and frame.pts is not None and not (
+            return "initial"
+        if previous.connection != frame.connection:
+            return "reconnect"
+        if previous.index + 1 != frame.index:
+            return "queue_gap"
+        if previous.pts is not None and frame.pts is not None and not (
             0 < frame.pts - previous.pts <= 1.75 / self.fps
         ):
-            reason = "source_pts_gap"
-        elif self.uses_pts and frame.pts is None:
-            reason = "missing_pts"
-        elif not self.uses_pts and frame.pts is not None:
-            reason = "pts_available"
-        elif previous.received >= frame.received or frame.received - previous.received > .5:
-            reason = "arrival_gap"
+            return "source_pts_gap"
+        if self.uses_pts and frame.pts is None:
+            return "missing_pts"
+        if not self.uses_pts and frame.pts is not None:
+            return "pts_available"
+        if previous.received >= frame.received or frame.received - previous.received > .5:
+            return "arrival_gap"
+        return None
+
+    def advance(self, frame):
+        reason = self.discontinuity(frame)
         if reason:
             self.number += 1
             self.uses_pts = frame.pts is not None

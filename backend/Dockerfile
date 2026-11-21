@@ -38,7 +38,7 @@ COPY deployment/docker/backend_start.py /app/deployment/docker/backend_start.py
 COPY deployment/docker/codec_smoke.py /app/deployment/docker/codec_smoke.py
 COPY LICENSE THIRD_PARTY_NOTICES.md /app/
 RUN groupadd --gid 10001 operix && useradd --uid 10001 --gid operix --no-create-home operix \
-    && mkdir -p /var/lib/operix/media /var/lib/operix/sessions /var/lib/operix/cache \
+    && mkdir -p /var/lib/operix/media /var/lib/operix/sessions /var/lib/operix/cache /var/lib/operix/rtsp-inference \
     && chown -R operix:operix /var/lib/operix
 RUN python /app/deployment/docker/codec_smoke.py
 USER operix

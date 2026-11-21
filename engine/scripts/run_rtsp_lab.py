@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stderr
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
+from functools import cached_property
 import hashlib
 import ipaddress
 import json
@@ -15,6 +16,7 @@ from pathlib import Path
 import re
 import signal
 import sys
+from threading import Event, Thread
 from time import perf_counter as monotonic
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -24,11 +26,12 @@ import numpy as np
 import torch
 
 from operix_engine.byte_tracker import ByteTrackConfig, ByteTracker
-from operix_engine.dual_perception import ClassPerceptionChannel, DualPerception
+from operix_engine.dual_perception import ClassPerceptionChannel, DualPerception, PerceptionFrame
 from operix_engine.event_publishing import (
     EventContext, HttpEventSink, event_candidate_payload, publish_document_with_retries,
 )
 from operix_engine.operational_config import load_operational_config
+from operix_engine.rtsp_inference import InferenceBusy, InferenceClient, InferenceError, InferenceTimeout
 from operix_engine.rtsp_lab_clips import ClipStore, JpegRing
 from operix_engine.rtsp_pilot import Capture, Epoch
 from operix_engine.rules import RuleEngine
@@ -46,6 +49,7 @@ PREVIEW_INTERVAL = .1
 STATUS_INTERVAL = 1
 PNG_LIMIT = 2 * 1024 * 1024
 POST_LIMIT = 2 * 1024 * 1024
+INFERENCE_STALL_SECONDS = 5
 
 
 def utc_now():
@@ -100,10 +104,17 @@ class WorkerStatus:
         self.last_update = -math.inf
         self.state = None
         self.run_id = None
+        self.inference_mode = "dedicated"
         self.capture = None
         self.epochs = Counter()
         self.received = deque(maxlen=600)
-        self.timings = {name: deque(maxlen=600) for name in ("arrival_to_result", "inference", "rules")}
+        self.completed = deque(maxlen=600)
+        self.connection = 0
+        self.timings = {name: deque(maxlen=600) for name in (
+            "arrival_to_result", "queue_age", "inference", "rules", "jpeg",
+            "png", "publication", "clip", "arrival_to_publication", "inference_request",
+            "inference_queue", "person_batch", "forklift_batch",
+        )}
         self.metrics = Counter({key: 0 for key in (
             "frames_processed", "candidates", "events_submitted", "events_published", "events_duplicate",
             "events_failed", "events_skipped_quota", "events_skipped_backpressure", "clips_saved",
@@ -112,14 +123,17 @@ class WorkerStatus:
         )})
         self.preview_frame = None
         self.last_frame_at = None
+        self.last_frame_received = None
         self.epoch = 0
+        self.inference_drops = Counter()
+        self.inference_batch_sizes = Counter()
 
-    def capture_trace(self, kind, _connection, timestamp, **_fields):
+    def capture_trace(self, kind, connection, timestamp, **_fields):
         # Capture invoca el callback con el bloqueo de ready.
         if kind == "open":
-            self.received.clear()
+            self.connection = connection
         elif kind == "decoded":
-            self.received.append(timestamp)
+            self.received.append((timestamp, connection))
 
     def write(self, state, reason=None):
         now = monotonic()
@@ -127,29 +141,61 @@ class WorkerStatus:
             return
         elapsed = now - self.started
         capture_counts = {}
+        decoded_recently = 0
         arrivals = []
+        queue_depth = queue_peak = 0
         if self.capture is not None:
             with self.capture.ready:
                 capture_counts = dict(self.capture.counts)
-                arrivals = [timestamp for timestamp in self.received if now - 5 <= timestamp <= now]
+                received = [(timestamp, connection) for timestamp, connection in self.received
+                            if now - 5 <= timestamp <= now]
+                arrivals = [timestamp for timestamp, connection in received if connection == self.connection]
+                decoded_recently = len(received)
+                queue_depth = len(self.capture.queue)
+                queue_peak = self.capture.depth
         received_fps = 0.0
         if len(arrivals) >= 2 and now - arrivals[-1] <= .5 and arrivals[-1] > arrivals[0]:
             received_fps = round((len(arrivals) - 1) / (arrivals[-1] - arrivals[0]), 2)
         timing_metrics = {}
         for name, values in self.timings.items():
+            ordered = sorted(values)
             timing_metrics[f"{name}_ms"] = round(values[-1], 2) if values else None
-            timing_metrics[f"p95_{name}_ms"] = round(sorted(values)[math.ceil(.95 * len(values)) - 1], 2) if values else None
+            for quantile in (.50, .95):
+                timing_metrics[f"p{int(quantile * 100)}_{name}_ms"] = (
+                    round(ordered[math.ceil(quantile * len(ordered)) - 1], 2) if ordered else None
+                )
+        results_recently = sum(now - 5 <= timestamp <= now for timestamp, _ in self.completed)
+        covered = None
+        if decoded_recently:
+            completed_from_recent_frames = sum(now - 5 <= received <= now for _, received in self.completed)
+            covered = min(1., completed_from_recent_frames / decoded_recently)
         api_state = {"starting": "connecting", "processing": "analyzing", "completed": "stopped"}.get(state, state)
+        error_message = None
+        if state == "error":
+            error_message = (
+                "El Motor compartido dejó de responder. Vuelva a iniciar cuando esté disponible."
+                if reason == "INFERENCE_UNAVAILABLE" else "El Motor RTSP lab no pudo continuar."
+            )
         document = {
             "state": state, "status": api_state, "updated_at": utc_now().isoformat(), "termination_reason": reason,
             "last_frame_at": self.last_frame_at,
-            "last_error": "El Motor RTSP lab no pudo continuar." if state == "error" else None,
+            "last_error": error_message,
             "analysis_run_id": self.run_id,
             "metrics": {
                 **self.metrics, **timing_metrics, "elapsed_s": round(elapsed, 3), "received_fps": received_fps,
                 "source_fps": self.args.fps if math.isfinite(self.args.fps) else None,
                 "analysis_fps": round(self.metrics["frames_processed"] / max(elapsed, 1e-9), 2),
-                "frames_dropped": sum(value for key, value in capture_counts.items() if key.endswith("_drop")),
+                "analysis_fps_5s": round(results_recently / 5, 2),
+                "observed_fraction_5s": round(covered, 4) if covered is not None else None,
+                "queue_depth": queue_depth, "max_queue_depth": queue_peak,
+                "last_frame_age_ms": (round((now - self.last_frame_received) * 1000, 2)
+                                      if self.last_frame_received is not None else None),
+                "frames_dropped": (sum(self.inference_drops.values())
+                                   + sum(value for key, value in capture_counts.items() if key.endswith("_drop"))),
+                "frames_inference_dropped": sum(self.inference_drops.values()),
+                "inference_drops": dict(self.inference_drops),
+                "inference_batch_sizes": dict(self.inference_batch_sizes),
+                "inference_mode": self.inference_mode,
                 "width": self.args.width, "height": self.args.height, "capture": capture_counts,
                 "epoch": self.epoch, "epochs": dict(self.epochs), "preview_frame": self.preview_frame,
                 "event_limit": MAX_EVENTS,
@@ -160,19 +206,22 @@ class WorkerStatus:
 
 
 class LabPipeline:
-    def __init__(self, config, args):
-        if not torch.cuda.is_available():
-            raise RuntimeError("CUDA no disponible")
-        checked_file(args.person_weights, PERSON_SHA, "PERSON")
-        checked_file(args.forklift_weights, FORKLIFT_SHA, "FORKLIFT")
+    def __init__(self, config, args, *, infer_remotely=False):
+        person = forklift = None
+        if not infer_remotely:
+            if not torch.cuda.is_available():
+                raise RuntimeError("CUDA no disponible")
+            checked_file(args.person_weights, PERSON_SHA, "PERSON")
+            checked_file(args.forklift_weights, FORKLIFT_SHA, "FORKLIFT")
+            person = detector(args.person_weights, .10, .70)
+            forklift = detector(args.forklift_weights, .45, .55)
         self.perception = DualPerception(
-            person=ClassPerceptionChannel("person", detector(args.person_weights, .10, .70),
-                                          ByteTracker(ByteTrackConfig())),
-            forklift=ClassPerceptionChannel("forklift", detector(args.forklift_weights, .45, .55),
-                                            ByteTracker(ByteTrackConfig())),
+            person=ClassPerceptionChannel("person", person, ByteTracker(ByteTrackConfig())),
+            forklift=ClassPerceptionChannel("forklift", forklift, ByteTracker(ByteTrackConfig())),
         )
-        self.perception.process(np.zeros((args.height, args.width, 3), dtype=np.uint8),
-                                synchronize=torch.cuda.synchronize)
+        if not infer_remotely:
+            self.perception.process(np.zeros((args.height, args.width, 3), dtype=np.uint8),
+                                    synchronize=torch.cuda.synchronize)
         self.analyzer = SpatiotemporalAnalyzer(
             width=args.width, height=args.height, fps=args.fps, zones=config.zones,
             proximity_roles=config.proximity_roles, motion=config.motion, observe_occupants=config.observe_occupants,
@@ -192,9 +241,14 @@ class LabPipeline:
         for history in self.histories.values():
             history.reset()
 
-    def process(self, frame, timestamp):
-        observed, timing = self.perception.process(frame.image, synchronize=torch.cuda.synchronize)
-        inference_ms = (timing.person_inference_s + timing.forklift_inference_s) * 1000
+    def process(self, frame, timestamp, *, detected=None, inference_ms=None):
+        if detected is None:
+            observed, timing = self.perception.process(frame.image, synchronize=torch.cuda.synchronize)
+            inference_ms = (timing.person_inference_s + timing.forklift_inference_s) * 1000
+        else:
+            observed = PerceptionFrame(detected.person, detected.forklift,
+                                       self.perception.person.track(detected.person),
+                                       self.perception.forklift.track(detected.forklift))
         rules_started = monotonic()
         tracks, _, _ = _visible_tracks(observed.person_tracks + observed.forklift_tracks, *self.dimensions)
         spatial = self.analyzer.update(frame.index, tracks, timestamp_s=timestamp)
@@ -233,32 +287,59 @@ def evidence_png(image):
 
 
 @dataclass
+class EventImage:
+    image: np.ndarray | None
+
+    @cached_property
+    def encoded(self):
+        started = monotonic()
+        try:
+            png = evidence_png(self.image)
+        except (RuntimeError, cv2.error):
+            png = None
+        self.image = None
+        return png, (monotonic() - started) * 1000
+
+
+@dataclass
 class PendingEvent:
     payload: dict
-    png: bytes
+    image: EventImage
     frames: list
     last_index: int
     post_bytes: int = 0
 
 
 class EventPublisher:
-    def __init__(self, sink, clips, executor, metrics, fps):
+    def __init__(self, sink, clips, executor, metrics, fps, timings=None):
         self.sink, self.clips, self.executor, self.metrics = sink, clips, executor, metrics
         self.pending = set()
         self.waiting = []
         self.post_frames = math.floor(fps)
+        self.timings = timings
 
     def _publish(self, job):
-        result, _ = publish_document_with_retries(self.sink, job.payload, job.png, max_attempts=2)
+        was_encoded = "encoded" in vars(job.image)
+        png, png_ms = job.image.encoded
+        timings = {} if was_encoded else {"png": png_ms}
+        if png is None:
+            return {"events_failed": 1, "evidence_failed": 1}, timings
+        started = monotonic()
+        result, _ = publish_document_with_retries(self.sink, job.payload, png, max_attempts=2)
+        timings["publication"] = (monotonic() - started) * 1000
         counters = {f"events_{result.status}": 1}
         counters["evidence_saved" if result.status in {"published", "duplicate"} else "evidence_failed"] = 1
         if result.event_id:
+            arrival = datetime.fromisoformat(job.payload["source"]["capture"]["received_at"])
+            timings["arrival_to_publication"] = max(0., (utc_now() - arrival).total_seconds() * 1000)
+            started = monotonic()
             try:
                 clip_status = self.clips.save(result.event_id, job.payload, job.frames)
             except (OSError, RuntimeError, ValueError, cv2.error):
                 clip_status = "failed"
             counters[f"clips_{clip_status}"] = 1
-        return counters
+            timings["clip"] = (monotonic() - started) * 1000
+        return counters, timings
 
     def _dispatch(self, job):
         self.pending.add(self.executor.submit(self._publish, job))
@@ -286,11 +367,15 @@ class EventPublisher:
         for future in tuple(self.pending):
             if drain or future.done():
                 self.pending.remove(future)
-                self.metrics.update(future.result())
+                counts, timings = future.result()
+                self.metrics.update(counts)
+                if self.timings is not None:
+                    for name, elapsed in timings.items():
+                        self.timings[name].append(elapsed)
 
     def submit(self, candidates, context, received_at, processed_at, frame, epoch, ring, annotated):
         self.metrics["candidates"] += len(candidates)
-        png = None
+        image = None
         for candidate in candidates:
             if self.metrics["events_submitted"] >= MAX_EVENTS:
                 self.metrics["events_skipped_quota"] += 1
@@ -298,9 +383,9 @@ class EventPublisher:
                 self.metrics["events_skipped_backpressure"] += 1
             else:
                 payload = reception_payload(candidate, context, received_at, processed_at, frame.pts, epoch.uses_pts)
-                if png is None:
-                    png = evidence_png(annotated)
-                job = PendingEvent(payload, png, list(ring.snapshot()), frame.index + self.post_frames)
+                if image is None:
+                    image = EventImage(annotated.copy())
+                job = PendingEvent(payload, image, list(ring.snapshot()), frame.index + self.post_frames)
                 if self.post_frames and job.frames:
                     self.waiting.append(job)
                 else:
@@ -324,17 +409,23 @@ def run(args, status, stop_reason):
     clips = ClipStore(media_root.resolve(), args.fps)
     if reason := stop_reason():
         return reason
-    pipeline = LabPipeline(config, args)
+    inference_socket = os.environ.get("OPERIX_RTSP_INFERENCE_SOCKET")
+    inference = None
+    if inference_socket:
+        inference = InferenceClient(inference_socket, camera_id=context.source["camera_id"], run_id=status.run_id)
+        status.inference_mode = "shared"
+    pipeline = LabPipeline(config, args, infer_remotely=inference is not None)
     if reason := stop_reason():
         return reason
     epoch, ring = Epoch(args.fps), JpegRing(args.fps)
     last_frame = last_preview = -math.inf
     failures_at_frame = 0
+    inference_stalled_since = None
     capture = Capture(lambda: Reader(url, args.fps, pipeline.dimensions), fps=args.fps, trace=status.capture_trace)
     status.capture = capture
     status.write("connecting")
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="rtsp-event") as executor:
-        publisher = EventPublisher(sink, clips, executor, status.metrics, args.fps)
+        publisher = EventPublisher(sink, clips, executor, status.metrics, args.fps, status.timings)
         try:
             with capture:
                 while not (reason := stop_reason()):
@@ -352,9 +443,52 @@ def run(args, status, stop_reason):
                             publisher.flush()
                             status.write("reconnecting")
                         else:
-                            status.write("processing" if epoch.number else "connecting")
+                            status.write("overloaded" if inference_stalled_since is not None
+                                         else "processing" if epoch.number else "connecting")
                         continue
-                    received_at = utc_now() - timedelta(seconds=max(0, now - frame.received))
+                    selected_at = monotonic()
+                    received_at = utc_now() - timedelta(seconds=max(0, selected_at - frame.received))
+                    status.timings["queue_age"].append(max(0, selected_at - frame.received) * 1000)
+                    detected = None
+                    if inference is not None:
+                        try:
+                            detected = inference.infer(
+                                frame.image, epoch=epoch.number + int(epoch.discontinuity(frame) is not None),
+                                frame_index=frame.index, deadline=frame.received + capture.max_age,
+                            )
+                        except InferenceBusy:
+                            status.inference_drops["busy"] += 1
+                        except InferenceTimeout:
+                            status.inference_drops["deadline"] += 1
+                        except InferenceError:
+                            status.inference_drops["failed"] += 1
+                            raise
+                        if reason := stop_reason():
+                            if detected is not None:
+                                status.inference_drops["shutdown"] += 1
+                            break
+                        obsolete = not capture.is_current(frame)
+                        if detected is None or obsolete:
+                            if detected is not None:
+                                status.inference_drops["disconnect"] += 1
+                            if obsolete:
+                                inference_stalled_since = None
+                                status.write("reconnecting")
+                            else:
+                                if inference_stalled_since is None:
+                                    inference_stalled_since = selected_at
+                                if monotonic() - inference_stalled_since >= INFERENCE_STALL_SECONDS:
+                                    raise InferenceError("La inferencia dejó de producir resultados")
+                                status.write("overloaded")
+                            continue
+                        inference_stalled_since = None
+                        request_ms = (monotonic() - selected_at) * 1000
+                        status.timings["inference_request"].append(request_ms)
+                        status.timings["inference_queue"].append(detected.wait_ms)
+                        status.timings["person_batch"].append(detected.person_ms)
+                        status.timings["forklift_batch"].append(detected.forklift_ms)
+                        # Cuenta resultados por tamaño de lote en esta cámara, no lotes globales.
+                        status.inference_batch_sizes[detected.batch_size] += 1
                     epoch_reason, timestamp = epoch.advance(frame)
                     if epoch_reason:
                         publisher.flush()
@@ -362,19 +496,30 @@ def run(args, status, stop_reason):
                         ring.clear()
                         status.epoch = epoch.number
                         status.epochs[epoch_reason] += 1
-                    annotated, candidates, inference_ms, rules_ms = pipeline.process(frame, timestamp)
-                    status.timings["arrival_to_result"].append((monotonic() - frame.received) * 1000)
+                    if detected is None:
+                        annotated, candidates, inference_ms, rules_ms = pipeline.process(frame, timestamp)
+                    else:
+                        annotated, candidates, inference_ms, rules_ms = pipeline.process(
+                            frame, timestamp, detected=detected,
+                            inference_ms=detected.person_ms + detected.forklift_ms,
+                        )
+                    completed = monotonic()
+                    status.completed.append((completed, frame.received))
+                    status.timings["arrival_to_result"].append((completed - frame.received) * 1000)
                     status.timings["inference"].append(inference_ms)
                     status.timings["rules"].append(rules_ms)
                     processed_at = max(received_at, utc_now())
                     status.metrics["frames_processed"] += 1
                     status.last_frame_at = received_at.isoformat()
+                    status.last_frame_received = frame.received
                     last_frame = now
                     failures_at_frame = failures
                     preview_due = now - last_preview >= PREVIEW_INTERVAL or epoch_reason is not None
                     keep_context = status.metrics["events_submitted"] < MAX_EVENTS
                     if preview_due or keep_context or publisher.waiting:
+                        encoding = monotonic()
                         encoded, jpeg = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                        status.timings["jpeg"].append((monotonic() - encoding) * 1000)
                         if not encoded:
                             raise RuntimeError("La codificación JPEG falló")
                         data = jpeg.tobytes()
@@ -408,6 +553,8 @@ def main():
 
     status = WorkerStatus(args)
     interrupted = False
+    parent_closed = Event()
+    snapshot_committed = Event()
 
     def interrupt(*_):
         nonlocal interrupted
@@ -418,15 +565,38 @@ def main():
             return "OPERATOR_STOP"
         if interrupted:
             return "SIGNAL"
+        if parent_closed.is_set():
+            return "PARENT_EXIT"
         if monotonic() - status.started >= args.seconds:
             return "TIME_LIMIT"
         return None
 
     signal.signal(signal.SIGTERM, interrupt)
     signal.signal(signal.SIGINT, interrupt)
+    supervised = os.environ.get("OPERIX_WORKER_PARENT_PIPE") == "1"
+    if supervised:
+        def watch_parent():
+            try:
+                descriptor = sys.stdin.fileno()
+                if os.read(descriptor, 1) == b"\x01":
+                    snapshot_committed.set()
+                    os.read(descriptor, 1)
+            finally:
+                parent_closed.set()
+
+        Thread(target=watch_parent, name="rtsp-parent", daemon=True).start()
     os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|probesize;65536|analyzeduration;250000"
     try:
         status.write("starting")
+        if supervised:
+            ready_deadline = monotonic() + 10
+            while not snapshot_committed.wait(.05):
+                if reason := stop_reason():
+                    status.write("stopped", reason)
+                    return 0
+                if monotonic() >= ready_deadline:
+                    status.write("error", "SNAPSHOT_NOT_COMMITTED")
+                    return 1
         # El stderr nativo de FFmpeg puede incluir la URI con credenciales.
         with open(os.devnull, "w") as sink, redirect_stderr(sink):
             previous = os.dup(2)
@@ -438,8 +608,9 @@ def main():
                 os.close(previous)
         status.write("completed" if reason == "TIME_LIMIT" else "stopped", reason)
         return 0
-    except Exception:
-        status.write("error", "WORKER_FAILURE")
+    except Exception as error:
+        reason = "INFERENCE_UNAVAILABLE" if isinstance(error, InferenceError) else "WORKER_FAILURE"
+        status.write("error", reason)
         print("El Motor RTSP lab no pudo continuar.", file=sys.stderr)
         return 1
 

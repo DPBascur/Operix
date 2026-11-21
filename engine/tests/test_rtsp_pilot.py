@@ -31,6 +31,40 @@ class EpochTests(unittest.TestCase):
 
 
 class CaptureTests(unittest.TestCase):
+    def test_a_failed_connection_invalidates_an_inflight_frame_before_reopening(self):
+        fail = threading.Event()
+        closing = threading.Event()
+        release = threading.Event()
+
+        class Reader:
+            delivered = False
+
+            def read(self):
+                if not self.delivered:
+                    self.delivered = True
+                    return object(), 0.
+                fail.wait(2)
+                raise OSError
+
+            def close(self):
+                closing.set()
+                release.wait(2)
+
+        capture = Capture(Reader, fps=12)
+        with capture:
+            try:
+                frame = capture.next(timeout=2)
+                self.assertIsNotNone(frame)
+                self.assertTrue(capture.is_current(frame))
+                fail.set()
+                self.assertTrue(closing.wait(2))
+                self.assertEqual(capture.connection, frame.connection)
+                self.assertFalse(capture.is_current(frame))
+            finally:
+                capture.stop.set()
+                fail.set()
+                release.set()
+
     def test_saturation_is_counted_and_shutdown_closes_reader(self):
         filled = threading.Event()
         closed = threading.Event()

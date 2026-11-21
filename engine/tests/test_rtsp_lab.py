@@ -1,12 +1,13 @@
 import hashlib
 from io import BytesIO
 import json
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+import os
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
-from threading import Condition
+from threading import Condition, Event
 from types import SimpleNamespace
 from unittest import TestCase, mock
 from uuid import uuid4
@@ -56,12 +57,42 @@ class WorkerTests(TestCase):
             self.assertEqual(status["metrics"]["frames_processed"], 0)
             self.assertFalse((folder / "status.json.tmp").exists())
 
+    def test_worker_does_not_open_source_before_snapshot_commit_signal(self):
+        startup = Event()
+        original_write = lab.WorkerStatus.write
+
+        def observe_start(status, *args):
+            original_write(status, *args)
+            startup.set()
+
+        read_fd, write_fd = os.pipe()
+        with TemporaryDirectory() as directory, os.fdopen(read_fd, "rb", buffering=0) as parent:
+            try:
+                arguments = ["run_rtsp_lab.py", "--output", directory, "--config", "unused.json",
+                             "--person-weights", "unused.pt", "--forklift-weights", "unused.pt"]
+                with (mock.patch.object(sys, "argv", arguments), mock.patch.object(sys, "stdin", parent),
+                      mock.patch.object(lab.signal, "signal"), mock.patch.object(lab.os, "dup2"),
+                      mock.patch.dict(lab.os.environ, {"OPERIX_WORKER_PARENT_PIPE": "1"}),
+                      mock.patch.object(lab.WorkerStatus, "write", observe_start),
+                      mock.patch.object(lab, "run", return_value="OPERATOR_STOP") as run,
+                      ThreadPoolExecutor(max_workers=1) as executor):
+                    result = executor.submit(lab.main)
+                    self.assertTrue(startup.wait(2))
+                    run.assert_not_called()
+                    os.write(write_fd, b"\x01")
+                    self.assertEqual(result.result(timeout=2), 0)
+                    run.assert_called_once()
+            finally:
+                os.close(write_fd)
+
     def test_capture_reconnects_resets_pipeline_and_writes_preview_and_metrics(self):
         class FakeCapture:
             def __init__(self, _reader, *, fps, trace):
                 self.trace = trace
                 self.ready = Condition()
                 self.counts = lab.Counter()
+                self.queue = []
+                self.depth = 0
                 self.thread = SimpleNamespace(is_alive=lambda: True)
                 self.step = 0
 
@@ -94,7 +125,8 @@ class WorkerTests(TestCase):
                   mock.patch.object(lab, "load_context", return_value=(context, None)), mock.patch.object(status, "write", states),
                   mock.patch.dict(lab.os.environ, {"OPERIX_RTSP_URL": "rtsp://127.0.0.1/camera",
                       "OPERIX_RTSP_ALLOWED_IP": "127.0.0.1", "OPERIX_EVENT_PUBLISH_TOKEN": "test",
-                      "OPERIX_EVENT_API_BASE_URL": "http://127.0.0.1:8000/api/v1"})):
+                      "OPERIX_EVENT_API_BASE_URL": "http://127.0.0.1:8000/api/v1",
+                      "OPERIX_RTSP_INFERENCE_SOCKET": ""})):
                 reason = lab.run(args, status, lambda: "OPERATOR_STOP" if status.metrics["frames_processed"] == 2 else None)
             self.assertEqual(reason, "OPERATOR_STOP")
             self.assertEqual(states.call_args_list, [mock.call(name) for name in (
@@ -110,6 +142,43 @@ class WorkerTests(TestCase):
             self.assertEqual(data["metrics"]["p95_rules_ms"], 2)
             self.assertGreaterEqual(data["metrics"]["p95_arrival_to_result_ms"], 0)
             self.assertTrue((args.output / "preview.jpg").read_bytes().startswith(b"\xff\xd8"))
+
+    def test_shared_timeout_creates_an_observation_gap_before_tracking(self):
+        image = np.zeros((16, 32, 3), dtype=np.uint8)
+        capture = mock.MagicMock()
+        capture.ready = Condition()
+        capture.counts = lab.Counter()
+        capture.connection = 1
+        capture.max_age = .5
+        capture.queue = []
+        capture.depth = 0
+        capture.next.side_effect = lambda: next(frames)
+        entered = lab.monotonic()
+        frames = iter(Frame(index, 1, entered + index / 12, index / 12, image) for index in range(3))
+        detected = SimpleNamespace(wait_ms=2, person_ms=5, forklift_ms=3, batch_size=2)
+        client = mock.Mock()
+        client.infer.side_effect = [detected, lab.InferenceTimeout("expired"), detected]
+        pipeline = mock.Mock()
+        pipeline.process.return_value = (image, (), 8., 2.)
+        context = SimpleNamespace(analysis_run_id=uuid4(), source={"camera_id": "lab-cam-01"})
+        with TemporaryDirectory() as directory:
+            args = SimpleNamespace(output=Path(directory), fps=12, width=32, height=16, seconds=10, config=None)
+            status = lab.WorkerStatus(args)
+            with (mock.patch.object(lab, "Capture", return_value=capture),
+                  mock.patch.object(lab, "LabPipeline", return_value=pipeline),
+                  mock.patch.object(lab, "InferenceClient", return_value=client),
+                  mock.patch.object(lab, "load_context", return_value=(context, None)),
+                  mock.patch.dict(lab.os.environ, {"OPERIX_RTSP_URL": "rtsp://127.0.0.1/camera",
+                      "OPERIX_RTSP_ALLOWED_IP": "127.0.0.1", "OPERIX_EVENT_PUBLISH_TOKEN": "test",
+                      "OPERIX_EVENT_API_BASE_URL": "http://127.0.0.1:8000/api/v1",
+                      "OPERIX_RTSP_INFERENCE_SOCKET": "/private/lab.sock"})):
+                lab.run(args, status, lambda: "OPERATOR_STOP" if status.metrics["frames_processed"] == 2 else None)
+            self.assertEqual(status.inference_drops, {"deadline": 1})
+            self.assertEqual(status.inference_batch_sizes, {2: 2})
+            self.assertEqual(status.epochs, {"initial": 1, "queue_gap": 1})
+            self.assertEqual(pipeline.reset.call_args_list, [mock.call(1), mock.call(2)])
+            self.assertEqual([(call.args[0].index, call.args[1]) for call in pipeline.process.call_args_list],
+                             [(0, 0.), (2, 0.)])
 
 
 class EventTests(TestCase):
@@ -191,6 +260,37 @@ class EventTests(TestCase):
         event_id, _, frames = clips.save.call_args.args
         self.assertEqual((event_id, frames), (self.event_id, [(8, b"trigger")]))
 
+    def test_png_is_deferred_shared_and_uses_the_trigger_snapshot(self):
+        sink = mock.Mock()
+        sink.publish_document.return_value = PublishResult("published")
+        publisher = lab.EventPublisher(sink, mock.Mock(), ImmediateExecutor(), lab.Counter(), fps=2)
+        ring = JpegRing(2)
+        ring.append(8, b"trigger")
+        with mock.patch.object(lab, "evidence_png", wraps=lab.evidence_png) as encode:
+            publisher.submit((self.candidate,) * 2, self.context, self.received, self.processed,
+                             self.frame, self.epoch, ring, self.image)
+            encode.assert_not_called()
+            self.image[:] = 0
+            publisher.flush()
+            publisher.collect()
+            encode.assert_called_once()
+        images = [call.args[1] for call in sink.publish_document.call_args_list]
+        self.assertEqual(len(images), 2)
+        self.assertIs(images[0], images[1])
+        self.assertTrue(np.all(cv2.imdecode(np.frombuffer(images[0], dtype=np.uint8), cv2.IMREAD_COLOR) == 170))
+
+    def test_png_failure_counts_failed_jobs_without_publishing_or_stopping_the_loop(self):
+        sink = mock.Mock()
+        metrics = lab.Counter()
+        publisher = lab.EventPublisher(sink, mock.Mock(), ImmediateExecutor(), metrics, fps=2)
+        with mock.patch.object(lab, "evidence_png", side_effect=RuntimeError("encode failure")):
+            publisher.submit((self.candidate,), self.context, self.received, self.processed,
+                             self.frame, self.epoch, JpegRing(2), self.image)
+            publisher.collect()
+        sink.publish_document.assert_not_called()
+        self.assertEqual((metrics["events_failed"], metrics["evidence_failed"]), (1, 1))
+        self.assertFalse(publisher.pending)
+
     def test_clip_matches_authorized_path_and_event_metadata(self):
         payload = lab.reception_payload(self.candidate, self.context, self.received, self.processed, None, False)
         frames = [(7, b"before"), (8, b"at"), (9, b"after")]
@@ -217,3 +317,11 @@ class EventTests(TestCase):
         self.assertEqual([index for index, _ in ring.snapshot()], [2, 3])
         ring.append(6, b"123")
         self.assertEqual(ring.snapshot(), ((6, b"123"),))
+
+    def test_clip_never_fills_a_missing_trigger_or_break_in_observations(self):
+        payload = lab.reception_payload(self.candidate, self.context, self.received, self.processed, None, False)
+        with TemporaryDirectory() as directory:
+            store = ClipStore(Path(directory), 12)
+            self.assertEqual(store.save(self.event_id, payload, [(7, b"before"), (9, b"after")]), "unavailable")
+            self.assertEqual(store.save(self.event_id, payload, [(8, b"trigger"), (10, b"after")]), "unavailable")
+            self.assertFalse(store.root.exists())
