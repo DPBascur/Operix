@@ -2,28 +2,27 @@
 
 import Link from "next/link";
 import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
-import { useEffect, useState } from "react";
-import { environment } from "@/config/environment";
-import { apiFetch } from "@/services/browser-session";
-import {
-  isOperationalEvent,
-  type OperationalEvent,
-} from "@/services/event-contract";
+import { useIsPresent } from "motion/react";
+import { useState } from "react";
 import type { EventListItem } from "@/types/operix";
-import { evidenceClip } from "./event-detail-model";
+import { mergeEvidence, type EventEvidence } from "./event-detail-model";
+import { EvidenceFeedback } from "./evidence-feedback";
+import { useEventEvidence } from "./use-event-evidence";
 
 export function EventThumbnail({
   url,
   title,
   expanded = false,
+  pending = false,
 }: {
   url?: string | null;
   title: string;
   expanded?: boolean;
+  pending?: boolean;
 }) {
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   return (
-    <figure
+    <div
       className={`event-thumbnail ${expanded ? "is-expanded" : ""}`}
       data-state={state}
       aria-busy={Boolean(url && state === "loading")}
@@ -33,7 +32,7 @@ export function EventThumbnail({
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={url}
-          loading="lazy"
+          loading={expanded ? "eager" : "lazy"}
           decoding="async"
           alt={`Fotograma: ${title}`}
           onLoad={() => setState("ready")}
@@ -41,54 +40,70 @@ export function EventThumbnail({
         />
       )}
       {!url || state === "error" ? (
-        <span>{url ? "PNG no disponible" : "Sin PNG"}</span>
+        <span>
+          {url
+            ? "PNG no disponible"
+            : pending
+              ? "Fotograma pendiente"
+              : "Sin PNG"}
+        </span>
       ) : (
         state === "loading" && (
           <OperixScanLoader size="small" className="event-thumbnail-scan" />
         )
       )}
-    </figure>
+    </div>
   );
 }
 
 export function EventPreview({
   row,
   detailUrl,
+  panelId,
+  onEvidence,
 }: {
   row: EventListItem;
   detailUrl: string;
+  panelId: string;
+  onEvidence: (id: string, evidence: EventEvidence) => void;
 }) {
-  const [detail, setDetail] = useState<OperationalEvent | null>(null);
-  const [error, setError] = useState(false);
-  const [clipError, setClipError] = useState(false);
-  useEffect(() => {
-    const controller = new AbortController();
-    const url = `${environment.apiBaseUrl?.replace(/\/$/, "")}/events/${encodeURIComponent(row.id)}/`;
-    async function load() {
-      if (!environment.apiBaseUrl) throw new Error();
-      const response = await apiFetch(url, {
-        cache: "no-store",
-        signal: controller.signal,
-      });
-      if (!response.ok) throw new Error();
-      const data: unknown = await response.json();
-      if (!isOperationalEvent(data) || data.id !== row.id) throw new Error();
-      if (!controller.signal.aborted) setDetail(data);
-    }
-    void load().catch(() => {
-      if (!controller.signal.aborted) setError(true);
-    });
-    return () => controller.abort();
-  }, [row.id]);
-  const clip = detail && evidenceClip(detail, environment.apiBaseUrl);
+  const present = useIsPresent();
+  const result = useEventEvidence(row.id, { active: present, onEvidence });
+  const evidence = result?.evidence
+    ? mergeEvidence(result.evidence, row.evidence)
+    : row.evidence;
+  const clip = evidence?.clip;
+  const [clipError, setClipError] = useState<string | null>(null);
   return (
     <section
       className="event-preview surface-card"
       aria-label={`Evidencia de ${row.title}`}
+      id={panelId}
+      inert={!present}
     >
-      <EventThumbnail url={row.evidenceUrl} title={row.title} expanded />
+      <EventThumbnail
+        key={evidence?.png}
+        url={evidence?.png}
+        title={row.title}
+        expanded
+        pending={evidence?.status === "pending"}
+      />
       <div className="event-preview-context">
         <h3>{row.title}</h3>
+        {evidence &&
+          (result?.evidence ||
+            evidence.status ||
+            evidence.png ||
+            evidence.clip) && (
+            <EvidenceFeedback
+              evidence={evidence}
+              checking={result?.checking}
+              refreshFailed={result?.refreshFailed}
+            />
+          )}
+        {result?.error && (
+          <p role="status">No se pudo consultar la evidencia del evento.</p>
+        )}
         <dl>
           <dt>Hora</dt>
           <dd>{row.time}</dd>
@@ -116,18 +131,20 @@ export function EventPreview({
             preload="none"
             src={clip.url}
             aria-label="Clip anotado del evento"
-            onError={() => setClipError(true)}
+            onError={() => setClipError(clip.url)}
           />
-        ) : error || detail ? (
-          <p role="status">
-            {error
-              ? "No se pudo consultar el clip."
-              : "Este evento no tiene clip."}
+        ) : result?.error ? null : result ? (
+          <p>
+            {evidence?.status === "pending"
+              ? "Clip pendiente."
+              : "Clip no disponible."}
           </p>
         ) : (
           <OperixScanLoader variant="panel" message="Consultando evidencia…" />
         )}
-        {clipError && <p role="status">No se pudo reproducir el clip.</p>}
+        {clip && clipError === clip.url && (
+          <p role="status">No se pudo reproducir el clip.</p>
+        )}
       </div>
     </section>
   );

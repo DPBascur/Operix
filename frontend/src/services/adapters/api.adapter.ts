@@ -1,7 +1,7 @@
 import { apiFetch } from "@/services/browser-session";
 import { environment } from "@/config/environment";
 import { sourceKind, sourceNames } from "@/features/dashboard/history-model";
-import { evidenceHref } from "@/features/events/event-detail-model";
+import { eventEvidence } from "@/features/events/event-detail-model";
 import type {
   AnalysisOverview,
   DashboardSummary,
@@ -62,7 +62,7 @@ export class ApiAdapter implements FrontendDataAdapter {
       }),
       status: "Registrado",
       tone: "accent" as const,
-      evidenceUrl: evidenceHref(event, environment.apiBaseUrl),
+      evidence: eventEvidence(event, environment.apiBaseUrl),
     }));
   }
 

@@ -729,6 +729,7 @@ export function CameraLabDetail({ id }: { id: string }) {
   const canStop = camera && monitoring.has(camera.status);
   const stopping = canStop && camera.run_id === stoppingRun;
   const frameTime = cameraFrameTime(camera?.last_frame_at);
+  const eventTime = cameraFrameTime(event?.occurred_at);
   const provenance = [
     camera?.provenance?.title,
     camera?.provenance?.author,
@@ -874,13 +875,11 @@ export function CameraLabDetail({ id }: { id: string }) {
                   >
                     {eventTypeName(event.event_type)}
                   </Link>
-                  {Number.isFinite(Date.parse(event.occurred_at)) && (
+                  {eventTime && (
                     <>
                       {" "}
                       ·{" "}
-                      <time dateTime={event.occurred_at}>
-                        {new Date(event.occurred_at).toLocaleString("es-CL")}
-                      </time>
+                      <time dateTime={event.occurred_at}>{eventTime}</time>
                     </>
                   )}
                 </p>

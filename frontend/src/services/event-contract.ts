@@ -5,6 +5,9 @@ export type OperationalEventType =
   | "zone_coexistence";
 
 type Subject = { class_name: string; track_id: number };
+export type EvidenceStatus =
+  "pending" | "partial" | "ready" | "failed" | "absent";
+
 export type OperationalEvent = {
   id: string;
   occurred_at: string;

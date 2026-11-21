@@ -2,9 +2,21 @@
 
 import { Activity } from "lucide-react";
 import Link from "next/link";
-import { Fragment, useEffect, useState, useSyncExternalStore } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useId,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { EventPreview, EventThumbnail } from "./event-preview";
+import {
+  evidenceSummary,
+  mergeEvidence,
+  type EventEvidence,
+} from "./event-detail-model";
 import type { FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -71,6 +83,16 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const animation = reduced ? { duration: 0 } : controlTransition;
   const [events, setEvents] = useState<EventListItem[]>([]);
+  const previewId = useId();
+  const updateEvidence = useCallback((id: string, evidence: EventEvidence) => {
+    setEvents((rows) =>
+      rows.map((row) =>
+        row.id === id
+          ? { ...row, evidence: mergeEvidence(evidence, row.evidence) }
+          : row,
+      ),
+    );
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
@@ -107,16 +129,27 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
   function evidenceButton(row: EventListItem) {
     return (
       <div className="event-preview-trigger">
-        <EventThumbnail
-          key={row.evidenceUrl}
-          url={row.evidenceUrl}
-          title={row.title}
-        />
+        {row.evidence?.png && (
+          <EventThumbnail
+            key={row.evidence.png}
+            url={row.evidence.png}
+            title={row.title}
+          />
+        )}
+        {row.evidence &&
+          (row.evidence.status || row.evidence.png || row.evidence.clip) && (
+            <span>{evidenceSummary(row.evidence)}</span>
+          )}
         {row.detailUrl && (
           <Button
             variant="outline"
             size="small"
             aria-expanded={expanded === row.id}
+            aria-controls={
+              expanded === row.id
+                ? `${previewId}-${desktop}-${row.id}`
+                : undefined
+            }
             onClick={() =>
               setExpanded((current) => (current === row.id ? null : row.id))
             }
@@ -308,7 +341,7 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
           message="Cargando eventos…"
         />
       )}
-      {error && (
+      {!loading && error && (
         <div role="alert" className="mb-4 text-sm text-danger">
           <p>{error}</p>
           <Button
@@ -395,6 +428,8 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
                       <EventPreview
                         row={event}
                         detailUrl={dossier(event.detailUrl)}
+                        panelId={`${previewId}-false-${event.id}`}
+                        onEvidence={updateEvidence}
                       />
                     </motion.div>
                   )}
@@ -494,6 +529,8 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
                               <EventPreview
                                 row={row}
                                 detailUrl={dossier(detailUrl)}
+                                panelId={`${previewId}-true-${id}`}
+                                onEvidence={updateEvidence}
                               />
                             </td>
                           </motion.tr>

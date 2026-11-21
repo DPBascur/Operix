@@ -117,3 +117,27 @@ test("la recepción del fotograma convierte UTC a hora de Chile", () => {
   assert.equal(cameraFrameTime("invalid"), null);
   assert.equal(cameraFrameTime(null), null);
 });
+
+test("el registro por etapas distingue p95 de evento, PNG y clip", () => {
+  const groups = cameraTechnicalMetrics({
+    registration_attempts: 6,
+    p95_arrival_to_registration_ms: 81,
+    p95_arrival_to_publication_ms: 81,
+    p95_arrival_to_png_ms: 1012,
+    p95_arrival_to_clip_ms: 1518,
+    evidence_failed: 0,
+    events_skipped_backpressure: 2,
+  });
+  assert.deepEqual(groups, [
+    {
+      title: "Registro y evidencia",
+      rows: [
+        ["Recepción local a registro p95", "81 ms"],
+        ["Recepción local a PNG p95", "1.012 ms"],
+        ["Recepción local a clip p95", "1.518 ms"],
+        ["Eventos omitidos por saturación", "2"],
+        ["PNG fallidos", "0"],
+      ],
+    },
+  ]);
+});

@@ -55,6 +55,7 @@ export function cameraTechnicalMetrics(metrics: Metrics) {
   const inferenceDrops = metricRecord(metrics?.inference_drops);
   const batchSizes = metricRecord(metrics?.inference_batch_sizes);
   const mode = metrics?.inference_mode;
+  const staged = metrics?.registration_attempts !== undefined;
 
   const groups: { title: string; rows: [string, string | null][] }[] = [
     {
@@ -89,11 +90,48 @@ export function cameraTechnicalMetrics(metrics: Metrics) {
         ],
         ["Generación JPEG", cameraNumber(metrics?.p95_jpeg_ms, " ms")],
         ["Generación PNG", cameraNumber(metrics?.p95_png_ms, " ms")],
-        ["Publicación", cameraNumber(metrics?.p95_publication_ms, " ms")],
+        [
+          "Publicación",
+          staged ? null : cameraNumber(metrics?.p95_publication_ms, " ms"),
+        ],
         ["Generación de clip", cameraNumber(metrics?.p95_clip_ms, " ms")],
         [
           "Recepción a publicación",
-          cameraNumber(metrics?.p95_arrival_to_publication_ms, " ms"),
+          staged
+            ? null
+            : cameraNumber(metrics?.p95_arrival_to_publication_ms, " ms"),
+        ],
+      ],
+    },
+    {
+      title: "Registro y evidencia",
+      rows: [
+        [
+          "Recepción local a registro p95",
+          cameraNumber(metrics?.p95_arrival_to_registration_ms, " ms"),
+        ],
+        [
+          "Recepción local a PNG p95",
+          cameraNumber(metrics?.p95_arrival_to_png_ms, " ms"),
+        ],
+        [
+          "Recepción local a clip p95",
+          cameraNumber(metrics?.p95_arrival_to_clip_ms, " ms"),
+        ],
+        [
+          "Eventos omitidos por saturación",
+          cameraNumber(metrics?.events_skipped_backpressure),
+        ],
+        [
+          "Eventos omitidos por límite de sesión",
+          cameraNumber(metrics?.events_skipped_quota),
+        ],
+        ["Registros fallidos", cameraNumber(metrics?.events_failed)],
+        ["PNG fallidos", cameraNumber(metrics?.evidence_failed)],
+        ["Clips fallidos", cameraNumber(metrics?.clips_failed)],
+        [
+          "Clips sin espacio disponible",
+          cameraNumber(metrics?.clips_disk_limit),
         ],
       ],
     },

@@ -7,6 +7,9 @@ import {
   eventTime,
   evidenceHref,
   evidenceClip,
+  eventEvidence,
+  evidenceSummary,
+  mergeEvidence,
   measurement,
   operationalSubjects,
   record,
@@ -19,6 +22,56 @@ const single = {
   observed_dwell_time_s: "2.000000000",
   rule_parameters: { min_duration_s: 2 },
 };
+test("el tiempo relativo RTSP pertenece a un tramo de observación continuo", () => {
+  const reception = eventTime({
+    ...single,
+    source: { timestamp_basis: "LAB_RECEPTION_UTC" },
+  });
+  assert.equal(reception.offsetLabel, "Tiempo en el tramo continuo");
+  assert.equal(eventTime(single).offsetLabel, "Tiempo del video");
+});
+test("el estado de la evidencia es opcional y no sustituye los medios disponibles", () => {
+  const png = "/api/v1/events/fixture/evidence/";
+  const snapshot = (event) => eventEvidence({ ...single, ...event }, "/api/v1");
+  assert.deepEqual(snapshot({}), { status: null, png: null, clip: null });
+  assert.equal(evidenceSummary(snapshot({})), "Sin evidencia adjunta");
+  assert.equal(
+    evidenceSummary(snapshot({ evidence_url: png })),
+    "Evidencia disponible",
+  );
+  assert.equal(
+    snapshot({ evidence_status: "unknown", evidence_url: png }).status,
+    null,
+  );
+  assert.equal(
+    snapshot({ evidence_status: "pending", evidence_url: png }).png,
+    png,
+  );
+  assert.equal(
+    evidenceSummary(snapshot({ evidence_status: "pending" }), true),
+    "Evidencia pendiente · consultando estado…",
+  );
+  assert.equal(
+    evidenceSummary(
+      snapshot({ evidence_status: "partial", evidence_url: png }),
+    ),
+    "Evidencia parcial",
+  );
+  const failed = mergeEvidence(
+    snapshot({ evidence_status: "failed", evidence_url: "/otro" }),
+    snapshot({ evidence_url: png }),
+  );
+  assert.equal(failed.png, png);
+  assert.equal(evidenceSummary(failed), "Falló la preparación de evidencia");
+  assert.equal(
+    evidenceSummary(snapshot({ evidence_status: "ready" })),
+    "Sin evidencia adjunta",
+  );
+  assert.equal(
+    evidenceSummary(snapshot({ evidence_status: "absent" })),
+    "Sin evidencia adjunta",
+  );
+});
 test("clip solo usa la URL del evento y run exactos", () => {
   const event = {
     ...single,

@@ -1,4 +1,7 @@
-import type { OperationalEvent } from "../../services/event-contract.ts";
+import type {
+  EvidenceStatus,
+  OperationalEvent,
+} from "../../services/event-contract.ts";
 
 export function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -132,6 +135,7 @@ export function eventTime(event: OperationalEvent) {
   const reception = basis === "LAB_RECEPTION_UTC";
   return {
     iso: event.occurred_at,
+    offsetLabel: reception ? "Tiempo en el tramo continuo" : "Tiempo del video",
     formatted: new Intl.DateTimeFormat("es-CL", {
       dateStyle: "medium",
       timeStyle: "medium",
@@ -190,6 +194,59 @@ function evidencePath(path: string, apiBaseUrl: string | undefined) {
     return new URL(path, base).href;
   } catch {
     return null;
+  }
+}
+
+export type EventEvidence = {
+  status: EvidenceStatus | null;
+  png: string | null;
+  clip: ReturnType<typeof evidenceClip>;
+};
+
+export function eventEvidence(
+  event: OperationalEvent,
+  apiBaseUrl: string | undefined,
+): EventEvidence {
+  const status = event.evidence_status;
+  return {
+    status:
+      status === "pending" ||
+      status === "partial" ||
+      status === "ready" ||
+      status === "failed" ||
+      status === "absent"
+        ? status
+        : null,
+    png: evidenceHref(event, apiBaseUrl),
+    clip: evidenceClip(event, apiBaseUrl),
+  };
+}
+
+export function mergeEvidence(
+  latest: EventEvidence,
+  previous?: EventEvidence,
+): EventEvidence {
+  return {
+    ...latest,
+    png: latest.png ?? previous?.png ?? null,
+    clip: latest.clip ?? previous?.clip ?? null,
+  };
+}
+
+export function evidenceSummary(evidence: EventEvidence, checking = false) {
+  switch (evidence.status) {
+    case "pending":
+      return checking
+        ? "Evidencia pendiente · consultando estado…"
+        : "Evidencia pendiente";
+    case "partial":
+      return "Evidencia parcial";
+    case "failed":
+      return "Falló la preparación de evidencia";
+    default:
+      return evidence.png || evidence.clip
+        ? "Evidencia disponible"
+        : "Sin evidencia adjunta";
   }
 }
 

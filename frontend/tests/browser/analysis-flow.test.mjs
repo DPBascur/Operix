@@ -695,6 +695,80 @@ test(
         ),
         true,
       );
+      const dossier = `/events/${eventId}`;
+      await control({
+        evidenceSteps: [
+          { status: "pending" },
+          { status: "partial", png: true },
+        ],
+      });
+      await go("/events");
+      await wait(text("Evidencia pendiente"));
+      assert.equal(
+        (await control()).eventDetailReads,
+        0,
+        "La tabla no consulta cada fila",
+      );
+      await click("Ver evidencia");
+      await wait(text("consultando estado…"));
+      await wait(text("Evidencia parcial"));
+      await wait(
+        "document.querySelector('.event-preview img')?.naturalWidth > 0",
+      );
+      assert.equal(
+        await evaluate(
+          "!!document.getElementById(document.querySelector('.event-preview-trigger [aria-expanded=true]').getAttribute('aria-controls'))",
+        ),
+        true,
+      );
+      assert.equal((await control()).eventDetailReads, 2);
+
+      await control({ evidenceSteps: [{ status: "pending" }] });
+      await go(dossier);
+      await wait(text("consultando estado…"));
+      await wait(`!(${text("consultando estado…")})`);
+      await wait(text("Evidencia pendiente"));
+      await pause(2200);
+      assert.equal(
+        (await control()).eventDetailReads,
+        2,
+        "Un evento que sigue pendiente no inicia otro poll",
+      );
+
+      await control({
+        evidenceSteps: [{ status: "pending", png: true }, { status: "failed" }],
+      });
+      await go(dossier);
+      await wait(text("Falló la preparación de evidencia"));
+      await wait("document.querySelector('figure img')?.naturalWidth > 0");
+      assert.equal((await control()).eventDetailReads, 2);
+
+      await control({
+        evidenceSteps: [
+          { status: "pending", png: true },
+          { unavailable: true },
+        ],
+      });
+      await go(dossier);
+      await wait(text("No se pudo actualizar el estado"));
+      await wait("document.querySelector('figure img')?.naturalWidth > 0");
+
+      await control({ evidenceSteps: [{ status: "ready", clip: true }] });
+      await go(dossier);
+      await wait(
+        "document.querySelector('[role=tab][aria-selected=true]')?.innerText === 'Clip'",
+      );
+      await wait("document.querySelector('figure video')?.readyState >= 1");
+      await control({ evidenceSteps: [{}] });
+      await go(dossier);
+      await wait(text("Sin evidencia adjunta"));
+      await pause(2200);
+      assert.equal(
+        (await control()).eventDetailReads,
+        1,
+        "La ausencia histórica no inicia un poll",
+      );
+      await control({ evidenceSteps: [] });
       await go("/indicators");
       await wait(text("Eventos por procedencia"));
       await wait(text("Eventos por día"));
@@ -802,6 +876,10 @@ test(
           );
         }
       }
+      await go("/dashboard");
+      await wait("location.pathname === '/'");
+      await go("/sources/cameras/lab-cam-01");
+      await wait("!!document.querySelector('main#main-content')");
       await checkButtonThemes(evaluate, call);
       const screenshot = await call("Page.captureScreenshot", {
         format: "png",

@@ -60,7 +60,7 @@ export interface EventListItem {
   time: string;
   status: string;
   tone: "accent" | "cyan" | "neutral";
-  evidenceUrl?: string | null;
+  evidence?: import("@/features/events/event-detail-model").EventEvidence;
   source?: string;
   sourceKindLabel?: string;
   detailUrl?: string;

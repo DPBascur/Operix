@@ -66,6 +66,8 @@ export async function startFixtureApi(port = 8000) {
   let assignedPolicy = false;
   let configurationReads = 0;
   let requestedSourceSha = null;
+  let evidenceSteps = [];
+  let eventDetailReads = 0;
   const csrf = "TEST_ONLY_CSRF";
   const run = "00000000-0000-4000-8000-000000000055";
   const event = {
@@ -111,6 +113,15 @@ export async function startFixtureApi(port = 8000) {
     },
     evidence_url: `/api/v1/events/${eventId}/evidence/`,
   };
+  function stagedEvent(step) {
+    if (!step) return event;
+    return {
+      ...event,
+      evidence_status: step.status,
+      evidence_url: step.png ? event.evidence_url : null,
+      evidence_clip: step.clip ? event.evidence_clip : null,
+    };
+  }
   const server = createServer(async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -167,6 +178,12 @@ export async function startFixtureApi(port = 8000) {
           assignedPolicy = false;
           configurationReads = 0;
           requestedSourceSha = null;
+          evidenceSteps = [];
+          eventDetailReads = 0;
+        }
+        if (Array.isArray(body.evidenceSteps)) {
+          evidenceSteps = body.evidenceSteps;
+          eventDetailReads = 0;
         }
         if (typeof body.demoCMissing === "boolean")
           demoCMissing = body.demoCMissing;
@@ -186,6 +203,7 @@ export async function startFixtureApi(port = 8000) {
           waitingStatus,
           configurationReads,
           requestedSourceSha,
+          eventDetailReads,
           waitingZones: pendingZones.length,
           ids: [...sessions.keys()],
         });
@@ -560,8 +578,11 @@ export async function startFixtureApi(port = 8000) {
           (!params.has("occurred_before") ||
             Date.parse(event.occurred_at) <=
               Date.parse(params.get("occurred_before")));
-        if (url.pathname === "/api/v1/events/")
-          return send(matches ? [event] : []);
+        if (url.pathname === "/api/v1/events/") {
+          const row = { ...stagedEvent(evidenceSteps[0]) };
+          delete row.evidence_clip;
+          return send(matches ? [row] : []);
+        }
         return send({
           total: matches ? 1 : 0,
           timezone: "UTC",
@@ -577,7 +598,13 @@ export async function startFixtureApi(port = 8000) {
         res.writeHead(200, { "Content-Type": "image/png" });
         return res.end(png);
       }
-      if (url.pathname === `/api/v1/events/${eventId}/`) return send(event);
+      if (url.pathname === `/api/v1/events/${eventId}/`) {
+        const step =
+          evidenceSteps[Math.min(eventDetailReads++, evidenceSteps.length - 1)];
+        if (step?.unavailable)
+          return send({ detail: "Fixture no disponible" }, 503);
+        return send(stagedEvent(step));
+      }
       send({ detail: "Ruta fixture no disponible" }, 404);
     } catch {
       if (!res.headersSent) send({ detail: "Error de fixture" }, 500);

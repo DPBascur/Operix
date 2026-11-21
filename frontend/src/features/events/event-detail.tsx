@@ -1,7 +1,6 @@
 "use client";
 import { PageTitle } from "@/components/layout/page-title";
 
-import { apiFetch } from "@/services/browser-session";
 import { sourceKind, sourceNames } from "@/features/dashboard/history-model";
 import Link from "next/link";
 import {
@@ -12,11 +11,10 @@ import {
   ImageOff,
   RefreshCw,
 } from "lucide-react";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
-import { environment } from "@/config/environment";
 import {
   controlTransition,
   sectionTransition,
@@ -24,12 +22,10 @@ import {
 } from "@/lib/motion/presets";
 import {
   eventTypeName,
-  isOperationalEvent,
   type OperationalEvent,
 } from "@/services/event-contract";
 import {
-  evidenceHref,
-  evidenceClip,
+  type EventEvidence,
   eventMeasurements,
   eventMotion,
   eventProximityGeometry,
@@ -39,6 +35,8 @@ import {
   record,
   text,
 } from "./event-detail-model";
+import { EvidenceFeedback } from "./evidence-feedback";
+import { useEventEvidence } from "./use-event-evidence";
 import styles from "./event-detail.module.css";
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -110,23 +108,24 @@ const evidenceViews = [
   { id: "clip", label: "Clip" },
 ] as const;
 
-function Evidence({
-  url,
-  event,
-}: {
-  url: string | null;
+type EvidenceProps = {
   event: OperationalEvent;
-}) {
+  evidence: EventEvidence;
+  checking: boolean;
+  refreshFailed?: boolean;
+};
+
+function Evidence({ event, evidence, checking, refreshFailed }: EvidenceProps) {
+  const { png: url, clip } = evidence;
   const id = useId();
   const reducedMotion = useReducedMotion();
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);
-  const [view, setView] = useState(0);
+  const [view, setView] = useState(() => (!url && clip ? 1 : 0));
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [attempt, setAttempt] = useState(0);
   const [clipError, setClipError] = useState(false);
   const [clipReady, setClipReady] = useState(false);
   const [duration, setDuration] = useState<number | null>(null);
-  const clip = evidenceClip(event, environment.apiBaseUrl);
   const transition = reducedMotion ? { duration: 0 } : controlTransition;
   const showClip = view === 1;
 
@@ -143,6 +142,11 @@ function Evidence({
       aria-label="Evidencia del evento"
       variants={sectionEntrance}
     >
+      <EvidenceFeedback
+        evidence={evidence}
+        checking={checking}
+        refreshFailed={refreshFailed}
+      />
       <div className={styles.sectionHeading}>
         <div
           className={styles.tabs}
@@ -220,12 +224,14 @@ function Evidence({
           aria-busy={Boolean(url && state === "loading")}
         >
           {!url || state === "error" ? (
-            <div className={styles.imageEmpty} role="status">
+            <div className={styles.imageEmpty}>
               <ImageOff size={28} aria-hidden="true" />
-              <p>
+              <p role={state === "error" ? "status" : undefined}>
                 {url
                   ? "No se pudo cargar el fotograma."
-                  : "Sin evidencia visual adjunta."}
+                  : evidence.status === "pending"
+                    ? "Fotograma pendiente."
+                    : "Fotograma no disponible."}
               </p>
               {url && (
                 <Button
@@ -253,6 +259,7 @@ function Evidence({
               <a
                 className={styles.imageLink}
                 href={url}
+                inert={state !== "ready"}
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Ampliar evidencia PNG original (nueva pestaña)"
@@ -326,12 +333,14 @@ function Evidence({
                 </div>
               </>
             ) : (
-              <div className={styles.imageEmpty} role="status">
+              <div className={styles.imageEmpty}>
                 <ImageOff size={28} aria-hidden="true" />
-                <p>
+                <p role={clipError ? "status" : undefined}>
                   {clipError
                     ? "No se pudo reproducir el clip."
-                    : "Clip anotado no disponible para este evento."}
+                    : evidence.status === "pending"
+                      ? "Clip pendiente."
+                      : "Clip anotado no disponible para este evento."}
                 </p>
                 {clipError && (
                   <Button
@@ -350,15 +359,18 @@ function Evidence({
           </motion.div>
         )}
       </div>
-      <figcaption>
-        {showClip
-          ? "Clip anotado del resultado de Operix."
-          : `Fotograma del evento${event.frame_index == null ? "" : ` · Frame ${event.frame_index}`}`}
-      </figcaption>
+      {(showClip ? clip : url) && (
+        <figcaption>
+          {showClip
+            ? "Clip anotado del resultado de Operix."
+            : `Fotograma del evento${event.frame_index == null ? "" : ` · Frame ${event.frame_index}`}`}
+        </figcaption>
+      )}
     </motion.figure>
   );
 }
-function EventContent({ event }: { event: OperationalEvent }) {
+function EventContent(props: EvidenceProps) {
+  const { event } = props;
   const time = eventTime(event),
     source = record(event.source);
   const geometry = eventProximityGeometry(event);
@@ -421,7 +433,7 @@ function EventContent({ event }: { event: OperationalEvent }) {
               </span>
             </Field>
           ))}
-          <Field label="Tiempo del video">
+          <Field label={time.offsetLabel}>
             {measurement(event.video_timestamp_s)}
           </Field>
           {!isPair && (
@@ -431,11 +443,7 @@ function EventContent({ event }: { event: OperationalEvent }) {
           )}
         </dl>
       </motion.section>
-      <Evidence
-        key={event.id}
-        event={event}
-        url={evidenceHref(event, environment.apiBaseUrl)}
-      />
+      <Evidence {...props} />
       <motion.section
         className={styles.summary}
         aria-labelledby="context-title"
@@ -603,41 +611,8 @@ export function EventDetail({
   id: string;
   returnUrl?: string;
 }) {
-  const [event, setEvent] = useState<OperationalEvent | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    const controller = new AbortController();
-    const load = async () => {
-      if (!environment.apiBaseUrl)
-        throw new Error("Configure la API para recuperar el evento.");
-      const response = await apiFetch(
-        `${environment.apiBaseUrl.replace(/\/$/, "")}/events/${encodeURIComponent(id)}/`,
-        { signal: controller.signal, cache: "no-store" },
-      );
-      if (!response.ok)
-        throw new Error(
-          response.status === 404
-            ? "El evento no existe."
-            : "No se pudo consultar el evento. Vuelva a intentar.",
-        );
-      const data: unknown = await response.json();
-      if (!isOperationalEvent(data))
-        throw new Error("La API devolvió un evento inválido.");
-      if (!controller.signal.aborted) setEvent(data);
-    };
-    void load().catch((cause: unknown) => {
-      if (!controller.signal.aborted)
-        setError(
-          cause instanceof TypeError
-            ? "No se pudo conectar con la API. Compruebe la conexión y vuelva a intentar."
-            : cause instanceof Error
-              ? cause.message
-              : "No se pudo consultar el evento.",
-        );
-    });
-    return () => controller.abort();
-  }, [id, attempt]);
+  const result = useEventEvidence(id, { attempt });
   return (
     <div className={styles.root}>
       <nav aria-label="Ubicación del expediente" className={styles.breadcrumb}>
@@ -647,28 +622,32 @@ export function EventDetail({
         <span aria-hidden="true">/</span>
         <span aria-current="page">Expediente</span>
       </nav>
-      {error ? (
+      {result?.error ? (
         <section className={styles.loadState} role="alert">
           <PageTitle>No se pudo abrir el evento</PageTitle>
-          <p>{error}</p>
+          <p>{result.error}</p>
           <Button
             className={styles.action}
-            onClick={() => {
-              setError(null);
-              setEvent(null);
-              setAttempt(attempt + 1);
-            }}
+            onClick={() => setAttempt((current) => current + 1)}
           >
             Volver a consultar
           </Button>
         </section>
-      ) : !event ? (
+      ) : !result?.event ? (
         <section className={styles.loadState}>
           <PageTitle>Detalle del evento</PageTitle>
-          <OperixScanLoader variant="panel" message="Consultando el registro…" />
+          <OperixScanLoader
+            variant="panel"
+            message="Consultando el registro…"
+          />
         </section>
       ) : (
-        <EventContent event={event} />
+        <EventContent
+          event={result.event}
+          evidence={result.evidence}
+          checking={result.checking}
+          refreshFailed={result.refreshFailed}
+        />
       )}
     </div>
   );

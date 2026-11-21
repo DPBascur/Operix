@@ -79,6 +79,9 @@
   border: 1px solid var(--border);
   border-radius: 16px;
 }
+.evidence > [role="status"] {
+  margin-bottom: 0.65rem;
+}
 .sectionHeading {
   display: flex;
   flex-wrap: wrap;
