@@ -2,6 +2,7 @@
 
 import type { NormalizedVertex } from "@/services/analysis.service";
 import { MotionConfiguration } from "@/features/analysis/motion-configuration";
+import { AutomaticCalibration } from "@/features/calibration/automatic-calibration";
 
 import { ArrowRight, Camera } from "lucide-react";
 import Link from "next/link";
@@ -38,6 +39,7 @@ const statusLabels: Record<string, string> = {
   error: "Error",
 };
 const idle = new Set(["available", "stopped", "error"]);
+const calibrationSectionId = "camera-automatic-calibration";
 const monitoring = new Set([
   "connecting",
   "transmitting",
@@ -275,25 +277,29 @@ function ActionFeedback({ message }: { message?: Feedback }) {
   );
 }
 
+type CameraDraft = { revision: number; document: CameraDocument };
+
 function Configuration({
   camera,
   canEdit,
   canConfigure,
   busy,
+  draft,
+  metricAvailable,
   message,
   onSave,
+  setDraft,
 }: {
   camera: LabCamera;
   canEdit: boolean;
   canConfigure: boolean;
   busy: boolean;
+  draft?: CameraDraft;
+  metricAvailable: boolean;
   message?: Feedback;
   onSave: (revision: number, document: CameraDocument) => Promise<boolean>;
+  setDraft: (draft: CameraDraft | undefined) => void;
 }) {
-  const [draft, setDraft] = useState<{
-    revision: number;
-    document: CameraDocument;
-  }>();
   const document = draft?.document ?? camera.configuration;
   const outdated = Boolean(draft && draft.revision !== camera.revision);
   const invalid = document?.zones?.some((zone) => !zone.name.trim());
@@ -526,7 +532,7 @@ function Configuration({
             <MotionConfiguration
               motion={document.motion}
               relations={document.relations}
-              metricAvailable={false}
+              metricAvailable={metricAvailable}
               onMotion={(motion) => edit({ ...document, motion })}
               onRelations={(relations) => edit({ ...document, relations })}
             />
@@ -685,9 +691,11 @@ function CameraDiagnostics({
 
 export function CameraLabDetail({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
+  const [calibrationBusy, setCalibrationBusy] = useState(false);
+  const [draft, setDraft] = useState<CameraDraft>();
   const [stoppingRun, setStoppingRun] = useState<string>();
   const [action, setAction] = useState<{
-    area: "monitor" | "configuration";
+    area: "monitor" | "configuration" | "calibration";
     message: Feedback;
   }>();
   const load = useCallback(
@@ -695,7 +703,11 @@ export function CameraLabDetail({ id }: { id: string }) {
     [id],
   );
   const catalog = useCameraData(cameraLabService.list, 15_000);
-  const detail = useCameraData(load, 2500, busy || !catalog.data?.enabled);
+  const detail = useCameraData(
+    load,
+    2500,
+    busy || calibrationBusy || !catalog.data?.enabled,
+  );
   const camera = detail.data;
   const canEdit = catalog.data?.can_edit === true && !catalog.error;
 
@@ -727,6 +739,24 @@ export function CameraLabDetail({ id }: { id: string }) {
   const event = camera?.last_event;
   const canStart = camera && idle.has(camera.status);
   const canStop = camera && monitoring.has(camera.status);
+  const framing = camera?.metrics?.framing;
+  const framingState =
+    framing && typeof framing === "object" && "state" in framing
+      ? framing.state
+      : null;
+  const mustRecalibrate = camera?.calibration_requires_reconfirmation === true;
+  const lastRunInvalid =
+    camera?.calibration_requires_reconfirmation == null &&
+    framingState === "INVALID";
+  const framingWarning = mustRecalibrate
+    ? "El cambio de encuadre invalidó la calibración. Confirma una propuesta nueva antes de iniciar otro monitoreo."
+    : lastRunInvalid
+      ? "El último monitoreo detectó un cambio de encuadre. Revisa la calibración de esta cámara."
+      : canStop &&
+          camera?.configuration?.calibration &&
+          framingState !== "VALID"
+        ? "Medición en metros suspendida mientras se comprueba el encuadre."
+        : undefined;
   const stopping = canStop && camera.run_id === stoppingRun;
   const frameTime = cameraFrameTime(camera?.last_frame_at);
   const eventTime = cameraFrameTime(event?.occurred_at);
@@ -770,6 +800,49 @@ export function CameraLabDetail({ id }: { id: string }) {
         )
       ) : (
         <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+          {(canEdit || camera.configuration?.calibration) && (
+            <div className="grid min-w-0 gap-2 lg:col-span-2">
+              <AutomaticCalibration<LabCamera>
+                id={calibrationSectionId}
+                key={`${camera.id}:${camera.revision}:${canStart}`}
+                source={{
+                  kind: "cameras",
+                  id: camera.id,
+                  revision: camera.revision,
+                }}
+                zones={camera.configuration?.zones ?? []}
+                saved={camera.configuration?.calibration}
+                framingWarning={framingWarning}
+                blocked={
+                  !canEdit
+                    ? "Solo los usuarios con permiso de edición pueden calibrar esta cámara."
+                    : !canStart
+                      ? "Detén el monitoreo para capturar y validar una propuesta."
+                      : busy || error
+                        ? "Espera a que se actualice el estado de la cámara."
+                        : draft
+                          ? "Guarda o descarta el borrador de configuración antes de capturar una propuesta."
+                          : undefined
+                }
+                onBusyChange={setCalibrationBusy}
+                onSaved={(result) => {
+                  detail.setData(result);
+                  setAction({
+                    area: "calibration",
+                    message: {
+                      text: "Calibración con patrón guardada para esta cámara.",
+                    },
+                  });
+                }}
+                onRefresh={detail.retry}
+              />
+              <ActionFeedback
+                message={
+                  action?.area === "calibration" ? action.message : undefined
+                }
+              />
+            </div>
+          )}
           <div className="grid min-w-0 gap-4">
             <section
               className="surface-card grid gap-3 p-4"
@@ -785,7 +858,13 @@ export function CameraLabDetail({ id }: { id: string }) {
                 </p>
                 {canEdit && (canStart || canStop) && (
                   <Button
-                    disabled={busy || stopping || Boolean(error)}
+                    disabled={
+                      busy ||
+                      calibrationBusy ||
+                      stopping ||
+                      Boolean(error) ||
+                      Boolean(canStart && mustRecalibrate)
+                    }
                     variant={canStop ? "outline" : "primary"}
                     onClick={async () => {
                       const completed = await change(
@@ -813,6 +892,29 @@ export function CameraLabDetail({ id }: { id: string }) {
                   </Button>
                 )}
               </div>
+              {framingWarning && (
+                <div className="inline-message grid gap-2" role="status">
+                  <p>{framingWarning}</p>
+                  {(mustRecalibrate || lastRunInvalid) && canEdit && (
+                    <a
+                      className="w-fit text-primary underline"
+                      href={`#${calibrationSectionId}`}
+                      onClick={() => {
+                        const panel =
+                          document.getElementById(calibrationSectionId);
+                        if (panel instanceof HTMLDetailsElement) {
+                          panel.open = true;
+                          panel
+                            .querySelector("summary")
+                            ?.focus({ preventScroll: true });
+                        }
+                      }}
+                    >
+                      Abrir calibración con patrón
+                    </a>
+                  )}
+                </div>
+              )}
               {frameTime && camera.last_frame_at && (
                 <p className="text-sm text-text-secondary">
                   Recepción local del último fotograma analizado ·{" "}
@@ -878,8 +980,7 @@ export function CameraLabDetail({ id }: { id: string }) {
                   {eventTime && (
                     <>
                       {" "}
-                      ·{" "}
-                      <time dateTime={event.occurred_at}>{eventTime}</time>
+                      · <time dateTime={event.occurred_at}>{eventTime}</time>
                     </>
                   )}
                 </p>
@@ -897,7 +998,14 @@ export function CameraLabDetail({ id }: { id: string }) {
             camera={camera}
             canEdit={canEdit}
             canConfigure={Boolean(canStart)}
-            busy={busy || Boolean(error)}
+            busy={busy || calibrationBusy || Boolean(error)}
+            draft={draft}
+            setDraft={setDraft}
+            metricAvailable={
+              !framingWarning &&
+              camera.configuration?.calibration?.status === "valid" &&
+              camera.configuration.calibration.zones_reviewed === true
+            }
             message={
               action?.area === "configuration" ? action.message : undefined
             }

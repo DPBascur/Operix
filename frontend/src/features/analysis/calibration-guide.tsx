@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { NormalizedVertex as Point } from "@/services/analysis.service";
+import type { PatternEvidence } from "@/services/automatic-calibration.service";
 import { SpatialFrame } from "./spatial-frame";
 import { pointInFrame, validPolygon } from "./zone-editor-geometry";
 import styles from "./analysis.module.css";
@@ -17,6 +18,7 @@ export type Calibration = {
   framing_reference?: "first_frame_orb_affine_v1";
   homography?: number[][];
   max_reference_error_m?: number;
+  pattern_evidence?: PatternEvidence;
 };
 
 const steps = ["Unidades", "Referencias", "Medidas", "Validar", "Guardar"];
@@ -217,7 +219,9 @@ export function CalibrationGuide({
             </p>
           )}
           <div className={styles.actions}>
-            {!calibration || calibration.status === "invalid" ? null : (
+            {!calibration ||
+            calibration.status === "invalid" ||
+            calibration.pattern_evidence ? null : (
               <Button variant="outline" onClick={() => go(1)}>
                 Revisar referencias
               </Button>

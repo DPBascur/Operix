@@ -12,6 +12,7 @@ import {
   type RelationSettings,
 } from "@/services/analysis.service";
 import { environment } from "@/config/environment";
+import { AutomaticCalibration } from "@/features/calibration/automatic-calibration";
 
 import { MotionConfiguration } from "./motion-configuration";
 import { RuleConfiguration } from "./rule-configuration";
@@ -60,6 +61,7 @@ type Loaded = {
   effective_rules?: Rule[];
   policy?: { rule_set: { name: string; version: number } } | null;
 };
+type SavedConfiguration = Pick<Loaded, "document" | "revision">;
 const purposes = {
   observation: "Observación",
   restricted: "Área restringida",
@@ -105,6 +107,7 @@ export function SpatialEditor({
   const [dirty, setDirty] = useState(false);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [calibrationBusy, setCalibrationBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [task, setTask] = useState(0);
   const [message, setMessage] = useState("");
@@ -184,7 +187,7 @@ export function SpatialEditor({
   const doc = data?.document;
   const zone = doc?.zones[selected];
   const originalZone = initial?.zones.find((z) => z.zone_id === zone?.zone_id);
-  const locked = busy || unavailable;
+  const locked = busy || calibrationBusy || unavailable || loading;
   const zonesProblem =
     doc &&
     (!doc.zones.length
@@ -245,6 +248,7 @@ export function SpatialEditor({
   }, [autoOpen, unavailable, onAutoOpen]);
 
   function chooseTask(next: number, focus = false) {
+    if (calibrationBusy) return;
     setTask(next);
     if (focus) tabs.current[next]?.focus();
   }
@@ -263,25 +267,14 @@ export function SpatialEditor({
     setBusy(true);
     setMessage("");
     try {
-      const result: { document: Document; revision: number } = await request(
-        "PUT",
-        { document: doc, revision: data.revision },
+      const result: SavedConfiguration = await request("PUT", {
+        document: doc,
+        revision: data.revision,
+      });
+      await applySaved(
+        result,
+        "Configuración guardada para el próximo análisis.",
       );
-      if (!mounted.current) return;
-      setInitial(result.document);
-      setData({ ...data, ...result, saved: result.document });
-      setDirty(false);
-      setUndo([]);
-      setMessage("Configuración guardada para el próximo análisis.");
-      try {
-        const status = await analysisService.getAnalysisStatus(session.id);
-        if (mounted.current) onSaved(status);
-      } catch {
-        if (mounted.current)
-          setMessage(
-            "Configuración guardada. El estado de la sesión se actualizará al reconectar.",
-          );
-      }
     } catch (cause) {
       if (mounted.current)
         setMessage(
@@ -292,6 +285,26 @@ export function SpatialEditor({
         );
     } finally {
       if (mounted.current) setBusy(false);
+    }
+  }
+
+  async function applySaved(result: SavedConfiguration, feedback: string) {
+    if (!mounted.current) return;
+    setInitial(result.document);
+    setData(
+      (current) => current && { ...current, ...result, saved: result.document },
+    );
+    setDirty(false);
+    setUndo([]);
+    setMessage(feedback);
+    try {
+      const status = await analysisService.getAnalysisStatus(session.id);
+      if (mounted.current) onSaved(status);
+    } catch {
+      if (mounted.current)
+        setMessage(
+          `${feedback} El estado de la sesión se actualizará al reconectar.`,
+        );
     }
   }
 
@@ -306,7 +319,7 @@ export function SpatialEditor({
           ref={trigger}
           variant="outline"
           className={styles.trigger}
-          disabled={unavailable || busy}
+          disabled={unavailable || busy || calibrationBusy}
           aria-expanded={open}
           aria-controls={panelId}
           onClick={() => {
@@ -352,6 +365,7 @@ export function SpatialEditor({
                   id={`${panelId}-tab-${index}`}
                   aria-controls={`${panelId}-task-${index}`}
                   aria-selected={task === index}
+                  disabled={calibrationBusy}
                   tabIndex={task === index ? 0 : -1}
                   data-guide={
                     index === 2
@@ -820,6 +834,38 @@ export function SpatialEditor({
                 aria-labelledby={`${panelId}-tab-2`}
                 hidden={task !== 2}
               >
+                <AutomaticCalibration<SavedConfiguration>
+                  key={`${session.id}:${session.source_sha256}:${data.revision}`}
+                  source={{
+                    kind: "sessions",
+                    id: session.id,
+                    revision: data.revision,
+                  }}
+                  zones={doc.zones}
+                  saved={doc.calibration}
+                  blocked={
+                    zonesProblem
+                      ? "Dibuja y guarda una zona válida en la pestaña Zonas antes de capturar una propuesta."
+                      : dirty
+                        ? "Guarda o descarta el borrador de configuración antes de capturar una propuesta."
+                        : undefined
+                  }
+                  onBusyChange={setCalibrationBusy}
+                  onRefresh={() => void load()}
+                  onSaved={(result) => {
+                    setBusy(true);
+                    setEditorRevision((value) => value + 1);
+                    void applySaved(
+                      result,
+                      "Calibración con patrón guardada para el próximo análisis.",
+                    ).finally(() => {
+                      if (mounted.current) setBusy(false);
+                    });
+                  }}
+                />
+                <h3 className={styles.manualCalibrationTitle}>
+                  Calibración asistida o manual
+                </h3>
                 <CalibrationGuide
                   key={editorRevision}
                   calibration={doc.calibration}
@@ -830,6 +876,26 @@ export function SpatialEditor({
                   onChange={(calibration) => update({ ...doc, calibration })}
                   onReview={() => chooseTask(4, true)}
                 />
+                {doc.calibration?.pattern_evidence != null &&
+                  !doc.calibration.zones_reviewed && (
+                    <div className={styles.actions}>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          if (doc.calibration)
+                            update({
+                              ...doc,
+                              calibration: {
+                                ...doc.calibration,
+                                zones_reviewed: true,
+                              },
+                            });
+                        }}
+                      >
+                        Confirmar revisión de las zonas editadas
+                      </Button>
+                    </div>
+                  )}
                 {doc.calibration?.status === "valid" &&
                   doc.calibration.homography && (
                     <div className={styles.actions}>

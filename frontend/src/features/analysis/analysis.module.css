@@ -398,3 +398,7 @@
   padding-block: 0.85rem;
   border-block: 1px solid var(--border);
 }
+.manualCalibrationTitle {
+  margin: 1.25rem 0 0.5rem;
+  font-weight: 650;
+}

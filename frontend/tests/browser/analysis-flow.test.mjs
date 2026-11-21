@@ -337,6 +337,7 @@ test(
       assert.equal(await evaluate("[...document.querySelectorAll('summary')].find(s=>s.textContent.trim()==='Coordenadas avanzadas').parentElement.open"), false);
       await checkButtonThemes(evaluate);
       await tab("Calibración");
+      assert.equal(await evaluate(`!![...document.querySelectorAll('[role=tabpanel]:not([hidden]) summary')].find(s=>s.textContent.trim()==='Calibración automática con patrón')`), true);
       await click("Usar un rectángulo medido");
       await wait(`document.querySelector('video[aria-label="Referencia de configuración"]')?.readyState >= 2`);
       assert.equal(await evaluate(`document.querySelector('video[aria-label="Referencia de configuración"]').controls`), false);
@@ -878,8 +879,74 @@ test(
       }
       await go("/dashboard");
       await wait("location.pathname === '/'");
+      const patternPreview = await evaluate(`(() => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 640; canvas.height = 360;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#3a4147'; ctx.fillRect(0, 0, 640, 360);
+        ctx.fillStyle = '#dadadd'; ctx.fillRect(82, 56, 35, 21);
+        ctx.fillStyle = '#111'; ctx.fillRect(87, 59, 23, 15);
+        return canvas.toDataURL('image/jpeg', 0.85);
+      })()`);
+      await control({ calibrationCamera: patternPreview });
       await go("/sources/cameras/lab-cam-01");
       await wait("!!document.querySelector('main#main-content')");
+      await evaluate(`[...document.querySelectorAll('button')].find(b=>b.innerText==='Omitir' && b.offsetParent)?.click()`);
+      await wait(text("El cambio de encuadre invalidó la calibración"));
+      assert.equal(await evaluate(`[...document.querySelectorAll('button')].find(b=>b.innerText==='Iniciar monitoreo').disabled`), true);
+      const calibrationPanel = `document.querySelector('#camera-automatic-calibration')`;
+      await evaluate(`document.querySelector('a[href="#camera-automatic-calibration"]').click()`);
+      await wait(`${calibrationPanel}.open`);
+      await evaluate(`(() => {
+        const inputs = ${calibrationPanel}.querySelectorAll('input');
+        const values = ['1','0','0','0,2','0','2','3','0','0,2','0','3','0','3','0,2','0','Plano medido fixture'];
+        inputs.forEach((input,i) => {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input, values[i]);
+          input.dispatchEvent(new Event('input',{bubbles:true}));
+        });
+      })()`);
+      await click("Capturar propuesta");
+      await wait(text("Distribuye los marcadores por una parte más amplia del suelo."));
+      assert.equal(await evaluate(`!!${calibrationPanel}.querySelector('button[aria-label^="Marcar punto"]')`), false);
+      assert.equal((await control()).calibrationRequests.length, 1);
+      await control({ calibrationCandidate: true });
+      await click("Capturar nueva propuesta");
+      await wait(`!!${calibrationPanel}.querySelector('button[aria-label^="Marcar punto"]')`);
+      assert.equal(await evaluate(`document.documentElement.scrollWidth<=innerWidth+1`), true);
+      const pointSelector = `${calibrationPanel}.querySelector('button[aria-label^="Marcar punto"]')`;
+      await evaluate(`(${pointSelector}).focus()`);
+      assert.equal(await evaluate(`document.activeElement === (${pointSelector})`), true);
+      const dispatchKey = async (key, windowsVirtualKeyCode) => {
+        for (const type of ["keyDown", "keyUp"]) {
+          await call("Input.dispatchKeyEvent", {
+            type, key, code: key, windowsVirtualKeyCode,
+            ...(key === "Enter" && type === "keyDown" ? { text: "\r" } : {}),
+          });
+        }
+      };
+      await dispatchKey("Enter", 13);
+      await wait(text("1 de 2 puntos marcados"));
+      await dispatchKey("ArrowRight", 39);
+      await dispatchKey("Enter", 13);
+      await wait(text("2 de 2 puntos marcados"));
+      await setField("Distancia medida (m)", "4");
+      await setField("Error máximo aceptable (m)", "0,02");
+      await setField("Origen de la distancia medida", "Cinta métrica fixture");
+      const saveButton = `[...${calibrationPanel}.querySelectorAll('button')].find(b=>b.innerText==='Validar medida y guardar')`;
+      assert.equal(await evaluate(`(${saveButton}).disabled`), true);
+      await evaluate(`[...${calibrationPanel}.querySelectorAll('input[type=checkbox]')].slice(-3).forEach(input=>input.click())`);
+      await click("Validar medida y guardar");
+      await wait(text("La medida de comprobación supera la tolerancia declarada"));
+      await setField("Distancia medida (m)", "2");
+      await click("Validar medida y guardar");
+      await wait(text("Calibración con patrón guardada para esta cámara."));
+      assert.equal(await evaluate(`[...document.querySelectorAll('button')].find(b=>b.innerText==='Iniciar monitoreo').disabled`), false);
+      const { calibrationRequests } = await control();
+      assert.equal(calibrationRequests[0].body.layout.provenance, "Plano medido fixture");
+      assert.deepEqual(calibrationRequests.at(-1).body, {
+        proposal_id: "fixture-signed-proposal", revision: 4, ground_confirmed: true, zones_reviewed: true,
+        control: { image_points: [[0.5, 0.5], [0.51, 0.5]], distance_m: 2, tolerance_m: 0.02, provenance: "Cinta métrica fixture" },
+      });
       await checkButtonThemes(evaluate, call);
       const screenshot = await call("Page.captureScreenshot", {
         format: "png",

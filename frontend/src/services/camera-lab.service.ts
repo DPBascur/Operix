@@ -1,5 +1,6 @@
 import { environment } from "@/config/environment";
 import { apiFetch } from "@/services/browser-session";
+import type { PatternEvidence } from "./automatic-calibration.service";
 import type {
   AnalysisRuleSnapshot,
   NormalizedVertex,
@@ -11,6 +12,12 @@ export type CameraDocument = {
   schema_version: number;
   view_id: string;
   coordinate_system: string;
+  calibration?: {
+    status: string;
+    version: number;
+    zones_reviewed?: boolean;
+    pattern_evidence?: PatternEvidence;
+  } | null;
   motion?: MotionSettings;
   relations?: RelationSettings;
   zones: {
@@ -34,6 +41,7 @@ export type LabCamera = {
   metrics: Record<string, unknown> | null;
   preview_url: string | null;
   configuration: CameraDocument | null;
+  calibration_requires_reconfirmation?: boolean;
   policy?: { rule_set: { name: string; version: number } } | null;
   revision: number;
   run_id: string | null;

@@ -1,0 +1,297 @@
+.panel {
+  container-type: inline-size;
+  min-inline-size: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  --grid-ink: #f3fbff;
+  --area-ink: #2fd1c8;
+  --marker-ink: #ffdc83;
+  --control-ink: #ffec9f;
+}
+
+.panel summary {
+  min-block-size: 44px;
+  align-content: center;
+  padding: 0.65rem 1rem;
+  cursor: pointer;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.panel summary span {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.body,
+.review,
+.group {
+  display: grid;
+  min-inline-size: 0;
+  gap: 0.85rem;
+}
+
+.body {
+  padding: 1rem;
+  border-block-start: 1px solid var(--border);
+}
+
+.body p {
+  margin: 0;
+  max-inline-size: 72ch;
+}
+.group {
+  padding: 0.7rem 0 0;
+}
+.group > legend {
+  font-weight: 650;
+}
+.markerRow {
+  min-inline-size: 0;
+  border-block-end: 1px solid var(--border);
+  padding: 0 0 0.75rem;
+}
+.markerRow > legend {
+  margin-block-end: 0.35rem;
+  font-weight: 600;
+}
+.markerRow > button {
+  margin-block-start: 0.45rem;
+}
+
+.fields,
+.controlFields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 6.5rem), 1fr));
+  gap: 0.65rem;
+}
+
+.controlFields {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+}
+
+.body label:not(.check) {
+  display: grid;
+  align-content: start;
+  gap: 0.3rem;
+  font-weight: 550;
+}
+
+.body label:not(.check) input {
+  inline-size: 100%;
+  min-inline-size: 0;
+}
+.check {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  cursor: pointer;
+  padding-block: 0.35rem;
+}
+.check input {
+  flex: none;
+  accent-color: var(--primary);
+  inline-size: 1rem;
+  block-size: 1rem;
+  align-self: start;
+  margin-block-start: 0.25rem;
+}
+
+.review {
+  padding-block-start: 1rem;
+  border-block-start: 1px solid var(--border);
+}
+.reviewTitle,
+.pointActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+}
+.reviewTitle {
+  justify-content: space-between;
+}
+.reviewTitle h3 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 650;
+}
+.reviewTitle strong {
+  font-weight: 650;
+}
+.reviewGrid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+}
+.reviewGrid:has(.figure) {
+  grid-template-columns: minmax(0, 1.8fr) minmax(13rem, 1fr);
+}
+
+.figure {
+  min-inline-size: 0;
+  margin: 0;
+}
+.frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.4rem;
+  background: #111418;
+}
+.frame img {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+}
+.overlay,
+.pickPoint {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+}
+.overlay {
+  pointer-events: none;
+}
+.overlay :is(polyline, polygon) {
+  stroke-linejoin: round;
+  fill: none;
+}
+.overlay .area {
+  fill: rgb(47 209 200 / 0.14);
+  stroke: var(--area-ink);
+  stroke-width: 2px;
+}
+.overlay .gridLine {
+  stroke: var(--grid-ink);
+  stroke-width: 1px;
+  opacity: 0.75;
+}
+.overlay .marker {
+  stroke: var(--marker-ink);
+  stroke-width: 2px;
+}
+.overlay .zone {
+  stroke: #f3a4f5;
+  stroke-width: 2px;
+  stroke-dasharray: 5px 4px;
+}
+.overlay .controlLine {
+  stroke: var(--control-ink);
+  stroke-width: 2px;
+  stroke-dasharray: 4px 3px;
+}
+.overlay :is(.marker, .gridLine, .zone, .controlLine, .area) {
+  filter: drop-shadow(0 0 1px #101317);
+}
+
+.pickPoint {
+  background: transparent;
+  border: 0;
+  cursor: crosshair;
+}
+.pickPoint:focus-visible {
+  outline: 3px solid var(--control-ink);
+  outline-offset: -4px;
+}
+.cursor,
+.pin {
+  position: absolute;
+  translate: -50% -50%;
+  pointer-events: none;
+}
+.cursor {
+  display: none;
+  inline-size: 1rem;
+  block-size: 1rem;
+  outline: 1px solid #111418;
+  border: 2px solid #fff;
+  border-radius: 50%;
+}
+.pickPoint:focus-visible .cursor {
+  display: block;
+}
+.pin {
+  display: grid;
+  place-items: center;
+  inline-size: 1.5rem;
+  block-size: 1.5rem;
+  border: 1px solid #111418;
+  border-radius: 50%;
+  font-weight: 700;
+  color: #111418;
+  background: var(--control-ink);
+}
+.legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.95rem;
+  margin-block-start: 0.4rem;
+  font-size: 0.875rem;
+}
+.legend span {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+.legend i {
+  background: #111418;
+  border-radius: 0.2rem;
+  inline-size: 1rem;
+  block-size: 1rem;
+  border: 3px solid #111418;
+  box-shadow: inset 0 0 0 2px var(--swatch);
+}
+.areaKey {
+  --swatch: var(--area-ink);
+}
+.gridKey {
+  --swatch: var(--grid-ink);
+}
+.markerKey {
+  --swatch: var(--marker-ink);
+}
+
+.quality {
+  min-inline-size: 0;
+  align-self: start;
+  padding: 0.75rem;
+  border-radius: 0.4rem;
+  background: var(--surface-muted);
+  overflow-wrap: anywhere;
+}
+.quality h4 {
+  margin: 0 0 0.4rem;
+  font-weight: 650;
+}
+.quality dl {
+  margin: 0 0 0.6rem;
+}
+.quality dl div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.5rem;
+  border-block-end: 1px solid var(--border);
+  padding-block: 0.3rem;
+}
+.quality dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.quality ul {
+  list-style: disc;
+  padding-inline-start: 1.25rem;
+  margin-block-start: 0.4rem;
+}
+
+@container (max-width: 40rem) {
+  .reviewGrid:has(.figure) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

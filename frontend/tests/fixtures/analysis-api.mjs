@@ -68,6 +68,10 @@ export async function startFixtureApi(port = 8000) {
   let requestedSourceSha = null;
   let evidenceSteps = [];
   let eventDetailReads = 0;
+  let cameraFixture;
+  let calibrationPreview;
+  let candidateAvailable;
+  let calibrationRequests = [];
   const csrf = "TEST_ONLY_CSRF";
   const run = "00000000-0000-4000-8000-000000000055";
   const event = {
@@ -180,7 +184,31 @@ export async function startFixtureApi(port = 8000) {
           requestedSourceSha = null;
           evidenceSteps = [];
           eventDetailReads = 0;
+          cameraFixture = undefined;
+          calibrationPreview = undefined;
+          candidateAvailable = false;
+          calibrationRequests = [];
         }
+        if (body.calibrationCamera) {
+          cameraFixture = {
+            id: "lab-cam-01",
+            name: "Cámara fixture",
+            status: "stopped",
+            revision: 4,
+            metrics: { framing: { state: "INVALID" } },
+            calibration_requires_reconfirmation: true,
+            configuration: {
+              schema_version: 1,
+              view_id: "lab-cam-01",
+              coordinate_system: "normalized",
+              zones: [{ zone_id: "fixture", name: "Área operativa", polygon }],
+              rules: [],
+            },
+          };
+          calibrationPreview = body.calibrationCamera;
+          candidateAvailable = false;
+        }
+        if (body.calibrationCandidate) candidateAvailable = true;
         if (Array.isArray(body.evidenceSteps)) {
           evidenceSteps = body.evidenceSteps;
           eventDetailReads = 0;
@@ -204,6 +232,7 @@ export async function startFixtureApi(port = 8000) {
           configurationReads,
           requestedSourceSha,
           eventDetailReads,
+          calibrationRequests,
           waitingZones: pendingZones.length,
           ids: [...sessions.keys()],
         });
@@ -332,6 +361,90 @@ export async function startFixtureApi(port = 8000) {
                   },
           })),
         );
+      if (cameraFixture && url.pathname === "/api/v1/analysis/cameras/") {
+        return send({
+          enabled: true,
+          can_edit: true,
+          capacity: 1,
+          cameras: [cameraFixture],
+        });
+      }
+      const cameraRoute = "/api/v1/analysis/cameras/lab-cam-01/";
+      if (cameraFixture && url.pathname === cameraRoute)
+        return send(cameraFixture);
+      if (
+        cameraFixture &&
+        url.pathname.startsWith(`${cameraRoute}calibration/`)
+      ) {
+        if (req.method !== "POST" || req.headers["x-csrftoken"] !== csrf)
+          return send({}, 403);
+        const operation = url.pathname.slice(
+          `${cameraRoute}calibration/`.length,
+        );
+        calibrationRequests.push({ operation, body });
+        if (body.revision !== cameraFixture.revision)
+          return send({ detail: "Revisión incorrecta" }, 409);
+        if (operation === "proposal/") {
+          return send({
+            status: candidateAvailable ? "candidate" : "requires_review",
+            proposal_id: candidateAvailable ? "fixture-signed-proposal" : null,
+            preview_url: calibrationPreview,
+            expires_at: new Date(Date.now() + 600_000).toISOString(),
+            reasons: candidateAvailable ? [] : ["insufficient_distribution"],
+            usable_polygon: polygon,
+            grid: [
+              [
+                [0.2, 0.3],
+                [0.8, 0.3],
+              ],
+              [
+                [0.2, 0.6],
+                [0.8, 0.6],
+              ],
+            ],
+            references: [
+              {
+                id: 1,
+                corners: [
+                  [0.13, 0.16],
+                  [0.18, 0.16],
+                  [0.18, 0.21],
+                  [0.13, 0.21],
+                ],
+              },
+            ],
+            quality: { reprojection_error_px: 0.23, coverage_ratio: 0.64 },
+          });
+        }
+        if (
+          body.proposal_id !== "fixture-signed-proposal" ||
+          !body.ground_confirmed ||
+          !body.zones_reviewed
+        ) {
+          return send({ detail: "Confirmación incompleta" }, 400);
+        }
+        if (body.control?.distance_m !== 2)
+          return send(
+            ["La medida de comprobación supera la tolerancia declarada"],
+            400,
+          );
+        cameraFixture.revision++;
+        cameraFixture.calibration_requires_reconfirmation = false;
+        cameraFixture.configuration.calibration = {
+          status: "valid",
+          version: 2,
+          zones_reviewed: true,
+          pattern_evidence: {
+            control: {
+              ...body.control,
+              observed_m: 2.01,
+              absolute_error_m: 0.01,
+              relative_error: 0.005,
+            },
+          },
+        };
+        return send(cameraFixture);
+      }
       if (
         url.pathname === "/api/v1/analysis/sessions/" &&
         req.method === "POST"
