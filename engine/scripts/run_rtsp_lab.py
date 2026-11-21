@@ -2,7 +2,7 @@
 
 import argparse
 from collections import Counter, deque
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import redirect_stderr
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
@@ -29,6 +29,7 @@ from operix_engine.byte_tracker import ByteTrackConfig, ByteTracker
 from operix_engine.dual_perception import ClassPerceptionChannel, DualPerception, PerceptionFrame
 from operix_engine.event_publishing import (
     EventContext, HttpEventSink, event_candidate_payload, publish_document_with_retries,
+    report_evidence_with_retries, upload_evidence_with_retries,
 )
 from operix_engine.operational_config import load_operational_config
 from operix_engine.rtsp_inference import InferenceBusy, InferenceClient, InferenceError, InferenceTimeout
@@ -114,12 +115,16 @@ class WorkerStatus:
             "arrival_to_result", "queue_age", "inference", "rules", "jpeg",
             "png", "publication", "clip", "arrival_to_publication", "inference_request",
             "inference_queue", "person_batch", "forklift_batch",
+            "registration_queue", "registration", "arrival_to_registration", "postroll",
+            "png_upload", "arrival_to_png", "arrival_to_clip", "evidence_status",
         )}
         self.metrics = Counter({key: 0 for key in (
             "frames_processed", "candidates", "events_submitted", "events_published", "events_duplicate",
             "events_failed", "events_skipped_quota", "events_skipped_backpressure", "clips_saved",
             "clips_existing", "clips_unavailable", "clips_disk_limit", "clips_failed",
             "evidence_saved", "evidence_failed",
+            "registration_attempts", "png_upload_attempts", "evidence_status_attempts",
+            "evidence_status_failed",
         )})
         self.preview_frame = None
         self.last_frame_at = None
@@ -301,95 +306,145 @@ class EventImage:
         return png, (monotonic() - started) * 1000
 
 
-@dataclass
+@dataclass(eq=False)
 class PendingEvent:
     payload: dict
     image: EventImage
-    frames: list
-    last_index: int
+    received: float
+    accepted: float
+    registration: Future
+    frames: list | None = None
+    postroll_finished: float | None = None
+    event_id: str | None = None
+    evidence: Future | None = None
     post_bytes: int = 0
 
 
 class EventPublisher:
-    def __init__(self, sink, clips, executor, metrics, fps, timings=None):
-        self.sink, self.clips, self.executor, self.metrics = sink, clips, executor, metrics
-        self.pending = set()
-        self.waiting = []
+    def __init__(self, sink, clips, registration_executor, evidence_executor, metrics, fps, timings=None):
+        self.sink, self.clips, self.metrics = sink, clips, metrics
+        self.registration_executor, self.evidence_executor = registration_executor, evidence_executor
+        self.pending = []
         self.post_frames = math.floor(fps)
         self.timings = timings
 
-    def _publish(self, job):
+    @property
+    def waiting(self):
+        return any(job.postroll_finished is None for job in self.pending)
+
+    def _register(self, payload, received, accepted):
+        started = monotonic()
+        result, attempts = publish_document_with_retries(self.sink, payload, None, max_attempts=2)
+        finished = monotonic()
+        elapsed = (finished - started) * 1000
+        timings = {"registration_queue": (started - accepted) * 1000,
+                   "registration": elapsed, "publication": elapsed}
+        if result.event_id:
+            arrival = (finished - received) * 1000
+            timings.update(arrival_to_registration=arrival, arrival_to_publication=arrival)
+        return result, attempts, timings
+
+    def _save_evidence(self, job):
         was_encoded = "encoded" in vars(job.image)
         png, png_ms = job.image.encoded
-        timings = {} if was_encoded else {"png": png_ms}
-        if png is None:
-            return {"events_failed": 1, "evidence_failed": 1}, timings
-        started = monotonic()
-        result, _ = publish_document_with_retries(self.sink, job.payload, png, max_attempts=2)
-        timings["publication"] = (monotonic() - started) * 1000
-        counters = {f"events_{result.status}": 1}
-        counters["evidence_saved" if result.status in {"published", "duplicate"} else "evidence_failed"] = 1
-        if result.event_id:
-            arrival = datetime.fromisoformat(job.payload["source"]["capture"]["received_at"])
-            timings["arrival_to_publication"] = max(0., (utc_now() - arrival).total_seconds() * 1000)
+        timings = {"postroll": (job.postroll_finished - job.accepted) * 1000}
+        if not was_encoded:
+            timings["png"] = png_ms
+        counters = {}
+        png_status = "failed"
+        if png is not None:
             started = monotonic()
-            try:
-                clip_status = self.clips.save(result.event_id, job.payload, job.frames)
-            except (OSError, RuntimeError, ValueError, cv2.error):
-                clip_status = "failed"
-            counters[f"clips_{clip_status}"] = 1
-            timings["clip"] = (monotonic() - started) * 1000
+            result, attempts = upload_evidence_with_retries(
+                self.sink, job.event_id, job.payload, png, max_attempts=2,
+            )
+            finished = monotonic()
+            timings["png_upload"] = (finished - started) * 1000
+            counters["png_upload_attempts"] = attempts
+            if result.status in {"published", "duplicate"}:
+                png_status = "ready"
+                timings["arrival_to_png"] = (finished - job.received) * 1000
+        counters["evidence_saved" if png_status == "ready" else "evidence_failed"] = 1
+
+        started = monotonic()
+        try:
+            clip_status = self.clips.save(job.event_id, job.payload, job.frames or [])
+        except (OSError, RuntimeError, ValueError, cv2.error):
+            clip_status = "failed"
+        finished = monotonic()
+        counters[f"clips_{clip_status}"] = 1
+        timings["clip"] = (finished - started) * 1000
+        if clip_status in {"saved", "existing"}:
+            timings["arrival_to_clip"] = (finished - job.received) * 1000
+
+        result, attempts = report_evidence_with_retries(
+            self.sink, job.event_id, max_attempts=2,
+        )
+        timings["evidence_status"] = (monotonic() - finished) * 1000
+        counters["evidence_status_attempts"] = attempts
+        counters["evidence_status_failed"] = int(result.status == "failed")
         return counters, timings
 
-    def _dispatch(self, job):
-        self.pending.add(self.executor.submit(self._publish, job))
-
-    def advance(self, index, data):
-        remaining = []
-        for job in self.waiting:
-            if job.post_bytes + len(data) > POST_LIMIT:
-                self._dispatch(job)
+    def advance(self, index, data, ring):
+        for job in self.pending:
+            if job.postroll_finished is not None:
                 continue
-            job.frames.append((index, data))
-            job.post_bytes += len(data)
-            if index >= job.last_index:
-                self._dispatch(job)
+            if job.frames is None:
+                job.frames = list(ring.snapshot())
+                if not self.post_frames or not job.frames:
+                    job.postroll_finished = monotonic()
+            elif job.post_bytes + len(data) > POST_LIMIT:
+                job.postroll_finished = monotonic()
             else:
-                remaining.append(job)
-        self.waiting = remaining
+                job.frames.append((index, data))
+                job.post_bytes += len(data)
+                if index >= job.payload["frame_index"] + self.post_frames:
+                    job.postroll_finished = monotonic()
 
     def flush(self):
-        for job in self.waiting:
-            self._dispatch(job)
-        self.waiting.clear()
+        for job in self.pending:
+            if job.postroll_finished is None:
+                job.postroll_finished = monotonic()
+
+    def _record(self, counts, timings):
+        self.metrics.update(counts)
+        if self.timings is not None:
+            for name, elapsed in timings.items():
+                self.timings[name].append(elapsed)
 
     def collect(self, *, drain=False):
-        for future in tuple(self.pending):
-            if drain or future.done():
-                self.pending.remove(future)
-                counts, timings = future.result()
-                self.metrics.update(counts)
-                if self.timings is not None:
-                    for name, elapsed in timings.items():
-                        self.timings[name].append(elapsed)
+        for job in self.pending[:]:
+            if job.event_id is None:
+                if not (drain or job.registration.done()):
+                    continue
+                result, attempts, timings = job.registration.result()
+                self._record({f"events_{result.status}": 1, "registration_attempts": attempts}, timings)
+                if result.event_id is None:
+                    self.pending.remove(job)
+                    continue
+                job.event_id = result.event_id
+            if job.postroll_finished is not None and job.evidence is None:
+                job.evidence = self.evidence_executor.submit(self._save_evidence, job)
+            if job.evidence is not None and (drain or job.evidence.done()):
+                self._record(*job.evidence.result())
+                self.pending.remove(job)
 
-    def submit(self, candidates, context, received_at, processed_at, frame, epoch, ring, annotated):
+    def submit(self, candidates, context, received_at, processed_at, frame, epoch, annotated):
         self.metrics["candidates"] += len(candidates)
         image = None
         for candidate in candidates:
             if self.metrics["events_submitted"] >= MAX_EVENTS:
                 self.metrics["events_skipped_quota"] += 1
-            elif len(self.pending) + len(self.waiting) >= MAX_PENDING:
+            elif len(self.pending) >= MAX_PENDING:
                 self.metrics["events_skipped_backpressure"] += 1
             else:
                 payload = reception_payload(candidate, context, received_at, processed_at, frame.pts, epoch.uses_pts)
                 if image is None:
                     image = EventImage(annotated.copy())
-                job = PendingEvent(payload, image, list(ring.snapshot()), frame.index + self.post_frames)
-                if self.post_frames and job.frames:
-                    self.waiting.append(job)
-                else:
-                    self._dispatch(job)
+                accepted = monotonic()
+                registration = self.registration_executor.submit(
+                    self._register, {**payload, "evidence_pending": True}, frame.received, accepted,
+                )
+                self.pending.append(PendingEvent(payload, image, frame.received, accepted, registration))
                 self.metrics["events_submitted"] += 1
 
 
@@ -424,8 +479,11 @@ def run(args, status, stop_reason):
     capture = Capture(lambda: Reader(url, args.fps, pipeline.dimensions), fps=args.fps, trace=status.capture_trace)
     status.capture = capture
     status.write("connecting")
-    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="rtsp-event") as executor:
-        publisher = EventPublisher(sink, clips, executor, status.metrics, args.fps, status.timings)
+    with (
+        ThreadPoolExecutor(max_workers=1, thread_name_prefix="rtsp-event") as registration,
+        ThreadPoolExecutor(max_workers=1, thread_name_prefix="rtsp-evidence") as evidence,
+    ):
+        publisher = EventPublisher(sink, clips, registration, evidence, status.metrics, args.fps, status.timings)
         try:
             with capture:
                 while not (reason := stop_reason()):
@@ -516,6 +574,7 @@ def run(args, status, stop_reason):
                     failures_at_frame = failures
                     preview_due = now - last_preview >= PREVIEW_INTERVAL or epoch_reason is not None
                     keep_context = status.metrics["events_submitted"] < MAX_EVENTS
+                    publisher.submit(candidates, context, received_at, processed_at, frame, epoch, annotated)
                     if preview_due or keep_context or publisher.waiting:
                         encoding = monotonic()
                         encoded, jpeg = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 80])
@@ -523,13 +582,12 @@ def run(args, status, stop_reason):
                         if not encoded:
                             raise RuntimeError("La codificación JPEG falló")
                         data = jpeg.tobytes()
-                        publisher.advance(frame.index, data)
                         if keep_context:
                             ring.append(frame.index, data)
+                        publisher.advance(frame.index, data, ring)
                         if preview_due:
                             _write_atomic(args.output / "preview.jpg", data)
                             last_preview, status.preview_frame = now, frame.index
-                    publisher.submit(candidates, context, received_at, processed_at, frame, epoch, ring, annotated)
                     if keep_context and status.metrics["events_submitted"] == MAX_EVENTS:
                         ring.clear()
                     status.write("processing")

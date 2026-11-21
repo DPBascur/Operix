@@ -10,6 +10,10 @@ def event_evidence_path(instance, filename):
 class Event(models.Model):
     """Persisted technical event, distinct from an in-memory EventCandidate."""
 
+    class EvidenceStage(models.TextChoices):
+        PENDING = "pending"
+        FINISHED = "finished"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     analysis_run_id = models.UUIDField()
     view_id = models.CharField(max_length=64)
@@ -32,6 +36,7 @@ class Event(models.Model):
     source = models.JSONField(default=dict, blank=True)
     pair_key = models.CharField(max_length=64, null=True, editable=False)
     evidence_image = models.FileField(upload_to=event_evidence_path, blank=True, null=True)
+    evidence_stage = models.CharField(max_length=8, choices=EvidenceStage.choices, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

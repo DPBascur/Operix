@@ -1,8 +1,11 @@
 import re
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
+from django.utils.timezone import now
 from rest_framework import serializers
 
+from .clips import clip_info
 from .models import Event
 from .pair_contract import EVENT_TYPES, validate_pair, validate_pair_parameters
 
@@ -13,6 +16,8 @@ def has_timezone(value: object) -> bool:
 
 class EventSerializer(serializers.ModelSerializer):
     evidence_url = serializers.SerializerMethodField()
+    evidence_status = serializers.SerializerMethodField()
+    evidence_pending = serializers.BooleanField(write_only=True, required=False)
     event_type = serializers.ChoiceField(choices=EVENT_TYPES)
     frame_index = serializers.IntegerField(min_value=0, max_value=2147483647)
     track_id = serializers.IntegerField(min_value=0, max_value=2147483647, required=False, allow_null=True)
@@ -43,7 +48,7 @@ class EventSerializer(serializers.ModelSerializer):
             "observed_inside",
             "observed_dwell_time_s",
             "interaction", "observations", "episode", "source", "pair_key",
-            "evidence_url",
+            "evidence_url", "evidence_status", "evidence_pending",
             "created_at",
         )
         read_only_fields = ("id", "created_at", "evidence_url", "pair_key")
@@ -58,6 +63,19 @@ class EventSerializer(serializers.ModelSerializer):
         from django.urls import reverse
 
         return reverse("event-evidence", kwargs={"pk": obj.pk})
+
+    def get_evidence_status(self, obj):
+        if not obj.evidence_stage:
+            return None
+        png = self.get_evidence_url(obj) is not None
+        clip = (self.context["event_clip"] if "event_clip" in self.context else clip_info(obj)) is not None
+        if png and clip:
+            return "ready"
+        # Bound pending after a hard stop or unavailable publisher. A late successful
+        # upload remains visible without reopening the original publication.
+        if obj.evidence_stage == Event.EvidenceStage.PENDING and now() - obj.created_at < timedelta(minutes=5):
+            return "pending"
+        return "partial" if png or clip else "failed"
 
     def validate_occurred_at(self, value):
         if not has_timezone(self.initial_data.get("occurred_at")):
@@ -95,6 +113,8 @@ class EventSerializer(serializers.ModelSerializer):
         unknown = set(self.initial_data) - writable
         if unknown:
             raise serializers.ValidationError({"fields": f"Campos no admitidos: {', '.join(sorted(unknown))}."})
+        if attrs.get("evidence_pending") and attrs.get("source", {}).get("kind") != "lab":
+            raise serializers.ValidationError({"evidence_pending": "Reservado a eventos del laboratorio."})
         parameters = attrs["rule_parameters"]
         if parameters["kind"] != attrs["event_type"]:
             raise serializers.ValidationError({"event_type": "No coincide con la regla."})

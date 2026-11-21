@@ -495,12 +495,14 @@ class LocalEvents(BaseHTTPRequestHandler):
             body = json.dumps({"id": str(uuid4())}).encode("ascii")
         elif re.fullmatch(r"/api/v1/events/[0-9a-f-]{36}/evidence/", self.path):
             body = b"{}"
+        elif re.fullmatch(r"/api/v1/events/[0-9a-f-]{36}/evidence-status/", self.path):
+            body = b""
         else:
             self.send_error(404)
             return
         if len(self.rfile.read(int(length))) != int(length):
             return
-        self.send_response(201)
+        self.send_response(201 if body else 204)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()

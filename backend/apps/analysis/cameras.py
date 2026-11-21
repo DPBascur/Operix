@@ -74,9 +74,13 @@ def status_for(run):
     if process is None or process.poll() is not None:
         # Compose uses one Django server. Restart terminates its workers and never welds epochs.
         state = state if state in TERMINAL else "error"
-        CameraRun.objects.filter(pk=run.pk, active=True).update(
-            active=False, terminal_state=state, ended_at=now(), metrics=metrics,
-        )
+        with transaction.atomic():
+            if CameraRun.objects.filter(pk=run.pk, active=True).update(
+                active=False, terminal_state=state, ended_at=now(), metrics=metrics,
+            ):
+                Event.objects.filter(analysis_run_id=run.pk, evidence_stage=Event.EvidenceStage.PENDING).update(
+                    evidence_stage=Event.EvidenceStage.FINISHED,
+                )
         with _lock:
             _processes.pop(run.pk, None)
         run.active = False

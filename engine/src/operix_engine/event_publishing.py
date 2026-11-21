@@ -16,6 +16,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from http.client import HTTPException
 from typing import Literal, Mapping, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
@@ -164,6 +165,14 @@ def publish_document_with_retries(sink, payload, evidence_png, *, max_attempts=3
     return _retry_operation(lambda: sink.publish_document(payload, evidence_png), max_attempts)
 
 
+def upload_evidence_with_retries(sink, event_id, payload, evidence_png, *, max_attempts=3):
+    return _retry_operation(lambda: sink.upload_evidence(event_id, payload, evidence_png), max_attempts)
+
+
+def report_evidence_with_retries(sink, event_id, *, max_attempts=3):
+    return _retry_operation(lambda: sink.report_evidence(event_id), max_attempts)
+
+
 def _retry_operation(operation, max_attempts):
     if type(max_attempts) is not int or not 1 <= max_attempts <= 3:
         raise ValueError("max_attempts debe estar entre 1 y 3")
@@ -264,7 +273,7 @@ class HttpEventSink:
                 else "network_error"
             )
             return PublishResult("failed", reason=reason)
-        except OSError:
+        except (OSError, HTTPException):
             return PublishResult("failed", reason="network_error")
         except (TypeError, ValueError, KeyError, OverflowError):
             return PublishResult("failed", reason="invalid_payload")
@@ -280,6 +289,20 @@ class HttpEventSink:
             return PublishResult("failed", http_status=status, reason="invalid_response")
         already_exists = status == 200
         if evidence_png is not None and not (already_exists and document.get("evidence_url")):
+            result = self.upload_evidence(event_id, payload, evidence_png)
+            if result.status == "failed":
+                return result
+        self._completed[key] = (snapshot, event_id)
+        return PublishResult(
+            "duplicate" if already_exists else "published",
+            http_status=status,
+            event_id=event_id,
+            reason="already_exists" if already_exists else None,
+        )
+
+    def upload_evidence(self, event_id: str, payload: Mapping[str, object], evidence_png: bytes) -> PublishResult:
+        try:
+            event_id = str(UUID(event_id))
             if not isinstance(evidence_png, bytes) or not evidence_png.startswith(b"\x89PNG\r\n\x1a\n"):
                 return PublishResult("failed", event_id=event_id, reason="invalid_evidence")
             boundary = uuid4().hex
@@ -304,19 +327,31 @@ class HttpEventSink:
                          **self._authorization},
                 method="POST",
             )
-            try:
-                with self._request(upload) as response:
-                    upload_status = response.status
-            except HTTPError as error:
-                return PublishResult("failed", http_status=error.code, event_id=event_id, reason="evidence_http_error")
-            except (TimeoutError, socket.timeout, URLError, OSError):
-                return PublishResult("failed", event_id=event_id, reason="evidence_network_error")
-            if upload_status not in (200, 201):
-                return PublishResult("failed", http_status=upload_status, event_id=event_id, reason="evidence_unexpected_status")
-        self._completed[key] = (snapshot, event_id)
-        return PublishResult(
-            "duplicate" if already_exists else "published",
-            http_status=status,
-            event_id=event_id,
-            reason="already_exists" if already_exists else None,
+        except (TypeError, ValueError, KeyError, AttributeError):
+            return PublishResult("failed", reason="invalid_evidence")
+        return self._write_evidence(upload, event_id, success_statuses=(200, 201))
+
+    def report_evidence(self, event_id: str) -> PublishResult:
+        try:
+            event_id = str(UUID(event_id))
+        except (TypeError, ValueError, AttributeError):
+            return PublishResult("failed", reason="invalid_evidence")
+        request = Request(
+            f"{self._events_url}{event_id}/evidence-status/",
+            data=b"",
+            headers=self._authorization,
+            method="POST",
         )
+        return self._write_evidence(request, event_id, success_statuses=(204,))
+
+    def _write_evidence(self, request, event_id, *, success_statuses):
+        try:
+            with self._request(request) as response:
+                status = response.status
+        except HTTPError as error:
+            return PublishResult("failed", http_status=error.code, event_id=event_id, reason="evidence_http_error")
+        except (OSError, HTTPException):
+            return PublishResult("failed", event_id=event_id, reason="evidence_network_error")
+        if status not in success_statuses:
+            return PublishResult("failed", http_status=status, event_id=event_id, reason="evidence_unexpected_status")
+        return PublishResult("published", http_status=status, event_id=event_id)

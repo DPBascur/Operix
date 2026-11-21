@@ -63,7 +63,8 @@ class EventListCreateView(PublisherWriteMixin, generics.ListCreateAPIView):
         require_event_publisher(request)
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        values = serializer.validated_data
+        values = dict(serializer.validated_data)
+        evidence_pending = values.pop("evidence_pending", False)
         source = values.get("source", {})
         if source.get("kind") == "lab":
             from apps.analysis.models import CameraRun
@@ -87,7 +88,8 @@ class EventListCreateView(PublisherWriteMixin, generics.ListCreateAPIView):
                                "rule_version", "pair_key", "zone_id")
         identity = {field: values[field] for field in identity_fields}
         defaults = {field: value for field, value in values.items() if field not in identity}
-        event, created = Event.objects.get_or_create(defaults=defaults, **identity)
+        initial = {"evidence_stage": Event.EvidenceStage.PENDING} if evidence_pending else {}
+        event, created = Event.objects.get_or_create(defaults={**defaults, **initial}, **identity)
         if not created:
             # El reloj civil puede ser una ancla de análisis distinta en un retry;
             # la primera fecha persistida se conserva. El resto debe coincidir.
@@ -112,7 +114,22 @@ class EventDetailView(generics.RetrieveAPIView):
 
     def retrieve(self, request, *args, **kwargs):
         event = self.get_object()
-        return Response({**self.get_serializer(event).data, "evidence_clip": clip_info(event)})
+        clip = clip_info(event)
+        serializer = self.get_serializer(event, context={**self.get_serializer_context(), "event_clip": clip})
+        return Response({**serializer.data, "evidence_clip": clip})
+
+
+class EventEvidenceStatusView(PublisherWriteMixin, APIView):
+    def post(self, request, pk):
+        require_event_publisher(request)
+        # The worker reports that it finished. Read APIs derive availability from
+        # the published artifacts, not from the worker-reported outcomes.
+        updated = Event.objects.filter(
+            pk=pk, evidence_stage__in=(Event.EvidenceStage.PENDING, Event.EvidenceStage.FINISHED),
+        ).update(evidence_stage=Event.EvidenceStage.FINISHED)
+        if not updated:
+            raise Http404("Evento sin publicación de evidencia por etapas")
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class EventClipView(APIView):

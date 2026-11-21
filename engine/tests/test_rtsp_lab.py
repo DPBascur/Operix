@@ -8,8 +8,10 @@ from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
 from threading import Condition, Event
+from time import perf_counter
 from types import SimpleNamespace
 from unittest import TestCase, mock
+from urllib.error import URLError
 from uuid import uuid4
 
 import cv2
@@ -193,7 +195,7 @@ class EventTests(TestCase):
             "rule", 1, 8, 1.23456, 1, "person", "zone", {"kind": "zone_dwell"}, True, 1.2, 2,
         )
         self.processed = self.received + timedelta(milliseconds=75)
-        self.frame = SimpleNamespace(index=8, pts=51.0)
+        self.frame = SimpleNamespace(index=8, pts=51.0, received=perf_counter() - .075)
         self.epoch = SimpleNamespace(uses_pts=True)
         self.image = np.full((28, 32, 3), 170, dtype=np.uint8)
 
@@ -208,23 +210,35 @@ class EventTests(TestCase):
         metrics = lab.Counter()
         clips = mock.Mock()
         clips.save.return_value = "saved"
-        publisher = lab.EventPublisher(sink, clips, ImmediateExecutor(), metrics, fps=2)
+        timings = lab.WorkerStatus(SimpleNamespace()).timings
+        publisher = lab.EventPublisher(sink, clips, ImmediateExecutor(), ImmediateExecutor(), metrics, 2, timings)
         ring = JpegRing(2)
         ring.append(7, b"previous")
         ring.append(8, b"trigger")
         with mock.patch.object(sink, "_request", side_effect=[
-            response(201, {"id": self.event_id}), response(201, {}),
+            response(201, {"id": self.event_id}), response(201, {}), response(204, {}),
         ]) as request:
             publisher.submit((self.candidate,), self.context, self.received, self.processed,
-                             self.frame, self.epoch, ring, self.image)
-            publisher.advance(9, b"following")
-            request.assert_not_called()
-            publisher.advance(10, b"last")
+                             self.frame, self.epoch, self.image)
             publisher.collect()
-        event_request, evidence_request = [call.args[0] for call in request.call_args_list]
+            self.assertEqual(metrics["events_published"], 1)
+            self.assertEqual(list(timings["arrival_to_publication"]), list(timings["arrival_to_registration"]))
+            self.assertFalse(timings["arrival_to_png"])
+            publisher.advance(8, b"trigger", ring)
+            publisher.advance(9, b"following", ring)
+            publisher.collect()
+            request.assert_called_once()
+            clips.save.assert_not_called()
+            publisher.advance(10, b"last", ring)
+            publisher.collect()
+        event_request, evidence_request, status_request = [call.args[0] for call in request.call_args_list]
         payload = json.loads(event_request.data)
+        self.assertIs(payload.pop("evidence_pending"), True)
         self.assertEqual(event_request.get_header("Authorization"), "Bearer test-token")
         self.assertEqual(evidence_request.get_header("Authorization"), "Bearer test-token")
+        self.assertEqual(status_request.get_header("Authorization"), "Bearer test-token")
+        self.assertEqual(status_request.data, b"")
+        self.assertTrue(status_request.full_url.endswith(f"/{self.event_id}/evidence-status/"))
         self.assertTrue(evidence_request.full_url.endswith(f"/{self.event_id}/evidence/"))
         self.assertEqual(payload["occurred_at"], self.received.isoformat())
         self.assertEqual(payload["video_timestamp_s"], "1.235")
@@ -240,20 +254,24 @@ class EventTests(TestCase):
         clips.save.assert_called_once_with(self.event_id, payload, [(7, b"previous"), (8, b"trigger"),
                                                                   (9, b"following"), (10, b"last")])
         self.assertEqual((metrics["events_published"], metrics["evidence_saved"], metrics["clips_saved"]), (1, 1, 1))
+        self.assertEqual((metrics["registration_attempts"], metrics["png_upload_attempts"],
+                          metrics["evidence_status_attempts"], metrics["evidence_status_failed"]), (1, 1, 1, 0))
+        self.assertLessEqual(timings["arrival_to_registration"][0], timings["arrival_to_png"][0])
+        self.assertLessEqual(timings["arrival_to_png"][0], timings["arrival_to_clip"][0])
 
     def test_epoch_cut_flushes_pending_and_quota_survives_reset(self):
-        sink = mock.Mock()
-        sink.publish_document.return_value = PublishResult("published", http_status=201, event_id=self.event_id)
+        sink = self.successful_sink()
         clips = mock.Mock(save=mock.Mock(return_value="saved"))
         metrics = lab.Counter({"events_submitted": lab.MAX_EVENTS - 1})
-        publisher = lab.EventPublisher(sink, clips, ImmediateExecutor(), metrics, fps=12)
+        publisher = lab.EventPublisher(sink, clips, ImmediateExecutor(), ImmediateExecutor(), metrics, fps=12)
         ring = JpegRing(12)
         ring.append(8, b"trigger")
         publisher.submit((self.candidate,) * 2, self.context, self.received, self.processed,
-                         self.frame, self.epoch, ring, self.image)
+                         self.frame, self.epoch, self.image)
+        publisher.advance(8, b"trigger", ring)
         publisher.flush()
         ring.clear()
-        publisher.advance(9, b"new epoch")
+        publisher.advance(9, b"new epoch", ring)
         publisher.collect()
         self.assertEqual(metrics["events_submitted"], lab.MAX_EVENTS)
         self.assertEqual(metrics["events_skipped_quota"], 1)
@@ -261,35 +279,148 @@ class EventTests(TestCase):
         self.assertEqual((event_id, frames), (self.event_id, [(8, b"trigger")]))
 
     def test_png_is_deferred_shared_and_uses_the_trigger_snapshot(self):
-        sink = mock.Mock()
-        sink.publish_document.return_value = PublishResult("published")
-        publisher = lab.EventPublisher(sink, mock.Mock(), ImmediateExecutor(), lab.Counter(), fps=2)
+        sink = self.successful_sink()
+        publisher = lab.EventPublisher(sink, mock.Mock(), ImmediateExecutor(), ImmediateExecutor(),
+                                       lab.Counter(), fps=2)
         ring = JpegRing(2)
         ring.append(8, b"trigger")
         with mock.patch.object(lab, "evidence_png", wraps=lab.evidence_png) as encode:
             publisher.submit((self.candidate,) * 2, self.context, self.received, self.processed,
-                             self.frame, self.epoch, ring, self.image)
+                             self.frame, self.epoch, self.image)
+            publisher.advance(8, b"trigger", ring)
             encode.assert_not_called()
             self.image[:] = 0
             publisher.flush()
             publisher.collect()
             encode.assert_called_once()
-        images = [call.args[1] for call in sink.publish_document.call_args_list]
+        images = [call.args[2] for call in sink.upload_evidence.call_args_list]
         self.assertEqual(len(images), 2)
         self.assertIs(images[0], images[1])
         self.assertTrue(np.all(cv2.imdecode(np.frombuffer(images[0], dtype=np.uint8), cv2.IMREAD_COLOR) == 170))
 
-    def test_png_failure_counts_failed_jobs_without_publishing_or_stopping_the_loop(self):
+    def successful_sink(self):
         sink = mock.Mock()
+        sink.publish_document.return_value = PublishResult("published", http_status=201, event_id=self.event_id)
+        sink.upload_evidence.return_value = PublishResult("published", http_status=201, event_id=self.event_id)
+        sink.report_evidence.return_value = PublishResult("published", http_status=204, event_id=self.event_id)
+        return sink
+
+    def test_png_failure_keeps_registered_event_and_still_saves_clip(self):
+        sink = self.successful_sink()
         metrics = lab.Counter()
-        publisher = lab.EventPublisher(sink, mock.Mock(), ImmediateExecutor(), metrics, fps=2)
+        clips = mock.Mock(save=mock.Mock(return_value="saved"))
+        publisher = lab.EventPublisher(sink, clips, ImmediateExecutor(), ImmediateExecutor(), metrics, fps=2)
+        ring = JpegRing(2)
+        ring.append(8, b"trigger")
         with mock.patch.object(lab, "evidence_png", side_effect=RuntimeError("encode failure")):
             publisher.submit((self.candidate,), self.context, self.received, self.processed,
-                             self.frame, self.epoch, JpegRing(2), self.image)
+                             self.frame, self.epoch, self.image)
+            publisher.advance(8, b"trigger", ring)
+            publisher.flush()
             publisher.collect()
-        sink.publish_document.assert_not_called()
-        self.assertEqual((metrics["events_failed"], metrics["evidence_failed"]), (1, 1))
+        sink.publish_document.assert_called_once()
+        sink.upload_evidence.assert_not_called()
+        clips.save.assert_called_once()
+        sink.report_evidence.assert_called_once_with(self.event_id)
+        self.assertEqual((metrics["events_published"], metrics["events_failed"], metrics["evidence_failed"],
+                          metrics["clips_saved"]), (1, 0, 1, 1))
         self.assertFalse(publisher.pending)
+
+    def test_registration_failure_releases_slot_without_sending_evidence(self):
+        sink = self.successful_sink()
+        sink.publish_document.return_value = PublishResult("failed", http_status=409)
+        clips = mock.Mock()
+        metrics = lab.Counter()
+        publisher = lab.EventPublisher(sink, clips, ImmediateExecutor(), ImmediateExecutor(), metrics, fps=2)
+        publisher.submit((self.candidate,), self.context, self.received, self.processed,
+                         self.frame, self.epoch, self.image)
+        publisher.collect()
+        self.assertEqual((metrics["events_submitted"], metrics["events_failed"]), (1, 1))
+        self.assertFalse(publisher.pending)
+        sink.upload_evidence.assert_not_called()
+        sink.report_evidence.assert_not_called()
+        clips.save.assert_not_called()
+
+    def test_slow_clip_leaves_registration_free_and_in_flight_jobs_bounded(self):
+        clip_started, release_clip = Event(), Event()
+        sink = self.successful_sink()
+
+        def save(*_):
+            clip_started.set()
+            if not release_clip.wait(3):
+                raise AssertionError("Test did not release the clip")
+            return "saved"
+
+        clips = mock.Mock(save=save)
+        metrics = lab.Counter()
+        with ThreadPoolExecutor(1) as register, ThreadPoolExecutor(1) as evidence:
+            publisher = lab.EventPublisher(sink, clips, register, evidence, metrics, fps=2)
+            try:
+                publisher.submit((self.candidate,), self.context, self.received, self.processed,
+                                 self.frame, self.epoch, self.image)
+                publisher.pending[0].registration.result(timeout=3)
+                publisher.flush()
+                publisher.collect()
+                self.assertTrue(clip_started.wait(3))
+                publisher.submit((self.candidate,) * lab.MAX_PENDING, self.context, self.received,
+                                 self.processed, self.frame, self.epoch, self.image)
+                for job in publisher.pending[1:]:
+                    job.registration.result(timeout=3)
+                publisher.collect()
+                self.assertEqual(len(publisher.pending), lab.MAX_PENDING)
+                self.assertEqual(metrics["events_skipped_backpressure"], 1)
+                self.assertEqual(metrics["events_published"], lab.MAX_PENDING)
+                self.assertEqual(metrics["clips_saved"], 0)
+            finally:
+                release_clip.set()
+                publisher.flush()
+                publisher.collect(drain=True)
+        self.assertEqual(metrics["clips_saved"], lab.MAX_PENDING)
+        self.assertFalse(publisher.pending)
+
+    def test_retries_registration_and_evidence_independently_with_same_snapshots(self):
+        def response(status, **document):
+            reply = BytesIO(json.dumps(document).encode())
+            reply.status = status
+            return reply
+
+        sink = HttpEventSink("http://127.0.0.1:8000/api/v1")
+        metrics = lab.Counter()
+        clips = mock.Mock(save=mock.Mock(return_value="unavailable"))
+        publisher = lab.EventPublisher(sink, clips, ImmediateExecutor(), ImmediateExecutor(), metrics, fps=2)
+        with mock.patch.object(sink, "_request", side_effect=[
+            TimeoutError, response(200, id=self.event_id, created=False),
+            URLError("lost response"), response(200), response(204),
+        ]) as request, mock.patch("operix_engine.event_publishing.time.sleep"):
+            publisher.submit((self.candidate,), self.context, self.received, self.processed,
+                             self.frame, self.epoch, self.image)
+            publisher.flush()
+            publisher.collect(drain=True)
+        first, retry, png_first, png_retry, completed = [call.args[0] for call in request.call_args_list]
+        self.assertEqual(first.data, retry.data)
+        self.assertEqual(png_first.full_url, png_retry.full_url)
+        self.assertTrue(png_retry.full_url.endswith(f"/{self.event_id}/evidence/"))
+        self.assertTrue(completed.full_url.endswith(f"/{self.event_id}/evidence-status/"))
+        self.assertEqual((metrics["events_duplicate"], metrics["registration_attempts"],
+                          metrics["evidence_saved"], metrics["png_upload_attempts"],
+                          metrics["clips_unavailable"]), (1, 2, 1, 2, 1))
+
+    def test_postroll_limit_retains_trigger_and_finishes_before_oversize_frame(self):
+        sink = self.successful_sink()
+        clips = mock.Mock(save=mock.Mock(return_value="saved"))
+        publisher = lab.EventPublisher(sink, clips, ImmediateExecutor(), ImmediateExecutor(),
+                                       lab.Counter(), fps=2)
+        ring = JpegRing(2)
+        ring.append(8, b"trigger")
+        publisher.submit((self.candidate,), self.context, self.received, self.processed,
+                         self.frame, self.epoch, self.image)
+        publisher.advance(8, b"trigger", ring)
+        with mock.patch.object(lab, "POST_LIMIT", 3):
+            publisher.advance(9, b"one", ring)
+            publisher.advance(10, b"two", ring)
+        publisher.collect()
+        self.assertFalse(publisher.pending)
+        self.assertEqual(clips.save.call_args.args[2], [(8, b"trigger"), (9, b"one")])
 
     def test_clip_matches_authorized_path_and_event_metadata(self):
         payload = lab.reception_payload(self.candidate, self.context, self.received, self.processed, None, False)
