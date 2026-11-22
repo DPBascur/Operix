@@ -172,7 +172,8 @@ sobre los mismos fotogramas y comparar detecciones. El parámetro opcional
 `benchmark-live.py` mide en una red Docker temporal con replay continuo,
 sin escribir en PostgreSQL. Ejecuta primero sin `--execute` para comprobar
 el plan y con `--help` para ver rutas y opciones. Usa una imagen de línea
-base construida desde `7c2bdbd` y los mismos checkpoints para todas las etapas:
+base construida desde la revisión de control y los mismos checkpoints para
+todas las etapas. El ejemplo usa `7c2bdbd`:
 
 ```powershell
 python -B deployment/rtsp-lab/benchmark-live.py --feeds 1 2 3 4 `
@@ -186,9 +187,45 @@ Los alias tercero y cuarto repiten material aprobado. La medición de carga
 no amplía el inventario de cámaras del producto. El smoke autenticado
 valida PostgreSQL, publicación, reconexión y evidencias con el perfil
 que esté en ejecución. Añade `--shared` para exigir el perfil compartido.
-Las pruebas de otros perfiles aceptan `--width`, `--height` y `--fps`.
+Las pruebas de otros perfiles aceptan `--width`, `--height` y `--fps`
+(12, 15, 20, 24 o 30). El informe registra los fotogramas eliminados o
+repetidos por FFmpeg al preparar cada replay. Una emisión de 30 FPS con
+una fuente de menor cadencia mide carga de transporte y procesamiento.
+La cantidad de imágenes distintas depende del material original.
+`valid` comprueba que el observador y las fuentes fueron estables durante
+la ventana. `meets_capacity_gate` exige además cero descartes contabilizados,
+balance de cuadros y p95 local bajo 500 ms en todas las cámaras. Los percentiles de cada etapa
+son los del búfer reciente del worker al cierre de la ventana.
 Los recursos de GPU son muestras del total del host, con la carga del
 escritorio y otras aplicaciones incluida.
+
+`benchmark_decode_local.py` compara decodificación a ráfaga de los clips
+aprobados con FFmpeg y OpenCV. `--nvdec` añade decodificación CUDA con
+descarga a RAM e informa diferencias de fotogramas y PTS frente a software.
+La lectura RTSP observada por el worker incluye la espera de red. Para
+medir el coste de la verificación ArUco por separado, `benchmark_calibration_guard.py`
+repite fotogramas sintéticos con cero, uno o dos guardas, e incluye un
+desplazamiento de encuadre controlado.
+
+`benchmark_backends.py` compara PyTorch FP32 con ONNX Runtime CUDA o
+TensorRT en contenedores de prueba con los pesos originales de solo lectura.
+Consulta `--help` y el manifiesto antes de habilitar `--execute`. El resultado
+compara predicciones pos-NMS y separa el cambio de backend del cambio de
+forma o de lote. Los motores exportados y los pesos permanecen fuera de Git.
+Construye los entornos opcionales con `backend-proof.Dockerfile` y el target
+`ort` o `tensorrt`, pasando la imagen local de control como `BASE_IMAGE`.
+En video 16:9, `--input-height 384 --imgsz 640` conserva la forma rectangular
+del preprocesado de PyTorch. `benchmark_gpu.py --batch-eight` añade la prueba
+de lote 8 cuando hay al menos 4 GiB de memoria CUDA libre.
+`benchmark_replay_parity.py <report.json>` vuelve a alimentar ByteTrack, la
+geometría y las reglas de prueba con las detecciones guardadas, a la cadencia
+nominal del clip. El replay compara resultados de software sobre el mismo
+material. La precisión física y la cobertura en planta requieren otras pruebas.
+Para comparar el mismo ONNX en RTSP, construye el target `ort-live` con
+`--build-context exports=<carpeta del report.json>` y pasa esa imagen a
+`benchmark-live.py --candidate-image`. El worker experimental verifica las
+huellas y la forma antes de iniciar. Para volver a PyTorch, ejecuta la etapa
+`regular` con la imagen de control. Compose mantiene PyTorch como predeterminado.
 
 ### Medición desde la emisión RTSP hasta el historial
 
