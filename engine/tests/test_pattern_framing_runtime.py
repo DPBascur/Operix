@@ -180,6 +180,7 @@ class LabPatternTests(TestCase):
         person = Track(1, 0, "person", .9, BoundingBox(170, 120, 200, 180))
         forklift = Track(1, 0, "forklift", .9, BoundingBox(264, 120, 334, 180))
         detected = SimpleNamespace(person=(), forklift=())
+        timings = {key: [] for key in ("tracking", "spatial_guard", "geometry", "rule_evaluation", "overlays")}
         pipeline.reset(1)
         with (mock.patch.object(pipeline.perception.person, "track", return_value=(person,)),
               mock.patch.object(pipeline.perception.forklift, "track", return_value=(forklift,)),
@@ -187,7 +188,9 @@ class LabPatternTests(TestCase):
               mock.patch.object(pipeline.renderer, "render_proximity", wraps=pipeline.renderer.render_proximity) as render):
             def process(index, connection, received, timestamp):
                 frame = Frame(index, connection, received, None, image)
-                _, candidates, _, _ = pipeline.process(frame, timestamp, detected=detected, inference_ms=1.)
+                _, candidates, _, _ = pipeline.process(
+                    frame, timestamp, detected=detected, inference_ms=1., timings=timings,
+                )
                 _, spatial, result = render.call_args.args
                 return spatial.proximities[0].ground, result, candidates
 
@@ -207,6 +210,9 @@ class LabPatternTests(TestCase):
             self.assertEqual(len(candidates), 1)
             self.assertEqual(candidates[0].ground["units"], "m")
             self.assertEqual(detect.call_count, 3)
+            for stage_samples in timings.values():
+                self.assertEqual(len(stage_samples), 5)
+                self.assertTrue(all(sample >= 0 for sample in stage_samples))
 
     def test_uncalibrated_pipeline_does_not_run_marker_guard(self):
         pipeline = lab.LabPipeline(OperationalConfig(1, CAMERA, (), ()),

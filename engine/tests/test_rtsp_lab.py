@@ -33,6 +33,19 @@ class ImmediateExecutor:
 
 
 class WorkerTests(TestCase):
+    def test_capture_read_wall_time_is_reported_separately_from_frame_age(self):
+        with TemporaryDirectory() as directory:
+            args = SimpleNamespace(output=Path(directory), fps=12, width=32, height=16)
+            status = lab.WorkerStatus(args)
+            status.capture = SimpleNamespace(ready=Condition(), counts={}, queue=[], depth=0)
+            received = lab.monotonic()
+            status.capture_trace("open", 1, received)
+            status.capture_trace("decoded", 1, received, read_started=received - .080)
+            status.write("processing")
+            metrics = json.loads((args.output / "status.json").read_bytes())["metrics"]
+            self.assertEqual(metrics["p95_capture_read_wall_ms"], 80.)
+            self.assertIsNone(metrics["p95_arrival_to_result_ms"])
+
     def test_requires_explicit_pinned_literal_rtsp_address(self):
         for url, address in (
             ("rtsp://mediamtx:8554/camera", "192.168.1.2"),

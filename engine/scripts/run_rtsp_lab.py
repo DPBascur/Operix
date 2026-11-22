@@ -116,10 +116,13 @@ class WorkerStatus:
         self.capture = None
         self.epochs = Counter()
         self.received = deque(maxlen=600)
+        self.capture_reads = deque(maxlen=600)
         self.completed = deque(maxlen=600)
         self.connection = 0
         self.timings = {name: deque(maxlen=600) for name in (
             "arrival_to_result", "queue_age", "inference", "rules", "jpeg",
+            "person_detector", "forklift_detector", "tracking", "spatial_guard", "geometry",
+            "rule_evaluation", "overlays",
             "png", "publication", "clip", "arrival_to_publication", "inference_request",
             "inference_queue", "person_batch", "forklift_batch",
             "registration_queue", "registration", "arrival_to_registration", "postroll",
@@ -142,12 +145,14 @@ class WorkerStatus:
         self.inference_drops = Counter()
         self.inference_batch_sizes = Counter()
 
-    def capture_trace(self, kind, connection, timestamp, **_fields):
+    def capture_trace(self, kind, connection, timestamp, **fields):
         # Capture invoca el callback con el bloqueo de ready.
         if kind == "open":
             self.connection = connection
         elif kind == "decoded":
             self.received.append((timestamp, connection))
+            if "read_started" in fields:
+                self.capture_reads.append((timestamp - fields["read_started"]) * 1000)
 
     def write(self, state, reason=None):
         now = monotonic()
@@ -163,6 +168,7 @@ class WorkerStatus:
         capture_counts = {}
         decoded_recently = 0
         arrivals = []
+        capture_reads = ()
         queue_depth = queue_peak = 0
         if self.capture is not None:
             with self.capture.ready:
@@ -173,11 +179,12 @@ class WorkerStatus:
                 decoded_recently = len(received)
                 queue_depth = len(self.capture.queue)
                 queue_peak = self.capture.depth
+                capture_reads = tuple(self.capture_reads)
         received_fps = 0.0
         if len(arrivals) >= 2 and now - arrivals[-1] <= .5 and arrivals[-1] > arrivals[0]:
             received_fps = round((len(arrivals) - 1) / (arrivals[-1] - arrivals[0]), 2)
         timing_metrics = {}
-        for name, values in self.timings.items():
+        for name, values in (*self.timings.items(), ("capture_read_wall", capture_reads)):
             ordered = sorted(values)
             timing_metrics[f"{name}_ms"] = round(values[-1], 2) if values else None
             for quantile in (.50, .95):
@@ -276,23 +283,34 @@ class LabPipeline:
         for history in self.histories.values():
             history.reset()
 
-    def process(self, frame, timestamp, *, detected=None, inference_ms=None):
+    def process(self, frame, timestamp, *, detected=None, inference_ms=None, timings=None):
         if detected is None:
             observed, timing = self.perception.process(frame.image, synchronize=torch.cuda.synchronize)
             inference_ms = (timing.person_inference_s + timing.forklift_inference_s) * 1000
+            if timings is not None:
+                timings["person_detector"].append(timing.person_inference_s * 1000)
+                timings["forklift_detector"].append(timing.forklift_inference_s * 1000)
+                timings["tracking"].append((timing.person_tracking_s + timing.forklift_tracking_s) * 1000)
         else:
+            tracking_started = monotonic()
             observed = PerceptionFrame(detected.person, detected.forklift,
                                        self.perception.person.track(detected.person),
                                        self.perception.forklift.track(detected.forklift))
+            if timings is not None:
+                timings["tracking"].append((monotonic() - tracking_started) * 1000)
         rules_started = monotonic()
         tracks, _, _ = _visible_tracks(observed.person_tracks + observed.forklift_tracks, *self.dimensions)
+        guard_started = monotonic()
         spatial_allowed = (
             self.framing is None or self.framing.update(frame.image, frame.index, frame.received) == "VALID"
         )
+        geometry_started = monotonic()
         spatial = self.analyzer.update(frame.index, tracks, timestamp_s=timestamp, image_only=not spatial_allowed)
+        evaluation_started = monotonic()
         result = self.rules.evaluate(spatial) if spatial_allowed else None
         candidates = result.candidates if result is not None else ()
-        rules_ms = (monotonic() - rules_started) * 1000
+        overlay_started = monotonic()
+        rules_ms = (overlay_started - rules_started) * 1000
         annotated = frame.image
         occupied = []
         boxes = [track.bounding_box for track in tracks]
@@ -309,6 +327,12 @@ class LabPipeline:
         annotated = self.renderer.render_proximity(
             annotated, spatial, result, metric_expected=self.framing is not None, occupied=occupied,
         )
+        if timings is not None:
+            if self.framing is not None:
+                timings["spatial_guard"].append((geometry_started - guard_started) * 1000)
+            timings["geometry"].append((evaluation_started - geometry_started) * 1000)
+            timings["rule_evaluation"].append((overlay_started - evaluation_started) * 1000)
+            timings["overlays"].append((monotonic() - overlay_started) * 1000)
         return annotated, candidates, inference_ms, rules_ms
 
 
@@ -593,11 +617,13 @@ def run(args, status, stop_reason):
                         status.epoch = epoch.number
                         status.epochs[epoch_reason] += 1
                     if detected is None:
-                        annotated, candidates, inference_ms, rules_ms = pipeline.process(frame, timestamp)
+                        annotated, candidates, inference_ms, rules_ms = pipeline.process(
+                            frame, timestamp, timings=status.timings,
+                        )
                     else:
                         annotated, candidates, inference_ms, rules_ms = pipeline.process(
                             frame, timestamp, detected=detected,
-                            inference_ms=detected.person_ms + detected.forklift_ms,
+                            inference_ms=detected.person_ms + detected.forklift_ms, timings=status.timings,
                         )
                     completed = monotonic()
                     status.completed.append((completed, frame.received))

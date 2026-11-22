@@ -578,6 +578,7 @@ function CameraDiagnostics({
   stale: boolean;
 }) {
   const rate = cameraAnalysisRate(camera.metrics);
+  const received = cameraNumber(camera.metrics?.received_fps, " FPS");
   const coverage = cameraCoverage(camera.metrics);
   const groups = cameraTechnicalMetrics(camera.metrics);
   const frameAge = cameraNumber(camera.metrics?.last_frame_age_ms, " ms");
@@ -586,7 +587,10 @@ function CameraDiagnostics({
   const height = cameraNumber(camera.height);
   const expected = cameraNumber(camera.expected_fps, " FPS");
   const hasReading =
-    coverage !== null || rate.value !== null || groups.length > 0;
+    coverage !== null ||
+    received !== null ||
+    rate.value !== null ||
+    groups.length > 0;
 
   return (
     <section
@@ -603,7 +607,13 @@ function CameraDiagnostics({
           Última lectura de la ejecución.
         </p>
       ) : null}
-      <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div>
+          <dt className="text-sm text-text-secondary">Ritmo decodificado</dt>
+          <dd className="text-lg font-semibold tabular-nums">
+            {received ?? "Sin datos"}
+          </dd>
+        </div>
         <div>
           <dt className="text-sm text-text-secondary">
             Fotogramas observados (5 s)

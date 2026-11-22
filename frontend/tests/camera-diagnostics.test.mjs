@@ -141,3 +141,35 @@ test("el registro por etapas distingue p95 de evento, PNG y clip", () => {
     },
   ]);
 });
+
+test("los tiempos de lectura, detectores y anotaciones mantienen su alcance", () => {
+  assert.deepEqual(
+    cameraTechnicalMetrics({
+      p95_capture_read_wall_ms: 68,
+      p95_person_detector_ms: 26,
+      p95_forklift_detector_ms: 9,
+      p95_tracking_ms: 0.4,
+      p95_overlays_ms: 3,
+    }),
+    [
+      {
+        title: "Captura local",
+        rows: [["Lectura RTSP, incluida la espera (p95)", "68 ms"]],
+      },
+      {
+        title: "Procesamiento local (p95)",
+        rows: [
+          ["Seguimiento", "0,4 ms"],
+          ["Dibujo de anotaciones", "3 ms"],
+        ],
+      },
+      {
+        title: "Inferencia",
+        rows: [
+          ["Detector PERSON p95", "26 ms"],
+          ["Detector FORKLIFT p95", "9 ms"],
+        ],
+      },
+    ],
+  );
+});

@@ -66,6 +66,10 @@ export function cameraTechnicalMetrics(metrics: Metrics) {
           cameraNumber(metrics?.received_fps, " FPS"),
         ],
         ["Fotogramas decodificados", cameraNumber(counters?.decoded)],
+        [
+          "Lectura RTSP, incluida la espera (p95)",
+          cameraNumber(metrics?.p95_capture_read_wall_ms, " ms"),
+        ],
         ["Descartes por cola llena", cameraNumber(counters?.queue_drop)],
         ["Descartes por antigüedad", cameraNumber(counters?.expired_drop)],
         ["Descartes al desconectar", cameraNumber(counters?.disconnect_drop)],
@@ -89,6 +93,20 @@ export function cameraTechnicalMetrics(metrics: Metrics) {
           cameraNumber(metrics?.p95_arrival_to_result_ms, " ms"),
         ],
         ["Generación JPEG", cameraNumber(metrics?.p95_jpeg_ms, " ms")],
+        ["Seguimiento", cameraNumber(metrics?.p95_tracking_ms, " ms")],
+        [
+          "Verificación de encuadre",
+          cameraNumber(metrics?.p95_spatial_guard_ms, " ms"),
+        ],
+        ["Geometría", cameraNumber(metrics?.p95_geometry_ms, " ms")],
+        [
+          "Evaluación de reglas",
+          cameraNumber(metrics?.p95_rule_evaluation_ms, " ms"),
+        ],
+        [
+          "Dibujo de anotaciones",
+          cameraNumber(metrics?.p95_overlays_ms, " ms"),
+        ],
         ["Generación PNG", cameraNumber(metrics?.p95_png_ms, " ms")],
         [
           "Publicación",
@@ -158,6 +176,14 @@ export function cameraTechnicalMetrics(metrics: Metrics) {
         [
           "Lote FORKLIFT p95",
           cameraNumber(metrics?.p95_forklift_batch_ms, " ms"),
+        ],
+        [
+          "Detector PERSON p95",
+          cameraNumber(metrics?.p95_person_detector_ms, " ms"),
+        ],
+        [
+          "Detector FORKLIFT p95",
+          cameraNumber(metrics?.p95_forklift_detector_ms, " ms"),
         ],
         ...[1, 2, 3, 4].map<[string, string | null]>((size) => [
           `Resultados de esta cámara en lotes de ${size}`,
