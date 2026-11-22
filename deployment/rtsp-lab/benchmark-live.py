@@ -70,6 +70,8 @@ def docker(*argv, timeout=25):
     )
     if result.returncode:
         raise RuntimeError(f"docker {argv[0]} failed: {result.stderr.strip() or result.stdout.strip()}")
+    if argv[0] == "logs":
+        return (result.stdout + result.stderr).strip()
     return result.stdout.strip()
 
 
@@ -128,12 +130,13 @@ def media_image():
 def prepare_media(args, image, prefix):
     folder = args.output / "normalized"
     folder.mkdir()
+    cadence = {}
     fit = f"scale={args.width}:{args.height}:force_original_aspect_ratio=decrease:force_divisible_by=2"
     video_filter = f"fps={args.fps},{fit},pad={args.width}:{args.height}:(ow-iw)/2:(oh-ih)/2,setsar=1"
     with containers(args.output) as run:
         for index, (filename, _) in enumerate(INPUTS, 1):
             name = f"{prefix}-prep-{index}"
-            run(name, image, "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+            run(name, image, "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "verbose",
                 "-xerror", "-protocol_whitelist", "file", "-f", "mov", "-i", f"/source/{filename}",
                 "-map", "0:v:0", "-vf", video_filter, "-c:v", "libx264", "-threads", "2",
                 "-preset", "veryfast", "-pix_fmt", "yuv420p", "-bf", "0",
@@ -144,7 +147,15 @@ def prepare_media(args, image, prefix):
                 ])
             if docker("wait", name, timeout=120) != "0":
                 raise RuntimeError(f"FFmpeg preparation failed for {filename}. See {name}.log")
-    return folder
+            logs = docker("logs", "--tail", "200", name, timeout=10)
+            counts = re.findall(r"(\d+) frames in, (\d+) frames out; (\d+) frames dropped, (\d+) frames duplicated",
+                                logs)
+            totals = [sum(map(int, column)) for column in zip(*counts, strict=True)]
+            if not totals or totals[0] <= 0 or totals[1] <= 0 or totals[0] - totals[2] + totals[3] != totals[1]:
+                raise RuntimeError(f"FFmpeg cadence counts missing for {filename}. See {name}.log")
+            cadence[filename] = dict(zip(("input_frames", "output_frames", "dropped_frames", "duplicated_frames"),
+                                         totals, strict=True))
+    return folder, cadence
 
 
 def server_config(aliases):
@@ -222,9 +233,15 @@ def counter_deltas(start, end):
     return deltas
 
 
+def event_counters(metrics):
+    return {key: value for key, value in metrics.items()
+            if isinstance(value, int) and (key == "candidates" or key.startswith(("events_", "clips_", "evidence_")))}
+
+
 def summarize(samples, aliases, window_seconds, fps):
     results = {}
     issues = []
+    capacity_issues = []
     for alias in aliases:
         rows = [sample["feeds"].get(alias) for sample in samples]
         if not healthy_at_sample(rows):
@@ -240,6 +257,18 @@ def summarize(samples, aliases, window_seconds, fps):
             raise RuntimeError(f"{alias}: processed counter went backwards")
         capture = counter_deltas(start["capture"], end["capture"])
         epochs = counter_deltas(start["epochs"], end["epochs"])
+        inference_drops = counter_deltas(start.get("inference_drops", {}), end.get("inference_drops", {}))
+        drops = sum(value for key, value in capture.items() if key.endswith("_drop")) + sum(inference_drops.values())
+        remainder = capture.get("decoded", 0) - frames - drops
+        queue_change = end.get("queue_depth", 0) - start.get("queue_depth", 0)
+        unexplained = remainder - queue_change
+        local_tail = end.get("p95_arrival_to_result_ms")
+        if drops:
+            capacity_issues.append(f"{alias}: {drops} known frame drops")
+        if local_tail is None or local_tail >= 500:
+            capacity_issues.append(f"{alias}: local result p95 does not meet the 500 ms budget")
+        if abs(unexplained) > 1:
+            capacity_issues.append(f"{alias}: decoded frames do not reconcile with results, queue and known drops")
         decoded_fps = capture.get("decoded", 0) / elapsed if elapsed > 0 else None
         if decoded_fps is None or abs(decoded_fps - fps) > 0.5:
             issues.append(f"{alias}: decoded rate outside {fps} ± 0.5 FPS")
@@ -251,11 +280,10 @@ def summarize(samples, aliases, window_seconds, fps):
             "observer_window_s": round(window_seconds, 3), "worker_counter_window_s": round(elapsed, 3),
             "processed": frames, "processed_fps": frames / elapsed if elapsed > 0 else None,
             "decoded_fps": decoded_fps, "capture_deltas": capture, "epoch_deltas": epochs,
-            "inference_drops": counter_deltas(start.get("inference_drops", {}), end.get("inference_drops", {})),
-            "event_deltas": counter_deltas(
-                {key: value for key, value in start.items() if key == "candidates" or key.startswith(("events_", "clips_"))},
-                {key: value for key, value in end.items() if key == "candidates" or key.startswith(("events_", "clips_"))},
-            ),
+            "inference_drops": inference_drops, "known_frame_drops": drops,
+            "decoded_minus_processed_and_dropped": remainder, "capture_queue_change": queue_change,
+            "unaccounted_frames_after_queue": unexplained,
+            "event_deltas": counter_deltas(event_counters(start), event_counters(end)),
             "rolling_p95_at_window_end_ms": {
                 key[4:-3]: value for key, value in end.items() if key.startswith("p95_") and key.endswith("_ms")
             },
@@ -271,6 +299,7 @@ def summarize(samples, aliases, window_seconds, fps):
     rates = [result["processed_fps"] for result in results.values()]
     return {
         "feeds": results, "valid": not issues, "issues": issues,
+        "meets_capacity_gate": not issues and not capacity_issues, "capacity_issues": capacity_issues,
         "aggregate_processed_fps": math.fsum(rates) if len(rates) == len(aliases) and None not in rates else None,
     }
 
@@ -599,9 +628,10 @@ def execute(args, cases, image):
     elif args.candidate_root:
         image_ids["candidate"] = image_ids["worker"]
     print(f"Benchmark resources use prefix {args.prefix}", flush=True)
-    folder = prepare_media(args, image_ids["media"], args.prefix)
+    folder, cadence = prepare_media(args, image_ids["media"], args.prefix)
     normalized = [
-        {"filename": filename, "input_sha256": checksum, "normalized_sha256": digest(folder / filename)}
+        {"filename": filename, "input_sha256": checksum, "normalized_sha256": digest(folder / filename),
+         "replay_cadence": cadence[filename]}
         for filename, checksum in INPUTS
     ]
     report = {
@@ -635,7 +665,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True, help="new results directory outside the repository")
     parser.add_argument("--width", type=int, default=WIDTH)
     parser.add_argument("--height", type=int, default=HEIGHT)
-    parser.add_argument("--fps", type=int, choices=(12, 15, 24, 30), default=FPS)
+    parser.add_argument("--fps", type=int, choices=(12, 15, 20, 24, 30), default=FPS)
     parser.add_argument("--worker-image", default=DEFAULT_WORKER_IMAGE, help="existing local baseline image")
     parser.add_argument("--person-weights", type=Path)
     parser.add_argument("--forklift-weights", type=Path)

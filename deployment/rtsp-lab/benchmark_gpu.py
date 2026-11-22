@@ -45,11 +45,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup-batches", type=positive_int, default=5, help="Warmup calls per model and case (default 5)")
     parser.add_argument("--repeats", type=positive_int, default=3, help="Timed trials per case (default 3)")
     parser.add_argument("--fp16", action="store_true", help="Also measure FP16 and compare to FP32 at the same batch size")
+    parser.add_argument("--batch-eight", action="store_true", help="Also try batch 8 on a GPU with sufficient free memory")
     args = parser.parse_args()
     if args.start_frame < 0:
         parser.error("--start-frame must be nonnegative")
-    if args.frames % max(BATCH_SIZES):
-        parser.error("--frames must be divisible by 4 so every trial uses only full batches")
+    largest_batch = 8 if args.batch_eight else max(BATCH_SIZES)
+    if args.frames % largest_batch:
+        parser.error(f"--frames must be divisible by {largest_batch} so every trial uses only full batches")
     return args
 
 
@@ -318,9 +320,12 @@ def benchmark(args, models: dict, frames: tuple) -> dict:
     torch.set_float32_matmul_precision("highest")
     torch.backends.cudnn.allow_tf32 = False
 
+    batch_sizes = BATCH_SIZES + (8,) if args.batch_eight else BATCH_SIZES
+    if args.batch_eight and torch.cuda.mem_get_info(device)[0] < 4 * 1024**3:
+        raise RuntimeError("Batch 8 requires at least 4 GiB of free CUDA memory")
     cases, references = [], {}
     for fp16 in ((False, True) if args.fp16 else (False,)):
-        for batch_size in BATCH_SIZES:
+        for batch_size in batch_sizes:
             precision = "fp16" if fp16 else "fp32"
             print(f"Measuring {precision}, batch {batch_size}", file=sys.stderr, flush=True)
             trials = measure_case(args, frames, models, batch_size, fp16, device, references)
