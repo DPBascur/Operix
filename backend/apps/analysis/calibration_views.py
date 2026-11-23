@@ -2,6 +2,7 @@
 
 import base64
 import binascii
+from dataclasses import replace
 from datetime import timedelta
 import hashlib
 import json
@@ -18,9 +19,11 @@ from django.utils.timezone import now
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
+from . import camera_registry
 from .cameras import (CameraConflict, CameraDetailView, CameraView, camera_capture_signature,
-                      camera_worker_destination, document_for, last_run, status_for)
-from .models import CameraRevision
+                      camera_worker_destination, document_for, last_run, playback_clock_id,
+                      recent_frame, scheduler_lock, status_for)
+from .models import CameraLabControl, CameraRevision
 from .sessions import RESTARTABLE, ROOT
 from .sources import latest_spatial
 from .spatial import SpatialConfigurationView
@@ -29,6 +32,7 @@ from .views import AnalysisView
 
 _capture_slot = BoundedSemaphore(1)
 _SIGNING_SALT = "operix.ground-calibration.proposal.v1"
+_DISCOVERY_SALT = "operix.ground-calibration.discovery.v1"
 _PROPOSAL_AGE_S = 600
 
 
@@ -116,6 +120,12 @@ def _reply(request, binding, revision, layout, provenance, result):
     }
     if preview:
         report["preview_url"] = "data:image/jpeg;base64," + encoded
+    if binding[0] == "camera" and result.get("capture_time"):
+        report["capture"] = {**binding[2], **result["capture_time"],
+                             "width": result["width"], "height": result["height"]}
+    if layout is None and preview:
+        report["discovery_id"] = signing.dumps({"owner": request.user.pk, "binding": binding,
+                                                "revision": revision}, salt=_DISCOVERY_SALT)
     if report["status"] != "candidate" or not preview or not result.get("reference_marker_corners"):
         status = "requires_review" if report["status"] == "candidate" else report["status"]
         return Response({**report, "proposal_id": None, "status": status}, headers={"Cache-Control": "no-store"})
@@ -129,6 +139,8 @@ def _reply(request, binding, revision, layout, provenance, result):
             "preview_sha256": hashlib.sha256(preview).hexdigest(),
         },
     }
+    if "capture" in report:
+        calibration["pattern_evidence"]["capture"] = report["capture"]
     token = signing.dumps({"owner": request.user.pk, "binding": binding, "revision": revision,
                            "calibration": calibration}, salt=_SIGNING_SALT, compress=True)
     return Response({**report, "proposal_id": token}, headers={"Cache-Control": "no-store"})
@@ -148,6 +160,9 @@ def _confirm(request, binding, revision, version, source):
     except signing.BadSignature:
         raise ValidationError("La propuesta expiró o es inválida. Capture una nueva.") from None
     if proposal["owner"] != request.user.pk or proposal["binding"] != binding:
+        former = proposal["binding"]
+        if proposal["owner"] == request.user.pk and former[:2] == binding[:2] and binding[0] == "camera":
+            raise CameraConflict("Cambió la emisión, la época o el encuadre. Vuelve a capturar.")
         raise ValidationError("La propuesta pertenece a otra fuente o cambió el encuadre configurado.")
     if proposal["revision"] != revision or body["revision"] != revision:
         raise CameraConflict("La configuración cambió. Capture una propuesta para la revisión actual.")
@@ -165,29 +180,104 @@ def _live_source(camera):
     }
 
 
+def _managed_reference(camera):
+    """Find the current publisher even if an invalid calibration blocks the worker."""
+    from .lab_control import CONTROL_ID, configured_playlists, playlist_signature
+
+    control = CameraLabControl.objects.filter(pk=CONTROL_ID, enabled=True).first()
+    if not control:
+        return camera, None
+    progress = control.playback.get(camera.id, {})
+    if progress.get("phase") != "play":
+        return camera, None
+    catalog, defaults = camera_registry.media_registry()
+    playlist = configured_playlists(control, {camera.id: camera}, defaults)[camera.id]
+    if progress.get("signature") != playlist_signature(playlist, catalog):
+        return camera, None
+    position = progress.get("position")
+    ids = playlist["media_ids"]
+    if type(position) is not int or not 0 <= position < len(ids) or not (source := catalog.get(ids[position])):
+        return camera, None
+    return replace(camera, provenance=source), progress.get("token")
+
+
+def _camera_binding(camera):
+    run = last_run(camera.id)
+    state, metrics, runtime = status_for(run)
+    active = run is not None and run.active
+    if active and (state != "analyzing" or not recent_frame(runtime)
+                   or type(metrics.get("epoch")) is not int or metrics["epoch"] < 1
+                   or run.playback.get("stop_requested")):
+        raise ValidationError("Espera una señal estable y vuelve a capturar.")
+    if active:
+        camera = replace(camera, provenance=run.provenance)
+    clock = None
+    if camera_registry.automatic(camera):
+        from .lab_control import publisher_ack
+
+        if active:
+            token = run.playback.get("token")
+        else:
+            camera, token = _managed_reference(camera)
+        if not token or os.environ.get("OPERIX_CAMERA_LAB_FRAME_CLOCK") != "1" or publisher_ack(camera.id, token) != "playing":
+            raise ValidationError("No hay una emisión verificable. Revisa o habilita la señal de esta cámara y vuelve a capturar.")
+        clock = {"stream_id": playback_clock_id(token), "fps": camera.capture_fps}
+    capture = {
+        "camera_id": camera.id, "run_id": str(run.pk) if active else None,
+        "epoch": metrics["epoch"] if active else None,
+        "emission_id": clock["stream_id"] if clock else None,
+        "source_sha256": (camera.provenance or {}).get("sha256") or camera.spatial_key,
+    }
+    return camera, ["camera", camera.id, capture, camera_capture_signature(camera)], clock
+
+
 class CameraCalibrationView(CameraView):
     confirm = False
 
     def post(self, request, camera_id):
         camera = self.camera(camera_id)
-        run = last_run(camera_id)
-        status_for(run)
-        if run is not None and run.active:
-            raise CameraConflict("Detenga el monitoreo antes de calibrar.")
-        document, revision = document_for(camera)
-        binding = ["camera", camera.id, camera_capture_signature(camera)]
+        original = camera
         if self.confirm:
             with transaction.atomic():
+                scheduler_lock()
+                camera, binding, _ = _camera_binding(camera)
+                document, revision = document_for(camera)
                 previous = CameraRevision.objects.filter(camera_id=camera.id).values_list("document", flat=True)
                 version = max(((doc.get("calibration") or {}).get("version", 0) for doc in previous), default=0) + 1
                 calibration = _confirm(request, binding, revision, version, camera.spatial_key)
+
+                def confirm_capture():
+                    if _camera_binding(original)[1] != binding:
+                        raise CameraConflict("Cambió la emisión o la época mientras se validaba. Vuelve a capturar.")
+
                 return CameraDetailView().save(request, camera, {
                     "document": {**document, "calibration": calibration}, "revision": revision,
-                }, pattern_confirmed=True)
-        requested, layout, provenance = _proposal_input(request.data)
-        if requested != revision:
+                }, pattern_confirmed=True, confirm_capture=confirm_capture)
+        camera, binding, clock = _camera_binding(original)
+        _, revision = document_for(camera)
+        discover = isinstance(request.data, dict) and set(request.data) == {"revision"}
+        if discover:
+            requested, layout, provenance = request.data["revision"], None, None
+        else:
+            body = request.data.copy() if isinstance(request.data, dict) else request.data
+            if isinstance(body, dict) and "discovery_id" in body:
+                ticket = body.pop("discovery_id")
+                try:
+                    capture = signing.loads(ticket, salt=_DISCOVERY_SALT, max_age=_PROPOSAL_AGE_S) if (
+                        isinstance(ticket, str) and len(ticket) <= 4096) else None
+                except signing.BadSignature:
+                    capture = None
+                if capture != {"owner": request.user.pk, "binding": binding, "revision": revision}:
+                    raise CameraConflict("Cambió la señal o caducó la imagen de referencia. Vuelve a capturar.")
+            requested, layout, provenance = _proposal_input(body)
+        if type(requested) is not int or requested != revision:
             raise CameraConflict("Recupere la revisión vigente antes de capturar.")
-        report = _detect(layout, {"width": camera.width, "height": camera.height}, _live_source(camera))
+        options = {"width": camera.width, "height": camera.height, "discover": discover}
+        if clock:
+            options["clock"] = clock
+        report = _detect(layout, options, _live_source(camera))
+        if _camera_binding(original)[1] != binding or document_for(camera)[1] != revision:
+            raise CameraConflict("Cambió la emisión, la época o la revisión durante la captura. Vuelve a capturar.")
         return _reply(request, binding, revision, layout, provenance, report)
 
 

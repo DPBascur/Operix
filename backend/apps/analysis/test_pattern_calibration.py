@@ -11,11 +11,12 @@ from uuid import uuid4
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import override_settings
+from django.utils.timezone import now
 from rest_framework.test import APIClient, APITestCase
 
 from apps.events.test_pair_events import pair_payload
 
-from .models import AnalysisRunSnapshot, CameraRevision, CameraRun
+from .models import AnalysisRunSnapshot, CameraLabControl, CameraRevision, CameraRun
 
 
 class PatternCalibrationTests(APITestCase):
@@ -26,6 +27,7 @@ class PatternCalibrationTests(APITestCase):
             {"camera_id": "lab-cam-01", "filename": "pattern.mp4", "sha256": "a" * 64},
         ]}), encoding="utf-8")
         self.enterContext(patch.dict(os.environ, {"OPERIX_CAMERA_LAB_ENABLED": "1",
+                                                "OPERIX_CAMERA_LAB_CONTROL_DIR": "",
                                                 "OPERIX_CAMERA_LAB_MANIFEST": str(manifest)}))
         self.admin = APIClient()
         self.admin.force_authenticate(user=get_user_model().objects.create_superuser(username="calibration-test"))
@@ -42,7 +44,8 @@ class PatternCalibrationTests(APITestCase):
         report = {"status": "candidate", "width": 960, "height": 540, "marker_corners": corners,
                   "reference_marker_corners": corners, "quality": {}, "coverage": .4,
                   "image_points": points, "ground_points_m": [[5*x,5*y] for x,y in points],
-                  "preview_jpeg": base64.b64encode(b"\xff\xd8\xfftest").decode()}
+                  "preview_jpeg": base64.b64encode(b"\xff\xd8\xfftest").decode(),
+                  "capture_time": {"captured_at": now().isoformat(), "ordinal": 4, "pts_s": .25}}
         with (patch("apps.analysis.calibration_views._detect", return_value=report),
               patch("apps.analysis.calibration_views._live_source", return_value={})):
             return (actor or self.admin).post(self.camera + "calibration/proposal/", {
@@ -85,6 +88,68 @@ class PatternCalibrationTests(APITestCase):
         self.assertEqual(self.admin.post(cross, body, format="json").status_code, 400)
         self.assertEqual(self.admin.post(route, {**body, "proposal_id": body["proposal_id"] + "x"}, format="json").status_code, 400)
         self.assertFalse(CameraRevision.objects.exists())
+
+    def test_active_calibration_saves_next_revision_without_mutating_run(self):
+        from .cameras import default_document
+        from .camera_registry import inventory
+
+        camera = inventory()["lab-cam-01"]
+        document = default_document(camera)
+        snapshot = AnalysisRunSnapshot.objects.create(
+            id=uuid4(), source_sha256="b" * 64, profile="A", configuration=document, config_sha256="c" * 64,
+        )
+        run = CameraRun.objects.create(snapshot=snapshot, camera_id=camera.id, active=True,
+                                       managed=True, provenance={"sha256": "b" * 64},
+                                       playback={"token": "verified-emission"})
+        current = {"epoch": 3}
+        runtime = {"last_frame_at": now().isoformat()}
+        with (
+            patch.dict(os.environ, {"OPERIX_CAMERA_LAB_FRAME_CLOCK": "1"}),
+            patch("apps.analysis.calibration_views.camera_registry.automatic", return_value=True),
+            patch("apps.analysis.lab_control.publisher_ack", return_value="playing"),
+            patch("apps.analysis.calibration_views.status_for", return_value=("analyzing", current, runtime)),
+            patch("apps.analysis.cameras.status_for", return_value=("analyzing", current, runtime)),
+        ):
+            body = self.confirm_body()
+            current["epoch"] = 4
+            route = self.camera + "calibration/confirm/"
+            self.assertEqual(self.admin.post(route, body, format="json").status_code, 409)
+            current["epoch"] = 3
+            run.playback["token"] = "next-clip"
+            run.save(update_fields=["playback"])
+            self.assertEqual(self.admin.post(route, body, format="json").status_code, 409)
+            run.playback["token"] = "verified-emission"
+            run.save(update_fields=["playback"])
+            self.assertEqual(self.admin.put(self.camera, {"document": document, "revision": 0},
+                                            format="json").status_code, 409)
+            response = self.admin.post(route, body, format="json")
+            self.assertEqual(response.status_code, 200, response.data)
+        saved = CameraRevision.objects.get(camera_id=camera.id)
+        metadata = saved.document["calibration"]["pattern_evidence"]["capture"]
+        self.assertEqual((metadata["run_id"], metadata["epoch"], metadata["ordinal"]), (str(run.pk), 3, 4))
+        self.assertEqual(metadata["source_sha256"], "b" * 64)
+        self.assertEqual((metadata["width"], metadata["height"]), (960, 540))
+        snapshot.refresh_from_db()
+        run.refresh_from_db()
+        self.assertTrue(run.active)
+        self.assertEqual(snapshot.configuration, document)
+
+    def test_authorized_publisher_can_calibrate_before_worker_starts(self):
+        from .camera_registry import media_registry
+        from .lab_control import playlist_signature
+
+        catalog, _ = media_registry()
+        playlist = {"media_ids": ["lab-cam-01"], "repeat": True}
+        CameraLabControl.objects.create(pk=1, enabled=True, playlists={"lab-cam-01": playlist},
+                                       playback={"lab-cam-01": {"phase": "play", "position": 0,
+                                            "token": "verified-emission",
+                                            "signature": playlist_signature(playlist, catalog)}})
+        with (patch.dict(os.environ, {"OPERIX_CAMERA_LAB_FRAME_CLOCK": "1"}),
+              patch("apps.analysis.calibration_views.camera_registry.automatic", return_value=True),
+              patch("apps.analysis.lab_control.publisher_ack", return_value="playing") as ack):
+            self.assertEqual(self.proposal().status_code, 200)
+            ack.return_value = None
+            self.assertEqual(self.proposal().status_code, 400)
 
     @override_settings(EVENT_POST_ENABLED=True)
     def test_camera_invalidated_by_worker_cannot_restart_on_same_calibration(self):

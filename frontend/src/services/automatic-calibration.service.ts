@@ -17,6 +17,7 @@ type Control = NonNullable<ReturnType<typeof readControl>>;
 
 export type PatternEvidence = {
   provenance: string;
+  layout?: { markers: { id: number; corners_m: Point[] }[] };
   control: Control & {
     observed_m: number;
     absolute_error_m: number;
@@ -26,6 +27,7 @@ export type PatternEvidence = {
 
 export type PatternProposal = {
   proposal_id: string | null;
+  discovery_id?: string;
   preview_url?: string | null;
   expires_at?: string;
   status: "candidate" | "requires_review" | "invalid";
@@ -81,7 +83,7 @@ async function post<T>(
   });
   if (!response.ok) {
     const data =
-      response.status === 400 ? await response.json().catch(() => null) : null;
+      [400, 409].includes(response.status) ? await response.json().catch(() => null) : null;
     const detail = Array.isArray(data) ? data[0] : data?.detail;
     throw new CalibrationRequestError(
       response.status,
@@ -94,14 +96,22 @@ async function post<T>(
 }
 
 export const automaticCalibrationService = {
+  discover(source: CalibrationSource, signal: AbortSignal) {
+    return post<PatternProposal>(
+      `${calibrationUrl(source)}proposal/`,
+      { revision: source.revision },
+      signal,
+    );
+  },
   propose(
     source: CalibrationSource,
     layout: PatternLayout,
     signal: AbortSignal,
+    discoveryId?: string,
   ) {
     return post<PatternProposal>(
       `${calibrationUrl(source)}proposal/`,
-      { revision: source.revision, layout },
+      { revision: source.revision, layout, ...(discoveryId ? { discovery_id: discoveryId } : {}) },
       signal,
     );
   },

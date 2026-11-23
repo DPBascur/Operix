@@ -940,6 +940,8 @@ test(
       const calibrationPanel = `document.querySelector('#camera-automatic-calibration')`;
       await evaluate(`document.querySelector('a[href="#camera-automatic-calibration"]').click()`);
       await wait(`${calibrationPanel}.open`);
+      await click("Capturar imagen y detectar ArUco");
+      await wait(text("Marcadores detectados · 1, 2, 3"));
       await evaluate(`(() => {
         const inputs = ${calibrationPanel}.querySelectorAll('input');
         const values = ['1','0','0','0,2','0','2','3','0','0,2','0','3','0','3','0,2','0','Plano medido fixture'];
@@ -951,7 +953,7 @@ test(
       await click("Capturar propuesta");
       await wait(text("Distribuye los marcadores por una parte más amplia del suelo."));
       assert.equal(await evaluate(`!!${calibrationPanel}.querySelector('button[aria-label^="Marcar punto"]')`), false);
-      assert.equal((await control()).calibrationRequests.length, 1);
+      assert.equal((await control()).calibrationRequests.length, 2);
       await control({ calibrationCandidate: true });
       await click("Capturar nueva propuesta");
       await wait(`!!${calibrationPanel}.querySelector('button[aria-label^="Marcar punto"]')`);
@@ -982,10 +984,12 @@ test(
       await wait(text("La medida de comprobación supera la tolerancia declarada"));
       await setField("Distancia medida (m)", "2");
       await click("Validar medida y guardar");
-      await wait(text("Calibración con patrón guardada para esta cámara."));
+      await wait(text("Calibración guardada."));
       assert.equal(await evaluate(`[...document.querySelectorAll('button')].find(b=>b.innerText==='Iniciar monitoreo').disabled`), false);
       const { calibrationRequests } = await control();
-      assert.equal(calibrationRequests[0].body.layout.provenance, "Plano medido fixture");
+      assert.deepEqual(calibrationRequests[0].body, { revision: 4 });
+      assert.equal(calibrationRequests[1].body.layout.provenance, "Plano medido fixture");
+      assert.equal(calibrationRequests[1].body.discovery_id, "fixture-discovery");
       assert.deepEqual(calibrationRequests.at(-1).body, {
         proposal_id: "fixture-signed-proposal", revision: 4, ground_confirmed: true, zones_reviewed: true,
         control: { image_points: [[0.5, 0.5], [0.51, 0.5]], distance_m: 2, tolerance_m: 0.02, provenance: "Cinta métrica fixture" },

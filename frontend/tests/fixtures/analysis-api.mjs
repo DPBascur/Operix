@@ -533,6 +533,12 @@ export async function startFixtureApi(port = 8000) {
         if (body.revision !== cameraFixture.revision)
           return send({ detail: "Revisión incorrecta" }, 409);
         if (operation === "proposal/") {
+          if (!body.layout)
+            return send({
+              status: "requires_review", proposal_id: null, discovery_id: "fixture-discovery",
+              preview_url: calibrationPreview, usable_polygon: [], grid: [], quality: {},
+              references: [1, 2, 3].map((id) => ({ id, corners: [] })),
+            });
           return send({
             status: candidateAvailable ? "candidate" : "requires_review",
             proposal_id: candidateAvailable ? "fixture-signed-proposal" : null,

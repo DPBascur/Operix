@@ -303,7 +303,7 @@ class CameraDetailView(CameraView):
     def put(self, request, camera_id):
         return self.save(request, self.camera(camera_id), request.data)
 
-    def save(self, request, camera, body, *, pattern_confirmed=False):
+    def save(self, request, camera, body, *, pattern_confirmed=False, confirm_capture=None):
         camera_id = camera.id
         if not isinstance(body, dict) or set(body) != {"revision", "document"} or type(body["revision"]) is not int:
             raise ValidationError("Indique documento y revisión.")
@@ -311,11 +311,15 @@ class CameraDetailView(CameraView):
         scheduler_lock()
         run = last_run(camera_id, lock=True)
         status_for(run)
-        if run is not None and run.active:
+        if run is not None and run.active and confirm_capture is None:
             raise CameraConflict("Detenga el monitoreo antes de editar.")
         previous, revision = document_for(camera)
         if body["revision"] != revision:
             raise CameraConflict("Recupere la revisión vigente.")
+        if confirm_capture is not None and (not pattern_confirmed or
+                {k: v for k, v in body["document"].items() if k != "calibration"} !=
+                {k: v for k, v in previous.items() if k != "calibration"}):
+            raise CameraConflict("Mientras la cámara analiza solo se admite guardar la calibración confirmada.")
         calibration = document.get("calibration")
         prior_calibration = previous.get("calibration")
         if calibration and not pattern_confirmed and calibration != prior_calibration:
@@ -332,6 +336,8 @@ class CameraDetailView(CameraView):
                        or prior_calibration != calibration)
             version = max(versions.get(rule["rule_id"], 0), old["version"] if old else 0)
             rule["version"] = version + 1 if changed else old["version"]
+        if confirm_capture is not None:
+            confirm_capture()
         CameraRevision.objects.create(camera_id=camera_id, revision=revision + 1,
                                       document=document, updated_by=request.user,
                                       capture_signature=camera_capture_signature(camera) if camera.provenance else "")

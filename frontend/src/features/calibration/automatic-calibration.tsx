@@ -30,6 +30,22 @@ const emptyMarker: MarkerDraft = {
   size_m: "",
   rotation_deg: "",
 };
+
+function savedMarkers(evidence?: PatternEvidence) {
+  const rows = evidence?.layout?.markers;
+  if (!Array.isArray(rows) || rows.length < minMarkers) return [];
+  const measured = (value: number) => String(Number(value.toFixed(8)));
+  return rows.filter(({ corners_m }) => corners_m?.length === 4).map(({ id, corners_m: [a, b] }, key) => ({
+    key,
+    draft: {
+      id: String(id),
+      x_m: measured(a[0]),
+      y_m: measured(a[1]),
+      size_m: measured(Math.hypot(b[0] - a[0], b[1] - a[1])),
+      rotation_deg: measured(Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI),
+    },
+  }));
+}
 const markerFields = [
   ["id", "ID"],
   ["x_m", "X (m)"],
@@ -93,6 +109,7 @@ export function AutomaticCalibration<T>({
   saved,
   blocked,
   framingWarning,
+  reuseSavedReferences = true,
   id,
   onBusyChange,
   onSaved,
@@ -103,24 +120,28 @@ export function AutomaticCalibration<T>({
   saved?: Saved | null;
   blocked?: string;
   framingWarning?: string;
+  reuseSavedReferences?: boolean;
   id?: string;
   onBusyChange: (busy: boolean) => void;
   onSaved: (result: T) => void;
   onRefresh: () => void;
 }) {
   const helpId = useId();
-  const markerId = useRef(minMarkers);
-  const [markers, setMarkers] = useState(() =>
-    Array.from({ length: minMarkers }, (_, key) => ({
+  const [markers, setMarkers] = useState(() => {
+    const known = reuseSavedReferences ? savedMarkers(saved?.pattern_evidence) : [];
+    return known.length >= minMarkers ? known :
+      Array.from({ length: minMarkers }, (_, key) => ({
       key,
       draft: emptyMarker,
-    })),
-  );
-  const [provenance, setProvenance] = useState("");
+    }));
+  });
+  const markerId = useRef(markers.length);
+  const [provenance, setProvenance] = useState(reuseSavedReferences ? saved?.pattern_evidence?.provenance ?? "" : "");
+  const [discovery, setDiscovery] = useState<PatternProposal>();
   const [proposal, setProposal] = useState<PatternProposal>();
   const [frame, setFrame] = useState("");
   const [expired, setExpired] = useState(false);
-  const [phase, setPhase] = useState<"capture" | "confirm">();
+  const [phase, setPhase] = useState<"discover" | "capture" | "confirm">();
   const [message, setMessage] = useState("");
   const [refreshNeeded, setRefreshNeeded] = useState(false);
   const [points, setPoints] = useState<Point[]>([]);
@@ -171,9 +192,12 @@ export function AutomaticCalibration<T>({
   const validated =
     saved?.status === "valid" && saved.zones_reviewed && savedControl;
 
-  const stage = canConfirm ? 2 : layout ? 1 : 0;
+  const isCamera = source.kind === "cameras";
+  const enoughReferences = (discovery?.references.length ?? 0) >= minMarkers;
+  const showMeasurements = !isCamera || enoughReferences;
+  const stage = ready ? 4 : proposal ? 3 : enoughReferences ? 2 : phase === "discover" || discovery ? 1 : 0;
 
-  async function run(operation: "capture" | "confirm") {
+  async function run(operation: "discover" | "capture" | "confirm") {
     if (disabled || request.current) return;
     if (operation === "capture" && !layout) return;
     if (
@@ -190,7 +214,23 @@ export function AutomaticCalibration<T>({
     setMessage("");
     let result: T | undefined;
     try {
-      if (operation === "capture" && layout) {
+      if (operation === "discover") {
+        setProposal(undefined);
+        setFrame("");
+        setDiscovery(undefined);
+        const next = await automaticCalibrationService.discover(source, controller.signal);
+        if (!controller.signal.aborted) {
+          setDiscovery(next);
+          const ids = next.references.slice(0, maxMarkers).map(({ id }) => String(id));
+          if (ids.length >= minMarkers) {
+            setMarkers((rows) => ids.map((id, key) => ({
+              key,
+              draft: rows.find(({ draft }) => draft.id === id)?.draft ?? { ...emptyMarker, id },
+            })));
+            markerId.current = ids.length;
+          }
+        }
+      } else if (operation === "capture" && layout) {
         setProposal(undefined);
         setFrame("");
         setExpired(false);
@@ -205,6 +245,7 @@ export function AutomaticCalibration<T>({
           source,
           layout,
           controller.signal,
+          discovery?.discovery_id,
         );
         const preview = calibrationFrame(next.preview_url);
         if (
@@ -271,7 +312,7 @@ export function AutomaticCalibration<T>({
       <div className={styles.body}>
         {source.kind === "cameras" && (
           <ol className={styles.steps} aria-label="Pasos de calibración">
-            {["Preparar referencias", "Buscar en el fotograma", "Comprobar y guardar"].map((label, index) => (
+            {["Capturar imagen", "Detectar ArUco", "Validar referencias", "Comprobar", "Guardar"].map((label, index) => (
               <li key={label} aria-current={index === stage ? "step" : undefined}>
                 <span>{index + 1}</span>{label}
               </li>
@@ -281,11 +322,11 @@ export function AutomaticCalibration<T>({
         {source.kind === "cameras" && !validated && !framingWarning && (
           <p>La cámara muestra distancias normalizadas hasta que confirmes una escala del suelo con una medida conocida.</p>
         )}
-        <p>
+        {!isCamera && <p>
           Coloca marcadores ArUco {dictionary} planos sobre el suelo, con la
           cara impresa hacia la cámara. Distribúyelos por el área donde
           necesitas medir. Usa las coordenadas y el tamaño medidos en el suelo; Operix busca sus esquinas automáticamente.
-        </p>
+        </p>}
         {framingWarning ? (
           <p className="inline-message" role="status">
             {framingWarning}
@@ -332,8 +373,33 @@ export function AutomaticCalibration<T>({
             {blocked}
           </p>
         )}
+        {isCamera && (
+          <section className={styles.group} aria-label="Captura de referencia">
+            <p>Captura la imagen original de esta cámara. El análisis continúa con la configuración vigente.</p>
+            <div>
+              <Button disabled={disabled} loading={phase === "discover"} onClick={() => void run("discover")}>
+                {discovery ? "Volver a capturar imagen" : "Capturar imagen y detectar ArUco"}
+              </Button>
+            </div>
+            {discovery && (
+              <>
+                {calibrationFrame(discovery.preview_url) && <PatternFrame
+                  frame={calibrationFrame(discovery.preview_url)!}
+                  proposal={discovery} points={[]} zones={[]} selectable={false} onPoint={() => {}}
+                />}
+                <p role="status">
+                  {enoughReferences
+                    ? `Marcadores detectados · ${discovery.references.map(({ id }) => id).join(", ")}`
+                    : `Se necesitan al menos tres marcadores visibles. Coloca marcadores ArUco ${dictionary} planos y separados sobre el suelo, con buena iluminación y sin obstrucciones. Sin referencias suficientes, la cámara sigue usando norm. si no dispone de calibración válida.`}
+                </p>
+              </>
+            )}
+          </section>
+        )}
+        {showMeasurements && <details open={!isCamera || !layout}>
+        <summary>Referencias del suelo{layout ? " · Medidas disponibles" : ""}</summary>
         <fieldset disabled={disabled} className={styles.group}>
-          <legend>Distribución medida de los marcadores</legend>
+          <legend>Medidas físicas de las referencias</legend>
           <p id={helpId}>
             Registra de 3 a 8 marcadores con el mismo origen y ejes. X e Y son
             las coordenadas en metros de la esquina superior izquierda del borde
@@ -419,10 +485,12 @@ export function AutomaticCalibration<T>({
               0 a 49, lados de 0,01 a 20 m y giros entre −360° y 360°.
             </p>
           )}
-          <div>
+        </fieldset>
+        </details>}
+        {showMeasurements && <div>
             <Button
               loading={phase === "capture"}
-              disabled={!layout}
+              disabled={disabled || !layout}
               onClick={() => void run("capture")}
             >
               {phase === "capture"
@@ -431,8 +499,8 @@ export function AutomaticCalibration<T>({
                   ? "Capturar nueva propuesta"
                   : "Capturar propuesta"}
             </Button>
-          </div>
-        </fieldset>
+            {isCamera && <p>Operix comprueba las referencias en varios fotogramas de la señal actual.</p>}
+          </div>}
 
         {proposal && (
           <section
@@ -596,6 +664,8 @@ export function AutomaticCalibration<T>({
                   </p>
                 )}
                 <div>
+                  {isCamera && <p>El guardado crea una revisión para la siguiente ejecución compatible. La ejecución activa conserva su calibración y sus reglas.</p>}
+                  {!ready && <p>Marca los dos puntos, ingresa una medida independiente y completa las tres confirmaciones para guardar.</p>}
                   <Button
                     disabled={!ready}
                     loading={phase === "confirm"}
@@ -619,9 +689,10 @@ export function AutomaticCalibration<T>({
           <div>
             <Button
               variant="outline"
-              disabled={Boolean(blocked || phase)}
+              disabled={Boolean(phase)}
               onClick={() => {
                 setProposal(undefined);
+                setDiscovery(undefined);
                 setFrame("");
                 setMessage("");
                 setRefreshNeeded(false);

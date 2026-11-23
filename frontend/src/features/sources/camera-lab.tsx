@@ -851,7 +851,7 @@ export function CameraLabDetail({ id }: { id: string }) {
             <div className="grid min-w-0 gap-2 ">
               <AutomaticCalibration<LabCamera>
                 id={calibrationSectionId}
-                key={`${camera.id}:${camera.revision}:${canStart}`}
+                key={`${camera.id}:${camera.revision}:${camera.provenance?.sha256 ?? ""}`}
                 source={{
                   kind: "cameras",
                   id: camera.id,
@@ -859,13 +859,12 @@ export function CameraLabDetail({ id }: { id: string }) {
                 }}
                 zones={camera.configuration?.zones ?? []}
                 saved={camera.configuration?.calibration}
+                reuseSavedReferences={!mustRecalibrate}
                 framingWarning={framingWarning}
                 blocked={
                   !canEdit
                     ? "Solo los usuarios con permiso de edición pueden calibrar esta cámara."
-                    : !canStart
-                      ? "Detén el monitoreo para capturar y validar una propuesta."
-                      : busy || error
+                    : busy
                         ? "Espera a que se actualice el estado de la cámara."
                         : draft
                           ? "Guarda o descarta el borrador de configuración antes de capturar una propuesta."
@@ -877,7 +876,7 @@ export function CameraLabDetail({ id }: { id: string }) {
                   setAction({
                     area: "calibration",
                     message: {
-                      text: "Calibración con patrón guardada para esta cámara.",
+                      text: "Calibración guardada. La siguiente ejecución compatible usará esta revisión.",
                     },
                   });
                 }}

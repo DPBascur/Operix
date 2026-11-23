@@ -7,6 +7,7 @@ The Django caller owns the source fields and the subprocess deadline.
 """
 
 import base64
+from datetime import datetime, timezone
 import ipaddress
 import json
 import math
@@ -22,7 +23,8 @@ if __name__ == "__main__":
 import cv2
 import numpy as np
 
-from operix_engine.calibration_patterns import MAX_FRAMES, empty_proposal, propose_calibration
+from operix_engine.calibration_patterns import MAX_FRAMES, detect_marker_corners, empty_proposal, propose_calibration
+from operix_engine.rtsp_frame_clock import ClockedReader
 
 
 MAX_REQUEST_BYTES = 64 * 1024
@@ -103,6 +105,19 @@ def _preview_jpeg(frame):
     raise OSError("No se pudo codificar la vista previa")
 
 
+def _clocked_capture(source, fps, dimensions, stream_id, stamps):
+    reader = ClockedReader(source, fps, dimensions, stream_id)
+    try:
+        for _ in range(SAMPLES):
+            frame, pts = reader.read_native()
+            stamps.append({"captured_at": datetime.now(timezone.utc).isoformat(),
+                           "ordinal": reader.source_ordinal,
+                           "pts_s": pts if pts is not None and math.isfinite(pts) else None})
+            yield reader.to_image(frame)
+    finally:
+        reader.close()
+
+
 def propose(request):
     if not isinstance(request, dict):
         raise ValueError("La solicitud debe ser un objeto JSON")
@@ -111,7 +126,11 @@ def propose(request):
         raise ValueError("Las dimensiones esperadas deben ser enteros positivos")
     if "video_path" in request and "frame_paths" in request:
         raise ValueError("Indique una sola fuente local")
-    if "frame_paths" in request:
+    stamps = []
+    if "clock" in request:
+        clock = request["clock"]
+        source = _clocked_capture(_rtsp_source(), clock["fps"], expected, clock["stream_id"], stamps)
+    elif "frame_paths" in request:
         source = _read_images(request["frame_paths"])
     elif "video_path" in request:
         source = _sample_capture(str(_file_path(request["video_path"])), live=False)
@@ -126,15 +145,32 @@ def propose(request):
             if any(wanted is not None and actual != wanted for wanted, actual in zip(expected, (width, height))):
                 raise ValueError("Las dimensiones capturadas no coinciden con la fuente configurada")
             sampled.append(frame)
+            if "clock" not in request:
+                stamps.append({"captured_at": datetime.now(timezone.utc).isoformat(),
+                               "ordinal": None, "pts_s": None})
             yield frame
 
     try:
-        result = propose_calibration(checked_frames(), request.get("layout", request.get("pattern")),
-                                     request.get("control_distances", ()))
+        if request.get("discover") is True:
+            frame = next(checked_frames(), None)
+            if frame is None:
+                result = empty_proposal("no_frames")
+            else:
+                references = detect_marker_corners(frame, "DICT_4X4_50")
+                reasons = () if references else ("no_known_markers",)
+                result = {**empty_proposal(*reasons),
+                          "status": "requires_review", "preview_frame_index": 0,
+                          "width": frame.shape[1], "height": frame.shape[0],
+                          "marker_corners": references}
+        else:
+            result = propose_calibration(checked_frames(), request.get("layout", request.get("pattern")),
+                                         request.get("control_distances", ()))
     finally:
         source.close()
     preview_index = result["preview_frame_index"]
     result["preview_jpeg"] = _preview_jpeg(sampled[preview_index]) if preview_index is not None else None
+    if preview_index is not None:
+        result["capture_time"] = stamps[preview_index]
     return result
 
 

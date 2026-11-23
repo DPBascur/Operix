@@ -22,8 +22,14 @@ def _normalized_point(point):
 def _confirmed_pattern(snapshot, evidence):
     fields = {"dictionary", "width", "height", "marker_corners", "capture_signature",
               "preview_sha256", "provenance", "layout", "quality", "control", "image_transform"}
-    if not isinstance(evidence, dict) or set(evidence) != fields:
+    if not isinstance(evidence, dict) or not fields <= evidence.keys() or evidence.keys() - fields - {"capture"}:
         raise ValueError("Trazabilidad del patrón incompleta")
+    if "capture" in evidence:
+        capture = evidence["capture"]
+        if (not isinstance(capture, dict) or set(capture) != {"camera_id", "run_id", "epoch", "emission_id",
+                "source_sha256", "captured_at", "ordinal", "pts_s", "width", "height"}
+                or any(capture[key] != evidence[key] for key in ("width", "height"))):
+            raise ValueError("Trazabilidad del fotograma incompleta")
     if (evidence["image_transform"] != "native_frame"
             or any(type(evidence[key]) is not int or not 16 <= evidence[key] <= 4096 for key in ("width", "height"))):
         raise ValueError("Dimensiones de la referencia inválidas")

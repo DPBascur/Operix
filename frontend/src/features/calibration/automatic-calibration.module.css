@@ -298,7 +298,7 @@
 
 .steps {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
   gap: .5rem;
   padding-block-end: .7rem;
   border-block-end: 1px solid var(--border);
