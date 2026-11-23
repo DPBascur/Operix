@@ -21,6 +21,7 @@ import {
   sampleRows,
   sampleLuma,
 } from "./camera-frame-match";
+import { interpolateObservedBoxes } from "./camera-estimated-boxes";
 
 const overlayLabels = {
   searching: "Buscando fotogramas verificables",
@@ -63,7 +64,8 @@ export type OverlayStats = {
   matched: number;
   drawn: number;
   continuity: number;
-  substituted: number;
+  estimated: number;
+  estimateMs: number;
   sampleMs: number;
   observations: number;
   presentedAgeMs: number | null;
@@ -76,6 +78,7 @@ function draw(
   showIds: boolean,
   showZones: boolean,
   continuity: boolean,
+  estimated: boolean,
 ) {
   const { canvas } = context;
   const dpr = window.devicePixelRatio || 1;
@@ -100,6 +103,7 @@ function draw(
   context.rect(x(0), y(0), videoWidth, videoHeight);
   context.clip();
   context.lineWidth = 2 * dpr;
+  if (estimated) context.setLineDash([6 * dpr, 4 * dpr]);
   if (showZones) {
     context.strokeStyle = "#ffd775";
     context.fillStyle = "rgba(255, 215, 117, 0.14)";
@@ -140,8 +144,8 @@ function draw(
     context.fillStyle = "#fff";
     context.fillText(label, textX + 4 * dpr, textY + 2 * dpr, Math.max(1, labelWidth - 8 * dpr));
   }
-  if (continuity) {
-    const badge = "Imagen + PTS";
+  if (continuity || estimated) {
+    const badge = estimated ? "Posición estimada" : "Imagen + PTS";
     const badgeWidth = context.measureText(badge).width + 12 * dpr;
     const left = x(1) - badgeWidth - 8 * dpr;
     const top = y(1) - 29 * dpr;
@@ -181,7 +185,8 @@ export function CameraLiveOverlay({
       video: HTMLVideoElement,
       item: LiveObservation,
       continuity: boolean,
-    ) => draw(context, video, item, showIds, showZones, continuity),
+      estimated = false,
+    ) => draw(context, video, item, showIds, showZones && !estimated, continuity, estimated),
   );
 
   useEffect(() => {
@@ -200,7 +205,8 @@ export function CameraLiveOverlay({
       matched: 0,
       drawn: 0,
       continuity: 0,
-      substituted: 0,
+      estimated: 0,
+      estimateMs: 0,
       sampleMs: 0,
       observations: 0,
       presentedAgeMs: null,
@@ -278,7 +284,19 @@ export function CameraLiveOverlay({
         const match = matcher.match(fingerprint, metadata.mediaTime, now);
         stats.sampled++;
         stats.sampleMs += performance.now() - started;
-        if (!match) return;
+        if (!match) {
+          const estimateStarted = performance.now();
+          const bounds = matcher.interpolationBounds(fingerprint, metadata.mediaTime, now);
+          if (!bounds) return;
+          const { before, after, fraction } = bounds;
+          const objects = interpolateObservedBoxes(before, after, fraction);
+          if (objects.length && paint(context, source, { ...before, objects }, false, true)) {
+            stats.estimated++;
+            stats.estimateMs += performance.now() - estimateStarted;
+            clearTimer = setTimeout(clear, 55);
+          }
+          return;
+        }
         stats.matched++;
         stats.presentedAgeMs = Math.max(0, now - match.observation.receivedMs);
         const continuity = match.method === "continuity";

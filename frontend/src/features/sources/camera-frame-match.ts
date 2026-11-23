@@ -25,6 +25,7 @@ const clockToleranceMs = 1000;
 const maxFrameGapSeconds = 0.25;
 const maxAnchorGapSeconds = 2;
 const continuityWindowSeconds = 1;
+const interpolationAgeMs = 3_000;
 export const sampleColumns = 16;
 export const sampleRows = 12;
 const sampleCount = sampleColumns * sampleRows;
@@ -283,6 +284,40 @@ export class CameraFrameMatcher {
     }
     if (item.epoch === previous.epoch) return item.index > previous.index;
     return item.receivedMs > previous.receivedMs;
+  }
+
+  interpolationBounds(frame: number[], mediaTime: number, now: number) {
+    const anchor = this.anchor;
+    if (!anchor?.corroborated || !this.latest || !this.lastMatch ||
+        this.previousMediaTime !== mediaTime ||
+        mediaTime - anchor.mediaTime > continuityWindowSeconds || this.framePeriod > 0.045) return;
+
+    const pts = mediaTime - anchor.offset;
+    const tolerance = Math.min(0.009, this.framePeriod * 0.25);
+    let before: LiveObservation | undefined;
+    let after: LiveObservation | undefined;
+    for (const item of this.eligible.values()) {
+      if (item.epoch !== this.latest.epoch || item.pts_s === null || !observationLifetime(item, now)) continue;
+      if (Math.abs(item.pts_s - pts) <= tolerance) return;
+      if (Math.abs(pts - item.pts_s - this.framePeriod) <= tolerance) {
+        if (before) return;
+        before = item;
+      } else if (Math.abs(item.pts_s - pts - this.framePeriod) <= tolerance) {
+        if (after) return;
+        after = item;
+      }
+    }
+    if (!before || !after || before.pts_s === null || after.pts_s === null ||
+        this.lastMatch.index !== before.index || after.index !== before.index + 1 ||
+        after.receivedMs < before.receivedMs || now - before.receivedMs > interpolationAgeMs) return;
+
+    for (const sample of this.fingerprints.values()) {
+      if (sample.epoch !== before.epoch && distance(frame, sample.fingerprint) !== Infinity) return;
+    }
+    const fraction = (pts - before.pts_s) / (after.pts_s - before.pts_s);
+    const expected = before.fingerprint.map((value, i) => value + fraction * (after.fingerprint[i] - value));
+    if (distance(frame, expected) > 2.5) return;
+    return { before, after, fraction };
   }
 
   match(frame: number[], mediaTime: number, now: number) {

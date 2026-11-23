@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { interpolateObservedBoxes } from "../src/features/sources/camera-estimated-boxes.ts";
 import {
   CameraFrameMatcher,
   observationLifetime,
@@ -178,6 +179,38 @@ const adjacent = [
   observation({ index: 12, pts_s: 1.066, fingerprint: shifted(48) }),
   observation({ index: 13, pts_s: 1.099, fingerprint: shifted(48) }),
 ];
+
+test("an unobserved midpoint needs a recent verified predecessor and two adjacent observations", () => {
+  const one = observation({ index: 10, pts_s: 1 });
+  const two = observation({ index: 11, pts_s: 1.066, fingerprint: shifted(24) });
+  const three = observation({ index: 12, pts_s: 1.132, fingerprint: shifted(48) });
+  const matcher = new CameraFrameMatcher();
+  update(matcher, one, two, three);
+  assert.ok(matcher.match(pattern, 10, now));
+  assert.equal(matcher.match(shifted(12), 10.033, now), undefined);
+  assert.equal(matcher.interpolationBounds(shifted(12), 10.033, now), undefined);
+  assert.ok(matcher.match(shifted(24), 10.066, now));
+  assert.equal(matcher.match(shifted(36), 10.099, now), undefined);
+  assert.equal(matcher.interpolationBounds(shifted(-20), 10.099, now), undefined);
+  assert.equal(matcher.interpolationBounds(shifted(36), 10.099, now)?.after, three);
+  assert.equal(matcher.interpolationBounds(shifted(36), 10.099, now + 2001), undefined);
+  update(matcher, { ...three, epoch: 2 });
+  assert.equal(matcher.interpolationBounds(shifted(36), 10.099, now), undefined);
+});
+
+test("estimated boxes retain role-qualified IDs and decline crossing or vanished objects", () => {
+  const person = { role: "person", track_id: 1, box: [0.1, 0.1, 0.3, 0.5] };
+  const vehicle = { ...person, role: "forklift" };
+  const moved = { ...person, box: [0.12, 0.1, 0.32, 0.5] };
+  const a = observation({ objects: [person, vehicle] });
+  const b = observation({ objects: [vehicle, moved] });
+  assert.deepEqual(interpolateObservedBoxes(a, b, 0.5), [
+    { ...person, box: [0.11, 0.1, 0.31, 0.5] }, vehicle,
+  ]);
+  const crossing = { ...person, track_id: 2, box: [0.29, 0.2, 0.4, 0.6] };
+  assert.deepEqual(interpolateObservedBoxes(a, { ...b, objects: [moved, crossing] }, 0.5), []);
+  assert.deepEqual(interpolateObservedBoxes(a, { ...b, epoch: 2 }, 0.5), []);
+});
 
 function confirm(matcher, ...evidence) {
   update(matcher, ...anchors, ...adjacent, ...evidence);

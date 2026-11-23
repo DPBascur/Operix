@@ -162,7 +162,7 @@ export function CameraLiveVideo({
       )}
       {overlay && (
         <p className="text-sm text-text-secondary">
-          La superposición aparece solo en fotogramas verificados.
+          Las cajas discontinuas indican posiciones estimadas entre observaciones.
         </p>
       )}
     </figure>
@@ -473,7 +473,10 @@ function LiveStream({
               <span>Coincidencias {overlayStats?.matched ?? 0}</span>
               <span>Dibujados {overlayStats?.drawn ?? 0}</span>
               <span>Por continuidad {overlayStats?.continuity ?? 0}</span>
-              <span>Sustituidos {overlayStats?.substituted ?? 0}</span>
+              <span>Estimados {overlayStats?.estimated ?? 0}</span>
+              {!!overlayStats?.estimated && (
+                <span>Estimación media · {cameraNumber(overlayStats.estimateMs / overlayStats.estimated, " ms")}</span>
+              )}
               {overlayStats?.presentedAgeMs != null && (
                 <span>
                   Recepción a presentación (última coincidencia) ·{" "}
