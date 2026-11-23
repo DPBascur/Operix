@@ -4,6 +4,8 @@
 
 Default mode hashes inputs and reports installed package metadata. --execute
 exports ONNX on CPU, optionally builds TensorRT 10 engines, then measures CUDA.
+For TensorRT, --execute --compile-only produces a reusable report and engines.
+Use --engine-report and --engine-report-sha256 to verify those files for inference.
 Run in an isolated container with a new output directory and read-only inputs.
 """
 
@@ -13,11 +15,13 @@ import argparse
 from contextlib import nullcontext
 from dataclasses import asdict
 import gc
+from hashlib import sha256
 from importlib.metadata import PackageNotFoundError, version
 import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 from tempfile import TemporaryDirectory
 from time import perf_counter
@@ -37,11 +41,16 @@ WORKSPACE_BYTES = 512 * 1024**2
 BUILD_OPTIMIZATION_LEVEL = 1
 WARMUP_BATCHES = 3
 REPEATS = 2
+TRT_PACKAGES = ("tensorrt-cu13-bindings", "tensorrt-cu13-libs")
+ENGINE_PROTOCOL_KEYS = (
+    "backend", "nchw", "opset", "embedded_nms", "tf32",
+    "trt_workspace_bytes", "trt_builder_optimization_level",
+)
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--video", type=Path, action="append", required=True,
+    parser.add_argument("--video", type=Path, action="append", default=[],
                         help="Local video file, supply once or twice")
     parser.add_argument("--media-manifest", type=Path, help="Verify clip hashes and retain source attribution")
     for role in ("person", "forklift"):
@@ -53,10 +62,24 @@ def parse_args():
     parser.add_argument("--input-height", type=int, help="Static input height, defaults to --imgsz")
     parser.add_argument("--frames", type=int, default=32, help="Consecutive frames per clip, at most 64")
     parser.add_argument("--start-frame", type=int, default=0, help="First decoded ordinal, at most 3600")
+    parser.add_argument("--trt-build-level", type=int, choices=(0, 1), default=BUILD_OPTIMIZATION_LEVEL,
+                        help="TensorRT builder optimization level, logged in the engine report")
     parser.add_argument("--execute", action="store_true", help="Authorize CUDA work in this process")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--compile-only", action="store_true", help="Export ONNX and build TensorRT engines without video")
+    mode.add_argument("--engine-report", type=Path, help="Completed compile-only report.json alongside its artifacts")
+    parser.add_argument("--engine-report-sha256", help="Trusted SHA-256 of --engine-report")
     args = parser.parse_args()
-    if not 1 <= len(args.video) <= 2:
+    if (args.compile_only or args.engine_report) and args.backend == "ort-cuda":
+        parser.error("engine compilation and reuse require a TensorRT backend")
+    if args.compile_only and (not args.execute or args.video or args.media_manifest):
+        parser.error("--compile-only requires --execute and takes no video or media manifest")
+    if not args.compile_only and not 1 <= len(args.video) <= 2:
         parser.error("supply one or two local clips")
+    if args.engine_report is None and args.engine_report_sha256 is not None:
+        parser.error("--engine-report-sha256 requires --engine-report")
+    if args.engine_report and not re.fullmatch(r"[0-9a-fA-F]{64}", args.engine_report_sha256 or ""):
+        parser.error("--engine-report requires a 64-digit --engine-report-sha256")
     if not 1 <= args.frames <= 64 or args.frames % args.batch or not 0 <= args.start_frame <= 3600:
         parser.error("require 1–64 frames divisible by batch and start frame in 0–3600")
     if args.input_height is None:
@@ -120,12 +143,49 @@ def make_manifest(args):
             "warmup_batches": WARMUP_BATCHES,
             "repeats": REPEATS,
             "trt_workspace_bytes": WORKSPACE_BYTES,
-            "trt_builder_optimization_level": BUILD_OPTIMIZATION_LEVEL,
+            "trt_builder_optimization_level": args.trt_build_level,
             "scope": "Predecoded detector timing and post-NMS role-filtered detection parity. "
                      "Unmatched detections are relative to PyTorch. Tracking, rules and events are untested.",
             "memory_scope": "PyTorch allocator and process RSS. External backend VRAM is outside allocator stats.",
         },
     }
+
+
+def verify_engine_report(args, manifest):
+    report_path = args.engine_report.expanduser().resolve(strict=True)
+    payload = report_path.read_bytes()
+    digest = sha256(payload).hexdigest()
+    if digest != args.engine_report_sha256.lower():
+        raise ValueError(f"Engine report SHA-256 mismatch: {report_path}")
+    report_receipt = {"path": str(report_path), "sha256": digest, "bytes": len(payload)}
+    report = json.loads(payload)
+    try:
+        if report["schema_version"] != 1 or report["status"] != "compiled":
+            raise ValueError("Expected a completed TensorRT compile-only report")
+        for key in ENGINE_PROTOCOL_KEYS:
+            if report["protocol"][key] != manifest["protocol"][key]:
+                raise ValueError(f"Engine report protocol mismatch: {key}")
+        build_cuda = {key: report["cuda"][key] for key in ("gpu", "compute_capability")}
+        packages = {name: report["runtime"]["packages"][name] for name in TRT_PACKAGES}
+        if not all(packages.values()):
+            raise ValueError("Engine report is missing TensorRT package versions")
+        artifacts = {}
+        for role, spec in manifest["models"].items():
+            if report["models"][role]["checkpoint"]["sha256"] != spec["checkpoint"]["sha256"]:
+                raise ValueError(f"Engine report checkpoint mismatch: {role}")
+            artifacts[role] = {}
+            for kind in ("onnx", "engine"):
+                expected = report["artifacts"][role][kind]
+                path = report_path.with_name(f"{role}.{kind}")
+                receipt = lab.file_receipt(path)
+                if receipt["sha256"] != expected["sha256"] or receipt["bytes"] != expected["bytes"]:
+                    raise ValueError(f"Engine report artifact mismatch: {path}")
+                artifacts[role][kind] = receipt
+    except (KeyError, TypeError) as error:
+        raise ValueError("Malformed TensorRT compile report") from error
+    manifest.update(artifacts=artifacts, engine_build={
+        "report": report_receipt, "cuda": build_cuda, "packages": packages,
+    })
 
 
 def export_onnx(args, role, spec, output):
@@ -158,7 +218,7 @@ def export_onnx(args, role, spec, output):
     return path, {item.key: item.value for item in graph.metadata_props}
 
 
-def build_engine(onnx_path, metadata, fp16):
+def build_engine(onnx_path, metadata, fp16, optimization_level):
     import tensorrt as trt
 
     if trt.__version__.partition(".")[0] != "10":
@@ -175,7 +235,7 @@ def build_engine(onnx_path, metadata, fp16):
         if not builder.platform_has_fast_fp16:
             raise RuntimeError("TensorRT does not report fast FP16 on this device")
         settings.set_flag(trt.BuilderFlag.FP16)
-    settings.builder_optimization_level = BUILD_OPTIMIZATION_LEVEL
+    settings.builder_optimization_level = optimization_level
     settings.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, WORKSPACE_BYTES)
     engine = builder.build_serialized_network(network, settings)
     if engine is None:
@@ -285,28 +345,38 @@ def serialize_detections(outputs, start):
 def run(args, manifest, output):
     packages = manifest["runtime"]["packages"]
     is_ort = args.backend == "ort-cuda"
-    required = ("onnx", "onnxruntime-gpu") if is_ort else ("onnx", "tensorrt-cu13-bindings", "tensorrt-cu13-libs")
+    if is_ort:
+        required = ("onnx", "onnxruntime-gpu")
+    elif args.engine_report:
+        required = TRT_PACKAGES
+    else:
+        required = ("onnx", *TRT_PACKAGES)
     missing = [name for name in required if not packages[name]]
     if missing:
         raise RuntimeError(f"Missing packages: {', '.join(missing)}")
     if is_ort and packages["onnxruntime"]:
         raise RuntimeError("ORT CUDA requires onnxruntime-gpu without the CPU onnxruntime distribution")
+    if args.engine_report and any(packages[name] != manifest["engine_build"]["packages"][name]
+                                  for name in TRT_PACKAGES):
+        raise RuntimeError("TensorRT packages differ from the engine build")
 
     import torch
 
     clips, decoded = [], []
-    for clip in manifest["clips"]:
-        frames, receipt = lab.decode_frames(clip["path"], args.start_frame, args.frames)
-        clips.append(frames)
-        decoded.append(receipt)
+    if not args.compile_only:
+        for clip in manifest["clips"]:
+            frames, receipt = lab.decode_frames(clip["path"], args.start_frame, args.frames)
+            clips.append(frames)
+            decoded.append(receipt)
     models = manifest["models"]
     paths = {role: Path(spec["checkpoint"]["path"]) for role, spec in models.items()}
     artifacts, onnx_models = {}, {}
-    for role, spec in models.items():
-        started = perf_counter()
-        onnx_path, metadata = export_onnx(args, role, spec, output)
-        onnx_models[role] = (onnx_path, metadata)
-        artifacts[role] = {"onnx": lab.file_receipt(onnx_path), "export_seconds": perf_counter() - started}
+    if not args.engine_report:
+        for role, spec in models.items():
+            started = perf_counter()
+            onnx_path, metadata = export_onnx(args, role, spec, output)
+            onnx_models[role] = (onnx_path, metadata)
+            artifacts[role] = {"onnx": lab.file_receipt(onnx_path), "export_seconds": perf_counter() - started}
 
     device = torch.device("cuda:0")
     if not torch.cuda.is_available():
@@ -316,16 +386,32 @@ def run(args, manifest, output):
     torch.backends.cudnn.allow_tf32 = False
     torch.backends.cudnn.benchmark = False
     gpu = torch.cuda.get_device_properties(device)
+    cuda = {"gpu": gpu.name, "compute_capability": [gpu.major, gpu.minor],
+            "vram_bytes": gpu.total_memory, "torch_cuda": torch.version.cuda}
 
-    candidate_paths = {}
-    for role, (onnx_path, metadata) in onnx_models.items():
-        if is_ort:
-            candidate_paths[role] = onnx_path
-        else:
+    if args.engine_report:
+        if any(cuda[key] != value for key, value in manifest["engine_build"]["cuda"].items()):
+            raise RuntimeError("CUDA device differs from the engine build")
+        artifacts = manifest["artifacts"]
+        candidate_paths = {role: Path(files["engine"]["path"]) for role, files in artifacts.items()}
+    else:
+        candidate_paths = {}
+        for role, (onnx_path, metadata) in onnx_models.items():
+            if is_ort:
+                candidate_paths[role] = onnx_path
+                continue
+            if args.compile_only:
+                print(f"Building {role} ({args.backend})", flush=True)
             started = perf_counter()
-            engine = build_engine(onnx_path, metadata, args.backend == "trt-fp16")
+            engine = build_engine(onnx_path, metadata, args.backend == "trt-fp16",
+                                  manifest["protocol"]["trt_builder_optimization_level"])
             artifacts[role].update(engine=lab.file_receipt(engine), build_seconds=perf_counter() - started)
             candidate_paths[role] = engine
+            if args.compile_only:
+                print(f"Built {role} in {artifacts[role]['build_seconds']:.1f}s", flush=True)
+    if args.compile_only:
+        manifest.update(status="compiled", artifacts=artifacts, cuda=cuda)
+        return
     refs = measure_case(args, models, paths, clips, device, "pt", rect=True)
     gc.collect()
     torch.cuda.empty_cache()
@@ -353,9 +439,7 @@ def run(args, manifest, output):
         })
     manifest.update(
         status="complete", artifacts=artifacts, comparisons=comparisons,
-        cuda={"gpu": gpu.name, "compute_capability": [gpu.major, gpu.minor],
-              "vram_bytes": gpu.total_memory, "torch_cuda": torch.version.cuda,
-              "cudnn": torch.backends.cudnn.version()},
+        cuda={**cuda, "cudnn": torch.backends.cudnn.version()},
     )
 
 
@@ -369,6 +453,10 @@ def main():
     args = parse_args()
     try:
         manifest = make_manifest(args)
+        if args.compile_only:
+            manifest["compile_only"] = True
+        if args.engine_report:
+            verify_engine_report(args, manifest)
         if not args.output:
             print(json.dumps(manifest, indent=2))
             return

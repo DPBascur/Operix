@@ -134,7 +134,7 @@ class WorkerStatus:
             "clips_existing", "clips_unavailable", "clips_disk_limit", "clips_failed",
             "evidence_saved", "evidence_failed",
             "registration_attempts", "png_upload_attempts", "evidence_status_attempts",
-            "evidence_status_failed",
+            "evidence_status_failed", "tracking_resets", "tracking_preserved_gaps",
         )})
         self.preview_frame = None
         self.last_frame_at = None
@@ -271,9 +271,9 @@ class LabPipeline:
         self.renderer = OpenCvRenderer(visual)
         self.histories = {name: TrajectoryAccumulator(visual) for name in ("person", "forklift")}
 
-    def reset(self, epoch):
-        self.perception.person.reset()
-        self.perception.forklift.reset()
+    def reset(self, epoch, *, preserve_tracking=False):
+        if not preserve_tracking:
+            self.perception.reset()
         # Image-only transitions can advance the spatial epoch on their own.
         self.analyzer.reset(epoch=max(epoch, self.analyzer.epoch + 1))
         if self.rules is not None:
@@ -612,10 +612,11 @@ def run(args, status, stop_reason):
                     epoch_reason, timestamp = epoch.advance(frame)
                     if epoch_reason:
                         publisher.flush()
-                        pipeline.reset(epoch.number)
+                        pipeline.reset(epoch.number, preserve_tracking=epoch.preserve_tracking)
                         ring.clear()
                         status.epoch = epoch.number
                         status.epochs[epoch_reason] += 1
+                        status.metrics["tracking_preserved_gaps" if epoch.preserve_tracking else "tracking_resets"] += 1
                     if detected is None:
                         annotated, candidates, inference_ms, rules_ms = pipeline.process(
                             frame, timestamp, timings=status.timings,

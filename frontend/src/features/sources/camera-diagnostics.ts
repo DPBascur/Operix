@@ -27,6 +27,10 @@ export function cameraCoverage(metrics: Metrics) {
     : null;
 }
 
+export function cameraObservationPaused(status: string, stale: boolean) {
+  return stale || status === "no_signal" || status === "reconnecting";
+}
+
 export function cameraAnalysisRate(metrics: Metrics) {
   const recent = cameraNumber(metrics?.analysis_fps_5s, " FPS");
   const legacy =
@@ -211,6 +215,11 @@ export function cameraTechnicalMetrics(metrics: Metrics) {
       rows: [
         ["Fotogramas analizados", cameraNumber(metrics?.frames_processed)],
         ["Fotogramas descartados", cameraNumber(metrics?.frames_dropped)],
+        ["Tramos de observación", cameraNumber(metrics?.epoch)],
+        [
+          "Saltos con seguimiento conservado",
+          cameraNumber(metrics?.tracking_preserved_gaps),
+        ],
         ["Eventos publicados", cameraNumber(metrics?.events_published)],
       ],
     },

@@ -22,6 +22,7 @@ import {
 import {
   cameraAnalysisRate,
   cameraCoverage,
+  cameraObservationPaused,
   cameraFrameTime,
   cameraNumber,
   cameraTechnicalMetrics,
@@ -579,7 +580,9 @@ function CameraDiagnostics({
 }) {
   const rate = cameraAnalysisRate(camera.metrics);
   const received = cameraNumber(camera.metrics?.received_fps, " FPS");
-  const coverage = cameraCoverage(camera.metrics);
+  const paused = cameraObservationPaused(camera.status, stale);
+  const coverage = paused ? null : cameraCoverage(camera.metrics);
+  const discarded = cameraNumber(camera.metrics?.frames_dropped);
   const groups = cameraTechnicalMetrics(camera.metrics);
   const frameAge = cameraNumber(camera.metrics?.last_frame_age_ms, " ms");
   const latency = cameraNumber(camera.metrics?.p95_arrival_to_result_ms, " ms");
@@ -602,6 +605,11 @@ function CameraDiagnostics({
       </h2>
       {stale ? (
         <p className="text-sm text-text-secondary">Datos sin actualizar.</p>
+      ) : paused ? (
+        <p className="text-sm text-text-secondary" role="status">
+          Observación interrumpida. Al recuperar la señal comienza un nuevo
+          tramo.
+        </p>
       ) : hasReading && idle.has(camera.status) ? (
         <p className="text-sm text-text-secondary">
           Última lectura de la ejecución.
@@ -619,7 +627,7 @@ function CameraDiagnostics({
             Fotogramas observados (5 s)
           </dt>
           <dd className="text-lg font-semibold tabular-nums">
-            {coverage ?? "Sin datos"}
+            {paused ? "No disponible" : (coverage ?? "Sin datos")}
           </dd>
         </div>
         <div>
@@ -647,6 +655,12 @@ function CameraDiagnostics({
         La cobertura indica qué proporción de los fotogramas decodificados se
         analizó.
       </p>
+      {discarded !== null && discarded !== "0" && (
+        <p className="text-sm text-text-secondary">
+          Descartes en la ejecución · {discarded}. Las reglas temporales y los
+          clips se limitan a tramos observados sin interrupciones.
+        </p>
+      )}
       <details className="border-t border-border text-sm">
         <summary className="min-h-11 cursor-pointer py-3 font-medium text-primary">
           Detalles técnicos

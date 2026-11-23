@@ -135,7 +135,7 @@ class Capture:
 
 
 class Epoch:
-    """Nunca reenumera huecos. Usa una única base de tiempo por época."""
+    """Separa continuidad de evidencia y posible reutilización de identidad."""
 
     def __init__(self, fps):
         self.fps = fps
@@ -143,6 +143,17 @@ class Epoch:
         self.number = 0
         self.origin = 0
         self.uses_pts = False
+        self.preserve_tracking = False
+        self._previous_contiguous = False
+
+    def _isolated_drop(self, frame):
+        previous = self.previous
+        if (not self._previous_contiguous or frame.index != previous.index + 2
+                or previous.pts is None or frame.pts is None):
+            return False
+        pts_delta = frame.pts - previous.pts
+        return (1.5 < pts_delta * self.fps < 2.5 and pts_delta <= .25
+                and 0 < frame.received - previous.received <= .25)
 
     def discontinuity(self, frame):
         previous = self.previous
@@ -166,6 +177,10 @@ class Epoch:
 
     def advance(self, frame):
         reason = self.discontinuity(frame)
+        # El ordinal saltó dentro de la misma conexión y el reloj de origen lo corrobora.
+        # La época se corta incluso cuando ByteTrack puede asociar la próxima detección.
+        self.preserve_tracking = reason == "queue_gap" and self._isolated_drop(frame)
+        self._previous_contiguous = reason is None
         if reason:
             self.number += 1
             self.uses_pts = frame.pts is not None

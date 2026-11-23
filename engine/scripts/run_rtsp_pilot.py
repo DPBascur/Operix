@@ -113,7 +113,7 @@ def run(args, url):
     rules, epoch = RuleEngine(config), Epoch(args.fps)
     epochs = Counter()
     samples, ages, services = (deque(maxlen=8192) for _ in range(3))
-    processed = candidates = 0
+    processed = candidates = tracking_resets = tracking_preserved_gaps = 0
     started = monotonic()
     termination = "duration"
     diagnostic = ((args.output / "capture.ndjson").open("w", encoding="utf-8")
@@ -137,8 +137,11 @@ def run(args, url):
                     reason, timestamp = epoch.advance(frame)
                     if reason:
                         epochs[reason] += 1
-                        perception.person.tracker.reset()
-                        perception.forklift.tracker.reset()
+                        if epoch.preserve_tracking:
+                            tracking_preserved_gaps += 1
+                        else:
+                            perception.reset()
+                            tracking_resets += 1
                         analyzer.reset(epoch=epoch.number)
                         rules.reset()
                     inference_started = monotonic()
@@ -158,7 +161,8 @@ def run(args, url):
                               "connection": frame.connection, "source_pts_s": frame.pts,
                               "received_monotonic_s": frame.received, "epoch_time_s": timestamp,
                               "time_basis": "source_pts" if epoch.uses_pts else "local_arrival",
-                              "epoch_reason": reason, "queue_depth_at_arrival": frame.queue_depth,
+                              "epoch_reason": reason, "tracking_preserved_gap": epoch.preserve_tracking,
+                              "queue_depth_at_arrival": frame.queue_depth,
                               "queue_age_ms": age, "arrival_to_result_ms": latency}
                     if args.trace_capture:
                         record.update(consume_monotonic_s=began, result_monotonic_s=ended,
@@ -179,7 +183,9 @@ def run(args, url):
                "width": args.width, "height": args.height, "source_fps": args.fps,
                "effective_fps": processed / wall, "counters": dict(capture.counts),
                "warmup_ms": warmup_ms,
-               "epochs": dict(epochs), "max_queue": capture.depth, "samples": len(samples),
+               "epochs": dict(epochs), "tracking_resets": tracking_resets,
+               "tracking_preserved_gaps": tracking_preserved_gaps,
+               "max_queue": capture.depth, "samples": len(samples),
                "p95_queue_age_ms": percentile(ages), "p95_arrival_to_result_ms": percentile(samples),
                "p95_service_ms": percentile(services)}
     (args.output / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")

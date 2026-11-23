@@ -19,7 +19,9 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import run_rtsp_lab as lab
+from operix_engine.detection import BoundingBox, Detection
 from operix_engine.event_publishing import EventContext, HttpEventSink, PublishResult
+from operix_engine.operational_config import OperationalConfig, RuleConfig, Zone
 from operix_engine.rtsp_lab_clips import ClipStore, JpegRing
 from operix_engine.rtsp_pilot import Frame
 from operix_engine.rules import EventCandidate
@@ -33,6 +35,72 @@ class ImmediateExecutor:
 
 
 class WorkerTests(TestCase):
+    def test_observation_gaps_do_not_reassign_visible_tracks_by_detection_order(self):
+        config = OperationalConfig(1, "lab-cam-01", (), ())
+        args = SimpleNamespace(width=320, height=180, fps=12)
+        pipeline = lab.LabPipeline(config, args, infer_remotely=True)
+        epoch = lab.Epoch(args.fps)
+        image = np.zeros((args.height, args.width, 3), dtype=np.uint8)
+        sides = {"left": (40, 67), "right": (205, 231)}
+
+        def observe(index, connection, pts, order, expected_reason, expected_keep=False):
+            frame = Frame(index, connection, 10 + index / 12, pts, image)
+            reason, timestamp = epoch.advance(frame)
+            self.assertEqual((reason, epoch.preserve_tracking), (expected_reason, expected_keep))
+            if reason:
+                pipeline.reset(epoch.number, preserve_tracking=epoch.preserve_tracking)
+                self.assertEqual(timestamp, 0)
+            boxes = tuple(Detection(0, "person", .95, BoundingBox(sides[side][0], 65, sides[side][1], 145))
+                          for side in order)
+            with mock.patch.object(pipeline.renderer, "render_tracks", wraps=pipeline.renderer.render_tracks) as render:
+                pipeline.process(frame, timestamp, detected=SimpleNamespace(person=boxes, forklift=()))
+            return {"left" if track.bounding_box.x_min < 100 else "right": track.track_id
+                    for track in render.call_args_list[0].args[1]}
+
+        left_first = ("left", "right")
+        right_first = ("right", "left")
+        original = observe(0, 1, 0, left_first, "initial")
+        self.assertEqual(len(original), 2)
+        self.assertEqual(observe(1, 1, 1 / 12, left_first, None), original)
+        self.assertEqual(observe(3, 1, 3 / 12, right_first, "queue_gap", True), original)
+
+        # Reverse order for the new session. Numeric IDs may restart; an epoch identifies the session of each ID.
+        restarted = {"left": original["right"], "right": original["left"]}
+        for index, connection, pts, reason in (
+            (5, 1, 5 / 12, "queue_gap"),  # Repeated isolated drop with no contiguous transition.
+            (8, 1, 8 / 12, "queue_gap"),  # Multiple consecutive drops.
+            (10, 1, None, "queue_gap"),   # Source clock cannot corroborate the drop.
+            (11, 2, 1 / 12, "reconnect"),
+        ):
+            with self.subTest(index=index, reason=reason):
+                self.assertEqual(observe(index, connection, pts, right_first, reason), restarted)
+
+    def test_preserved_tracker_starts_a_new_dwell_episode_from_observed_frames(self):
+        zone = Zone("area", "Area", ((.5, 0), (1, 0), (1, 1), (.5, 1)))
+        rule = RuleConfig("dwell", 1, True, {"kind": "zone_dwell", "zone_id": "area",
+                                           "class_name": "person", "min_duration_s": .15})
+        config = OperationalConfig(1, "lab-cam-01", (zone,), (rule,))
+        args = SimpleNamespace(width=320, height=180, fps=12)
+        pipeline = lab.LabPipeline(config, args, infer_remotely=True)
+        image = np.zeros((args.height, args.width, 3), dtype=np.uint8)
+        outside = Detection(0, "person", .95, BoundingBox(30, 70, 60, 150))
+        inside = Detection(0, "person", .95, BoundingBox(190, 70, 220, 150))
+
+        def observe(index, epoch_start, detections):
+            frame = Frame(index, 1, 10 + index / 12, index / 12, image)
+            return pipeline.process(frame, (index - epoch_start) / 12,
+                                    detected=SimpleNamespace(person=detections, forklift=()))[1]
+
+        pipeline.reset(1)
+        self.assertFalse(observe(0, 0, (outside, inside)))
+        self.assertFalse(observe(1, 0, (outside, inside)))
+        pipeline.reset(2, preserve_tracking=True)
+        self.assertFalse(observe(3, 3, (inside,)))
+        self.assertFalse(observe(4, 3, (inside,)))
+        candidate, = observe(5, 3, (inside,))
+        self.assertEqual((candidate.track_id, candidate.epoch, candidate.frame_index), (2, 2, 5))
+        self.assertAlmostEqual(candidate.observed_dwell_time_s, 2 / 12)
+
     def test_capture_read_wall_time_is_reported_separately_from_frame_age(self):
         with TemporaryDirectory() as directory:
             args = SimpleNamespace(output=Path(directory), fps=12, width=32, height=16)
@@ -147,7 +215,8 @@ class WorkerTests(TestCase):
             self.assertEqual(states.call_args_list, [mock.call(name) for name in (
                 "connecting", "processing", "reconnecting", "processing",
             )])
-            self.assertEqual(pipeline.reset.call_args_list, [mock.call(1), mock.call(2)])
+            self.assertEqual(pipeline.reset.call_args_list, [mock.call(1, preserve_tracking=False),
+                                                             mock.call(2, preserve_tracking=False)])
             status.write("stopped", reason)
             data = json.loads((args.output / "status.json").read_bytes())
             self.assertIsNotNone(datetime.fromisoformat(data["last_frame_at"]).utcoffset())
@@ -169,10 +238,10 @@ class WorkerTests(TestCase):
         capture.depth = 0
         capture.next.side_effect = lambda: next(frames)
         entered = lab.monotonic()
-        frames = iter(Frame(index, 1, entered + index / 12, index / 12, image) for index in range(3))
+        frames = iter(Frame(index, 1, entered + index / 12, index / 12, image) for index in range(4))
         detected = SimpleNamespace(wait_ms=2, person_ms=5, forklift_ms=3, batch_size=2)
         client = mock.Mock()
-        client.infer.side_effect = [detected, lab.InferenceTimeout("expired"), detected]
+        client.infer.side_effect = [detected, detected, lab.InferenceTimeout("expired"), detected]
         pipeline = mock.Mock()
         pipeline.process.return_value = (image, (), 8., 2.)
         context = SimpleNamespace(analysis_run_id=uuid4(), source={"camera_id": "lab-cam-01"})
@@ -187,13 +256,16 @@ class WorkerTests(TestCase):
                       "OPERIX_RTSP_ALLOWED_IP": "127.0.0.1", "OPERIX_EVENT_PUBLISH_TOKEN": "test",
                       "OPERIX_EVENT_API_BASE_URL": "http://127.0.0.1:8000/api/v1",
                       "OPERIX_RTSP_INFERENCE_SOCKET": "/private/lab.sock"})):
-                lab.run(args, status, lambda: "OPERATOR_STOP" if status.metrics["frames_processed"] == 2 else None)
+                lab.run(args, status, lambda: "OPERATOR_STOP" if status.metrics["frames_processed"] == 3 else None)
             self.assertEqual(status.inference_drops, {"deadline": 1})
-            self.assertEqual(status.inference_batch_sizes, {2: 2})
+            self.assertEqual(status.inference_batch_sizes, {2: 3})
             self.assertEqual(status.epochs, {"initial": 1, "queue_gap": 1})
-            self.assertEqual(pipeline.reset.call_args_list, [mock.call(1), mock.call(2)])
+            self.assertEqual(status.metrics["tracking_resets"], 1)
+            self.assertEqual(status.metrics["tracking_preserved_gaps"], 1)
+            self.assertEqual(pipeline.reset.call_args_list, [mock.call(1, preserve_tracking=False),
+                                                             mock.call(2, preserve_tracking=True)])
             self.assertEqual([(call.args[0].index, call.args[1]) for call in pipeline.process.call_args_list],
-                             [(0, 0.), (2, 0.)])
+                             [(0, 0.), (1, 1/12), (3, 0.)])
 
 
 class EventTests(TestCase):

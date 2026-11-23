@@ -283,6 +283,10 @@ def summarize(samples, aliases, window_seconds, fps):
             "inference_drops": inference_drops, "known_frame_drops": drops,
             "decoded_minus_processed_and_dropped": remainder, "capture_queue_change": queue_change,
             "unaccounted_frames_after_queue": unexplained,
+            "tracking_deltas": counter_deltas(
+                {key: start[key] for key in ("tracking_resets", "tracking_preserved_gaps") if key in start},
+                {key: end[key] for key in ("tracking_resets", "tracking_preserved_gaps") if key in end},
+            ),
             "event_deltas": counter_deltas(event_counters(start), event_counters(end)),
             "rolling_p95_at_window_end_ms": {
                 key[4:-3]: value for key, value in end.items() if key.startswith("p95_") and key.endswith("_ms")

@@ -214,6 +214,12 @@ compara predicciones pos-NMS y separa el cambio de backend del cambio de
 forma o de lote. Los motores exportados y los pesos permanecen fuera de Git.
 Construye los entornos opcionales con `backend-proof.Dockerfile` y el target
 `ort` o `tensorrt`, pasando la imagen local de control como `BASE_IMAGE`.
+Para aislar el coste de compilación, ejecuta el perfil TensorRT con
+`--execute --compile-only` y conserva su `report.json` junto a los motores.
+La inferencia recibe ese informe y su huella mediante `--engine-report` y
+`--engine-report-sha256`. Usa el mismo backend, forma, lote y nivel de
+compilación en ambos pasos. `--trt-build-level 0` permite ensayar el nivel
+rápido del compilador y queda registrado junto con los tiempos por modelo.
 En video 16:9, `--input-height 384 --imgsz 640` conserva la forma rectangular
 del preprocesado de PyTorch. `benchmark_gpu.py --batch-eight` añade la prueba
 de lote 8 cuando hay al menos 4 GiB de memoria CUDA libre.
@@ -226,6 +232,29 @@ Para comparar el mismo ONNX en RTSP, construye el target `ort-live` con
 `benchmark-live.py --candidate-image`. El worker experimental verifica las
 huellas y la forma antes de iniciar. Para volver a PyTorch, ejecuta la etapa
 `regular` con la imagen de control. Compose mantiene PyTorch como predeterminado.
+
+### Continuidad ante descartes
+
+Todo hueco corta la época de observación, las trayectorias, los episodios de
+reglas y el contexto de clip. El Motor reinicia los relojes del episodio en
+el siguiente cuadro observado. La identidad de ByteTrack puede conservarse
+ante un único ordinal omitido, en la misma conexión y después de cuadros
+consecutivos. El PTS debe avanzar aproximadamente dos períodos de la fuente,
+y los saltos de PTS y recepción deben ser positivos y de hasta 250 ms. Se
+asocian solo detecciones del cuadro real que se recibe después del descarte.
+
+Las pérdidas consecutivas, los saltos repetidos sin un cuadro consecutivo
+entre ellos, los relojes ambiguos y la reconexión reinician ByteTrack. El PTS
+perdido o recuperado abre otra época. Las revisiones de zona, reglas y
+calibración se aplican al iniciar un run nuevo. Durante un run, el guard de
+encuadre suspende las reglas espaciales al perder validación y un corte de
+época vuelve a exigir la comprobación del patrón.
+
+El estado informa `tracking_resets` y `tracking_preserved_gaps` aparte de
+`epochs`. El replay `benchmark_continuity.py <directorio-nuevo>` genera un
+video anotado, simula ráfagas en la cola y compara ambas políticas con el mismo
+ByteTrack y las mismas reglas. Los FPS y latencias del fixture corresponden
+a servicio CPU con detecciones anotadas y reloj de llegada simulado.
 
 ### Medición desde la emisión RTSP hasta el historial
 

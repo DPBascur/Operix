@@ -13,15 +13,44 @@ class EpochTests(unittest.TestCase):
             Frame(3, 1, 10.25, 5.25, None),
             Frame(4, 2, 12, 1, None),
         ]
-        results = [epoch.advance(frame) for frame in sequence]
+        results, preserved = [], []
+        for frame in sequence:
+            results.append(epoch.advance(frame))
+            preserved.append(epoch.preserve_tracking)
         self.assertEqual([reason for reason, _ in results], ["initial", None, "queue_gap", "reconnect"])
         self.assertEqual([results[i][1] for i in (0, 2, 3)], [0, 0, 0])
         self.assertEqual(epoch.number, 3)
+        self.assertEqual(preserved, [False, False, True, False])
+
+    def test_ambiguous_or_repeated_gaps_do_not_preserve_tracking(self):
+        for frame in (
+            Frame(4, 1, 10.25, 5.25, None),             # más de un cuadro
+            Frame(3, 1, 10.25, None, None),             # reloj perdido
+            Frame(3, 1, 10.25, 5.08, None),             # PTS repetido
+            Frame(3, 1, 10.25, 5.16, None),             # PTS no respalda el salto
+            Frame(3, 1, 10.8, 5.25, None),              # llegada demasiado tardía
+            Frame(3, 1, 10.07, 5.25, None),             # llegada fuera de orden
+            Frame(3, 2, 10.25, 5.25, None),             # otra conexión
+        ):
+            with self.subTest(frame=frame):
+                epoch = Epoch(12)
+                epoch.advance(Frame(0, 1, 10, 5, None))
+                epoch.advance(Frame(1, 1, 10.08, 5.08, None))
+                self.assertIsNotNone(epoch.advance(frame)[0])
+                self.assertFalse(epoch.preserve_tracking)
+
+        epoch = Epoch(12)
+        for index in (0, 1, 3):
+            epoch.advance(Frame(index, 1, 10 + index / 12, index / 12, None))
+        self.assertTrue(epoch.preserve_tracking)
+        self.assertEqual(epoch.advance(Frame(5, 1, 10 + 5 / 12, 5 / 12, None))[0], "queue_gap")
+        self.assertFalse(epoch.preserve_tracking)
 
     def test_pts_gap_without_decoded_index_gap(self):
         epoch = Epoch(12)
         epoch.advance(Frame(10, 1, 10, 5, None))
         self.assertEqual(epoch.advance(Frame(11, 1, 10.2, 5.25, None)), ("source_pts_gap", 0))
+        self.assertFalse(epoch.preserve_tracking)
 
     def test_clock_basis_change_starts_an_epoch(self):
         epoch = Epoch(12)

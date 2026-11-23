@@ -4,6 +4,7 @@ import {
   cameraAnalysisRate,
   cameraCoverage,
   cameraFrameTime,
+  cameraObservationPaused,
   cameraTechnicalMetrics,
 } from "../src/features/sources/camera-diagnostics.ts";
 
@@ -21,6 +22,13 @@ test("la cobertura usa solo la fracción informada y conserva el cero", () => {
       null,
     );
   }
+});
+
+test("oculta la cobertura reciente con señal interrumpida o datos desactualizados", () => {
+  assert.equal(cameraObservationPaused("reconnecting", false), true);
+  assert.equal(cameraObservationPaused("no_signal", false), true);
+  assert.equal(cameraObservationPaused("analyzing", true), true);
+  assert.equal(cameraObservationPaused("analyzing", false), false);
 });
 
 test("el ritmo reciente tiene prioridad y el histórico conserva su etiqueta", () => {
