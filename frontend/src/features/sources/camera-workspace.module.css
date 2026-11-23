@@ -36,3 +36,5 @@
 
 .workspace .segment button[aria-pressed=true] { background: var(--primary); color: white; }
 .placeholder { width: 40%; height: .6rem; border-radius: 999px; background: #a9bbd435; }
+
+.grid li[data-primary=true] > :first-child { outline: 2px solid var(--primary); outline-offset: 2px; }

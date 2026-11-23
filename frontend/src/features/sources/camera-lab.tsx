@@ -681,6 +681,7 @@ export function CameraLabDetail({ id }: { id: string }) {
                 <p role="status" className="font-medium">
                   Conexión ·{" "}
                   {error ? "Estado sin actualizar" : statusLabel(camera.status)}
+                  {camera.view_only && " · Solo video"}
                 </p>
                 {canEdit && !automatic && (canStart || canStop) && (
                   <Button

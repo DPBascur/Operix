@@ -51,6 +51,7 @@ export function CameraLabAdmin() {
   const awaitingSnapshot =
     pending || (refreshAfter > 0 && receivedAt <= refreshAfter);
   const locked = awaitingSnapshot || Boolean(error) || !data?.available;
+  const third = data?.cameras.find(({ id }) => id === "lab-cam-03");
 
   async function update(change: CameraControlUpdate, cameraId?: string) {
     if (locked || patchInFlight.current) return false;
@@ -175,6 +176,17 @@ export function CameraLabAdmin() {
               {feedback.text}
             </p>
           )}
+          <section id="incorporar-camara" className="surface-card grid scroll-mt-24 gap-2 p-4" aria-labelledby="lab-enroll">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 id="lab-enroll" className="font-semibold">Incorporar cámara</h2>
+              {third && <a className="button button-outline" href="#configurar-camara-03">Configurar Cámara 03 <ArrowRight size={16} aria-hidden="true" /></a>}
+            </div>
+            <p className="text-sm text-text-secondary">
+              {third
+                ? "Asigna una grabación del catálogo, guarda la lista y habilita la cámara. Con capacidad de análisis de dos cámaras, la tercera transmite solo video."
+                : "Cámara 03 requiere una plaza aprovisionada y una grabación autorizada en el catálogo del laboratorio."}
+            </p>
+          </section>
           <section className="grid gap-3" aria-labelledby="lab-control-cameras">
             <h2 id="lab-control-cameras" className="font-semibold">
               Cámaras virtuales
@@ -196,7 +208,8 @@ export function CameraLabAdmin() {
                   return (
                     <li
                       key={camera.id}
-                      className="surface-card grid min-w-0 content-start gap-3 p-4"
+                      id={camera.id === "lab-cam-03" ? "configurar-camara-03" : undefined}
+                      className="surface-card grid min-w-0 scroll-mt-24 content-start gap-3 p-4"
                     >
                       <CameraCard
                         camera={camera}
@@ -206,6 +219,7 @@ export function CameraLabAdmin() {
                       />
                       <p className="text-sm text-text-secondary">
                         {camera.enabled ? "Habilitada" : "Deshabilitada"} ·
+                        {camera.view_only && " Solo video · "}
                         Publicador{" "}
                         {publisher ? publisherStatuses[publisher] : "Sin datos"}
                       </p>

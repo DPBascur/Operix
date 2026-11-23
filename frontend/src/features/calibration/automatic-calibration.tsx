@@ -171,6 +171,8 @@ export function AutomaticCalibration<T>({
   const validated =
     saved?.status === "valid" && saved.zones_reviewed && savedControl;
 
+  const stage = canConfirm ? 2 : layout ? 1 : 0;
+
   async function run(operation: "capture" | "confirm") {
     if (disabled || request.current) return;
     if (operation === "capture" && !layout) return;
@@ -267,13 +269,22 @@ export function AutomaticCalibration<T>({
         )}
       </summary>
       <div className={styles.body}>
+        {source.kind === "cameras" && (
+          <ol className={styles.steps} aria-label="Pasos de calibración">
+            {["Preparar referencias", "Buscar en el fotograma", "Comprobar y guardar"].map((label, index) => (
+              <li key={label} aria-current={index === stage ? "step" : undefined}>
+                <span>{index + 1}</span>{label}
+              </li>
+            ))}
+          </ol>
+        )}
         {source.kind === "cameras" && !validated && !framingWarning && (
           <p>La cámara muestra distancias normalizadas hasta que confirmes una escala del suelo con una medida conocida.</p>
         )}
         <p>
           Coloca marcadores ArUco {dictionary} planos sobre el suelo, con la
           cara impresa hacia la cámara. Distribúyelos por el área donde
-          necesitas medir.
+          necesitas medir. Usa las coordenadas y el tamaño medidos en el suelo; Operix busca sus esquinas automáticamente.
         </p>
         {framingWarning ? (
           <p className="inline-message" role="status">

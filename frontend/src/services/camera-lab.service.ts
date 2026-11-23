@@ -33,6 +33,7 @@ export type LabCamera = {
   id: string;
   name: string;
   automatic?: boolean;
+  view_only?: boolean;
   playback?: { media_id?: string; position?: number } | null;
   description: string;
   provenance: {
@@ -83,6 +84,7 @@ export type CameraControlEntry = Pick<
   | "preview_url"
   | "last_frame_at"
   | "provenance"
+  | "view_only"
 > & {
   enabled: boolean;
   run_id?: string | null;

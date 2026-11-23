@@ -588,3 +588,16 @@
   .event-search-advanced-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (prefers-reduced-motion: reduce) { .event-search-advanced summary svg:last-child { transition: none; } }
+
+.operix-live-player:fullscreen .operix-player-bar { animation: operix-overlay-open 180ms ease-out; }
+.operix-player-settings .operix-layer-switch { width: 100%; }
+.operix-player-actions button:disabled { opacity: .5; }
+.operix-player-actions :is(button, a):focus-visible { outline: 2px solid #a6caff; outline-offset: -3px; }
+@media (prefers-reduced-motion: reduce) {
+  .operix-live-player:fullscreen .operix-player-bar { animation: none; }
+}
+
+.event-search-advanced[open] .event-filter-entry { animation: operix-overlay-open 170ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .event-search-advanced[open] .event-filter-entry { animation: none; }
+}

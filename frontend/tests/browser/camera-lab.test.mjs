@@ -541,7 +541,7 @@ test("catalog separates previews from monitoring and renders a three-camera fixt
   const grid = `${catalog}.querySelector('ul[data-count]')`;
   const geometry = () => evaluate(`Array.from(${grid}.children, node => node.offsetHeight)`);
   const initial = await geometry();
-  const layer = `${catalog}.querySelector('button[aria-label="Capas y diagnóstico"]')`;
+  const layer = `${catalog}?.querySelector('button[aria-label="Capas y diagnóstico"]')`;
   await evaluate(`${layer}.click()`);
   const switches = `Array.from(${catalog}.querySelectorAll('[role=switch]'), b=>[b.textContent.trim(),b.getAttribute('aria-checked')])`;
   assert.deepEqual(await evaluate(switches), [["Detecciones", "true"], ["Distancias", "true"], ["Zonas", "true"], ["Identificadores", "false"], ["Diagnóstico", "false"]]);
@@ -550,9 +550,18 @@ test("catalog separates previews from monitoring and renders a three-camera fixt
   assert.equal(await evaluate(`${catalog}.querySelectorAll('[role=switch]')[1].disabled`), true);
   await evaluate(`${layer}.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true}))`);
   assert.equal(await evaluate(`${layer}.getAttribute('aria-expanded')`), "false");
+  await waitFor(() => evaluate(`!!${catalog}.querySelector('video')`), "initial player");
+  await evaluate(`void (window.operixPrimaryTestVideo=${catalog}.querySelector('video'))`);
   const selector = `[...${catalog}.querySelectorAll('button')].find(b=>b.textContent.trim()==='Principal')`;
   await evaluate(`${selector}.click()`);
   assert.equal(await evaluate(`${grid}.dataset.focused`), "true");
+  assert.equal(await evaluate(`window.operixPrimaryTestVideo === ${catalog}.querySelector('video')`), true);
+  await call("Page.reload");
+  await waitFor(() => evaluate(`Boolean(${layer})`), "camera after reload");
+  await evaluate(`${layer}.click()`);
+  assert.equal(await evaluate(`${catalog}.querySelector('[role=switch]').getAttribute('aria-checked')`), "false");
+  await evaluate(`${catalog}.querySelector('[role=switch]').click()`);
+  await evaluate(`${layer}.click()`);
   await call("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
   assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth"), true);
   await fixture({ cameraCount: 4 });

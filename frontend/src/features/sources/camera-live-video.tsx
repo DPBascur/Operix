@@ -3,7 +3,7 @@
 import type Hls from "hls.js";
 import { ArrowUpRight, Maximize, Minimize, Pause, Play, Settings2, SlidersHorizontal, X } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { equipmentCategoryLabels } from "@/services/analysis.service";
 import { cameraNumber } from "./camera-diagnostics";
@@ -11,6 +11,7 @@ import { CameraFrameMatcher } from "./camera-frame-match";
 import { CameraSourceClock } from "./camera-source-clock";
 import { CameraLiveOverlay, overlayLabels, type OverlayStats } from "./camera-live-overlay";
 import { calibrationLabels, distanceLabel } from "./camera-frame-match";
+import { useCameraViewPreferences } from "./camera-view-preferences";
 import { usePageVisible } from "./camera-visibility";
 
 const hlsMime = "application/vnd.apple.mpegurl";
@@ -34,6 +35,7 @@ export function CameraLiveVideo({
   runId,
   compact = false,
   enabled = true,
+  viewOnly = false,
   cameraUrl,
   settingsUrl,
   operationalState,
@@ -42,6 +44,7 @@ export function CameraLiveVideo({
   name: string;
   compact?: boolean;
   enabled?: boolean;
+  viewOnly?: boolean;
   cameraUrl?: string;
   settingsUrl?: string;
   operationalState?: string;
@@ -57,11 +60,9 @@ export function CameraLiveVideo({
   const [matcher] = useState(() => new CameraFrameMatcher());
   const [inView, setInView] = useState(false);
   const [paused, setPaused] = useState(false);
-  const [overlay, setOverlay] = useState(true);
-  const [showIds, setShowIds] = useState(false);
-  const [showZones, setShowZones] = useState(true);
-  const [showDistances, setShowDistances] = useState(true);
-  const [showStats, setShowStats] = useState(false);
+  const settingsId = useId();
+  const [preferences, setPreference] = useCameraViewPreferences(id);
+  const { detections: overlay, identifiers: showIds, zones: showZones, distances: showDistances, diagnostics: showStats, unit: metricUnit } = preferences;
   const [fullscreen, setFullscreen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState(false);
   const visible = usePageVisible();
@@ -73,9 +74,12 @@ export function CameraLiveVideo({
       const timer = setTimeout(() => setInView(true), 0);
       return () => clearTimeout(timer);
     }
-    const observer = new IntersectionObserver(([entry]) =>
-      setInView(entry.isIntersecting),
-    );
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setInView(true);
+        observer.disconnect();
+      }
+    });
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
@@ -92,6 +96,15 @@ export function CameraLiveVideo({
     document.addEventListener("fullscreenchange", update);
     return () => document.removeEventListener("fullscreenchange", update);
   }, []);
+
+  useEffect(() => {
+    if (!layers) return;
+    function outside(event: PointerEvent) {
+      if (!player.current?.contains(event.target as Node)) setLayers(false);
+    }
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [layers]);
 
   async function toggleFullscreen() {
     setFullscreenError(false);
@@ -125,12 +138,14 @@ export function CameraLiveVideo({
             runId={runId}
             matcher={matcher}
             pauseButton={pauseButton}
-            overlay={overlay}
+            overlay={!viewOnly && overlay}
             showIds={showIds}
             showZones={showZones}
             showDistances={showDistances}
             showStats={showStats}
             operationalState={operationalState}
+            metricUnit={metricUnit}
+            onMetricUnit={(unit) => setPreference("unit", unit)}
           />
         ) : (
           <div className="grid size-full place-items-center text-sm text-white/75">
@@ -140,8 +155,11 @@ export function CameraLiveVideo({
         {fullscreenError && <p className="operix-player-notice" role="status">Pantalla completa no disponible.</p>}
       </div>
       <div role="group" aria-label="Controles de video" className="operix-player-bar">
-        <span className="truncate text-sm font-semibold">
-          {cameraUrl ? <Link href={cameraUrl} title="Abrir cámara">{name}</Link> : name}
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-sm font-semibold">
+            {cameraUrl ? <Link href={cameraUrl} title="Abrir cámara">{name}</Link> : name}
+          </span>
+          {viewOnly && <span className="shrink-0 rounded-full border border-white/25 px-2 py-0.5 text-xs">Solo video</span>}
         </span>
         <div className="operix-player-actions">
           <button
@@ -154,10 +172,10 @@ export function CameraLiveVideo({
           >
             {paused ? <Play aria-hidden="true" size={17} /> : <Pause aria-hidden="true" size={17} />}
           </button>
-          <button ref={layerButton} type="button" aria-expanded={layers} aria-label="Capas y diagnóstico"
+          {!viewOnly && <button ref={layerButton} type="button" aria-expanded={layers} aria-controls={layers ? settingsId : undefined} aria-label="Capas y diagnóstico"
             title="Capas y diagnóstico" onClick={() => setLayers(!layers)}>
             <SlidersHorizontal aria-hidden="true" size={17} />
-          </button>
+          </button>}
           {settingsUrl && <Link href={settingsUrl} aria-label="Ajustes de cámara" title="Ajustes de cámara" onClick={() => {
             if (settingsUrl.startsWith("#")) {
               const panel = document.getElementById(settingsUrl.slice(1));
@@ -176,8 +194,8 @@ export function CameraLiveVideo({
           </button>
         </div>
       </div>
-      {layers && (
-        <section className="operix-player-settings" aria-label="Ajustes de visualización">
+      {layers && !viewOnly && (
+        <section id={settingsId} className="operix-player-settings" aria-label="Ajustes de visualización">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold">Capas de visualización</h2>
             <Button size="icon" variant="ghost" aria-label="Cerrar ajustes de visualización" onClick={() => {
@@ -185,12 +203,12 @@ export function CameraLiveVideo({
               layerButton.current?.focus();
             }}><X size={17} /></Button>
           </div>
-          <VideoToggle pressed={overlay} onClick={() => setOverlay(!overlay)}>Detecciones</VideoToggle>
-          <VideoToggle pressed={showDistances} disabled={!overlay} onClick={() => setShowDistances(!showDistances)}>Distancias</VideoToggle>
-          <VideoToggle pressed={showZones} disabled={!overlay} onClick={() => setShowZones(!showZones)}>Zonas</VideoToggle>
-          <VideoToggle pressed={showIds} disabled={!overlay} onClick={() => setShowIds(!showIds)}>Identificadores</VideoToggle>
+          <VideoToggle pressed={overlay} onClick={() => setPreference("detections", !overlay)}>Detecciones</VideoToggle>
+          <VideoToggle pressed={showDistances} disabled={!overlay} onClick={() => setPreference("distances", !showDistances)}>Distancias</VideoToggle>
+          <VideoToggle pressed={showZones} disabled={!overlay} onClick={() => setPreference("zones", !showZones)}>Zonas</VideoToggle>
+          <VideoToggle pressed={showIds} disabled={!overlay} onClick={() => setPreference("identifiers", !showIds)}>Identificadores</VideoToggle>
           <div className="border-t border-border pt-1">
-            <VideoToggle pressed={showStats} onClick={() => setShowStats(!showStats)}>Diagnóstico</VideoToggle>
+            <VideoToggle pressed={showStats} onClick={() => setPreference("diagnostics", !showStats)}>Diagnóstico</VideoToggle>
           </div>
           <p className="text-xs text-text-secondary">Estos ajustes solo cambian lo que ves. Las cajas discontinuas indican posiciones estimadas.</p>
         </section>
@@ -224,6 +242,8 @@ function LiveStream({
   showDistances,
   showStats,
   operationalState,
+  metricUnit,
+  onMetricUnit,
 }: {
   id: string;
   name: string;
@@ -236,6 +256,8 @@ function LiveStream({
   showDistances: boolean;
   showStats: boolean;
   operationalState?: string;
+  metricUnit: "m" | "cm";
+  onMetricUnit: (unit: "m" | "cm") => void;
 }) {
   const media = useRef<HTMLVideoElement>(null);
   const playButton = useRef<HTMLButtonElement>(null);
@@ -438,9 +460,8 @@ function LiveStream({
       clearTimeout(retryTimer);
       disconnect?.();
     };
-  }, [id, pauseButton, runId, sourceClock]);
+  }, [id, pauseButton, sourceClock]);
 
-  const [metricUnit, setMetricUnit] = useState<"m" | "cm">("m");
   const playing = status === "playing";
   const frameVisible = playing || status === "buffering";
   const frameRate = playing ? cameraNumber(fps, " FPS visibles") : null;
@@ -508,7 +529,7 @@ function LiveStream({
                     <label className="mb-2 flex items-center gap-2">
                       Unidad física
                       <select className="rounded-md border border-white/30 bg-[#162333] p-1 text-white"
-                        value={metricUnit} onChange={(event) => setMetricUnit(event.target.value === "cm" ? "cm" : "m")}>
+                        value={metricUnit} onChange={(event) => onMetricUnit(event.target.value === "cm" ? "cm" : "m")}>
                         <option value="m">Metros</option>
                         <option value="cm">Centímetros</option>
                       </select>
@@ -536,7 +557,8 @@ function LiveStream({
           {!frameRate && !edge && (
             <span>Estadísticas de reproducción no disponibles.</span>
           )}
-          {playing && overlay && (
+          {playing && operationalState === "Solo video" && <p className="operix-player-status">Solo video · Análisis desactivado</p>}
+      {playing && overlay && (
             <>
               <span>Muestreados {overlayStats?.sampled ?? 0}</span>
               <span>Coincidencias {overlayStats?.matched ?? 0}</span>

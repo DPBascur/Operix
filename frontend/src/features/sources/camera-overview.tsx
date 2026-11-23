@@ -230,6 +230,7 @@ export function CameraMediaPanels({
 }: {
   camera: Pick<LabCamera, "id" | "name" | "metrics" | "last_frame_at"> & {
     run_id?: string | null;
+    view_only?: boolean;
   };
   live: boolean;
   preview: string | null;
@@ -292,6 +293,7 @@ export function CameraMediaPanels({
       <CameraLiveVideo
         enabled={refreshPreview}
         settingsUrl={settingsUrl}
+        viewOnly={camera.view_only}
         id={id}
         name={name}
         runId={camera.run_id}

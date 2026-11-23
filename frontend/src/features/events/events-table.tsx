@@ -345,7 +345,7 @@ export function EventsTable({ initial }: { initial: EventHistoryQuery }) {
         </div>
         <details className="event-search-advanced">
           <summary><SlidersHorizontal size={17} aria-hidden="true" /> Filtros avanzados <ChevronDown size={16} aria-hidden="true" /></summary>
-          <div className="event-search-advanced-grid">
+          <div className="event-search-advanced-grid event-filter-entry">
         <label className="grid gap-1 text-xs font-medium text-text-secondary">
           Desde (hora local)
           <Input

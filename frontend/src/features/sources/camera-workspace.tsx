@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight, Camera, LayoutGrid, Maximize, RectangleHorizontal, Settings2, VideoOff } from "lucide-react";
+import { ArrowUpRight, Camera, LayoutGrid, Maximize, Plus, RectangleHorizontal, Settings2, VideoOff } from "lucide-react";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -22,9 +22,10 @@ export function cameraHref(id: string) {
   return `/sources/cameras/${encodeURIComponent(id)}`;
 }
 
-function CameraTile({ camera, live, preview, canEdit, stale }: {
+function CameraTile({ camera, live, enabled, preview, canEdit, stale }: {
   camera: LabCamera;
   live: boolean;
+  enabled: boolean;
   preview: boolean;
   canEdit: boolean;
   stale: boolean;
@@ -37,7 +38,7 @@ function CameraTile({ camera, live, preview, canEdit, stale }: {
   const settingsHref = canEdit ? `${href}#camera-settings` : undefined;
 
   if (live) {
-    return <CameraLiveVideo id={camera.id} name={camera.name} runId={camera.run_id} operationalState={state}
+    return <CameraLiveVideo id={camera.id} name={camera.name} runId={camera.run_id} operationalState={state} enabled={enabled} viewOnly={camera.view_only}
       cameraUrl={href} settingsUrl={settingsHref} compact />;
   }
 
@@ -111,7 +112,11 @@ export function CameraWorkspace({ monitor = false }: { monitor?: boolean }) {
               <Button variant={layout === "focus" ? "secondary" : "ghost"} aria-pressed={layout === "focus"} onClick={() => setLayout("focus")}><RectangleHorizontal size={16} /> Principal</Button>
             </div>
           )}
-          {monitor && canControl && <Link className="button button-outline" href="/admin/camera-lab"><Settings2 size={17} /> Control de cámaras</Link>}
+          {monitor && canControl && (
+            <Link className="button button-outline" href="/admin/camera-lab#incorporar-camara">
+              <Plus size={17} aria-hidden="true" /> Incorporar cámara
+            </Link>
+          )}
         </div>
       </div>
       {error && <LoadError error={error} retry={retry} />}
@@ -126,7 +131,7 @@ export function CameraWorkspace({ monitor = false }: { monitor?: boolean }) {
           ))}
         </div>
       )}
-      {monitor && data?.enabled && (saturated || cameras.length > data.capacity) && (
+      {monitor && data?.enabled && (saturated || cameras.filter((camera) => !camera.view_only).length > data.capacity) && (
         <p className="inline-message" role="status">
           Capacidad de análisis simultáneo configurada: {data.capacity}.
           {saturated && " Hay una cámara con inferencia saturada."}{" "}
@@ -153,7 +158,8 @@ export function CameraWorkspace({ monitor = false }: { monitor?: boolean }) {
           {cameras.map((camera) => (
             <li key={camera.id} data-primary={focused && selected?.id === camera.id}>
               <CameraTile camera={camera} canEdit={data?.can_edit === true && !error} stale={!!error}
-                live={monitor && Boolean(camera.automatic ?? data?.managed) && running.has(camera.status)}
+                live={monitor && Boolean(camera.automatic ?? data?.managed)}
+                enabled={running.has(camera.status)}
                 preview={!monitor && !cameraObservationPaused(camera.status, !!error) &&
                   cameraFrameIsRecent(camera.last_frame_at, camera.metrics, receivedAt)} />
             </li>
