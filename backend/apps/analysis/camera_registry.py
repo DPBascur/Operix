@@ -30,6 +30,14 @@ def enabled():
     return os.environ.get("OPERIX_CAMERA_LAB_ENABLED") == "1"
 
 
+def managed():
+    return enabled() and bool(os.environ.get("OPERIX_CAMERA_LAB_CONTROL_DIR"))
+
+
+def automatic(camera):
+    return managed() and urlsplit(camera.url).hostname == "mediamtx"
+
+
 def capacity():
     raw = os.environ.get("OPERIX_CAMERA_LAB_CAPACITY", "2")
     return int(raw) if raw in {"1", "2", "3"} else 1

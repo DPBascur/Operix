@@ -96,7 +96,15 @@ class CameraRun(models.Model):
     ended_at = models.DateTimeField(null=True)
     metrics = models.JSONField(default=dict)
     provenance = models.JSONField(default=dict)
+    managed = models.BooleanField(default=False)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=("camera_id",), condition=models.Q(active=True),
                                                 name="unique_active_lab_camera")]
+
+
+class CameraLabControl(models.Model):
+    enabled = models.BooleanField(default=False)
+    cameras = models.JSONField(default=dict)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    updated_at = models.DateTimeField(auto_now=True)

@@ -18,4 +18,5 @@ for attempt in range(30):
         time.sleep(1)
 subprocess.run([sys.executable, "manage.py", "migrate", "--noinput"], check=True)
 subprocess.run([sys.executable, "manage.py", "check"], check=True)
-os.execv(sys.executable, [sys.executable, "manage.py", "runserver", "0.0.0.0:8000", "--noreload"])
+command = "runlabserver" if os.environ.get("OPERIX_CAMERA_LAB_CONTROL_DIR") else "runserver"
+os.execv(sys.executable, [sys.executable, "manage.py", command, "0.0.0.0:8000", "--noreload"])

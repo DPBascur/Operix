@@ -1,0 +1,20 @@
+# Add after compose.yaml, compose.gpu.yaml and compose.rtsp-lab.yaml.
+# Build the Backend image from the current checkout before building this layer.
+# Supply the approved person.onnx and forklift.onnx in the read-only host directory.
+services:
+  backend:
+    image: operix-backend:rtsp-lab-onnx
+    build:
+      dockerfile: engine/rtsp-lab-onnx.Dockerfile
+      args:
+        BASE_IMAGE: ${OPERIX_RTSP_LAB_BASE_IMAGE:-operix-backend:local}
+    environment:
+      OPERIX_RTSP_LAB_INFERENCE_PROFILE: onnx-cuda
+      OPERIX_RTSP_LAB_ONNX_DIR: /data/rtsp-lab-onnx
+    volumes:
+      - type: bind
+        source: ${OPERIX_RTSP_LAB_ONNX_HOST:?Set the directory containing the approved ONNX exports}
+        target: /data/rtsp-lab-onnx
+        read_only: true
+        bind:
+          create_host_path: false

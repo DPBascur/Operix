@@ -3,7 +3,7 @@
 import argparse
 from collections import Counter, deque
 from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import redirect_stderr
+from contextlib import nullcontext, redirect_stderr
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from functools import cached_property
@@ -41,6 +41,7 @@ from operix_engine.spatiotemporal import SpatiotemporalAnalyzer
 from operix_engine.video_event_pipeline import _visible_tracks
 from operix_engine.visualization import OpenCvRenderer, TrajectoryAccumulator, VisualizationConfig
 from run_rtsp_pilot import FORKLIFT_SHA, PERSON_SHA, Reader, checked_file, detector
+from rtsp_lab_onnx import cuda_detectors
 from stream_dual_perception import _write_atomic
 
 
@@ -52,6 +53,29 @@ STATUS_INTERVAL = 1
 PNG_LIMIT = 2 * 1024 * 1024
 POST_LIMIT = 2 * 1024 * 1024
 INFERENCE_STALL_SECONDS = 5
+PYTORCH_PROFILE = "pytorch-fp32"
+ONNX_PROFILE = "onnx-cuda"
+DETECTOR_THRESHOLDS = {"person": (.10, .70), "forklift": (.45, .55)}
+
+
+class InvalidInferenceProfile(ValueError):
+    pass
+
+
+class OnnxStartupError(RuntimeError):
+    pass
+
+
+def inference_profile(env, args):
+    profile = env.get("OPERIX_RTSP_LAB_INFERENCE_PROFILE", PYTORCH_PROFILE)
+    if profile not in (PYTORCH_PROFILE, ONNX_PROFILE):
+        raise InvalidInferenceProfile("Perfil de inferencia RTSP lab inválido")
+    if profile == ONNX_PROFILE and (
+        env.get("OPERIX_RTSP_INFERENCE_SOCKET") or not env.get("OPERIX_RTSP_LAB_ONNX_DIR", "").strip()
+        or args.width * 9 != args.height * 16
+    ):
+        raise InvalidInferenceProfile("ONNX CUDA requiere worker dedicado, artefactos locales y fuente 16:9")
+    return profile
 
 
 def utc_now():
@@ -113,6 +137,7 @@ class WorkerStatus:
         self.state = None
         self.run_id = None
         self.inference_mode = "dedicated"
+        self.inference_profile = None
         self.capture = None
         self.epochs = Counter()
         self.received = deque(maxlen=600)
@@ -223,6 +248,7 @@ class WorkerStatus:
                 "inference_drops": dict(self.inference_drops),
                 "inference_batch_sizes": dict(self.inference_batch_sizes),
                 "inference_mode": self.inference_mode,
+                "inference_profile": self.inference_profile,
                 "width": self.args.width, "height": self.args.height, "capture": capture_counts,
                 "epoch": self.epoch, "epochs": dict(self.epochs), "preview_frame": self.preview_frame,
                 "event_limit": MAX_EVENTS,
@@ -235,7 +261,7 @@ class WorkerStatus:
 
 
 class LabPipeline:
-    def __init__(self, config, args, *, infer_remotely=False):
+    def __init__(self, config, args, *, infer_remotely=False, onnx_directory=None):
         self.dimensions = args.width, args.height
         calibration = config.calibration
         self.framing = None
@@ -245,21 +271,34 @@ class LabPipeline:
             self.framing = PatternFramingGuard(
                 calibration["pattern_evidence"], dimensions=self.dimensions, operator_invalidated=invalidated,
             )
-        person = forklift = None
-        if not infer_remotely:
-            if not torch.cuda.is_available():
-                raise RuntimeError("CUDA no disponible")
+        if infer_remotely:
+            detectors = nullcontext((None, None))
+        else:
             checked_file(args.person_weights, PERSON_SHA, "PERSON")
             checked_file(args.forklift_weights, FORKLIFT_SHA, "FORKLIFT")
-            person = detector(args.person_weights, .10, .70)
-            forklift = detector(args.forklift_weights, .45, .55)
-        self.perception = DualPerception(
-            person=ClassPerceptionChannel("person", person, ByteTracker(ByteTrackConfig())),
-            forklift=ClassPerceptionChannel("forklift", forklift, ByteTracker(ByteTrackConfig())),
-        )
-        if not infer_remotely:
-            self.perception.process(np.zeros((args.height, args.width, 3), dtype=np.uint8),
-                                    synchronize=torch.cuda.synchronize)
+            if not torch.cuda.is_available():
+                raise RuntimeError("CUDA no disponible")
+            torch.set_float32_matmul_precision("highest")
+            torch.backends.cudnn.allow_tf32 = False
+            if onnx_directory is None:
+                detectors = nullcontext((
+                    detector(args.person_weights, *DETECTOR_THRESHOLDS["person"]),
+                    detector(args.forklift_weights, *DETECTOR_THRESHOLDS["forklift"]),
+                ))
+            else:
+                specs = {
+                    role: {"confidence": confidence, "nms_iou": iou, "class_filter": role}
+                    for role, (confidence, iou) in DETECTOR_THRESHOLDS.items()
+                }
+                detectors = cuda_detectors(onnx_directory, specs)
+        with detectors as (person, forklift):
+            self.perception = DualPerception(
+                person=ClassPerceptionChannel("person", person, ByteTracker(ByteTrackConfig())),
+                forklift=ClassPerceptionChannel("forklift", forklift, ByteTracker(ByteTrackConfig())),
+            )
+            if not infer_remotely:
+                self.perception.process(np.zeros((args.height, args.width, 3), dtype=np.uint8),
+                                        synchronize=torch.cuda.synchronize)
         self.analyzer = SpatiotemporalAnalyzer(
             width=args.width, height=args.height, fps=args.fps, zones=config.zones,
             proximity_roles=config.proximity_roles, calibration=calibration, motion=config.motion,
@@ -514,6 +553,7 @@ def run(args, status, stop_reason):
         raise ValueError("Límites de sesión inválidos")
     if reason := stop_reason():
         return reason
+    profile = inference_profile(os.environ, args)
     url = authorized_url(os.environ)
     if not os.environ.get("OPERIX_EVENT_PUBLISH_TOKEN", "").strip():
         raise ValueError("Falta la autorización de publicación")
@@ -529,13 +569,22 @@ def run(args, status, stop_reason):
     if inference_socket:
         inference = InferenceClient(inference_socket, camera_id=context.source["camera_id"], run_id=status.run_id)
         status.inference_mode = "shared"
-    pipeline = LabPipeline(config, args, infer_remotely=inference is not None)
+    if profile == ONNX_PROFILE:
+        try:
+            pipeline = LabPipeline(config, args, onnx_directory=Path(os.environ["OPERIX_RTSP_LAB_ONNX_DIR"]))
+        except Exception as error:
+            raise OnnxStartupError("No se pudo iniciar el perfil ONNX CUDA") from error
+    else:
+        pipeline = LabPipeline(config, args, infer_remotely=inference is not None)
+    if inference is None:
+        status.inference_profile = profile
     if config is not None and config.calibration is not None:
         status.framing = pipeline.framing
     if reason := stop_reason():
         return reason
     epoch, ring = Epoch(args.fps), JpegRing(args.fps)
     last_frame = last_preview = -math.inf
+    preview_interval = 1.0 if os.environ.get("OPERIX_RTSP_LAB_MANAGED_PREVIEW") == "1" else PREVIEW_INTERVAL
     failures_at_frame = 0
     inference_stalled_since = None
     capture = Capture(lambda: Reader(url, args.fps, pipeline.dimensions), fps=args.fps, trace=status.capture_trace)
@@ -637,7 +686,7 @@ def run(args, status, stop_reason):
                     status.last_frame_received = frame.received
                     last_frame = now
                     failures_at_frame = failures
-                    preview_due = now - last_preview >= PREVIEW_INTERVAL or epoch_reason is not None
+                    preview_due = now - last_preview >= preview_interval or epoch_reason is not None
                     keep_context = status.metrics["events_submitted"] < MAX_EVENTS
                     publisher.submit(candidates, context, received_at, processed_at, frame, epoch, annotated)
                     if preview_due or keep_context or publisher.waiting:
@@ -732,7 +781,12 @@ def main():
         status.write("completed" if reason == "TIME_LIMIT" else "stopped", reason)
         return 0
     except Exception as error:
-        reason = "INFERENCE_UNAVAILABLE" if isinstance(error, InferenceError) else "WORKER_FAILURE"
+        if isinstance(error, InvalidInferenceProfile):
+            reason = "INFERENCE_PROFILE_INVALID"
+        elif isinstance(error, OnnxStartupError):
+            reason = "ONNX_CUDA_STARTUP_FAILED"
+        else:
+            reason = "INFERENCE_UNAVAILABLE" if isinstance(error, InferenceError) else "WORKER_FAILURE"
         status.write("error", reason)
         print("El Motor RTSP lab no pudo continuar.", file=sys.stderr)
         return 1

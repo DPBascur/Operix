@@ -1,0 +1,21 @@
+# Last override after compose.rtsp-lab.yaml. No Docker socket or host-wide mounts.
+x-managed-publisher: &managed-publisher
+  entrypoint: ["/bin/sh", "/lab/supervise-publisher.sh"]
+  volumes:
+    - lab_control:/lab-control:ro
+    - ./deployment/rtsp-lab/supervise-publisher.sh:/lab/supervise-publisher.sh:ro
+  healthcheck:
+    # Idle is a valid state. RTSP readiness is measured by the Backend.
+    test: [CMD, /bin/sh, -c, "test -r /lab/supervise-publisher.sh && test -d /lab-control"]
+
+services:
+  backend:
+    environment:
+      OPERIX_CAMERA_LAB_CONTROL_DIR: /var/lib/operix/lab-control
+    volumes:
+      - lab_control:/var/lib/operix/lab-control
+  lab-publisher-01: *managed-publisher
+  lab-publisher-02: *managed-publisher
+
+volumes:
+  lab_control:

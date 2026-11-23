@@ -13,6 +13,7 @@ from django.conf import settings
 from django.db import close_old_connections, connection, transaction
 from django.http import FileResponse, Http404
 from django.urls import reverse
+from django.utils.dateparse import parse_datetime
 from django.utils.timezone import now
 from django.utils.crypto import salted_hmac
 from rest_framework.exceptions import APIException, ValidationError
@@ -122,20 +123,34 @@ def camera_json(request, camera):
     document, revision = document_for(camera)
     event = Event.objects.filter(analysis_run_id=run.pk).order_by("-created_at").first() if run else None
     _, policy = effective(camera, document, request.user.pk)
+    active_snapshot = run.snapshot if run and run.active else None
     preview = run_dir(run.pk) / "preview.jpg" if run else None
+    if camera_registry.automatic(camera) and (state != "analyzing" or not recent_frame(runtime)):
+        preview = None
     return {
         "id": camera.id, "name": camera.name, "description": camera.description,
-        "kind": "lab", "provenance": camera.provenance, "profile": camera.profile,
+        "kind": "lab", "automatic": camera_registry.automatic(camera),
+        "provenance": camera.provenance, "profile": camera.profile,
         "expected_fps": camera.expected_fps, "width": camera.width, "height": camera.height,
         "status": state, "metrics": metrics, "configuration": document, "revision": revision,
         "calibration_requires_reconfirmation": bool(calibration_issue(camera, document, run, metrics)),
-        "policy": policy, "run_id": str(run.pk) if run else None,
+        "policy": active_snapshot.policy if active_snapshot else policy,
+        "effective_rules": active_snapshot.configuration.get("rules", []) if active_snapshot else None,
+        "run_id": str(run.pk) if run else None,
         "preview_url": reverse("lab-camera-preview", args=[camera.id]) if preview and preview.is_file() else None,
         "last_frame_at": runtime.get("last_frame_at") if runtime else None,
         "last_error": (runtime.get("last_error") or runtime.get("termination_reason")) if runtime and state == "error" else None,
         "last_event": {"id": event.id, "event_type": event.event_type,
                        "occurred_at": event.occurred_at} if event else None,
     }
+
+
+def recent_frame(runtime):
+    timestamp = (runtime or {}).get("last_frame_at")
+    try:
+        return bool(timestamp and 0 <= (now() - parse_datetime(timestamp)).total_seconds() < 5)
+    except (TypeError, ValueError):
+        return False
 
 
 def scheduler_lock():
@@ -197,6 +212,7 @@ class CameraInventoryView(APIView):
     def get(self, request):
         return Response({
             "enabled": camera_registry.enabled(), "capacity": camera_registry.capacity(),
+            "managed": camera_registry.managed(),
             "can_edit": request_role(request) in {"administrator", "safety_lead"},
             "cameras": [camera_json(request, camera) for camera in camera_registry.inventory().values()],
         })
@@ -260,103 +276,125 @@ class CameraStartView(CameraView):
         camera = self.camera(camera_id)
         if request.data not in ({}, None):
             raise ValidationError("La conexión se define en el registro del servidor.")
-        worker = ROOT / "engine/scripts/run_rtsp_lab.py"
-        if not (camera.provenance and worker.is_file() and settings.EVENT_POST_ENABLED):
-            raise CameraConflict("La fuente, su procedencia o el Motor aún no están habilitados.")
-        inference_socket = os.environ.get("OPERIX_RTSP_INFERENCE_SOCKET")
-        if inference_socket:
-            try:
-                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
-                    probe.settimeout(.25)
-                    probe.connect(inference_socket)
-            except OSError:
-                raise CameraConflict("El Motor de inferencia compartida aún no está disponible.") from None
-        ip, url = camera_worker_destination(camera)
-        scheduler_lock()
-        active = 0
-        for run in CameraRun.objects.filter(active=True).select_for_update():
-            status_for(run)
-            if run.active:
-                if run.camera_id == camera_id:
-                    raise CameraConflict("Esta cámara ya tiene una ejecución.")
-                active += 1
-        if active >= camera_registry.capacity():
-            raise CameraConflict()
-        document, revision = document_for(camera)
-        document, policy = effective(camera, document, request.user.pk)
-        checked_document(camera, document)
-        if document.get("calibration"):
-            last = last_run(camera_id, lock=True)
-            _, metrics, _ = status_for(last)
-            if issue := calibration_issue(camera, document, last, metrics):
-                raise CameraConflict(issue)
-        run_id = uuid4()
-        snapshot = rule_snapshot(document)
-        stored = AnalysisRunSnapshot.objects.create(
-            pk=run_id, owner=request.user, source_sha256=camera.spatial_key, profile=camera.profile,
-            spatial_revision=revision or None, configuration=document, config_sha256=snapshot["config_sha256"],
-            policy=policy,
-        )
-        CameraRun.objects.create(snapshot=stored, camera_id=camera_id, provenance=camera.provenance)
-        folder = run_dir(run_id)
-        folder.mkdir(parents=True, exist_ok=False)
-        config_path = folder / "config.json"
-        config_path.write_bytes(config_bytes(document))
-        source = {
-            "kind": "lab", "camera_id": camera_id, "filename": camera_id + ".mp4",
-            "video_sha256": camera.provenance["sha256"], "config_sha256": stored.config_sha256,
-            "spatial_configuration": document, "timestamp_basis": "LAB_RECEPTION_UTC",
-            "person_weights_sha256": PERSON_SHA256, "forklift_weights_sha256": FORKLIFT_SHA256,
-            "perception": frozen_perception(),
-            "session_id": str(run_id), "session_run": 1,
-            **({"spatial_revision": revision} if revision else {}),
-        }
-        (folder / "context.json").write_text(json.dumps({
-            "analysis_run_id": str(run_id), "analysis_started_at": now().isoformat(), "source": source,
-        }), encoding="utf-8")
-        env = event_publisher_environment()
-        env.update(OPERIX_RTSP_URL=url, OPERIX_RTSP_ALLOWED_IP=ip, OPERIX_EVENT_API_BASE_URL=local_event_api_url(),
-                   OPERIX_MEDIA_ROOT=str(settings.MEDIA_ROOT),
-                   OPERIX_RTSP_LAB_CAMERA_ID=camera.id, OPERIX_WORKER_PARENT_PIPE="1")
-        with _lock:
-            try:
-                process = subprocess.Popen([
-                    settings.OPERIX_ENGINE_PYTHON, str(worker), "--output", str(folder), "--config", str(config_path),
-                    "--fps", str(camera.expected_fps), "--width", str(camera.width), "--height", str(camera.height),
-                    "--person-weights", os.environ["OPERIX_PERSON_WEIGHTS"],
-                    "--forklift-weights", os.environ["OPERIX_FORKLIFT_WEIGHTS"],
-                ], cwd=ROOT, env=env, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                _processes[run_id] = process
-                Thread(target=reap_run, args=(run_id, process), daemon=True).start()
-                transaction.on_commit(lambda: confirm_worker_start(process))
-            except (OSError, KeyError):
-                CameraRun.objects.filter(pk=run_id).update(active=False, terminal_state="error", ended_at=now())
+        if camera_registry.automatic(camera):
+            raise CameraConflict("Esta cámara se controla desde el laboratorio automático.")
+        start_camera(camera, request.user)
         data = camera_json(request, camera)
         return Response(data, status=202 if data["status"] != "error" else 503)
+
+
+@transaction.atomic
+def start_camera(camera, owner, *, managed=False):
+    camera_id = camera.id
+    worker = ROOT / "engine/scripts/run_rtsp_lab.py"
+    if not (camera.provenance and worker.is_file() and settings.EVENT_POST_ENABLED):
+        raise CameraConflict("La fuente, su procedencia o el Motor aún no están habilitados.")
+    inference_socket = os.environ.get("OPERIX_RTSP_INFERENCE_SOCKET")
+    if inference_socket:
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+                probe.settimeout(.25)
+                probe.connect(inference_socket)
+        except OSError:
+            raise CameraConflict("El Motor de inferencia compartida aún no está disponible.") from None
+    ip, url = camera_worker_destination(camera)
+    scheduler_lock()
+    active = 0
+    for run in CameraRun.objects.filter(active=True).select_for_update():
+        status_for(run)
+        if run.active:
+            if run.camera_id == camera_id:
+                raise CameraConflict("Esta cámara ya tiene una ejecución.")
+            active += 1
+    if active >= camera_registry.capacity():
+        raise CameraConflict()
+    document, revision = document_for(camera)
+    document, policy = effective(camera, document, owner.pk)
+    checked_document(camera, document)
+    if document.get("calibration"):
+        last = last_run(camera_id, lock=True)
+        _, metrics, _ = status_for(last)
+        if issue := calibration_issue(camera, document, last, metrics):
+            raise CameraConflict(issue)
+    run_id = uuid4()
+    snapshot = rule_snapshot(document)
+    stored = AnalysisRunSnapshot.objects.create(
+        pk=run_id, owner=owner, source_sha256=camera.spatial_key, profile=camera.profile,
+        spatial_revision=revision or None, configuration=document, config_sha256=snapshot["config_sha256"],
+        policy=policy,
+    )
+    CameraRun.objects.create(snapshot=stored, camera_id=camera_id, provenance=camera.provenance, managed=managed)
+    folder = run_dir(run_id)
+    folder.mkdir(parents=True, exist_ok=False)
+    config_path = folder / "config.json"
+    config_path.write_bytes(config_bytes(document))
+    filename = camera.provenance["filename"] if managed else camera_id + ".mp4"
+    source = {
+        "kind": "lab", "camera_id": camera_id, "filename": filename,
+        "video_sha256": camera.provenance["sha256"], "config_sha256": stored.config_sha256,
+        "spatial_configuration": document, "timestamp_basis": "LAB_RECEPTION_UTC",
+        "person_weights_sha256": PERSON_SHA256, "forklift_weights_sha256": FORKLIFT_SHA256,
+        "perception": frozen_perception(),
+        "session_id": str(run_id), "session_run": 1,
+        **({"spatial_revision": revision} if revision else {}),
+    }
+    (folder / "context.json").write_text(json.dumps({
+        "analysis_run_id": str(run_id), "analysis_started_at": now().isoformat(), "source": source,
+    }), encoding="utf-8")
+    env = event_publisher_environment()
+    env.update(OPERIX_RTSP_URL=url, OPERIX_RTSP_ALLOWED_IP=ip, OPERIX_EVENT_API_BASE_URL=local_event_api_url(),
+               OPERIX_MEDIA_ROOT=str(settings.MEDIA_ROOT),
+               OPERIX_RTSP_LAB_CAMERA_ID=camera.id, OPERIX_WORKER_PARENT_PIPE="1")
+    if managed:
+        env["OPERIX_RTSP_LAB_MANAGED_PREVIEW"] = "1"
+    with _lock:
+        try:
+            process = subprocess.Popen([
+                settings.OPERIX_ENGINE_PYTHON, str(worker), "--output", str(folder), "--config", str(config_path),
+                "--fps", str(camera.expected_fps), "--width", str(camera.width), "--height", str(camera.height),
+                "--person-weights", os.environ["OPERIX_PERSON_WEIGHTS"],
+                "--forklift-weights", os.environ["OPERIX_FORKLIFT_WEIGHTS"],
+            ], cwd=ROOT, env=env, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            _processes[run_id] = process
+            Thread(target=reap_run, args=(run_id, process), daemon=True).start()
+            transaction.on_commit(lambda: confirm_worker_start(process))
+        except (OSError, KeyError):
+            CameraRun.objects.filter(pk=run_id).update(active=False, terminal_state="error", ended_at=now())
+    return run_id
+
+
+def stop_camera(run):
+    status_for(run)
+    if run is None or not run.active:
+        return
+    stop = run_dir(run.pk) / "stop"
+    if not stop.exists():
+        stop.touch()
+        with _lock:
+            process = _processes.get(run.pk)
+        if process is not None:
+            Thread(target=watch_process, args=(process, 20), daemon=True).start()
 
 
 class CameraStopView(CameraView):
     @transaction.atomic
     def post(self, request, camera_id):
         camera = self.camera(camera_id)
+        if camera_registry.automatic(camera):
+            raise CameraConflict("Esta cámara se controla desde el laboratorio automático.")
         scheduler_lock()
-        run = last_run(camera_id, lock=True)
-        status_for(run)
-        if run is not None and run.active:
-            stop = run_dir(run.pk) / "stop"
-            if not stop.exists():
-                stop.touch()
-                with _lock:
-                    process = _processes.get(run.pk)
-                if process is not None:
-                    Thread(target=watch_process, args=(process, 20), daemon=True).start()
+        stop_camera(last_run(camera_id, lock=True))
         return Response(camera_json(request, camera), status=202)
 
 
 class CameraPreviewView(CameraView):
     def get(self, request, camera_id):
-        self.camera(camera_id)
+        camera = self.camera(camera_id)
         run = last_run(camera_id)
+        if camera_registry.automatic(camera):
+            state, _, runtime = status_for(run)
+            if state != "analyzing" or not recent_frame(runtime):
+                raise Http404
         try:
             file = (run_dir(run.pk) / "preview.jpg").open("rb") if run else None
         except FileNotFoundError:

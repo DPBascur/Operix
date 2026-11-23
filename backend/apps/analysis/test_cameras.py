@@ -21,7 +21,8 @@ class CameraLabTests(APITestCase):
         manifest = Path(temporary.name, "manifest.json")
         manifest.write_text(json.dumps({"clips": [{"camera_id": "lab-cam-01",
                                                   "filename": "lab-cam-01.mp4", "sha256": "a" * 64}]}))
-        env = patch.dict(os.environ, {"OPERIX_CAMERA_LAB_ENABLED": "1", "OPERIX_CAMERA_LAB_MANIFEST": str(manifest)})
+        env = patch.dict(os.environ, {"OPERIX_CAMERA_LAB_ENABLED": "1", "OPERIX_CAMERA_LAB_MANIFEST": str(manifest),
+                                      "OPERIX_CAMERA_LAB_CONTROL_DIR": ""})
         env.start()
         self.addCleanup(env.stop)
         user = get_user_model().objects.create(username="lab-admin", is_superuser=True)

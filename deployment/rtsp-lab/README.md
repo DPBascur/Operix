@@ -43,6 +43,30 @@ the publishers join only that internal network. MediaMTX serves RTSP there
 and binds its Control API to loopback inside its container.
 The lab publishes zero host ports.
 
+## Control from Operix
+
+For automatic monitoring, add `compose.rtsp-managed.yaml` after
+`compose.rtsp-lab.yaml`. Mount the approved originals and their `manifest.json`,
+and select an emission cadence at or below every original's frame rate.
+
+```powershell
+$env:OPERIX_CAMERA_LAB_MEDIA_HOST = 'D:/Operix-Lab/media/originals'
+$env:OPERIX_CAMERA_LAB_FPS = '15'
+$stack = @('compose', '--env-file', '../Operix-Docker/operix.env', '-f', 'compose.yaml', '-f', 'compose.gpu.yaml', '-f', 'compose.rtsp-lab.yaml', '-f', 'compose.rtsp-managed.yaml')
+docker @stack up -d --build --wait
+```
+
+Sign in as an administrator and open **Gestión → Control de cámaras** to enable
+the lab and choose its virtual cameras. **Fuentes** shows their current analysis.
+The saved intent survives Backend restarts. Turning the lab off stops its
+publishers and workers while keeping events and evidence. Both publishers loop
+their approved recording independently, with an RTSP discontinuity at EOF.
+
+PyTorch FP32 is the default. To opt in to ONNX CUDA, first build the base Backend
+image, set `OPERIX_RTSP_LAB_ONNX_HOST` to the approved export directory, then
+append `-f compose.rtsp-lab.onnx.yaml` and run `up -d --build --wait`. To revert,
+run the original stack command again with the ONNX override omitted.
+
 ## Start and check the lab
 
 Example for the local stack with the GPU override and approved camera media.
