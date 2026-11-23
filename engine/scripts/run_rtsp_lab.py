@@ -373,7 +373,8 @@ class LabPipeline:
         overlay_started = monotonic()
         rules_ms = (overlay_started - rules_started) * 1000
         if observe_overlay is not None:
-            observe_overlay(frame, tracks, spatial_allowed=spatial_allowed)
+            observe_overlay(frame, tracks, spatial_allowed=spatial_allowed, spatial=spatial,
+                            calibration=self.framing.state if self.framing else "UNCALIBRATED")
         annotated = frame.image
         occupied = []
         boxes = [track.bounding_box for track in tracks]

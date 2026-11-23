@@ -14,6 +14,7 @@ from operix_engine.detection import BoundingBox, Detection
 from operix_engine.operational_config import OperationalConfig, Zone
 from operix_engine.rtsp_lab_overlay import MAX_BYTES, MAX_ITEMS, MAX_OBJECTS, OverlayMetadata, frame_fingerprint
 from operix_engine.rtsp_pilot import Frame
+from operix_engine.spatiotemporal import SpatiotemporalAnalyzer
 from operix_engine.tracking import Track
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -24,6 +25,34 @@ RECEIVED_UTC = datetime(2026, 11, 23, tzinfo=timezone.utc)
 
 
 class OverlayTests(TestCase):
+    def test_marked_contacts_use_motor_distance_and_lose_metres_when_framing_changes(self):
+        producer = OverlayMetadata(self.output, self.run_id, (), write_atomic=lab._write_atomic, stream_id="a" * 32)
+        tracks = (Track(1, 1, "forklift", .9, BoundingBox(19, 5, 24, 20)),
+                  Track(1, 0, "person", .9, BoundingBox(3, 5, 9, 20)))
+        calibration = {"status": "valid", "homography": [[9.9, 0, 0], [0, 7.5, 0], [0, 0, 1]],
+                       "image_points": [[0, 0], [1, 0], [1, 1], [0, 1]]}
+        for index, (state, snapshot) in enumerate((("VALID", calibration), ("SUSPECT", None), ("UNCALIBRATED", None))):
+            analyzer = SpatiotemporalAnalyzer(width=33, height=25, fps=12, zones=(), calibration=snapshot)
+            spatial = analyzer.update(index, tracks)
+            frame = Frame(index, 1, 10 + index, index / 12, self.image, source_ordinal=index)
+            producer.observe(frame, tracks, epoch=1, received_utc=RECEIVED_UTC, spatial_allowed=state != "SUSPECT",
+                             spatial=spatial, calibration=state)
+            producer.publish(frame.received)
+            item, = self.read()["items"]
+            self.assertEqual(item["calibration"], state)
+            if state == "SUSPECT":
+                self.assertNotIn("distances", item)
+                continue
+            pair, = item["distances"]
+            self.assertEqual((pair["person_id"], pair["equipment_id"], pair["equipment_category"]), (1, 1, "UNKNOWN"))
+            if state == "VALID":
+                self.assertEqual(pair["unit"], "m")
+                self.assertAlmostEqual(pair["value"], 3.)
+                self.assertAlmostEqual(pair["person_point"][0], 9 / 33)
+            else:
+                self.assertEqual(pair["unit"], "normalized")
+                self.assertEqual(pair["value"], spatial.proximities[0].normalized_distance)
+
     def setUp(self):
         directory = TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -63,7 +92,7 @@ class OverlayTests(TestCase):
             forklift=(Detection(0, "forklift", .95, BoundingBox(2, 2, 7, 7)),),
         )
 
-        def consume(frame, tracks, *, spatial_allowed):
+        def consume(frame, tracks, *, spatial_allowed, spatial, calibration):
             producer.observe(frame, tracks, epoch=1, received_utc=RECEIVED_UTC, spatial_allowed=spatial_allowed)
 
         def render(image, *_args, **_kwargs):

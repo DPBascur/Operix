@@ -1,3 +1,65 @@
+export const calibrationLabels = {
+  UNCALIBRATED: "Sin calibración física",
+  UNAVAILABLE: "Calibración sin verificar en este encuadre",
+  SUSPECT: "Mediciones suspendidas por cambio de encuadre",
+  INVALID: "Calibración inválida · requiere confirmación",
+  VALID: "Calibración verificada en este encuadre",
+} as const;
+
+export type LiveCalibration = keyof typeof calibrationLabels;
+type Contact = [number, number];
+export type LiveDistance = {
+  personId: number;
+  equipmentId: number;
+  equipmentCategory: string;
+  personPoint: Contact;
+  equipmentPoint: Contact;
+  value: number;
+  unit: "m" | "normalized";
+};
+
+export function readCalibration(value: unknown): LiveCalibration | undefined {
+  return typeof value === "string" && Object.hasOwn(calibrationLabels, value)
+    ? value as LiveCalibration
+    : undefined;
+}
+
+function contact(value: unknown): Contact | undefined {
+  if (Array.isArray(value) && value.length === 2 &&
+      value.every((part) => typeof part === "number" && Number.isFinite(part) && part >= 0 && part <= 1)) {
+    return [value[0], value[1]];
+  }
+}
+
+function trackId(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+export function readDistances(value: unknown, calibration?: LiveCalibration): LiveDistance[] {
+  if (!Array.isArray(value) || (calibration !== "VALID" && calibration !== "UNCALIBRATED")) return [];
+  const pairs: LiveDistance[] = [];
+  for (const candidate of value.slice(0, 12)) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const { person_id, equipment_id, person_point, equipment_point, equipment_category, value, unit } = candidate;
+    const personPoint = contact(person_point);
+    const equipmentPoint = contact(equipment_point);
+    if (!trackId(person_id) || !trackId(equipment_id) || !personPoint || !equipmentPoint ||
+        !Number.isFinite(value) || value < 0 ||
+        (unit !== "normalized" && !(unit === "m" && calibration === "VALID"))) continue;
+    pairs.push({ personId: person_id, equipmentId: equipment_id,
+      equipmentCategory: typeof equipment_category === "string" ? equipment_category : "UNKNOWN",
+      personPoint, equipmentPoint, value, unit });
+  }
+  return pairs;
+}
+
+const metres = new Intl.NumberFormat("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const normalizedFormat = new Intl.NumberFormat("es-CL", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+
+export function distanceLabel(pair: LiveDistance) {
+  return pair.unit === "m" ? `≈${metres.format(pair.value)} m` : `${normalizedFormat.format(pair.value)} norm.`;
+}
+
 export type LivePoint = [number, number];
 export type LiveZone = { zone_id: string; polygon: LivePoint[] };
 export type LiveObject = {
@@ -17,6 +79,8 @@ export type LiveObservation = {
   objects: LiveObject[];
   zones: LiveZone[];
   source_ordinal?: number;
+  calibration?: LiveCalibration;
+  distances?: LiveDistance[];
 };
 
 export type LiveObservations = { run_id: string; items: LiveObservation[]; stream_id?: string };
@@ -133,6 +197,7 @@ export function parseLiveObservations(value: unknown): LiveObservations {
       !Array.isArray(objects)
     )
       throw new Error("Observación inválida.");
+    const calibration = readCalibration(item.calibration);
     return {
       index,
       epoch,
@@ -143,6 +208,7 @@ export function parseLiveObservations(value: unknown): LiveObservations {
       objects: objects.map(readObject).filter((object) => object !== undefined),
       zones: readZones(zones),
       ...(typeof source_ordinal === "number" && { source_ordinal }),
+      ...(streamId && calibration && { calibration, distances: readDistances(item.distances, calibration) }),
     };
   });
   return { run_id: value.run_id, items, ...(streamId !== undefined && { stream_id: streamId }) };

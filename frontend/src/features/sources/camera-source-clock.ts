@@ -53,10 +53,12 @@ export class CameraSourceClock {
 export class ClockedObservations {
   private observations = new Map<number, LiveObservation | null>();
   stream: string | undefined;
+  latest: LiveObservation | undefined;
 
   update(batch: LiveObservations | null) {
     this.observations.clear();
     this.stream = batch?.stream_id;
+    this.latest = this.stream ? batch?.items.at(-1) : undefined;
     if (!this.stream || !batch?.items.length) return;
     for (const item of batch.items) {
       if (item.source_ordinal === undefined) continue;
@@ -67,6 +69,11 @@ export class ClockedObservations {
 
   observed(ordinal: number) {
     return this.observations.get(ordinal);
+  }
+
+  distancesFor(item: LiveObservation) {
+    return item.epoch === this.latest?.epoch && item.calibration === this.latest.calibration
+      ? item.distances : undefined;
   }
 
   retains(stream: string, ordinal: number, item: LiveObservation, estimated: boolean) {

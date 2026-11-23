@@ -2,6 +2,7 @@
 
 from collections import deque
 from datetime import datetime, timezone
+from heapq import nsmallest
 from itertools import islice
 import json
 import logging
@@ -20,6 +21,7 @@ MAX_BYTES = 512 * 1024
 MAX_OBJECTS = 128
 MAX_ZONES = 32
 MAX_ZONE_VERTICES = 128
+MAX_DISTANCES = 12
 logger = logging.getLogger(__name__)
 
 
@@ -52,6 +54,36 @@ def _zone_overlays(zones):
     return result
 
 
+def _distances(spatial, visible):
+    categories = {item.track_id: item.equipment_taxonomy.category for item in spatial.objects
+                  if item.class_name == "forklift" and item.equipment_taxonomy is not None}
+
+    def measurements():
+        for pair in spatial.proximities:
+            if {pair.class_name_a, pair.class_name_b} != {"person", "forklift"}:
+                continue
+            person, equipment = pair.track_id_a, pair.track_id_b
+            p, e = pair.point_a, pair.point_b
+            if pair.class_name_a != "person":
+                person, equipment, p, e = equipment, person, e, p
+            if p is None or e is None or ("person", person) not in visible or ("forklift", equipment) not in visible:
+                continue
+            ground = pair.ground
+            yield {
+                "person_id": person, "equipment_id": equipment,
+                "equipment_category": categories.get(equipment, "UNKNOWN"),
+                "person_point": ground["person_anchor"] if ground else [p.x, p.y],
+                "equipment_point": ground["equipment_target"] if ground else [e.x, e.y],
+                "value": ground["distance"] if ground else pair.normalized_distance,
+                "unit": "m" if ground else "normalized",
+            }
+
+    # Units are not comparable. Prefer confirmed metric observations, then nearest within each unit.
+    return nsmallest(MAX_DISTANCES, measurements(), key=lambda item: (
+        item["unit"] != "m", item["value"], item["person_id"], item["equipment_id"],
+    ))
+
+
 class OverlayMetadata:
     """Publish a bounded display window independently of evidence."""
 
@@ -67,15 +99,18 @@ class OverlayMetadata:
         self.zones = _zone_overlays(zones)
         self.epoch = None
         self.zones_usable = False
+        self.calibration = None
         self.last_publish = -math.inf
         self.published_empty = False  # Clear any previous file at startup.
 
-    def observe(self, frame, tracks, *, epoch, received_utc, spatial_allowed):
+    def observe(self, frame, tracks, *, epoch, received_utc, spatial_allowed, spatial=None, calibration=None):
         zones_usable = bool(self.zones) and spatial_allowed
-        if zones_usable != self.zones_usable or (epoch != self.epoch and not self.clocked):
+        if (zones_usable != self.zones_usable or calibration != self.calibration
+                or (epoch != self.epoch and not self.clocked)):
             self.clear()
         self.epoch = epoch
         self.zones_usable = zones_usable
+        self.calibration = calibration
 
         height, width = frame.image.shape[:2]
         objects = []
@@ -97,6 +132,11 @@ class OverlayMetadata:
             item["zones"] = self.zones
         if frame.source_ordinal is not None:
             item["source_ordinal"] = frame.source_ordinal
+        if self.clocked and calibration is not None:
+            item["calibration"] = calibration
+            if spatial_allowed and spatial is not None and frame.source_ordinal is not None:
+                visible = {(obj["role"], obj["track_id"]) for obj in objects}
+                item["distances"] = _distances(spatial, visible)
         self.items.append((frame.received, _json(item)))
 
     def expire(self, now):

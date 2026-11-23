@@ -4,10 +4,12 @@ import type Hls from "hls.js";
 import { ChevronDown, Maximize, Minimize, Pause, Play, SlidersHorizontal } from "lucide-react";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
+import { equipmentCategoryLabels } from "@/services/analysis.service";
 import { cameraNumber } from "./camera-diagnostics";
 import { CameraFrameMatcher } from "./camera-frame-match";
 import { CameraSourceClock } from "./camera-source-clock";
 import { CameraLiveOverlay, overlayLabels, type OverlayStats } from "./camera-live-overlay";
+import { calibrationLabels, distanceLabel } from "./camera-frame-match";
 import { usePageVisible } from "./camera-visibility";
 
 const hlsMime = "application/vnd.apple.mpegurl";
@@ -43,6 +45,7 @@ export function CameraLiveVideo({
   const [overlay, setOverlay] = useState(true);
   const [showIds, setShowIds] = useState(false);
   const [showZones, setShowZones] = useState(true);
+  const [showDistances, setShowDistances] = useState(true);
   const [showStats, setShowStats] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState(false);
@@ -100,6 +103,7 @@ export function CameraLiveVideo({
             overlay={overlay}
             showIds={showIds}
             showZones={showZones}
+            showDistances={showDistances}
             showStats={showStats}
             fullscreen={fullscreen}
           />
@@ -130,6 +134,9 @@ export function CameraLiveVideo({
         </Button>
         <VideoToggle pressed={overlay} onClick={() => setOverlay(!overlay)}>
           Superposición
+        </VideoToggle>
+        <VideoToggle pressed={showDistances && overlay} disabled={!overlay} onClick={() => setShowDistances(!showDistances)}>
+          Distancias
         </VideoToggle>
         <Button
           variant="outline"
@@ -205,6 +212,7 @@ function LiveStream({
   overlay,
   showIds,
   showZones,
+  showDistances,
   showStats,
   fullscreen,
 }: {
@@ -216,6 +224,7 @@ function LiveStream({
   overlay: boolean;
   showIds: boolean;
   showZones: boolean;
+  showDistances: boolean;
   showStats: boolean;
   fullscreen: boolean;
 }) {
@@ -426,6 +435,8 @@ function LiveStream({
   const frameVisible = playing || status === "buffering";
   const frameRate = playing ? cameraNumber(fps, " FPS visibles") : null;
   const edge = playing ? cameraNumber(edgeDistance, " s") : null;
+  const calibration = overlayStats?.calibration;
+  const pairs = overlayStatus === "clocked" ? overlayStats?.distances ?? [] : [];
   return (
     <>
       <div
@@ -450,6 +461,7 @@ function LiveStream({
           active={playing && overlay}
           showIds={showIds}
           showZones={showZones}
+          showDistances={showDistances}
           onStats={setOverlayStats}
           onStatus={setOverlayStatus}
         />
@@ -473,9 +485,26 @@ function LiveStream({
         )}
       </div>
       {playing && overlay && (
-        <p className="border-t border-border px-3 py-1.5 text-xs text-text-secondary">
-          {overlayLabels[overlayStatus]}
-        </p>
+        <div className="border-t border-border px-3 py-1.5 text-xs text-text-secondary">
+          <p>{overlayLabels[overlayStatus]}</p>
+          {showDistances && (
+            <>
+              <p>{calibration && overlayStatus === "clocked" ? calibrationLabels[calibration] : "Distancias a la espera de un fotograma verificado"}</p>
+              {pairs.length > 0 && (
+                <details className="mt-1">
+                  <summary className="min-h-8 cursor-pointer py-1 font-medium">Pares observados ({pairs.length})</summary>
+                  <ul className="max-h-32 space-y-1 overflow-y-auto pb-1 tabular-nums">
+                    {pairs.map((pair) => (
+                      <li key={`${pair.personId}:${pair.equipmentId}`}>
+                        Persona #{pair.personId} · Equipo #{pair.equipmentId} · {distanceLabel(pair)} · {equipmentCategoryLabels[pair.equipmentCategory as keyof typeof equipmentCategoryLabels] ?? equipmentCategoryLabels.UNKNOWN}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </>
+          )}
+        </div>
       )}
       {showStats && (
         <div role="group" aria-label="Estadísticas de reproducción" className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border px-3 py-2 text-sm text-text-secondary tabular-nums">

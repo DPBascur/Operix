@@ -22,6 +22,7 @@ import {
 } from "./camera-frame-match";
 import { interpolateObservedBoxes } from "./camera-estimated-boxes";
 import { CameraSourceClock, ClockedObservations } from "./camera-source-clock";
+import { distanceLabel, type LiveCalibration, type LiveDistance } from "./camera-frame-match";
 
 export const overlayLabels = {
   searching: "Buscando fotogramas verificables",
@@ -72,6 +73,8 @@ export type OverlayStats = {
   presentedAgeMs: number | null;
   clockFrames: number;
   clockErrorMs: number;
+  calibration?: LiveCalibration;
+  distances: LiveDistance[];
 };
 
 function draw(
@@ -82,6 +85,7 @@ function draw(
   showZones: boolean,
   continuity: boolean,
   estimated: boolean,
+  pairs: readonly LiveDistance[],
 ) {
   const { canvas } = context;
   const dpr = window.devicePixelRatio || 1;
@@ -123,6 +127,7 @@ function draw(
   }
   context.font = `600 ${13 * dpr}px system-ui`;
   context.textBaseline = "top";
+  const labelAreas: Array<[number, number, number, number]> = [];
   for (const {
     box: [x1, y1, x2, y2],
     role,
@@ -137,6 +142,7 @@ function draw(
     const labelWidth = Math.min(context.measureText(label).width + 8 * dpr, videoWidth);
     const textX = Math.min(x(x1), x(1) - labelWidth);
     const textY = Math.max(y(0), y(y1) - 19 * dpr);
+    labelAreas.push([textX, textY, labelWidth, 19 * dpr]);
     context.fillStyle = "#101416";
     context.fillRect(
       textX,
@@ -146,6 +152,36 @@ function draw(
     );
     context.fillStyle = "#fff";
     context.fillText(label, textX + 4 * dpr, textY + 2 * dpr, Math.max(1, labelWidth - 8 * dpr));
+  }
+  context.lineWidth = 1.5 * dpr;
+  for (const pair of pairs.slice(0, 3)) {
+    const left = [x(pair.personPoint[0]), y(pair.personPoint[1])];
+    const right = [x(pair.equipmentPoint[0]), y(pair.equipmentPoint[1])];
+    context.strokeStyle = "#b8edff";
+    context.fillStyle = "#b8edff";
+    context.beginPath();
+    context.moveTo(left[0], left[1]);
+    context.lineTo(right[0], right[1]);
+    context.stroke();
+    for (const [cx, cy] of [left, right]) {
+      context.beginPath();
+      context.arc(cx, cy, 2.7 * dpr, 0, Math.PI * 2);
+      context.fill();
+    }
+    const caption = `P${pair.personId}–E${pair.equipmentId}  ${distanceLabel(pair)}`;
+    const w = Math.min(context.measureText(caption).width + 8 * dpr, videoWidth);
+    const h = 19 * dpr;
+    const cx = Math.max(x(0), Math.min((left[0] + right[0] - w) / 2, x(1) - w));
+    const cy = (left[1] + right[1]) / 2;
+    const top = [-25, 6, -46].map((offset) => cy + offset * dpr).find((candidate) =>
+      candidate >= y(0) && candidate + h <= y(1) && !labelAreas.some(([l, t, width, height]) =>
+        cx < l + width && cx + w > l && candidate < t + height && candidate + h > t));
+    if (top === undefined) continue;
+    labelAreas.push([cx, top, w, h]);
+    context.fillStyle = "#101416";
+    context.fillRect(cx, top, w, h);
+    context.fillStyle = "#fff";
+    context.fillText(caption, cx + 4 * dpr, top + 2 * dpr, Math.max(1, w - 8 * dpr));
   }
   if (continuity || estimated) {
     const badge = estimated ? "Posición estimada" : "Imagen + PTS";
@@ -170,6 +206,7 @@ export function CameraLiveOverlay({
   active,
   showIds,
   showZones,
+  showDistances,
   onStats,
   onStatus,
 }: {
@@ -181,6 +218,7 @@ export function CameraLiveOverlay({
   active: boolean;
   showIds: boolean;
   showZones: boolean;
+  showDistances: boolean;
   onStats: (stats: OverlayStats) => void;
   onStatus: (status: keyof typeof overlayLabels) => void;
 }) {
@@ -192,7 +230,8 @@ export function CameraLiveOverlay({
       item: LiveObservation,
       continuity: boolean,
       estimated = false,
-    ) => draw(context, video, item, showIds, showZones && !estimated, continuity, estimated),
+      pairs: readonly LiveDistance[] = [],
+    ) => draw(context, video, item, showIds, showZones && !estimated, continuity, estimated, showDistances ? pairs : []),
   );
 
   useEffect(() => {
@@ -219,6 +258,7 @@ export function CameraLiveOverlay({
       presentedAgeMs: null,
       clockFrames: 0,
       clockErrorMs: 0,
+      distances: [],
     };
     let pollTimer: ReturnType<typeof setTimeout>;
     let clearTimer: ReturnType<typeof setTimeout>;
@@ -227,7 +267,8 @@ export function CameraLiveOverlay({
     let previousCallbackTime = -Infinity;
     let lastMatch = -Infinity;
     let readable = true;
-    let displayed: { stream: string; ordinal: number; item: LiveObservation; estimated: boolean } | undefined;
+    let displayed: { stream: string; ordinal: number; item: LiveObservation; estimated: boolean; hadDistances?: boolean } | undefined;
+    let measuredAt = -Infinity;
     matcher.invalidate();
     matcher.resetTimeline();
 
@@ -245,6 +286,7 @@ export function CameraLiveOverlay({
       previousCallbackTime = -Infinity;
       lastMatch = -Infinity;
       stats.presentedAgeMs = null;
+      stats.distances = [];
     }
 
     if (
@@ -263,7 +305,10 @@ export function CameraLiveOverlay({
     const sampler = sample;
     // Nearest-neighbor downsampling samples the centers without blending adjacent pixels.
     sampler.imageSmoothingEnabled = false;
-    const publish = setInterval(() => onStats({ ...stats }), 1000);
+    const publish = setInterval(() => {
+      if (performance.now() - measuredAt > 400) stats.distances = [];
+      onStats({ ...stats });
+    }, 250);
 
     function onFrame(
       callbackTime: number,
@@ -302,8 +347,12 @@ export function CameraLiveOverlay({
           if (observed && observationLifetime(observed, now)) {
             stats.clockFrames++;
             stats.clockErrorMs = Math.max(stats.clockErrorMs, mark.errorMs);
-            if (drawObserved(observed, false, now)) {
-              displayed = { stream: clocked.stream, ordinal: mark.ordinal, item: observed, estimated: false };
+            const pairs = clocked.distancesFor(observed);
+            stats.distances = pairs ?? [];
+            measuredAt = callbackTime;
+            if (drawObserved(observed, false, now, pairs)) {
+              displayed = { stream: clocked.stream, ordinal: mark.ordinal, item: observed, estimated: false,
+                hadDistances: !!pairs?.length };
             }
           } else {
             const bounds = clocked.bracket(mark.ordinal);
@@ -336,11 +385,11 @@ export function CameraLiveOverlay({
       }
     }
 
-    function drawObserved(observation: LiveObservation, continuity: boolean, now: number) {
+    function drawObserved(observation: LiveObservation, continuity: boolean, now: number, pairs?: LiveDistance[]) {
       stats.matched++;
       stats.presentedAgeMs = Math.max(0, now - observation.receivedMs);
       if (continuity) stats.continuity++;
-      const painted = paint(context, source, observation, continuity);
+      const painted = paint(context, source, observation, continuity, false, pairs);
       if (painted) stats.drawn++;
       lastMatch = performance.now();
       if (painted) clearTimer = setTimeout(clear, Math.min(200, observationLifetime(observation, now)));
@@ -364,7 +413,13 @@ export function CameraLiveOverlay({
         if (controller.signal.aborted || !readable) return;
         const batch = data === null ? null : parseLiveObservations(data);
         if (batch?.items.length && (!runId || batch.run_id === runId)) {
+          const previous = clocked.latest;
           clocked.update(batch);
+          stats.calibration = clocked.latest?.calibration;
+          if (clocked.latest?.calibration !== previous?.calibration || clocked.latest?.epoch !== previous?.epoch) {
+            stats.distances = [];
+            onStats({ ...stats });
+          }
           if (batch.stream_id) matcher.invalidate();
           else matcher.update(batch, Date.now());
           stats.observations = batch.items.length;
@@ -375,7 +430,8 @@ export function CameraLiveOverlay({
           unavailable();
         }
         // Refreshing metadata must not blank a frame with an unchanged match.
-        if (!displayed || !clocked.retains(displayed.stream, displayed.ordinal, displayed.item, displayed.estimated)) {
+        if (!displayed || !clocked.retains(displayed.stream, displayed.ordinal, displayed.item, displayed.estimated) ||
+            (displayed.hadDistances && !clocked.distancesFor(displayed.item))) {
           clear();
         }
       } catch (error) {
@@ -395,6 +451,7 @@ export function CameraLiveOverlay({
       clocked.update(null);
       reset();
       stats.observations = 0;
+      stats.calibration = undefined;
       stats.presentedAgeMs = null;
       onStatus("unavailable");
       onStats({ ...stats });

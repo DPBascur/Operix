@@ -1,11 +1,29 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { CameraSourceClock, ClockedObservations } from "../src/features/sources/camera-source-clock.ts";
+import { distanceLabel, readDistances } from "../src/features/sources/camera-frame-match.ts";
 
 const stream = "a".repeat(32);
 const nextStream = "b".repeat(32);
 const uuid = "2dcd53fa-e376-4a1b-81c9-90511ff6dc2f";
 const mark = (pts, ordinal, emission = stream) => ({ pts, uuid, userData: `ox1:${emission}:${ordinal}` });
+
+test("distances are limited to the current epoch and metres require a valid calibration", () => {
+  const packet = { person_id: 1, equipment_id: 1, person_point: [.2, .6], equipment_point: [.35, .6], value: 1.5, unit: "m" };
+  const pairs = readDistances([packet], "VALID");
+  assert.equal(distanceLabel(pairs[0]), "≈1,50 m");
+  assert.deepEqual(readDistances([packet], "UNCALIBRATED"), []);
+  assert.deepEqual(readDistances([packet], "SUSPECT"), []);
+  assert.equal(distanceLabel(readDistances([{ ...packet, value: 0, unit: "normalized" }], "UNCALIBRATED")[0]), "0,000 norm.");
+  const seen = new ClockedObservations();
+  const before = { source_ordinal: 1, epoch: 1, calibration: "VALID", distances: pairs };
+  seen.update({ run_id: "run", stream_id: stream, items: [before] });
+  assert.equal(seen.distancesFor(before), pairs);
+  seen.update({ run_id: "run", stream_id: stream, items: [before, { ...before, source_ordinal: 2, epoch: 2 }] });
+  assert.equal(seen.distancesFor(before), undefined);
+  seen.update({ run_id: "run", stream_id: stream, items: [{ ...before, calibration: "INVALID", distances: [] }] });
+  assert.equal(seen.distancesFor(before), undefined);
+});
 
 test("uses the HLS presentation timestamp, rejecting other emissions and off-frame matches", () => {
   const clock = new CameraSourceClock();
