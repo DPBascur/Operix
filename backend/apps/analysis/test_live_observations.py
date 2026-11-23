@@ -11,6 +11,7 @@ from django.contrib.auth.models import Group
 from rest_framework.test import APITestCase
 
 from config.access import VIEWER_GROUP
+from .cameras import playback_clock_id
 
 
 class CameraObservationTests(APITestCase):
@@ -55,3 +56,20 @@ class CameraObservationTests(APITestCase):
             self.assertEqual(self.client.get(self.endpoint).status_code, 204)
             file.write_bytes(b" " * (512 * 1024 + 1))
             self.assertEqual(self.client.get(self.endpoint).status_code, 204)
+
+    def test_clocked_endpoint_rejects_marks_from_a_different_playback(self):
+        self.client.force_authenticate(self.admin)
+        token = uuid4().hex
+        run = SimpleNamespace(pk=uuid4(), active=True, managed=True, playback={"token": token})
+        with (TemporaryDirectory() as directory,
+              patch.dict(os.environ, {"OPERIX_CAMERA_LAB_FRAME_CLOCK": "1"}),
+              patch("apps.analysis.live_observations.last_run", return_value=run),
+              patch("apps.analysis.live_observations.run_dir", return_value=Path(directory))):
+            file = Path(directory) / "overlay.json"
+            payload = {"run_id": str(run.pk), "items": [], "stream_id": "a" * 32}
+            file.write_text(json.dumps(payload))
+            self.assertEqual(self.client.get(self.endpoint).status_code, 204)
+            file.write_text(json.dumps({**payload, "stream_id": playback_clock_id(token)}))
+            result = self.client.get(self.endpoint)
+            self.assertEqual(result.status_code, 200)
+            self.assertNotIn(token.encode(), result.content)

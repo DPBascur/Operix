@@ -36,6 +36,7 @@ from operix_engine.pattern_framing import PatternFramingGuard
 from operix_engine.rtsp_inference import InferenceBusy, InferenceClient, InferenceError, InferenceTimeout
 from operix_engine.rtsp_lab_clips import ClipStore, JpegRing
 from operix_engine.rtsp_lab_overlay import OverlayMetadata
+from operix_engine.rtsp_frame_clock import ClockedReader
 from operix_engine.rtsp_lab_policy import CameraRateBudget, EventAdmission, EventPolicy, InvalidEventPolicy
 from operix_engine.rtsp_pilot import Capture, Epoch
 from operix_engine.rules import EquipmentScopeAudit, RuleEngine
@@ -618,7 +619,9 @@ def run(args, status, stop_reason):
         if camera_id != context.source.get("camera_id"):
             raise InvalidEventPolicy("RTSP camera does not match the authorized snapshot")
         rate_budget = CameraRateBudget(media_root, camera_id)
-    overlay = OverlayMetadata(args.output, status.run_id, config.zones if config else (), write_atomic=_write_atomic)
+    stream_id = os.environ.get("OPERIX_RTSP_LAB_FRAME_CLOCK_ID")
+    overlay = OverlayMetadata(args.output, status.run_id, config.zones if config else (),
+                              write_atomic=_write_atomic, stream_id=stream_id)
     overlay.clear()
     clips = ClipStore(media_root, args.fps, total_bytes=event_policy.clip_total_bytes,
                       retention_days=event_policy.clip_retention_days, operational=event_policy.mode == "operational")
@@ -650,7 +653,12 @@ def run(args, status, stop_reason):
     failures_at_frame = 0
     inference_stalled_since = None
     capture_rates = {"source_fps": source_fps} if source_fps != args.fps else {}
-    capture = Capture(lambda: Reader(url, source_fps, pipeline.dimensions), fps=args.fps,
+    def open_reader():
+        if stream_id:
+            return ClockedReader(url, source_fps, pipeline.dimensions, stream_id)
+        return Reader(url, source_fps, pipeline.dimensions)
+
+    capture = Capture(open_reader, fps=args.fps,
                       trace=status.capture_trace, **capture_rates)
     status.capture = capture
     status.write("connecting")
@@ -735,7 +743,10 @@ def run(args, status, stop_reason):
                         status.inference_batch_sizes[detected.batch_size] += 1
                     epoch_reason, timestamp = epoch.advance(frame)
                     if epoch_reason:
-                        overlay.clear()
+                        # The player is delayed. Prior exact-ordinal observations are still valid
+                        # across a local queue drop, even as rules, clips and interpolation reset.
+                        if not stream_id or epoch_reason != "queue_gap":
+                            overlay.clear()
                         publisher.flush()
                         pipeline.reset(epoch.number, preserve_tracking=epoch.preserve_tracking)
                         ring.clear()

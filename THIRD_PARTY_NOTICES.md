@@ -94,3 +94,7 @@ El reproductor web utiliza [hls.js](https://github.com/video-dev/hls.js)
 1.7.4, Copyright (c) 2017 Dailymotion, bajo Apache-2.0. La imagen del
 Frontend conserva el aviso de la distribución en `/licenses/hls.js.txt` y la
 [licencia Apache 2.0](frontend/public/licenses/Apache-2.0.txt).
+
+El lector opcional de marcas RTSP usa [PyAV 19.0.2](https://pypi.org/project/av/19.0.2/),
+BSD-3-Clause, instalado como wheel externo. Su distribución incluye las
+bibliotecas FFmpeg y los avisos de los componentes de la distribución.

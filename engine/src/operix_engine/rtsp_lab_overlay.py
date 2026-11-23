@@ -53,13 +53,17 @@ def _zone_overlays(zones):
 
 
 class OverlayMetadata:
-    """Keep only the latest continuity epoch and publish it independently of evidence."""
+    """Publish a bounded display window independently of evidence."""
 
-    def __init__(self, directory, run_id, zones, *, write_atomic):
+    def __init__(self, directory, run_id, zones, *, write_atomic, stream_id=None):
         self.path = directory / "overlay.json"
         self.write_atomic = write_atomic
         self.items = deque(maxlen=MAX_ITEMS)
-        self.prefix = b'{"run_id":' + _json(str(run_id)) + b',"items":['
+        self.clocked = stream_id is not None
+        header = {"run_id": str(run_id)}
+        if stream_id is not None:
+            header["stream_id"] = stream_id
+        self.prefix = _json(header)[:-1] + b',"items":['
         self.zones = _zone_overlays(zones)
         self.epoch = None
         self.zones_usable = False
@@ -68,10 +72,10 @@ class OverlayMetadata:
 
     def observe(self, frame, tracks, *, epoch, received_utc, spatial_allowed):
         zones_usable = bool(self.zones) and spatial_allowed
-        if epoch != self.epoch or zones_usable != self.zones_usable:
+        if zones_usable != self.zones_usable or (epoch != self.epoch and not self.clocked):
             self.clear()
-            self.epoch = epoch
-            self.zones_usable = zones_usable
+        self.epoch = epoch
+        self.zones_usable = zones_usable
 
         height, width = frame.image.shape[:2]
         objects = []
@@ -91,6 +95,8 @@ class OverlayMetadata:
         }
         if zones_usable:
             item["zones"] = self.zones
+        if frame.source_ordinal is not None:
+            item["source_ordinal"] = frame.source_ordinal
         self.items.append((frame.received, _json(item)))
 
     def expire(self, now):

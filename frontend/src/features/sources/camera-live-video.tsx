@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { cameraNumber } from "./camera-diagnostics";
 import { CameraFrameMatcher } from "./camera-frame-match";
+import { CameraSourceClock } from "./camera-source-clock";
 import { CameraLiveOverlay, type OverlayStats } from "./camera-live-overlay";
 import { usePageVisible } from "./camera-visibility";
 
@@ -218,6 +219,7 @@ function LiveStream({
 }) {
   const media = useRef<HTMLVideoElement>(null);
   const playButton = useRef<HTMLButtonElement>(null);
+  const [sourceClock] = useState(() => new CameraSourceClock());
   const [status, setStatus] = useState<PlaybackStatus>("connecting");
   const [fps, setFps] = useState<number>();
   const [edgeDistance, setEdgeDistance] = useState<number>();
@@ -229,7 +231,7 @@ function LiveStream({
     const source = `/api/v1/analysis/cameras/${encodeURIComponent(id)}/live/index.m3u8`;
     let disposed = false;
     const nativeSupported = Boolean(video.canPlayType(hlsMime));
-    let tryNative = nativeSupported;
+    let tryNative = false;
     let allowMseFallback = true;
     let retryDelay = 2000;
     let retryTimer: ReturnType<typeof setTimeout>;
@@ -300,6 +302,7 @@ function LiveStream({
         if (frameCallback !== undefined)
           video.cancelVideoFrameCallback(frameCallback);
         hls?.destroy();
+        sourceClock.clear();
         video.pause();
         video.removeAttribute("src");
         video.load();
@@ -386,6 +389,9 @@ function LiveStream({
           return;
         }
         hls = new HlsPlayer({ backBufferLength: 10 });
+        hls.on(HlsPlayer.Events.FRAG_PARSING_USERDATA, (_, data) => {
+          if (!stopped) sourceClock.ingest(data.samples);
+        });
         hls.on(HlsPlayer.Events.ERROR, (_, data) => {
           if (data.response?.code === 401 || data.response?.code === 403) {
             disconnect?.();
@@ -409,7 +415,7 @@ function LiveStream({
       clearTimeout(retryTimer);
       disconnect?.();
     };
-  }, [id, pauseButton]);
+  }, [id, pauseButton, sourceClock]);
 
   const playing = status === "playing";
   const frameRate = playing ? cameraNumber(fps, " FPS visibles") : null;
@@ -433,6 +439,7 @@ function LiveStream({
           id={id}
           runId={runId}
           matcher={matcher}
+          sourceClock={sourceClock}
           media={media}
           active={playing && overlay}
           showIds={showIds}
@@ -474,6 +481,11 @@ function LiveStream({
               <span>Dibujados {overlayStats?.drawn ?? 0}</span>
               <span>Por continuidad {overlayStats?.continuity ?? 0}</span>
               <span>Estimados {overlayStats?.estimated ?? 0}</span>
+              {!!overlayStats?.clockFrames && (
+                <span>
+                  Marca de origen · {overlayStats.clockFrames} · desfase máx. {cameraNumber(overlayStats.clockErrorMs, " ms")}
+                </span>
+              )}
               {!!overlayStats?.estimated && (
                 <span>Estimación media · {cameraNumber(overlayStats.estimateMs / overlayStats.estimated, " ms")}</span>
               )}

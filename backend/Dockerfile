@@ -27,6 +27,7 @@ RUN python -m pip install /wheels/*.whl \
     && python -m pip check && rm -rf /wheels
 COPY deployment/docker/requirements.linux-cu130.lock.txt /app/deployment/docker/requirements.linux-cu130.lock.txt
 RUN python -m pip install --no-deps -r /app/deployment/docker/requirements.linux-cu130.lock.txt \
+    && python -m pip install --no-deps --only-binary=:all: av==19.0.2 \
     && python -m pip check
 COPY engine/pyproject.toml engine/README.md /app/engine/
 COPY engine/src /app/engine/src

@@ -56,6 +56,29 @@ $stack = @('compose', '--env-file', '../Operix-Docker/operix.env', '-f', 'compos
 docker @stack up -d --build --wait
 ```
 
+### Optional source frame clock
+
+In an isolated managed lab, add `-f compose.rtsp-clock.yaml` as the last
+override and build the backend and publishers together. Start new runs after
+changing this option. It applies to managed replay publishers on the private
+MediaMTX network. Direct RTSP sources continue using their existing reader.
+
+The publisher adds H.264 unregistered SEI with a public emission identifier and
+a zero-based picture ordinal. FFmpeg assigns CFR packet timestamps when
+remultiplexing. The Motor validates the emission and the cadence of its RTSP
+PTS. hls.js maps the same SEI to the presentation timestamp in the browser's
+MediaSource timeline. The overlay joins by emission and ordinal. RTSP PTS and
+HLS presentation timestamps have independent origins. The ordinal is a video
+identity, with no wall-clock capture meaning. A browser using native-only HLS
+can play the video and use the secondary diagnostic preview.
+
+The display window keeps exact observations across local queue gaps so the
+delayed player can still show those frames. The visual estimate is limited to
+one intervening ordinal within an epoch and never enters tracking, rule
+evaluation or evidence. A disconnect, an emission change or a spatial validity
+change clears the affected observations. With the Compose override omitted, the
+legacy image-verification path is available.
+
 Sign in as an administrator and open **Gestión → Control de cámaras** to enable
 the lab and choose its virtual cameras. **Fuentes** shows their current analysis.
 The saved intent survives Backend restarts. Turning the lab off stops its

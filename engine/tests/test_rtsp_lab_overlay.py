@@ -159,6 +159,23 @@ class OverlayTests(TestCase):
         self.assertEqual(writer.call_count, 2)
         self.assertEqual(json.loads(writer.call_args.args[1]), {"run_id": str(self.run_id), "items": []})
 
+    def test_marked_history_keeps_exact_frames_until_spatial_invalidation_or_disconnect(self):
+        zone = Zone("area", "Area", ((0, 0), (1, 0), (1, 1)))
+        producer = OverlayMetadata(self.output, self.run_id, (zone,),
+                                   write_atomic=lab._write_atomic, stream_id="a" * 32)
+        for index, epoch, allowed in ((3, 1, True), (5, 2, True), (6, 2, False)):
+            frame = Frame(index, 1, 10 + index, index / 15, self.image, source_ordinal=index)
+            producer.observe(frame, (), epoch=epoch, received_utc=RECEIVED_UTC, spatial_allowed=allowed)
+            producer.publish(frame.received)
+            if index == 5:
+                self.assertEqual([(i["source_ordinal"], i["epoch"]) for i in self.read()["items"]],
+                                 [(3, 1), (5, 2)])
+        item, = self.read()["items"]
+        self.assertEqual(item["source_ordinal"], 6)
+        self.assertNotIn("zones", item)
+        producer.clear()
+        self.assertEqual(self.read()["items"], [])
+
     def test_runner_clears_live_metadata_on_disconnect_and_worker_end(self):
         capture = mock.MagicMock()
         capture.ready = Condition()

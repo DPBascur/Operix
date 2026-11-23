@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 from config.access import CanAnalyze
 
 from . import camera_registry
-from .cameras import last_run, run_dir
+from .cameras import last_run, playback_clock_id, run_dir
 from .live_video import relay_reply
 
 
@@ -43,6 +43,10 @@ class CameraLiveObservationsView(APIView):
         if (not isinstance(observations, dict) or observations.get("run_id") != str(run.pk)
                 or not isinstance(observations.get("items"), list) or len(observations["items"]) > 64):
             return relay_reply(status=204)
+        if os.environ.get("OPERIX_CAMERA_LAB_FRAME_CLOCK") == "1":
+            token = run.playback.get("token")
+            if not token or observations.get("stream_id") != playback_clock_id(token):
+                return relay_reply(status=204)
         after = request.query_params.get("after", "")
         if (request.query_params.get("run_id") == observations["run_id"]
                 and after.isascii() and after.isdigit() and len(after) <= 12):

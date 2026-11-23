@@ -1,6 +1,7 @@
 """Authorized monitoring and revision management for the local RTSP lab."""
 import atexit
 from dataclasses import replace
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -328,6 +329,10 @@ class CameraStartView(CameraView):
         return Response(data, status=202 if data["status"] != "error" else 503)
 
 
+def playback_clock_id(token):
+    return hashlib.sha256(token.encode("ascii")).hexdigest()[:32]
+
+
 @transaction.atomic
 def start_camera(camera, owner, *, managed=False, playback=None):
     camera_id = camera.id
@@ -407,6 +412,8 @@ def start_camera(camera, owner, *, managed=False, playback=None):
                OPERIX_RTSP_LAB_CAMERA_ID=camera.id, OPERIX_WORKER_PARENT_PIPE="1")
     if managed:
         env["OPERIX_RTSP_LAB_MANAGED_PREVIEW"] = "1"
+        if playback and os.environ.get("OPERIX_CAMERA_LAB_FRAME_CLOCK") == "1":
+            env["OPERIX_RTSP_LAB_FRAME_CLOCK_ID"] = playback_clock_id(playback["token"])
     with _lock:
         try:
             process = subprocess.Popen([

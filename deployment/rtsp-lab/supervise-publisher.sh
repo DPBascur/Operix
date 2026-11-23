@@ -70,7 +70,12 @@ EOF
                             # Latch before spawning so a crash cannot replay this token.
                             rm -f "$progress"
                             report launching
+                            clock_id=
+                            if [ "${OPERIX_CAMERA_LAB_FRAME_CLOCK:-0}" = 1 ]; then
+                                clock_id=$(printf '%s' "$token" | sha256sum | cut -c 1-32)
+                            fi
                             VIDEO_PROGRESS_FILE="$progress" VIDEO_PLAY_ONCE=1 VIDEO_FILE="$filename" \
+                                OPERIX_LAB_CLOCK_ID="$clock_id" \
                                 VIDEO_SHA256="$digest" /bin/sh /lab/publish.sh &
                             child=$!
                         fi

@@ -1,0 +1,17 @@
+# Optional frame clock for managed lab publishers. Apply after compose.rtsp-managed.yaml.
+x-clock-publisher: &clock-publisher
+  image: operix-rtsp-clock-publisher:local
+  build:
+    context: .
+    dockerfile: deployment/rtsp-lab/Dockerfile.clock-publisher
+  environment:
+    OPERIX_CAMERA_LAB_FRAME_CLOCK: "1"
+
+services:
+  backend:
+    environment:
+      OPERIX_CAMERA_LAB_FRAME_CLOCK: "1"
+  lab-publisher-01:
+    <<: *clock-publisher
+  lab-publisher-02:
+    <<: *clock-publisher

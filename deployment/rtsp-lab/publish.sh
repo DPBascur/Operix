@@ -36,7 +36,21 @@ fit="scale=$VIDEO_WIDTH:$VIDEO_HEIGHT:force_original_aspect_ratio=decrease:force
 canvas="pad=$VIDEO_WIDTH:$VIDEO_HEIGHT:(ow-iw)/2:(oh-ih)/2"
 
 child=
+clock_dir=
+clock_children=
+clear_clock() {
+    if [ -n "$clock_dir" ]; then
+        rm -f "$clock_dir/encoded" "$clock_dir/stamped"
+        rmdir "$clock_dir"
+        clock_dir=
+    fi
+}
 terminate() {
+    if [ -n "$clock_children" ]; then
+        kill -TERM $clock_children 2>/dev/null || true
+        for pid in $clock_children; do wait "$pid" || true; done
+    fi
+    clear_clock
     if [ -n "$child" ]; then
         kill -TERM "$child" 2>/dev/null || true
         wait "$child" || true
@@ -54,6 +68,36 @@ run_child() {
     return "$status"
 }
 
+publish_clocked() {
+    clock_dir=$(mktemp -d /lab-ack/clock.XXXXXXXX) || return 1
+    mkfifo "$clock_dir/encoded" "$clock_dir/stamped" || { clear_clock; return 1; }
+    ffmpeg -nostdin -hide_banner -loglevel warning -y -xerror -abort_on empty_output \
+        -re -protocol_whitelist file -f mov -threads 2 -i /proc/self/fd/3 -map 0:v:0 \
+        -vf "fps=$VIDEO_FPS,$fit,$canvas" \
+        -c:v libx264 -threads 2 -preset veryfast -tune zerolatency -x264-params aud=1:bframes=0 \
+        -pix_fmt yuv420p -g "$VIDEO_FPS" -f h264 "$clock_dir/encoded" &
+    encoder=$!
+    python3 /lab/stamp_h264.py "$OPERIX_LAB_CLOCK_ID" < "$clock_dir/encoded" > "$clock_dir/stamped" &
+    stamper=$!
+    ffmpeg "$@" -nostdin -hide_banner -loglevel warning -xerror -abort_on empty_output \
+        -fflags +genpts -r "$VIDEO_FPS" -f h264 -probesize 32768 -analyzeduration 1 \
+        -i "$clock_dir/stamped" -map 0:v:0 -c:v copy \
+        -bsf:v 'setts=pts=N:dts=N:duration=1' \
+        -f rtsp -rtsp_transport tcp "rtsp://mediamtx:8554/$CAMERA_PATH" &
+    relay=$!
+    clock_children="$encoder $stamper $relay"
+    result=0
+    if ! wait "$relay"; then
+        result=1
+        kill -TERM "$encoder" "$stamper" 2>/dev/null || true
+    fi
+    wait "$stamper" || result=1
+    wait "$encoder" || result=1
+    clock_children=
+    clear_clock
+    return "$result"
+}
+
 epoch=0
 set --
 if [ -n "${VIDEO_PROGRESS_FILE:-}" ]; then
@@ -66,15 +110,19 @@ while :; do
     printf '[%s] epoch=%s starting %s\n' "$CAMERA_PATH" "$epoch" "$VIDEO_FILE"
     # One real-time pass to EOF. A fresh RTSP connection starts the next pass.
     status=0
-    if run_child ffmpeg "$@" -nostdin -hide_banner -loglevel warning -xerror -abort_on empty_output \
+    if [ -n "${OPERIX_LAB_CLOCK_ID:-}" ]; then
+        publish_clocked "$@" || status=$?
+    else
+        run_child ffmpeg "$@" -nostdin -hide_banner -loglevel warning -xerror -abort_on empty_output \
         -re -protocol_whitelist file -f mov -threads 2 -i /proc/self/fd/3 -map 0:v:0 \
         -vf "fps=$VIDEO_FPS,$fit,$canvas" \
         -c:v libx264 -threads 2 -preset veryfast -tune zerolatency \
         -pix_fmt yuv420p -g "$VIDEO_FPS" \
-        -f rtsp -rtsp_transport tcp "rtsp://mediamtx:8554/$CAMERA_PATH"; then
+        -f rtsp -rtsp_transport tcp "rtsp://mediamtx:8554/$CAMERA_PATH" || status=$?
+    fi
+    if [ "$status" -eq 0 ]; then
         printf '[%s] epoch=%s reached EOF\n' "$CAMERA_PATH" "$epoch"
     else
-        status=$?
         printf '[%s] epoch=%s ffmpeg exited with status %s\n' \
             "$CAMERA_PATH" "$epoch" "$status" >&2
     fi

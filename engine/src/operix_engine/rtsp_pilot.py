@@ -17,6 +17,7 @@ class Frame:
     queue_depth: int = 0
     source_discontinuity: bool = False
     source_index: int | None = None
+    source_ordinal: int | None = None
 
 
 class TemporalSampler:
@@ -80,6 +81,7 @@ class Capture:
                         self.trace("open", self.connection, monotonic(), started=opening)
                 startup_deadline = monotonic() + self.startup_seconds
                 start_source_index = source_index
+                prior_ordinal = None
                 sampler = TemporalSampler(self.source_fps, self.fps) if self.source_fps > self.fps else None
                 while not self.stop.is_set():
                     # Dejar que el consumidor vacíe la ráfaga del sondeo inicial.
@@ -98,11 +100,18 @@ class Capture:
                     reading = monotonic()
                     image, pts = reader.read()
                     received = monotonic()
+                    ordinal = getattr(reader, "source_ordinal", None)
+                    ordinal_gap = prior_ordinal is not None and ordinal != prior_ordinal + 1
+                    prior_ordinal = ordinal
                     failures = 0
                     with self.ready:
                         self.counts["decoded"] += 1
-                        selected, source_gap = (sampler.select(source_index - start_source_index, pts)
-                                                if sampler else (True, False))
+                        if sampler:
+                            if ordinal_gap:
+                                sampler.gap = True
+                            selected, source_gap = sampler.select(source_index - start_source_index, pts)
+                        else:
+                            selected, source_gap = True, ordinal_gap
                         source_index += 1
                         if not selected:
                             self.counts["sampling_skip"] += 1
@@ -113,7 +122,7 @@ class Capture:
                         if len(self.queue) == self.capacity:
                             self._discard("queue_drop")
                         self.queue.append(Frame(index, self.connection, received, pts, image,
-                                                len(self.queue) + 1, source_gap, source_index - 1))
+                                                len(self.queue) + 1, source_gap, source_index - 1, ordinal))
                         index += 1
                         self.depth = max(self.depth, len(self.queue))
                         if self.trace:

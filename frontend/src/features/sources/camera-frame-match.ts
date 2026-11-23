@@ -16,9 +16,10 @@ export type LiveObservation = {
   fingerprint: number[];
   objects: LiveObject[];
   zones: LiveZone[];
+  source_ordinal?: number;
 };
 
-export type LiveObservations = { run_id: string; items: LiveObservation[] };
+export type LiveObservations = { run_id: string; items: LiveObservation[]; stream_id?: string };
 
 const maxAgeMs = 12_000;
 const clockToleranceMs = 1000;
@@ -98,9 +99,13 @@ export function parseLiveObservations(value: unknown): LiveObservations {
   ) {
     throw new Error("Respuesta de observaciones inválida.");
   }
+  const streamId = value.stream_id;
+  if (streamId !== undefined && (typeof streamId !== "string" || !/^[a-f0-9]{32}$/.test(streamId))) {
+    throw new Error("Identificador de emisión inválido.");
+  }
   const items = value.items.map((item: unknown): LiveObservation => {
     if (!record(item)) throw new Error("Observación inválida.");
-    const { index, epoch, pts_s, fingerprint, objects, zones } = item;
+    const { index, epoch, pts_s, fingerprint, objects, zones, source_ordinal } = item;
     const receivedMs = timestamp(item.received_utc);
     const processedMs = timestamp(item.processed_utc);
     if (
@@ -119,6 +124,7 @@ export function parseLiveObservations(value: unknown): LiveObservations {
       ) ||
       !Number.isFinite(receivedMs) ||
       !Number.isFinite(processedMs) ||
+      (streamId !== undefined && (typeof source_ordinal !== "number" || !Number.isSafeInteger(source_ordinal) || source_ordinal < 0 || source_ordinal > 999_999_999)) ||
       !Array.isArray(fingerprint) ||
       fingerprint.length !== sampleCount ||
       !fingerprint.every(
@@ -136,9 +142,10 @@ export function parseLiveObservations(value: unknown): LiveObservations {
       fingerprint,
       objects: objects.map(readObject).filter((object) => object !== undefined),
       zones: readZones(zones),
+      ...(typeof source_ordinal === "number" && { source_ordinal }),
     };
   });
-  return { run_id: value.run_id, items };
+  return { run_id: value.run_id, items, ...(streamId !== undefined && { stream_id: streamId }) };
 }
 
 export function sampleLuma(rgba: Uint8ClampedArray) {

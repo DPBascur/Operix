@@ -22,10 +22,12 @@ import {
   sampleLuma,
 } from "./camera-frame-match";
 import { interpolateObservedBoxes } from "./camera-estimated-boxes";
+import { CameraSourceClock, ClockedObservations } from "./camera-source-clock";
 
 const overlayLabels = {
   searching: "Buscando fotogramas verificables",
   matched: "Se encontraron fotogramas verificables",
+  clocked: "Sincronizado por marca de origen",
   unavailable: "Observaciones en vivo no disponibles",
   unsupported: "El navegador no puede verificar los fotogramas",
 };
@@ -69,6 +71,8 @@ export type OverlayStats = {
   sampleMs: number;
   observations: number;
   presentedAgeMs: number | null;
+  clockFrames: number;
+  clockErrorMs: number;
 };
 
 function draw(
@@ -163,6 +167,7 @@ export function CameraLiveOverlay({
   runId,
   media,
   matcher,
+  sourceClock,
   active,
   showIds,
   showZones,
@@ -172,6 +177,7 @@ export function CameraLiveOverlay({
   runId?: string | null;
   media: RefObject<HTMLVideoElement | null>;
   matcher: CameraFrameMatcher;
+  sourceClock: CameraSourceClock;
   active: boolean;
   showIds: boolean;
   showZones: boolean;
@@ -198,6 +204,7 @@ export function CameraLiveOverlay({
     const sample = scratch.getContext("2d", { willReadFrequently: true });
     if (!active) return;
     const nativeCanvas = document.createElement("canvas");
+    const clocked = new ClockedObservations();
     const controller = new AbortController();
     const options = { signal: controller.signal };
     const stats: OverlayStats = {
@@ -210,6 +217,8 @@ export function CameraLiveOverlay({
       sampleMs: 0,
       observations: 0,
       presentedAgeMs: null,
+      clockFrames: 0,
+      clockErrorMs: 0,
     };
     let pollTimer: ReturnType<typeof setTimeout>;
     let clearTimer: ReturnType<typeof setTimeout>;
@@ -262,7 +271,7 @@ export function CameraLiveOverlay({
       if (!readable) return;
       frameCallback = source.requestVideoFrameCallback(onFrame);
       if (
-        !matcher.hasObservations ||
+        (!clocked.stream && !matcher.hasObservations) ||
         source.paused ||
         source.seeking ||
         !source.videoWidth ||
@@ -279,8 +288,27 @@ export function CameraLiveOverlay({
       previousMediaTime = metadata.mediaTime;
       try {
         const started = performance.now();
-        const fingerprint = readFingerprint(source, sampler, nativeCanvas);
         const now = Date.now();
+        if (clocked.stream) {
+          const mark = sourceClock.at(metadata.mediaTime, clocked.stream);
+          stats.sampled++;
+          stats.sampleMs += performance.now() - started;
+          if (!mark) return;
+          const observed = clocked.observed(mark.ordinal);
+          if (observed && observationLifetime(observed, now)) {
+            stats.clockFrames++;
+            stats.clockErrorMs = Math.max(stats.clockErrorMs, mark.errorMs);
+            drawObserved(observed, false, now);
+          } else {
+            const bounds = clocked.bracket(mark.ordinal);
+            if (bounds && now - bounds.before.receivedMs <= 3000 &&
+                observationLifetime(bounds.before, now) && observationLifetime(bounds.after, now)) {
+              drawEstimate(bounds.before, bounds.after, 0.5, started);
+            }
+          }
+          return;
+        }
+        const fingerprint = readFingerprint(source, sampler, nativeCanvas);
         const match = matcher.match(fingerprint, metadata.mediaTime, now);
         stats.sampled++;
         stats.sampleMs += performance.now() - started;
@@ -289,29 +317,32 @@ export function CameraLiveOverlay({
           const bounds = matcher.interpolationBounds(fingerprint, metadata.mediaTime, now);
           if (!bounds) return;
           const { before, after, fraction } = bounds;
-          const objects = interpolateObservedBoxes(before, after, fraction);
-          if (objects.length && paint(context, source, { ...before, objects }, false, true)) {
-            stats.estimated++;
-            stats.estimateMs += performance.now() - estimateStarted;
-            clearTimer = setTimeout(clear, 55);
-          }
+          drawEstimate(before, after, fraction, estimateStarted);
           return;
         }
-        stats.matched++;
-        stats.presentedAgeMs = Math.max(0, now - match.observation.receivedMs);
-        const continuity = match.method === "continuity";
-        if (continuity) stats.continuity++;
-        if (paint(context, source, match.observation, continuity))
-          stats.drawn++;
-        lastMatch = performance.now();
-        clearTimer = setTimeout(
-          clear,
-          Math.min(200, observationLifetime(match.observation, now)),
-        );
+        drawObserved(match.observation, match.method === "continuity", now);
       } catch {
         clear();
         readable = false;
         setStatus("unsupported");
+      }
+    }
+
+    function drawObserved(observation: LiveObservation, continuity: boolean, now: number) {
+      stats.matched++;
+      stats.presentedAgeMs = Math.max(0, now - observation.receivedMs);
+      if (continuity) stats.continuity++;
+      if (paint(context, source, observation, continuity)) stats.drawn++;
+      lastMatch = performance.now();
+      clearTimer = setTimeout(clear, Math.min(200, observationLifetime(observation, now)));
+    }
+
+    function drawEstimate(before: LiveObservation, after: LiveObservation, fraction: number, started: number) {
+      const objects = interpolateObservedBoxes(before, after, fraction);
+      if (objects.length && paint(context, source, { ...before, objects }, false, true)) {
+        stats.estimated++;
+        stats.estimateMs += performance.now() - started;
+        clearTimer = setTimeout(clear, 55);
       }
     }
 
@@ -321,10 +352,12 @@ export function CameraLiveOverlay({
         if (controller.signal.aborted || !readable) return;
         const batch = data === null ? null : parseLiveObservations(data);
         if (batch?.items.length && (!runId || batch.run_id === runId)) {
-          matcher.update(batch, Date.now());
+          clocked.update(batch);
+          if (batch.stream_id) matcher.invalidate();
+          else matcher.update(batch, Date.now());
           stats.observations = batch.items.length;
           setStatus(
-            performance.now() - lastMatch < 1500 ? "matched" : "searching",
+            performance.now() - lastMatch < 1500 ? (clocked.stream ? "clocked" : "matched") : "searching",
           );
         } else {
           unavailable();
@@ -345,6 +378,7 @@ export function CameraLiveOverlay({
 
     function unavailable() {
       matcher.invalidate();
+      clocked.update(null);
       reset();
       stats.observations = 0;
       stats.presentedAgeMs = null;
@@ -370,7 +404,7 @@ export function CameraLiveOverlay({
       matcher.invalidate();
       clear();
     };
-  }, [active, id, matcher, media, onStats, runId]);
+  }, [active, id, matcher, media, onStats, runId, sourceClock]);
 
   return (
     <>
