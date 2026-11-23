@@ -12,9 +12,10 @@ test("distances are limited to the current epoch and metres require a valid cali
   const packet = { person_id: 1, equipment_id: 1, person_point: [.2, .6], equipment_point: [.35, .6], value: 1.5, unit: "m" };
   const pairs = readDistances([packet], "VALID");
   assert.equal(distanceLabel(pairs[0]), "≈1,50 m");
+  assert.equal(distanceLabel(pairs[0], "cm"), "≈150 cm");
   assert.deepEqual(readDistances([packet], "UNCALIBRATED"), []);
   assert.deepEqual(readDistances([packet], "SUSPECT"), []);
-  assert.equal(distanceLabel(readDistances([{ ...packet, value: 0, unit: "normalized" }], "UNCALIBRATED")[0]), "0,000 norm.");
+  assert.equal(distanceLabel(readDistances([{ ...packet, value: 0, unit: "normalized" }], "UNCALIBRATED")[0], "cm"), "0,000 norm.");
   const seen = new ClockedObservations();
   const before = { source_ordinal: 1, epoch: 1, calibration: "VALID", distances: pairs };
   seen.update({ run_id: "run", stream_id: stream, items: [before] });

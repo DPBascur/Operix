@@ -259,14 +259,17 @@ export function AutomaticCalibration<T>({
   return (
     <details id={id} className={styles.panel}>
       <summary>
-        Calibración automática con patrón{" "}
+        {source.kind === "cameras" ? "Calibrar distancias" : "Calibración automática con patrón"}{" "}
         {framingWarning ? (
           <span>· Revisar encuadre</span>
         ) : (
-          validated && <span>· Versión {saved.version} validada</span>
+          validated ? <span>· Calibrada · v{saved.version}</span> : (source.kind === "cameras" && <span>· Sin calibrar</span>)
         )}
       </summary>
       <div className={styles.body}>
+        {source.kind === "cameras" && !validated && !framingWarning && (
+          <p>La cámara muestra distancias normalizadas hasta que confirmes una escala del suelo con una medida conocida.</p>
+        )}
         <p>
           Coloca marcadores ArUco {dictionary} planos sobre el suelo, con la
           cara impresa hacia la cámara. Distribúyelos por el área donde

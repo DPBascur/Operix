@@ -824,7 +824,7 @@ test(
         "location.pathname==='/events' && location.search.includes('source_sha256=') && location.search.includes('source_kind=demo')",
       );
       await wait(text("Mostrando 1–1 de 1 evento"));
-      await wait(text("Video filtrado"));
+      await wait("!!document.querySelector('button[aria-label=\"Quitar filtro: Video: aaaaaaaaaaaa…\"]')");
       await click("Ver evidencia");
       await wait("document.querySelector('.event-preview video')?.preload==='none'");
       await wait("[...document.querySelectorAll('.event-preview img')].some(img=>img.naturalWidth>0)");
@@ -840,6 +840,7 @@ test(
         for (const route of [
           "/",
           "/sources",
+          "/monitoring",
           "/events",
           `/events/${eventId}`,
           "/indicators",
@@ -906,7 +907,8 @@ test(
         true,
       );
       await go("/sources/cameras/lab-cam-01");
-      await wait(text("Monitoreo automático gestionado por el laboratorio."));
+      await wait(text("Conexión · Analizando"));
+      await wait("!!document.querySelector('main .operix-live-player video')");
       assert.equal(
         await evaluate("Array.from(document.querySelectorAll('button')).some(b => /^(Iniciar|Detener) monitoreo$/.test(b.textContent.trim()))"),
         false,

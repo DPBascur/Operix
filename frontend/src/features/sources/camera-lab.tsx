@@ -5,9 +5,9 @@ import { MotionConfiguration } from "@/features/analysis/motion-configuration";
 import { RuleConfiguration } from "@/features/analysis/rule-configuration";
 import { AutomaticCalibration } from "@/features/calibration/automatic-calibration";
 
-import { ArrowRight } from "lucide-react";
+import { ArrowLeft, Settings2 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
@@ -29,7 +29,6 @@ import {
   cameraTechnicalMetrics,
 } from "./camera-diagnostics";
 import {
-  CameraCard,
   CameraMediaPanels,
   LoadError,
   statusLabel,
@@ -46,77 +45,6 @@ const monitoring = new Set([
   "overloaded",
   "reconnecting",
 ]);
-
-export function CameraLab() {
-  const { data, error, receivedAt, retry } = useCameraData(
-    cameraLabService.list,
-    5000,
-  );
-  const max = cameraNumber(data?.capacity);
-  return (
-    <section
-      id="laboratorio-camaras"
-      className="source-section"
-      aria-labelledby="camera-source-title"
-    >
-      <div className="section-intro">
-        <div>
-          <h2 id="camera-source-title">Cámaras virtuales</h2>
-          <p className="text-text-secondary">
-            Video en vivo y últimas observaciones del laboratorio de cámaras.
-          </p>
-        </div>
-      </div>
-      {error && <LoadError error={error} retry={retry} />}
-      {!data && !error && (
-        <OperixScanLoader variant="panel" message="Cargando cámaras…" />
-      )}
-      {data && !data.enabled && (
-        <p className="surface-card p-4">El laboratorio está deshabilitado.</p>
-      )}
-      {data?.enabled && (
-        <div className="grid gap-3">
-          {max !== null && (
-            <p className="text-sm text-text-secondary">
-              Límite de monitoreos simultáneos · {max}
-            </p>
-          )}
-          {data.cameras.length ? (
-            <ul className="grid gap-4 md:grid-cols-2">
-              {data.cameras.map((camera) => (
-                <li
-                  key={camera.id}
-                  className="surface-card grid min-w-0 content-start gap-3 p-4"
-                >
-                  <CameraCard
-                    camera={camera}
-                    live={Boolean(camera.automatic ?? data.managed)}
-                    receivedAt={receivedAt}
-                    stale={Boolean(error)}
-                  />
-                  {(camera.automatic ?? data.managed) && (
-                    <p className="text-sm text-text-secondary">
-                      Monitoreo automático
-                    </p>
-                  )}
-                  <Link
-                    className="button button-outline w-fit"
-                    href={`/sources/cameras/${encodeURIComponent(camera.id)}`}
-                    aria-label={`Abrir cámara ${camera.name}`}
-                  >
-                    Abrir cámara <ArrowRight aria-hidden="true" />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="surface-card p-4">Aún no hay cámaras configuradas.</p>
-          )}
-        </div>
-      )}
-    </section>
-  );
-}
 
 type Feedback = { text: string; error?: boolean };
 
@@ -589,6 +517,7 @@ function CameraDiagnostics({
 }
 
 export function CameraLabDetail({ id }: { id: string }) {
+  const settings = useRef<HTMLDetailsElement>(null);
   const [busy, setBusy] = useState(false);
   const [calibrationBusy, setCalibrationBusy] = useState(false);
   const [draft, setDraft] = useState<CameraDraft>();
@@ -613,6 +542,21 @@ export function CameraLabDetail({ id }: { id: string }) {
     catalog.data?.cameras.find((item) => item.id === id)?.automatic ??
     catalog.data?.managed === true;
   const canEdit = catalog.data?.can_edit === true && !catalog.error;
+
+  useEffect(() => {
+    function openLinkedSettings() {
+      if (settings.current && ["#camera-settings", "#camera-automatic-calibration"].includes(location.hash)) {
+        settings.current.open = true;
+        if (location.hash === "#camera-automatic-calibration") {
+          const calibration = document.getElementById(calibrationSectionId);
+          if (calibration instanceof HTMLDetailsElement) calibration.open = true;
+        }
+      }
+    }
+    openLinkedSettings();
+    addEventListener("hashchange", openLinkedSettings);
+    return () => removeEventListener("hashchange", openLinkedSettings);
+  }, [camera?.id]);
 
   async function change(
     area: "monitor" | "configuration",
@@ -691,11 +635,11 @@ export function CameraLabDetail({ id }: { id: string }) {
         <div className="grid gap-2">
           <Link
             className="w-fit text-primary underline"
-            href="/sources#laboratorio-camaras"
+            href="/monitoring"
           >
-            Volver al laboratorio de cámaras
+            <ArrowLeft size={16} aria-hidden="true" className="inline" /> Centro de monitoreo
           </Link>
-          <PageTitle>{camera?.name ?? "Cámara de laboratorio"}</PageTitle>
+          <PageTitle>{camera?.name ?? "Cámara"}</PageTitle>
           {camera?.description && <p>{camera.description}</p>}
         </div>
       </header>
@@ -715,58 +659,24 @@ export function CameraLabDetail({ id }: { id: string }) {
           <OperixScanLoader variant="panel" message="Cargando cámara…" />
         )
       ) : (
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-          {(canEdit || camera.configuration?.calibration) && (
-            <div className="grid min-w-0 gap-2 lg:col-span-2">
-              <AutomaticCalibration<LabCamera>
-                id={calibrationSectionId}
-                key={`${camera.id}:${camera.revision}:${canStart}`}
-                source={{
-                  kind: "cameras",
-                  id: camera.id,
-                  revision: camera.revision,
-                }}
-                zones={camera.configuration?.zones ?? []}
-                saved={camera.configuration?.calibration}
-                framingWarning={framingWarning}
-                blocked={
-                  !canEdit
-                    ? "Solo los usuarios con permiso de edición pueden calibrar esta cámara."
-                    : !canStart
-                      ? "Detén el monitoreo para capturar y validar una propuesta."
-                      : busy || error
-                        ? "Espera a que se actualice el estado de la cámara."
-                        : draft
-                          ? "Guarda o descarta el borrador de configuración antes de capturar una propuesta."
-                          : undefined
-                }
-                onBusyChange={setCalibrationBusy}
-                onSaved={(result) => {
-                  detail.setData(result);
-                  setAction({
-                    area: "calibration",
-                    message: {
-                      text: "Calibración con patrón guardada para esta cámara.",
-                    },
-                  });
-                }}
-                onRefresh={detail.retry}
-              />
-              <ActionFeedback
-                message={
-                  action?.area === "calibration" ? action.message : undefined
-                }
-              />
-            </div>
-          )}
+        <div className="grid min-w-0 gap-4">
           <div className="grid min-w-0 gap-4">
             <section
-              className="surface-card grid gap-3 p-4"
+              className="grid gap-3"
               aria-labelledby="camera-monitor"
             >
-              <h2 id="camera-monitor" className="font-semibold">
+              <h2 id="camera-monitor" className="sr-only">
                 Monitoreo
               </h2>
+              <CameraMediaPanels
+                settingsUrl={canEdit ? "#camera-settings" : undefined}
+                camera={camera}
+                live={automatic}
+                preview={preview}
+                refreshPreview={Boolean(canStop)}
+                recentOnly={automatic}
+                receivedAt={detail.receivedAt}
+              />
               <div className="flex flex-wrap items-center gap-3">
                 <p role="status" className="font-medium">
                   Conexión ·{" "}
@@ -808,11 +718,7 @@ export function CameraLabDetail({ id }: { id: string }) {
                   </Button>
                 )}
               </div>
-              {automatic && (
-                <p className="text-sm text-text-secondary">
-                  Monitoreo automático gestionado por el laboratorio.
-                </p>
-              )}
+
               {framingWarning && (
                 <div className="inline-message grid gap-2" role="status">
                   <p>{framingWarning}</p>
@@ -851,15 +757,7 @@ export function CameraLabDetail({ id }: { id: string }) {
                     : undefined
                 }
               />
-              <CameraMediaPanels
-                key={id}
-                camera={camera}
-                live={automatic}
-                preview={preview}
-                refreshPreview={Boolean(canStop)}
-                recentOnly={automatic}
-                receivedAt={detail.receivedAt}
-              />
+
               {provenance && (
                 <p className="break-words text-sm text-text-secondary">
                   Procedencia · {provenance}
@@ -943,6 +841,54 @@ export function CameraLabDetail({ id }: { id: string }) {
               </Link>
             </section>
           </div>
+          <details ref={settings} id="camera-settings" className="surface-card scroll-mt-24">
+            <summary className="cursor-pointer px-4 py-3 font-semibold leading-6">
+              <Settings2 size={17} aria-hidden="true" className="me-2 inline" /> Ajustes de cámara
+            </summary>
+            <div className="grid gap-4 border-t border-border p-4">
+          {(canEdit || camera.configuration?.calibration) && (
+            <div className="grid min-w-0 gap-2 ">
+              <AutomaticCalibration<LabCamera>
+                id={calibrationSectionId}
+                key={`${camera.id}:${camera.revision}:${canStart}`}
+                source={{
+                  kind: "cameras",
+                  id: camera.id,
+                  revision: camera.revision,
+                }}
+                zones={camera.configuration?.zones ?? []}
+                saved={camera.configuration?.calibration}
+                framingWarning={framingWarning}
+                blocked={
+                  !canEdit
+                    ? "Solo los usuarios con permiso de edición pueden calibrar esta cámara."
+                    : !canStart
+                      ? "Detén el monitoreo para capturar y validar una propuesta."
+                      : busy || error
+                        ? "Espera a que se actualice el estado de la cámara."
+                        : draft
+                          ? "Guarda o descarta el borrador de configuración antes de capturar una propuesta."
+                          : undefined
+                }
+                onBusyChange={setCalibrationBusy}
+                onSaved={(result) => {
+                  detail.setData(result);
+                  setAction({
+                    area: "calibration",
+                    message: {
+                      text: "Calibración con patrón guardada para esta cámara.",
+                    },
+                  });
+                }}
+                onRefresh={detail.retry}
+              />
+              <ActionFeedback
+                message={
+                  action?.area === "calibration" ? action.message : undefined
+                }
+              />
+            </div>
+          )}
           <Configuration
             camera={camera}
             canEdit={canEdit}
@@ -966,6 +912,8 @@ export function CameraLabDetail({ id }: { id: string }) {
               )
             }
           />
+            </div>
+          </details>
         </div>
       )}
     </div>

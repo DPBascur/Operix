@@ -117,7 +117,7 @@ type CameraPreviewProps = {
   recentOnly?: boolean;
 };
 
-function CameraPreview(props: CameraPreviewProps) {
+export function CameraPreview(props: CameraPreviewProps) {
   const visible = usePageVisible();
   const { id, url, active, interval, recentOnly } = props;
   return (
@@ -226,6 +226,7 @@ export function CameraMediaPanels({
   recentOnly,
   receivedAt,
   previewInterval,
+  settingsUrl,
 }: {
   camera: Pick<LabCamera, "id" | "name" | "metrics" | "last_frame_at"> & {
     run_id?: string | null;
@@ -236,6 +237,7 @@ export function CameraMediaPanels({
   recentOnly: boolean;
   receivedAt: number;
   previewInterval?: number;
+  settingsUrl?: string;
 }) {
   const { id, name, last_frame_at: frameAt } = camera;
   const timestamp = cameraFrameTime(frameAt);
@@ -288,7 +290,8 @@ export function CameraMediaPanels({
   return (
     <div className="grid min-w-0 gap-3">
       <CameraLiveVideo
-        key={JSON.stringify([id, camera.run_id])}
+        enabled={refreshPreview}
+        settingsUrl={settingsUrl}
         id={id}
         name={name}
         runId={camera.run_id}

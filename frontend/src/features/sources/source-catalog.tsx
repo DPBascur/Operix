@@ -17,7 +17,7 @@ import {
   type AnalysisProfileDefinition,
 } from "@/services/analysis.service";
 import type { VideoSource } from "@/types/operix";
-import { CameraLab } from "./camera-lab";
+import { CameraWorkspace } from "./camera-workspace";
 
 const fallbackNames: Record<AnalysisProfile, string> = {
   A: "Warehouse fire",
@@ -135,7 +135,7 @@ export function SourceCatalog({ compact = false }: { compact?: boolean }) {
 
   return (
     <div className={compact ? "source-catalog is-compact" : "source-catalog"}>
-      {!compact && <CameraLab />}
+      {!compact && <CameraWorkspace />}
       {compact && (
         <section className="analysis-launch" aria-labelledby="launch-title">
           <div className="analysis-launch-copy">

@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity } from "lucide-react";
+import { Activity, ChevronDown, Search, SlidersHorizontal, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -37,6 +37,7 @@ import {
   type EventHistoryQuery,
 } from "./event-history-query";
 import type { EventListItem } from "@/types/operix";
+import { eventTypeName } from "@/services/event-contract";
 import { historyError, sourceNames } from "@/features/dashboard/history-model";
 import { controlTransition } from "@/lib/motion/presets";
 
@@ -145,6 +146,10 @@ export function EventsTable({ initial }: { initial: EventHistoryQuery }) {
       return;
     }
     startTransition(() => router.push(href, { scroll: false }));
+  }
+  function changePage(page: number) {
+    navigate({ ...initial, page });
+    resultsStart.current?.scrollIntoView({ block: "start" });
   }
   function dossier(url: string) {
     return currentHref === "/events"
@@ -274,33 +279,35 @@ export function EventsTable({ initial }: { initial: EventHistoryQuery }) {
     search ||
     order === "oldest",
   );
+  const chips: { field: keyof EventHistoryFilters; label: string }[] = [];
+  if (filters.search) chips.push({ field: "search", label: `Búsqueda: ${filters.search}` });
+  if (filters.eventType) chips.push({ field: "eventType", label: eventTypeName(filters.eventType) });
+  if (filters.sourceKind) chips.push({ field: "sourceKind", label: sourceNames[filters.sourceKind] ?? filters.sourceKind });
+  if (filters.cameraId) chips.push({ field: "cameraId", label: `Cámara ${filters.cameraId.slice(-2)}` });
+  if (filters.occurredAfter) chips.push({ field: "occurredAfter", label: `Desde ${dateInput(filters.occurredAfter).replace("T", " ")}` });
+  if (filters.occurredBefore) chips.push({ field: "occurredBefore", label: `Hasta ${dateInput(filters.occurredBefore).replace("T", " ")}` });
+  if (filters.evidenceStage) chips.push({ field: "evidenceStage", label: {
+    pending: "Evidencia pendiente", finished: "Evidencia finalizada", legacy: "Evidencia histórica",
+  }[filters.evidenceStage] });
+  if (filters.zoneId) chips.push({ field: "zoneId", label: `Zona: ${filters.zoneId}` });
+  if (filters.sourceSha256) chips.push({ field: "sourceSha256", label: `Video: ${filters.sourceSha256.slice(0, 12)}…` });
+  if (filters.order) chips.push({ field: "order", label: "Más antiguos primero" });
   const filteredEvents = data?.rows ?? [];
   const offset = data ? (data.page - 1) * data.pageSize : 0;
 
   return (
     <>
-      <form
-        className="grid gap-3 border-b border-border pb-5 sm:grid-cols-2 xl:grid-cols-4 xl:items-end"
-        onSubmit={applyFilters}
-      >
-        <label className="grid gap-1 text-xs font-medium text-text-secondary">
-          Desde (hora local)
-          <Input
-            aria-label="Desde, fecha y hora local"
-            onChange={(event) => setFrom(event.target.value)}
-            type="datetime-local"
-            value={from}
-          />
-        </label>
-        <label className="grid gap-1 text-xs font-medium text-text-secondary">
-          Hasta (hora local)
-          <Input
-            aria-label="Hasta, fecha y hora local"
-            onChange={(event) => setTo(event.target.value)}
-            type="datetime-local"
-            value={to}
-          />
-        </label>
+      <form className="event-search" role="search" onSubmit={applyFilters}>
+        <div className="event-search-main">
+          <label className="event-search-field">
+            <span>Buscar eventos</span>
+            <div>
+              <Search size={17} aria-hidden="true" />
+              <Input type="search" maxLength={120} value={search}
+                placeholder="Zona, regla, vista o fuente"
+                onChange={(event) => setSearch(event.target.value)} />
+            </div>
+          </label>
         <label className="grid gap-1 text-xs font-medium text-text-secondary">
           Tipo de evento
           <select
@@ -334,6 +341,29 @@ export function EventsTable({ initial }: { initial: EventHistoryQuery }) {
             ))}
           </select>
         </label>
+          <Button type="submit" disabled={navigating}>Buscar</Button>
+        </div>
+        <details className="event-search-advanced">
+          <summary><SlidersHorizontal size={17} aria-hidden="true" /> Filtros avanzados <ChevronDown size={16} aria-hidden="true" /></summary>
+          <div className="event-search-advanced-grid">
+        <label className="grid gap-1 text-xs font-medium text-text-secondary">
+          Desde (hora local)
+          <Input
+            aria-label="Desde, fecha y hora local"
+            onChange={(event) => setFrom(event.target.value)}
+            type="datetime-local"
+            value={from}
+          />
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-text-secondary">
+          Hasta (hora local)
+          <Input
+            aria-label="Hasta, fecha y hora local"
+            onChange={(event) => setTo(event.target.value)}
+            type="datetime-local"
+            value={to}
+          />
+        </label>
         <label className="grid gap-1 text-xs font-medium text-text-secondary">
           Cámara de laboratorio
           <Input
@@ -358,15 +388,6 @@ export function EventsTable({ initial }: { initial: EventHistoryQuery }) {
           </select>
         </label>
         <label className="grid gap-1 text-xs font-medium text-text-secondary">
-          Buscar por zona, regla, vista o fuente
-          <Input
-            type="search"
-            maxLength={120}
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </label>
-        <label className="grid gap-1 text-xs font-medium text-text-secondary">
           Orden
           <select
             className="select-control"
@@ -377,37 +398,26 @@ export function EventsTable({ initial }: { initial: EventHistoryQuery }) {
             <option value="oldest">Más antiguos primero</option>
           </select>
         </label>
-        <div className="flex flex-wrap items-center gap-2 sm:col-span-2 xl:col-span-4">
-          <Button type="submit" disabled={navigating}>
-            Aplicar filtros
-          </Button>
-          {(hasDraftFilters || hasAppliedFilters) && (
-            <Button
-              variant="ghost"
-              onClick={clearFilters}
-              disabled={navigating}
-            >
-              Limpiar filtros
-            </Button>
-          )}
-        </div>
+          </div>
+          <Button type="submit" variant="outline" disabled={navigating}>Aplicar filtros</Button>
+        </details>
+        {(chips.length > 0 || hasDraftFilters) && (
+          <div className="event-search-chips" aria-label="Filtros activos">
+            {chips.map(({ field, label }) => (
+              <button key={field} type="button" disabled={navigating} aria-label={`Quitar filtro: ${label}`}
+                onClick={() => navigate({ ...initial, page: 1, filters: { ...filters, [field]: undefined } })}>
+                {label} <X size={14} aria-hidden="true" />
+              </button>
+            ))}
+            <Button type="button" variant="ghost" size="small" onClick={clearFilters} disabled={navigating}>Restablecer</Button>
+          </div>
+        )}
       </form>
       {filterError && (
         <p role="alert" className="mt-2 text-sm text-danger">
           {filterError}
         </p>
       )}
-      {filters.zoneId && (
-        <p className="mt-2 text-xs text-text-secondary">
-          Zona filtrada · {filters.zoneId}
-        </p>
-      )}
-      {filters.sourceSha256 && (
-        <p className="mt-2 text-xs text-text-secondary">
-          Video filtrado · SHA-256 {filters.sourceSha256.slice(0, 12)}…
-        </p>
-      )}
-
       <div
         ref={resultsStart}
         className="my-4 flex min-h-11 flex-wrap items-center justify-between gap-3"
@@ -417,19 +427,8 @@ export function EventsTable({ initial }: { initial: EventHistoryQuery }) {
             ? `Mostrando ${offset + 1}–${offset + filteredEvents.length} de ${data?.count} ${data?.count === 1 ? "evento" : "eventos"}`
             : data?.count === 0
               ? "0 eventos"
-              : null}
+              : error ? "Consulta no disponible" : "Consultando registros…"}
         </p>
-        {data && (
-          <Button
-            variant="outline"
-            onClick={() =>
-              navigate(changeEventHistoryMode({ ...initial, page: data.page }))
-            }
-            disabled={navigating}
-          >
-            {initial.all ? "Volver a 15 por página" : "Ver todos"}
-          </Button>
-        )}
       </div>
       {loading && (
         <OperixScanLoader
@@ -454,31 +453,6 @@ export function EventsTable({ initial }: { initial: EventHistoryQuery }) {
       )}
       {data && (
         <>
-          {data.totalPages > 1 && (
-            <nav
-              aria-label="Paginación de eventos"
-              className="mb-4 flex flex-wrap items-center gap-2"
-            >
-              <Button
-                variant="outline"
-                onClick={() => navigate({ ...initial, page: data.page - 1 })}
-                disabled={navigating || data.page <= 1}
-              >
-                Anterior
-              </Button>
-              <span className="px-1 text-sm tabular-nums text-text-secondary">
-                {initial.all ? "Bloque" : "Página"} {data.page} de{" "}
-                {data.totalPages}
-              </span>
-              <Button
-                variant="outline"
-                onClick={() => navigate({ ...initial, page: data.page + 1 })}
-                disabled={navigating || data.page >= data.totalPages}
-              >
-                {initial.all ? "Cargar más" : "Siguiente"}
-              </Button>
-            </nav>
-          )}
           <ul
             aria-label="Eventos registrados"
             className="divide-y divide-border xl:hidden"
@@ -670,21 +644,40 @@ export function EventsTable({ initial }: { initial: EventHistoryQuery }) {
                 : "Todavía no hay eventos registrados."}
             </p>
           ) : null}
-          {initial.all && data.page < data.totalPages && (
-            <div className="mt-4 flex justify-center border-t border-border pt-4">
+        </>
+      )}
+      {data && (
+        <div className="mt-4 flex flex-wrap items-center justify-end gap-3 border-t border-border pt-3">
+          {data.totalPages > 1 && (
+            <nav
+              aria-label="Paginación de eventos"
+              className="me-auto flex flex-wrap items-center gap-2"
+            >
               <Button
                 variant="outline"
-                disabled={navigating}
-                onClick={() => {
-                  navigate({ ...initial, page: data.page + 1 });
-                  resultsStart.current?.scrollIntoView({ block: "start" });
-                }}
+                onClick={() => changePage(data.page - 1)}
+                disabled={navigating || data.page <= 1}
               >
-                Cargar más eventos
+                Anterior
               </Button>
-            </div>
+              <span className="px-1 text-sm tabular-nums text-text-secondary">
+                {initial.all ? "Bloque" : "Página"} {data.page} de{" "}
+                {data.totalPages}
+              </span>
+              <Button
+                variant="outline"
+                onClick={() => changePage(data.page + 1)}
+                disabled={navigating || data.page >= data.totalPages}
+              >
+                {initial.all ? "Cargar más" : "Siguiente"}
+              </Button>
+            </nav>
           )}
-        </>
+          <Button variant="outline" type="button" disabled={navigating}
+            onClick={() => navigate(changeEventHistoryMode({ ...initial, page: data.page }))}>
+            {initial.all ? "Volver a 15 por página" : "Ver todos"}
+          </Button>
+        </div>
       )}
     </>
   );

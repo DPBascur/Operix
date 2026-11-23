@@ -86,6 +86,7 @@ function draw(
   continuity: boolean,
   estimated: boolean,
   pairs: readonly LiveDistance[],
+  metricUnit: "m" | "cm",
 ) {
   const { canvas } = context;
   const dpr = window.devicePixelRatio || 1;
@@ -168,7 +169,7 @@ function draw(
       context.arc(cx, cy, 2.7 * dpr, 0, Math.PI * 2);
       context.fill();
     }
-    const caption = `P${pair.personId}–E${pair.equipmentId}  ${distanceLabel(pair)}`;
+    const caption = `P${pair.personId}–E${pair.equipmentId}  ${distanceLabel(pair, metricUnit)}`;
     const w = Math.min(context.measureText(caption).width + 8 * dpr, videoWidth);
     const h = 19 * dpr;
     const cx = Math.max(x(0), Math.min((left[0] + right[0] - w) / 2, x(1) - w));
@@ -207,6 +208,7 @@ export function CameraLiveOverlay({
   showIds,
   showZones,
   showDistances,
+  metricUnit,
   onStats,
   onStatus,
 }: {
@@ -219,6 +221,7 @@ export function CameraLiveOverlay({
   showIds: boolean;
   showZones: boolean;
   showDistances: boolean;
+  metricUnit: "m" | "cm";
   onStats: (stats: OverlayStats) => void;
   onStatus: (status: keyof typeof overlayLabels) => void;
 }) {
@@ -231,7 +234,7 @@ export function CameraLiveOverlay({
       continuity: boolean,
       estimated = false,
       pairs: readonly LiveDistance[] = [],
-    ) => draw(context, video, item, showIds, showZones && !estimated, continuity, estimated, showDistances ? pairs : []),
+    ) => draw(context, video, item, showIds, showZones && !estimated, continuity, estimated, showDistances ? pairs : [], metricUnit),
   );
 
   useEffect(() => {

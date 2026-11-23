@@ -69,6 +69,7 @@ export async function startFixtureApi(port = 8000) {
   let evidenceSteps = [];
   let eventDetailReads = 0;
   let cameraFixture;
+  let extraCameras = [];
   let historyCount = 1;
   let labControl;
   let heldLabPreview;
@@ -188,12 +189,19 @@ export async function startFixtureApi(port = 8000) {
           evidenceSteps = [];
           eventDetailReads = 0;
           cameraFixture = undefined;
+          extraCameras = [];
           historyCount = 1;
           labControl = undefined;
           heldLabPreview?.();
           calibrationPreview = undefined;
           candidateAvailable = false;
           calibrationRequests = [];
+        }
+        if (Number.isInteger(body.cameraCount) && body.cameraCount >= 1 && body.cameraCount <= 4) {
+          extraCameras = Array.from({ length: body.cameraCount - 1 }, (_, index) => ({
+            id: `lab-cam-0${index + 2}`, name: `Cámara de prueba ${index + 2}`,
+            automatic: true, status: "connecting", revision: 0, configuration: null, metrics: null,
+          }));
         }
         if (body.calibrationCamera) {
           labControl = undefined;
@@ -486,10 +494,12 @@ export async function startFixtureApi(port = 8000) {
           managed: Boolean(labControl),
           can_edit: true,
           capacity: 1,
-          cameras: camera ? [camera] : [],
+          cameras: camera ? [camera, ...extraCameras] : [],
         });
       }
       if (camera && url.pathname === cameraRoute) return send(camera);
+      const fixtureCamera = extraCameras.find(({ id }) => url.pathname === `/api/v1/analysis/cameras/${id}/`);
+      if (fixtureCamera) return send(fixtureCamera);
       if (labControl && url.pathname === `${cameraRoute}preview/`) {
         if (!camera.preview_url)
           return send({ detail: "Sin fotograma reciente" }, 404);

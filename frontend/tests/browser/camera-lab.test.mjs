@@ -327,27 +327,6 @@ test(
       mobile: false,
     });
     await go(route);
-    const previewSummary =
-      "[...document.querySelectorAll('summary')].find(node => node.textContent.trim() === 'Última observación anotada')";
-    await wait(`!!(${previewSummary})`, "secondary preview control");
-    for (const [label, pressed] of [
-      ["Superposición", "true"],
-      ["ID", "false"],
-      ["Zonas", "true"],
-      ["Estadísticas", "false"],
-    ]) {
-      assert.equal(
-        await evaluate(`${button(label)}.getAttribute("aria-pressed")`),
-        pressed,
-      );
-    }
-    await click("Superposición");
-    await wait(
-      `${button("ID")}.disabled && ${button("Zonas")}.disabled`,
-      "overlay layer toggles disabled",
-    );
-    await click("Superposición");
-    await evaluate(`${previewSummary}.click()`);
     await wait(`${frameWidth} === 128`, "initial camera preview");
 
     const form =
@@ -386,10 +365,9 @@ test(
     const navigation = await evaluate("performance.timeOrigin");
     await call("Page.reload", { ignoreCache: true });
     await wait(
-      `performance.timeOrigin !== ${navigation} && !!(${previewSummary})`,
+      `performance.timeOrigin !== ${navigation} && !!document.querySelector(${JSON.stringify(cameras)})`,
       "secondary preview control after reload",
     );
-    await evaluate(`${previewSummary}.click()`);
     await wait(
       `performance.timeOrigin !== ${navigation} && Boolean(${form}) && ${frameWidth} === 128`,
       "refetched playlist and preview",
@@ -531,3 +509,54 @@ test(
     );
   },
 );
+
+test("catalog separates previews from monitoring and renders a three-camera fixture", {
+  skip: !base || !api ? "Set the two private camera lab fixture URLs" : false,
+  timeout: 95_000,
+}, async (t) => {
+  const fixture = async (body) => {
+    const result = await fetch(`${api}/__fixture`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    assert.equal(result.status, 200);
+  };
+  await fixture({ reset: true });
+  await fixture({ managedCamera: "data:image/jpeg;base64,AA==", cameraCount: 3 });
+  const session = await fetch(`${base}/api/v1/auth/session/`).then((res) => res.json());
+  const login = await fetch(`${api}/api/v1/auth/login/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRFToken": session.csrf_token },
+    body: JSON.stringify({ username: "fixture-admin", password: "TEST_ONLY_PASSWORD" }),
+  });
+  assert.equal(login.status, 200);
+  const { call, evaluate } = await openBrowser(t);
+  const catalog = "document.getElementById('laboratorio-camaras')";
+  const count = `${catalog}?.querySelectorAll('ul[data-count] > li').length`;
+  await call("Emulation.setDeviceMetricsOverride", { width: 1440, height: 950, deviceScaleFactor: 1, mobile: false });
+  await call("Page.navigate", { url: `${base}/sources` });
+  await waitFor(() => evaluate(`${count} === 3`), "three catalog cards");
+  assert.equal(await evaluate(`${catalog}.querySelectorAll('video,[role=switch]').length`), 0);
+  await call("Page.navigate", { url: `${base}/monitoring` });
+  await waitFor(() => evaluate(`${count} === 3`), "three monitoring cards");
+  const grid = `${catalog}.querySelector('ul[data-count]')`;
+  const geometry = () => evaluate(`Array.from(${grid}.children, node => node.offsetHeight)`);
+  const initial = await geometry();
+  const layer = `${catalog}.querySelector('button[aria-label="Capas y diagnóstico"]')`;
+  await evaluate(`${layer}.click()`);
+  const switches = `Array.from(${catalog}.querySelectorAll('[role=switch]'), b=>[b.textContent.trim(),b.getAttribute('aria-checked')])`;
+  assert.deepEqual(await evaluate(switches), [["Detecciones", "true"], ["Distancias", "true"], ["Zonas", "true"], ["Identificadores", "false"], ["Diagnóstico", "false"]]);
+  assert.deepEqual(await geometry(), initial, "opening layers preserves geometry");
+  await evaluate(`${catalog}.querySelector('[role=switch]').click()`);
+  assert.equal(await evaluate(`${catalog}.querySelectorAll('[role=switch]')[1].disabled`), true);
+  await evaluate(`${layer}.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true}))`);
+  assert.equal(await evaluate(`${layer}.getAttribute('aria-expanded')`), "false");
+  const selector = `[...${catalog}.querySelectorAll('button')].find(b=>b.textContent.trim()==='Principal')`;
+  await evaluate(`${selector}.click()`);
+  assert.equal(await evaluate(`${grid}.dataset.focused`), "true");
+  await call("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
+  assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth"), true);
+  await fixture({ cameraCount: 4 });
+  await waitFor(() => evaluate(`${count} === 4`), "four monitoring cards");
+  await fixture({ cameraCount: 1 });
+  await waitFor(() => evaluate(`${count} === 1`), "one monitoring card");
+});

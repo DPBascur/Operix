@@ -6,6 +6,7 @@ import {
   CalendarClock,
   Clapperboard,
   House,
+  LayoutGrid,
   Map,
   PanelLeftClose,
   PanelLeftOpen,
@@ -75,6 +76,7 @@ const navigationGroups: {
     items: [
       { href: "/", label: "Resumen", icon: House },
       { href: "/sources", label: "Fuentes", icon: Clapperboard },
+      { href: "/monitoring", label: "Monitoreo", icon: LayoutGrid },
       { href: "/analysis", label: "Análisis", icon: Activity },
       { href: "/events", label: "Eventos", icon: CalendarClock },
     ],
@@ -98,6 +100,7 @@ const navigationGroups: {
 const routeNames: Record<string, string> = {
   "/": "Centro operativo",
   "/sources": "Fuentes",
+  "/monitoring": "Centro de monitoreo",
   "/analysis": "Análisis de video",
   "/events": "Eventos",
   "/rules": "Reglas",

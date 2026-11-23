@@ -56,7 +56,10 @@ export function readDistances(value: unknown, calibration?: LiveCalibration): Li
 const metres = new Intl.NumberFormat("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const normalizedFormat = new Intl.NumberFormat("es-CL", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 
-export function distanceLabel(pair: LiveDistance) {
+const centimetres = new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 });
+
+export function distanceLabel(pair: LiveDistance, metricUnit: "m" | "cm" = "m") {
+  if (pair.unit === "m" && metricUnit === "cm") return `≈${centimetres.format(pair.value * 100)} cm`;
   return pair.unit === "m" ? `≈${metres.format(pair.value)} m` : `${normalizedFormat.format(pair.value)} norm.`;
 }
 

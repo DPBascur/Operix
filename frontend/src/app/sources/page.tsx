@@ -8,9 +8,8 @@ export default function SourcesPage() {
     <div className="sources-page page-v1">
       <header className="page-hero compact app-page-heading">
         <div>
-          <span className="eyebrow">Catálogo operacional</span>
           <PageTitle>Fuentes</PageTitle>
-          <p>Cámaras virtuales, demos y videos locales para análisis.</p>
+          <p>Selecciona una cámara o abre un video para analizar.</p>
         </div>
       </header>
       <SourceCatalog />

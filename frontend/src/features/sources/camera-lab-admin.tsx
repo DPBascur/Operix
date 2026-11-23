@@ -200,11 +200,7 @@ export function CameraLabAdmin() {
                     >
                       <CameraCard
                         camera={camera}
-                        live={
-                          data.enabled &&
-                          camera.enabled &&
-                          !camera.playlist_finished
-                        }
+                        live={false}
                         receivedAt={receivedAt}
                         stale={Boolean(error) || awaitingSnapshot}
                       />

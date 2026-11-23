@@ -1,7 +1,8 @@
 "use client";
 
 import type Hls from "hls.js";
-import { ChevronDown, Maximize, Minimize, Pause, Play, SlidersHorizontal } from "lucide-react";
+import { ArrowUpRight, Maximize, Minimize, Pause, Play, Settings2, SlidersHorizontal, X } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { equipmentCategoryLabels } from "@/services/analysis.service";
@@ -31,14 +32,28 @@ export function CameraLiveVideo({
   id,
   name,
   runId,
+  compact = false,
+  enabled = true,
+  cameraUrl,
+  settingsUrl,
+  operationalState,
 }: {
   id: string;
   name: string;
+  compact?: boolean;
+  enabled?: boolean;
+  cameraUrl?: string;
+  settingsUrl?: string;
+  operationalState?: string;
   runId?: string | null;
 }) {
   const player = useRef<HTMLElement>(null);
   const frame = useRef<HTMLDivElement>(null);
   const pauseButton = useRef<HTMLButtonElement>(null);
+  const fullscreenButton = useRef<HTMLButtonElement>(null);
+  const layerButton = useRef<HTMLButtonElement>(null);
+  const enteredFullscreen = useRef(false);
+  const [layers, setLayers] = useState(false);
   const [matcher] = useState(() => new CameraFrameMatcher());
   const [inView, setInView] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -66,8 +81,14 @@ export function CameraLiveVideo({
   }, []);
 
   useEffect(() => {
-    const update = () =>
-      setFullscreen(document.fullscreenElement === player.current);
+    const update = () => {
+      const active = document.fullscreenElement === player.current;
+      if (!active && enteredFullscreen.current) {
+        fullscreenButton.current?.focus({ preventScroll: true });
+      }
+      enteredFullscreen.current = active;
+      setFullscreen(active);
+    };
     document.addEventListener("fullscreenchange", update);
     return () => document.removeEventListener("fullscreenchange", update);
   }, []);
@@ -86,14 +107,18 @@ export function CameraLiveVideo({
   return (
     <figure
       ref={player}
-      className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-surface fullscreen:p-3"
+      className="operix-live-player"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && layers && !fullscreen) {
+          event.stopPropagation();
+          setLayers(false);
+          layerButton.current?.focus();
+        }
+      }}
     >
       <figcaption className="sr-only">Video en vivo de {name}</figcaption>
-      <div
-        ref={frame}
-        className={`grid min-h-0 ${fullscreen ? "flex-1 grid-rows-[minmax(0,1fr)_auto_auto]" : ""}`}
-      >
-        {visible && inView && !paused ? (
+      <div ref={frame} className="operix-live-frame">
+        {enabled && visible && inView && !paused ? (
           <LiveStream
             id={id}
             name={name}
@@ -105,104 +130,88 @@ export function CameraLiveVideo({
             showZones={showZones}
             showDistances={showDistances}
             showStats={showStats}
-            fullscreen={fullscreen}
+            operationalState={operationalState}
           />
         ) : (
-          <div className="grid aspect-video place-items-center bg-black">
-            {paused && (
-              <p className="p-3 text-center text-sm text-white">
-                Video pausado
-              </p>
-            )}
+          <div className="grid size-full place-items-center text-sm text-white/75">
+            {!enabled ? "Cámara detenida" : paused ? "Video pausado" : "Preparando reproductor…"}
           </div>
         )}
+        {fullscreenError && <p className="operix-player-notice" role="status">Pantalla completa no disponible.</p>}
       </div>
-      <div
-        role="group"
-        aria-label="Controles de video"
-        className="flex flex-wrap items-center gap-2 border-t border-border p-2"
-      >
-        <Button
-          ref={pauseButton}
-          variant="outline"
-          className="min-h-11"
-          aria-label={`${paused ? "Reanudar" : "Pausar"} video en vivo de ${name}`}
-          onClick={() => setPaused((value) => !value)}
-        >
-          {paused ? <Play aria-hidden="true" size={16} /> : <Pause aria-hidden="true" size={16} />}
-          {paused ? "Reanudar" : "Pausar"}
-        </Button>
-        <VideoToggle pressed={overlay} onClick={() => setOverlay(!overlay)}>
-          Superposición
-        </VideoToggle>
-        <VideoToggle pressed={showDistances && overlay} disabled={!overlay} onClick={() => setShowDistances(!showDistances)}>
-          Distancias
-        </VideoToggle>
-        <Button
-          variant="outline"
-          className="ms-auto min-h-11 min-w-11 px-2"
-          aria-label={fullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
-          title={fullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
-          onClick={() => void toggleFullscreen()}
-        >
-          {fullscreen ? <Minimize aria-hidden="true" size={16} /> : <Maximize aria-hidden="true" size={16} />}
-        </Button>
-      </div>
-      {fullscreenError && (
-        <p role="status" className="text-sm text-text-secondary">
-          Pantalla completa no disponible.
-        </p>
-      )}
-      <details className="group border-t border-border px-3">
-        <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
-          <SlidersHorizontal aria-hidden="true" size={16} /> Capas y diagnóstico
-          <ChevronDown aria-hidden="true" size={16} className="ms-auto transition-transform group-open:rotate-180 motion-reduce:transition-none" />
-        </summary>
-        <div className="grid gap-2 pb-3">
-          <div className="flex flex-wrap gap-2">
-            <VideoToggle pressed={showIds} disabled={!overlay} onClick={() => setShowIds(!showIds)}>
-              ID
-            </VideoToggle>
-            <VideoToggle pressed={showZones} disabled={!overlay} onClick={() => setShowZones(!showZones)}>
-              Zonas
-            </VideoToggle>
-            <VideoToggle pressed={showStats} onClick={() => setShowStats(!showStats)}>
-              Estadísticas
-            </VideoToggle>
-          </div>
-          <p className="text-sm text-text-secondary">
-            Las cajas discontinuas indican posiciones estimadas. FORKLIFT es la clase detectada; el tipo de equipo puede quedar sin confirmar.
-          </p>
+      <div role="group" aria-label="Controles de video" className="operix-player-bar">
+        <span className="truncate text-sm font-semibold">
+          {cameraUrl ? <Link href={cameraUrl} title="Abrir cámara">{name}</Link> : name}
+        </span>
+        <div className="operix-player-actions">
+          <button
+            ref={pauseButton}
+            type="button"
+            aria-label={`${paused ? "Reanudar" : "Pausar"} video en vivo de ${name}`}
+            title={paused ? "Reanudar" : "Pausar"}
+            disabled={!enabled}
+            onClick={() => setPaused((value) => !value)}
+          >
+            {paused ? <Play aria-hidden="true" size={17} /> : <Pause aria-hidden="true" size={17} />}
+          </button>
+          <button ref={layerButton} type="button" aria-expanded={layers} aria-label="Capas y diagnóstico"
+            title="Capas y diagnóstico" onClick={() => setLayers(!layers)}>
+            <SlidersHorizontal aria-hidden="true" size={17} />
+          </button>
+          {settingsUrl && <Link href={settingsUrl} aria-label="Ajustes de cámara" title="Ajustes de cámara" onClick={() => {
+            if (settingsUrl.startsWith("#")) {
+              const panel = document.getElementById(settingsUrl.slice(1));
+              if (panel instanceof HTMLDetailsElement) panel.open = true;
+            }
+          }}><Settings2 size={17} /></Link>}
+          {compact && cameraUrl && <Link href={cameraUrl} aria-label={`Abrir cámara ${name}`} title="Abrir cámara"><ArrowUpRight size={17} /></Link>}
+          <button
+            ref={fullscreenButton}
+            type="button"
+            aria-label={fullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
+            title={fullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
+            onClick={() => void toggleFullscreen()}
+          >
+            {fullscreen ? <Minimize aria-hidden="true" size={17} /> : <Maximize aria-hidden="true" size={17} />}
+          </button>
         </div>
-      </details>
+      </div>
+      {layers && (
+        <section className="operix-player-settings" aria-label="Ajustes de visualización">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">Capas de visualización</h2>
+            <Button size="icon" variant="ghost" aria-label="Cerrar ajustes de visualización" onClick={() => {
+              setLayers(false);
+              layerButton.current?.focus();
+            }}><X size={17} /></Button>
+          </div>
+          <VideoToggle pressed={overlay} onClick={() => setOverlay(!overlay)}>Detecciones</VideoToggle>
+          <VideoToggle pressed={showDistances} disabled={!overlay} onClick={() => setShowDistances(!showDistances)}>Distancias</VideoToggle>
+          <VideoToggle pressed={showZones} disabled={!overlay} onClick={() => setShowZones(!showZones)}>Zonas</VideoToggle>
+          <VideoToggle pressed={showIds} disabled={!overlay} onClick={() => setShowIds(!showIds)}>Identificadores</VideoToggle>
+          <div className="border-t border-border pt-1">
+            <VideoToggle pressed={showStats} onClick={() => setShowStats(!showStats)}>Diagnóstico</VideoToggle>
+          </div>
+          <p className="text-xs text-text-secondary">Estos ajustes solo cambian lo que ves. Las cajas discontinuas indican posiciones estimadas.</p>
+        </section>
+      )}
     </figure>
   );
 }
 
-function VideoToggle({
-  children,
-  pressed,
-  disabled,
-  onClick,
-}: {
+function VideoToggle({ children, pressed, disabled, onClick }: {
   children: string;
   pressed: boolean;
   disabled?: boolean;
   onClick: () => void;
 }) {
   return (
-    <Button
-      variant={pressed ? "secondary" : "outline"}
-      className="min-h-11"
-      aria-pressed={pressed}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      {children}
-    </Button>
+    <button type="button" className="operix-layer-switch" role="switch"
+      aria-checked={pressed && !disabled} disabled={disabled} onClick={onClick}>
+      {children}<span aria-hidden="true" />
+    </button>
   );
 }
-
 function LiveStream({
   id,
   name,
@@ -214,7 +223,7 @@ function LiveStream({
   showZones,
   showDistances,
   showStats,
-  fullscreen,
+  operationalState,
 }: {
   id: string;
   name: string;
@@ -226,7 +235,7 @@ function LiveStream({
   showZones: boolean;
   showDistances: boolean;
   showStats: boolean;
-  fullscreen: boolean;
+  operationalState?: string;
 }) {
   const media = useRef<HTMLVideoElement>(null);
   const playButton = useRef<HTMLButtonElement>(null);
@@ -431,6 +440,7 @@ function LiveStream({
     };
   }, [id, pauseButton, runId, sourceClock]);
 
+  const [metricUnit, setMetricUnit] = useState<"m" | "cm">("m");
   const playing = status === "playing";
   const frameVisible = playing || status === "buffering";
   const frameRate = playing ? cameraNumber(fps, " FPS visibles") : null;
@@ -440,7 +450,7 @@ function LiveStream({
   return (
     <>
       <div
-        className={`relative flex flex-col items-center justify-center gap-2 overflow-hidden bg-black p-3 ${fullscreen ? "min-h-0" : "aspect-video"}`}
+        className="absolute inset-0 flex flex-col items-center justify-center gap-2 overflow-hidden bg-black p-3"
       >
         <video
           ref={media}
@@ -462,6 +472,7 @@ function LiveStream({
           showIds={showIds}
           showZones={showZones}
           showDistances={showDistances}
+          metricUnit={metricUnit}
           onStats={setOverlayStats}
           onStatus={setOverlayStatus}
         />
@@ -485,18 +496,28 @@ function LiveStream({
         )}
       </div>
       {playing && overlay && (
-        <div className="border-t border-border px-3 py-1.5 text-xs text-text-secondary">
-          <p>{overlayLabels[overlayStatus]}</p>
+        <div className="operix-player-status">
+          <p>{operationalState && operationalState !== "Analizando" ? operationalState : overlayLabels[overlayStatus]}</p>
           {showDistances && (
             <>
               <p>{calibration && overlayStatus === "clocked" ? calibrationLabels[calibration] : "Distancias a la espera de un fotograma verificado"}</p>
               {pairs.length > 0 && (
                 <details className="mt-1">
                   <summary className="min-h-8 cursor-pointer py-1 font-medium">Pares observados ({pairs.length})</summary>
+                  {calibration === "VALID" && pairs.some((pair) => pair.unit === "m") && (
+                    <label className="mb-2 flex items-center gap-2">
+                      Unidad física
+                      <select className="rounded-md border border-white/30 bg-[#162333] p-1 text-white"
+                        value={metricUnit} onChange={(event) => setMetricUnit(event.target.value === "cm" ? "cm" : "m")}>
+                        <option value="m">Metros</option>
+                        <option value="cm">Centímetros</option>
+                      </select>
+                    </label>
+                  )}
                   <ul className="max-h-32 space-y-1 overflow-y-auto pb-1 tabular-nums">
                     {pairs.map((pair) => (
                       <li key={`${pair.personId}:${pair.equipmentId}`}>
-                        Persona #{pair.personId} · Equipo #{pair.equipmentId} · {distanceLabel(pair)} · {equipmentCategoryLabels[pair.equipmentCategory as keyof typeof equipmentCategoryLabels] ?? equipmentCategoryLabels.UNKNOWN}
+                        Persona #{pair.personId} · Equipo #{pair.equipmentId} · {distanceLabel(pair, metricUnit)} · {equipmentCategoryLabels[pair.equipmentCategory as keyof typeof equipmentCategoryLabels] ?? equipmentCategoryLabels.UNKNOWN}
                       </li>
                     ))}
                   </ul>
@@ -507,7 +528,7 @@ function LiveStream({
         </div>
       )}
       {showStats && (
-        <div role="group" aria-label="Estadísticas de reproducción" className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border px-3 py-2 text-sm text-text-secondary tabular-nums">
+        <div role="group" aria-label="Estadísticas de reproducción" className="operix-player-diagnostics tabular-nums">
           {frameRate && <span>{frameRate}</span>}
           {edge && (
             <span>Distancia estimada al borde reproducible · {edge}</span>
