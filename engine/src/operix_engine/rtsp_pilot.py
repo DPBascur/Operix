@@ -15,15 +15,42 @@ class Frame:
     pts: float | None
     image: object
     queue_depth: int = 0
+    source_discontinuity: bool = False
+    source_index: int | None = None
+
+
+class TemporalSampler:
+    """Select the first decoded observation in each analysis cadence slot."""
+
+    def __init__(self, source_fps, analysis_fps):
+        self.source_fps = source_fps
+        self.analysis_fps = analysis_fps
+        self.slot = -1
+        self.previous_pts = None
+        self.gap = False
+
+    def select(self, index, pts):
+        if index and (pts is None or self.previous_pts is None
+                      or not 0 < pts - self.previous_pts <= 1.5 / self.source_fps):
+            self.gap = True
+        self.previous_pts = pts
+        slot = math.floor(index * self.analysis_fps / self.source_fps + 1e-9)
+        if slot == self.slot:
+            return False, False
+        self.slot = slot
+        discontinuity, self.gap = self.gap, False
+        return True, discontinuity
 
 
 class Capture:
-    def __init__(self, open_source, *, fps, capacity=6, max_age=.5, startup_seconds=2, trace=None):
-        if not math.isfinite(fps) or not 0 < fps <= 60 or not 1 <= capacity <= 32 or not 0 < max_age <= 2:
+    def __init__(self, open_source, *, fps, source_fps=None, capacity=6, max_age=.5, startup_seconds=2, trace=None):
+        source_fps = fps if source_fps is None else source_fps
+        if not 0 < fps <= source_fps <= 60 or not 1 <= capacity <= 32 or not 0 < max_age <= 2:
             raise ValueError("Límites de captura inválidos")
         self.open_source = open_source
         self.trace = trace
         self.fps = fps
+        self.source_fps = source_fps
         self.max_age = max_age
         self.startup_seconds = startup_seconds
         self.capacity = capacity
@@ -38,6 +65,7 @@ class Capture:
 
     def _read(self):
         index = 0
+        source_index = 0
         failures = 0
         while not self.stop.is_set():
             reader = None
@@ -51,6 +79,8 @@ class Capture:
                     if self.trace:
                         self.trace("open", self.connection, monotonic(), started=opening)
                 startup_deadline = monotonic() + self.startup_seconds
+                start_source_index = source_index
+                sampler = TemporalSampler(self.source_fps, self.fps) if self.source_fps > self.fps else None
                 while not self.stop.is_set():
                     # Dejar que el consumidor vacíe la ráfaga del sondeo inicial.
                     # Tras el plazo, volver a priorizar frescura con la política normal.
@@ -71,14 +101,24 @@ class Capture:
                     failures = 0
                     with self.ready:
                         self.counts["decoded"] += 1
+                        selected, source_gap = (sampler.select(source_index - start_source_index, pts)
+                                                if sampler else (True, False))
+                        source_index += 1
+                        if not selected:
+                            self.counts["sampling_skip"] += 1
+                            if self.trace:
+                                self.trace("decoded", self.connection, received, index=source_index - 1,
+                                           pts_s=pts, read_started=reading, depth=len(self.queue))
+                            continue
                         if len(self.queue) == self.capacity:
                             self._discard("queue_drop")
-                        self.queue.append(Frame(index, self.connection, received, pts, image, len(self.queue) + 1))
+                        self.queue.append(Frame(index, self.connection, received, pts, image,
+                                                len(self.queue) + 1, source_gap, source_index - 1))
                         index += 1
                         self.depth = max(self.depth, len(self.queue))
                         if self.trace:
-                            self.trace("decoded", self.connection, received, index=index - 1, pts_s=pts,
-                                       read_started=reading, depth=len(self.queue))
+                            self.trace("decoded", self.connection, received, index=source_index - 1,
+                                       pts_s=pts, read_started=reading, depth=len(self.queue))
                         self.ready.notify()
             except (OSError, ValueError):
                 if not self.stop.is_set():
@@ -161,6 +201,8 @@ class Epoch:
             return "initial"
         if previous.connection != frame.connection:
             return "reconnect"
+        if frame.source_discontinuity:
+            return "source_sampling_gap"
         if previous.index + 1 != frame.index:
             return "queue_gap"
         if previous.pts is not None and frame.pts is not None and not (

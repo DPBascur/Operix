@@ -190,7 +190,7 @@ export function CameraLabAdmin() {
                     transition.reason === "media_eof"
                       ? "Fin de video programado"
                       : transition?.outcome === "interrupted" &&
-                        transition.reason === "publisher_interrupted"
+                          transition.reason === "publisher_interrupted"
                         ? "Interrupción del emisor"
                         : undefined;
                   return (
@@ -199,8 +199,12 @@ export function CameraLabAdmin() {
                       className="surface-card grid min-w-0 content-start gap-3 p-4"
                     >
                       <CameraCard
-                        key={camera.run_id}
                         camera={camera}
+                        live={
+                          data.enabled &&
+                          camera.enabled &&
+                          !camera.playlist_finished
+                        }
                         receivedAt={receivedAt}
                         stale={Boolean(error) || awaitingSnapshot}
                       />

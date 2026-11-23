@@ -50,17 +50,25 @@ export function cameraFrameTime(timestamp: string | null | undefined) {
     : null;
 }
 
-export function cameraFrameIsRecent(
+export function cameraFrameAge(
   timestamp: string | null | undefined,
   metrics: Metrics,
   receivedAt: number,
 ) {
   const age = metrics?.last_frame_age_ms;
-  if (typeof age === "number" && Number.isFinite(age) && age >= 0)
-    return age < cameraFrameWindowMs;
+  if (typeof age === "number" && Number.isFinite(age) && age >= 0) return age;
 
   const elapsed = receivedAt - (timestamp ? Date.parse(timestamp) : NaN);
-  return elapsed >= 0 && elapsed < cameraFrameWindowMs;
+  return Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : null;
+}
+
+export function cameraFrameIsRecent(
+  timestamp: string | null | undefined,
+  metrics: Metrics,
+  receivedAt: number,
+) {
+  const age = cameraFrameAge(timestamp, metrics, receivedAt);
+  return age !== null && age < cameraFrameWindowMs;
 }
 
 function metricRecord(value: unknown) {
@@ -232,6 +240,10 @@ export function cameraTechnicalMetrics(metrics: Metrics) {
       title: "Totales de la ejecución",
       rows: [
         ["Fotogramas analizados", cameraNumber(metrics?.frames_processed)],
+        [
+          "Fotogramas omitidos por muestreo",
+          cameraNumber(metrics?.frames_sampling_skipped),
+        ],
         ["Fotogramas descartados", cameraNumber(metrics?.frames_dropped)],
         ["Tramos de observación", cameraNumber(metrics?.epoch)],
         [

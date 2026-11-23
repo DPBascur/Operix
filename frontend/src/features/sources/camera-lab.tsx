@@ -4,7 +4,7 @@ import type { NormalizedVertex } from "@/services/analysis.service";
 import { MotionConfiguration } from "@/features/analysis/motion-configuration";
 import { AutomaticCalibration } from "@/features/calibration/automatic-calibration";
 
-import { ArrowRight, Camera } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,7 @@ import {
 } from "./camera-diagnostics";
 import {
   CameraCard,
-  CameraPreview,
+  CameraMediaPanels,
   LoadError,
   statusLabel,
   useCameraData,
@@ -62,7 +62,7 @@ export function CameraLab() {
         <div>
           <h2 id="camera-source-title">Cámaras virtuales</h2>
           <p className="text-text-secondary">
-            Monitoreo y fotogramas recientes del laboratorio de cámaras.
+            Video en vivo y últimas observaciones del laboratorio de cámaras.
           </p>
         </div>
       </div>
@@ -88,8 +88,8 @@ export function CameraLab() {
                   className="surface-card grid min-w-0 content-start gap-3 p-4"
                 >
                   <CameraCard
-                    key={camera.run_id}
                     camera={camera}
+                    live={Boolean(camera.automatic ?? data.managed)}
                     receivedAt={receivedAt}
                     stale={Boolean(error)}
                   />
@@ -447,7 +447,14 @@ function CameraDiagnostics({
   const latency = cameraNumber(camera.metrics?.p95_arrival_to_result_ms, " ms");
   const width = cameraNumber(camera.width);
   const height = cameraNumber(camera.height);
-  const expected = cameraNumber(camera.expected_fps, " FPS");
+  const analysisTarget = cameraNumber(
+    camera.configured_analysis_fps ?? camera.expected_fps,
+    " FPS",
+  );
+  const sourceRate = cameraNumber(
+    camera.configured_source_fps ?? camera.metrics?.source_fps,
+    " FPS",
+  );
   const hasReading =
     coverage !== null ||
     received !== null ||
@@ -496,7 +503,9 @@ function CameraDiagnostics({
           </dd>
         </div>
         <div>
-          <dt className="text-sm text-text-secondary">Latencia local p95</dt>
+          <dt className="text-sm text-text-secondary">
+            Recepción a resultado p95
+          </dt>
           <dd className="text-lg font-semibold tabular-nums">
             {latency ?? "Sin datos"}
           </dd>
@@ -560,9 +569,15 @@ function CameraDiagnostics({
               </dd>
             </div>
             <div>
-              <dt className="text-text-secondary">Velocidad esperada</dt>
+              <dt className="text-text-secondary">Objetivo de análisis</dt>
               <dd className="font-medium tabular-nums">
-                {expected ?? "Sin datos"}
+                {analysisTarget ?? "Sin datos"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-text-secondary">Ritmo de la fuente</dt>
+              <dd className="font-medium tabular-nums">
+                {sourceRate ?? "Sin datos"}
               </dd>
             </div>
           </dl>
@@ -626,8 +641,7 @@ export function CameraLabDetail({ id }: { id: string }) {
   const event = camera?.last_event;
   const submittedEvents = camera?.metrics?.events_submitted;
   const eventLimit = camera?.metrics?.event_limit;
-  const eventQuotaReached = typeof submittedEvents === "number" &&
-    typeof eventLimit === "number" && eventLimit > 0 && submittedEvents >= eventLimit;
+  const eventQuotaReached = typeof submittedEvents === "number" && typeof eventLimit === "number" && eventLimit > 0 && submittedEvents >= eventLimit;
   const canStart = camera && idle.has(camera.status);
   const canStop = camera && monitoring.has(camera.status);
   const framing = camera?.metrics?.framing;
@@ -649,7 +663,6 @@ export function CameraLabDetail({ id }: { id: string }) {
         ? "Medición en metros suspendida mientras se comprueba el encuadre."
         : undefined;
   const stopping = canStop && camera.run_id === stoppingRun;
-  const frameTime = cameraFrameTime(camera?.last_frame_at);
   const preview =
     camera?.preview_url &&
     (!automatic ||
@@ -822,12 +835,6 @@ export function CameraLabDetail({ id }: { id: string }) {
                   )}
                 </div>
               )}
-              {frameTime && camera.last_frame_at && (
-                <p className="text-sm text-text-secondary">
-                  Recepción local del último fotograma analizado ·{" "}
-                  <time dateTime={camera.last_frame_at}>{frameTime}</time>
-                </p>
-              )}
               {camera.status === "error" && (
                 <p role="alert" className="text-sm text-danger">
                   {camera.last_error ??
@@ -843,25 +850,15 @@ export function CameraLabDetail({ id }: { id: string }) {
                     : undefined
                 }
               />
-              <figure className="grid gap-2">
-                <figcaption className="text-sm font-medium">
-                  Último fotograma analizado · captura estática
-                </figcaption>
-                {preview ? (
-                  <CameraPreview
-                    key={`${camera.run_id}:${preview}`}
-                    id={id}
-                    url={preview}
-                    active={Boolean(canStop)}
-                    recentOnly={automatic}
-                  />
-                ) : (
-                  <div className="flex min-h-32 items-center justify-center gap-2 rounded-md bg-surface-muted p-3 text-center text-sm text-text-secondary">
-                    <Camera className="size-5 shrink-0" aria-hidden="true" />
-                    Aún no hay un fotograma disponible.
-                  </div>
-                )}
-              </figure>
+              <CameraMediaPanels
+                key={id}
+                camera={camera}
+                live={automatic}
+                preview={preview}
+                refreshPreview={Boolean(canStop)}
+                recentOnly={automatic}
+                receivedAt={detail.receivedAt}
+              />
               {provenance && (
                 <p className="break-words text-sm text-text-secondary">
                   Procedencia · {provenance}

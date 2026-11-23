@@ -36,9 +36,11 @@ from operix_engine.visualization import OpenCvRenderer, TrajectoryAccumulator, V
 from operix_engine.yolo_detector import YoloDetector, YoloDetectorConfig
 
 
-def _write_atomic(path: Path, data: bytes) -> None:
+def _write_atomic(path: Path, data: bytes, *, mtime_ns: int | None = None) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_bytes(data)
+    if mtime_ns is not None:
+        os.utime(temporary, ns=(mtime_ns, mtime_ns))
     for attempt in range(20):
         try:
             os.replace(temporary, path)

@@ -174,26 +174,63 @@ class ManagedLabTests(APITestCase):
         self.assertEqual(catalog["lab-cam-02"]["duration_s"], 466.866667)
         self.assertTrue(catalog["lab-cam-02"]["real"])
 
-    def test_spawn_freezes_selected_source_and_effective_configuration(self):
+    def test_spawn_freezes_selected_source_and_frame_independent_configuration(self):
         source = media_registry()[0]["second"]
-        camera = replace(inventory()["lab-cam-01"], provenance=source)
+        camera = replace(inventory()["lab-cam-01"], provenance=source, source_fps=24)
         playback = {"media_id": "second", "source_sha256": source["sha256"], "position": 1, "token": uuid4().hex}
         with (self.settings(EVENT_POST_ENABLED=True, MEDIA_ROOT=self.root),
               patch.dict(os.environ, {"OPERIX_PERSON_WEIGHTS": "person", "OPERIX_FORKLIFT_WEIGHTS": "forklift",
                                       "OPERIX_RTSP_INFERENCE_SOCKET": ""}),
               patch("apps.analysis.cameras.camera_worker_destination", return_value=("10.0.0.2", "rtsp://10.0.0.2/live")),
-              patch("apps.analysis.cameras.checked_document"),
-              patch("apps.analysis.cameras.subprocess.Popen"),
+              patch("apps.analysis.cameras.subprocess") as worker,
               patch("apps.analysis.cameras.Thread"),
               patch("apps.analysis.cameras._processes", {})):
             run_id = start_camera(camera, self.owner, managed=True, playback=playback)
             context = json.loads((run_dir(run_id) / "context.json").read_text())
+        args = worker.Popen.call_args.args[0]
+        self.assertEqual(args[args.index("--fps") + 1], str(camera.expected_fps))
+        self.assertEqual(args[args.index("--source-fps") + 1], str(camera.capture_fps))
         run = CameraRun.objects.get(pk=run_id)
         self.assertEqual(run.snapshot.source_sha256, source["sha256"])
         self.assertEqual(run.provenance, source)
         self.assertEqual(context["source"]["video_sha256"], source["sha256"])
         self.assertEqual(context["source"]["filename"], "second.mp4")
         self.assertEqual(context["source"]["spatial_configuration"], run.snapshot.configuration)
+        self.assertEqual(run.snapshot.configuration, default_document(camera))
+        self.assertNotIn("spatial_suspension_reason", run.playback)
+
+    def test_spawn_uses_custom_geometry_only_with_a_matching_signature(self):
+        camera = inventory()["lab-cam-01"]
+        document = default_document(camera)
+        document["zones"][0]["polygon"][1] = [.5, 0]
+        signature = camera_capture_signature(camera)
+        for revision, capture_signature in enumerate(("", signature), start=1):
+            with self.subTest(capture_signature=capture_signature):
+                saved = CameraRevision.objects.create(camera_id=camera.id, revision=revision,
+                                                      document=document, capture_signature=capture_signature)
+                playback = {"token": uuid4().hex, "source_sha256": camera.provenance["sha256"]}
+                with (self.settings(EVENT_POST_ENABLED=True, MEDIA_ROOT=self.root),
+                      patch.dict(os.environ, {"OPERIX_PERSON_WEIGHTS": "person", "OPERIX_FORKLIFT_WEIGHTS": "forklift",
+                                              "OPERIX_RTSP_INFERENCE_SOCKET": ""}),
+                      patch("apps.analysis.cameras.camera_worker_destination", return_value=("10.0.0.2", "rtsp://10.0.0.2/live")),
+                      patch("apps.analysis.cameras.subprocess") as worker,
+                      patch("apps.analysis.cameras.Thread"),
+                      patch("apps.analysis.cameras._processes", {})):
+                    run_id = start_camera(camera, self.owner, managed=True, playback=playback)
+                worker.Popen.assert_called_once()
+                run = CameraRun.objects.get(pk=run_id)
+                self.assertEqual(run.snapshot.spatial_revision, revision)
+                if capture_signature:
+                    self.assertEqual(run.snapshot.configuration, document)
+                    self.assertNotIn("spatial_suspension_reason", run.playback)
+                else:
+                    self.assertEqual(run.snapshot.configuration["rules"], [])
+                    self.assertFalse(run.snapshot.configuration["zones"][0]["enabled"])
+                    self.assertIn("spatial_suspension_reason", run.playback)
+                saved.refresh_from_db()
+                self.assertEqual(saved.capture_signature, capture_signature)
+                self.assertEqual(saved.document, document)
+                CameraRun.objects.filter(pk=run_id).update(active=False, terminal_state="stopped")
 
     def test_live_camera_reports_the_run_snapshot_to_any_authorized_reviewer(self):
         rules = [{"rule_id": "effective-rule", "version": 2, "enabled": True}]
@@ -388,8 +425,8 @@ class ManagedLabTests(APITestCase):
         os.utime(lab_control.ack_path("lab-cam-01"), (stale, stale))
         self.assertIsNone(lab_control.publisher_ack("lab-cam-01", token))
 
-    @patch("apps.analysis.lab_control.rtsp_ready", return_value=False)
-    def test_bound_custom_zones_suspend_other_viewpoint_before_publishing(self, ready):
+    @patch("apps.analysis.lab_control.rtsp_ready")
+    def test_bound_custom_zones_suspend_rules_but_publish_other_viewpoint(self, ready):
         control = self.configure()
         camera = inventory()["lab-cam-01"]
         document = default_document(camera)
@@ -398,13 +435,25 @@ class ManagedLabTests(APITestCase):
                                       capture_signature=camera_capture_signature(camera))
         control.playlists[camera.id]["media_ids"] = ["second"]
         control.save(update_fields=["playlists"])
-        lab_control.reconcile()
-        token = self.progress()["token"]
-        lab_control.reconcile()
-        self.ack(token, "idle")
-        lab_control.reconcile()
-        self.assertEqual(self.lease(), [token, "idle"])
-        self.assertFalse(CameraRun.objects.exists())
-        row = self.admin.get(self.endpoint).data["cameras"][0]
-        self.assertTrue(row["playlist_blocked"])
-        self.assertIn("Quite este medio de la lista", row["problem"])
+        with (self.settings(EVENT_POST_ENABLED=True, MEDIA_ROOT=self.root),
+              patch.dict(os.environ, {"OPERIX_PERSON_WEIGHTS": "person", "OPERIX_FORKLIFT_WEIGHTS": "forklift",
+                                      "OPERIX_RTSP_INFERENCE_SOCKET": ""}),
+              patch("apps.analysis.cameras.camera_worker_destination", return_value=("10.0.0.2", "rtsp://10.0.0.2/live")),
+              patch("apps.analysis.cameras.subprocess") as worker,
+              patch("apps.analysis.cameras.Thread"),
+              patch("apps.analysis.cameras._processes", {})):
+            worker.Popen.return_value.poll.return_value = None
+            lab_control.reconcile()
+            run = self.launch_clip(ready)
+            row = self.admin.get(self.endpoint).data["cameras"][0]
+            worker_config = json.loads((run_dir(run.pk) / "config.json").read_bytes())
+        worker.Popen.assert_called_once()
+        self.assertFalse(row["playlist_blocked"])
+        self.assertIn("spatial_suspension_reason", row["playback"])
+        self.assertEqual(row["effective_rules"], [])
+        self.assertEqual(row["configuration"], document)
+        self.assertEqual(worker_config, run.snapshot.configuration)
+        self.assertEqual(worker_config["rules"], [])
+        self.assertFalse(worker_config["zones"][0]["enabled"])
+        self.assertEqual(run.provenance["filename"], "second.mp4")
+        self.assertEqual(run.snapshot.source_sha256, run.provenance["sha256"])

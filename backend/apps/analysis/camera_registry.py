@@ -85,6 +85,11 @@ class Camera:
     height: int
     profile: str
     url: str
+    source_fps: float | None = None
+
+    @property
+    def capture_fps(self):
+        return self.expected_fps if self.source_fps is None else self.source_fps
 
     @property
     def spatial_key(self):
@@ -192,13 +197,15 @@ def inventory(registry=None):
         suffix = f"CAM{number:02}"
         try:
             fps = float(os.environ.get(f"OPERIX_LAB_{suffix}_FPS", "12"))
+            source_fps = float(os.environ.get(f"OPERIX_LAB_{suffix}_SOURCE_FPS", str(fps)))
             width = int(os.environ.get(f"OPERIX_LAB_{suffix}_WIDTH", "960"))
             height = int(os.environ.get(f"OPERIX_LAB_{suffix}_HEIGHT", "540"))
-            if not (1 <= fps <= 30 and 16 <= width <= 1920 and 16 <= height <= 1080):
+            if not (1 <= fps <= source_fps <= 30 and 16 <= width <= 1920 and 16 <= height <= 1080):
                 raise ValueError("Perfil de captura inválido")
             url = approved_destination(id_)
         except ValueError:
             continue
         result[id_] = Camera(id_, f"Cámara de laboratorio {number:02}", "Reproducción continua de un video autorizado.",
-                            media.get(defaults.get(id_)), fps, width, height, "A" if number == 1 else "B", url)
+                            media.get(defaults.get(id_)), fps, width, height, "A" if number == 1 else "B", url,
+                            source_fps)
     return result

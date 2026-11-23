@@ -47,20 +47,23 @@ x-lab-publisher: &lab-publisher
 x-publisher-settings: &publisher-settings
   VIDEO_WIDTH: &lab-width ${OPERIX_CAMERA_LAB_WIDTH:-960}
   VIDEO_HEIGHT: &lab-height ${OPERIX_CAMERA_LAB_HEIGHT:-540}
-  VIDEO_FPS: &lab-fps ${OPERIX_CAMERA_LAB_FPS:-12}
+  VIDEO_FPS: &lab-source-fps ${OPERIX_CAMERA_LAB_SOURCE_FPS:-${OPERIX_CAMERA_LAB_FPS:-12}}
   LOOP_GAP_SECONDS: ${OPERIX_CAMERA_LAB_LOOP_GAP_SECONDS:-2}
 
 services:
   backend:
     environment:
       OPERIX_CAMERA_LAB_ENABLED: "1"
+      OPERIX_CAMERA_LAB_LIVE_ENABLED: "1"
       OPERIX_CAMERA_LAB_MANIFEST: /data/rtsp-lab/${OPERIX_CAMERA_LAB_MANIFEST_FILE:-manifest.json}
       OPERIX_LAB_CAM01_WIDTH: *lab-width
       OPERIX_LAB_CAM01_HEIGHT: *lab-height
-      OPERIX_LAB_CAM01_FPS: *lab-fps
+      OPERIX_LAB_CAM01_FPS: &lab-fps ${OPERIX_CAMERA_LAB_FPS:-12}
+      OPERIX_LAB_CAM01_SOURCE_FPS: *lab-source-fps
       OPERIX_LAB_CAM02_WIDTH: *lab-width
       OPERIX_LAB_CAM02_HEIGHT: *lab-height
       OPERIX_LAB_CAM02_FPS: *lab-fps
+      OPERIX_LAB_CAM02_SOURCE_FPS: *lab-source-fps
     networks: [default, rtsp-lab]
     volumes:
       - *lab-media

@@ -87,3 +87,10 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+## Reproductor de cámaras
+
+El reproductor web utiliza [hls.js](https://github.com/video-dev/hls.js)
+1.7.4, Copyright (c) 2017 Dailymotion, bajo Apache-2.0. La imagen del
+Frontend conserva el aviso de la distribución en `/licenses/hls.js.txt` y la
+[licencia Apache 2.0](frontend/public/licenses/Apache-2.0.txt).

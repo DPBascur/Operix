@@ -1,7 +1,7 @@
 "use client";
 
 import { Camera } from "lucide-react";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { operationalError } from "@/features/operations/operation-request";
 import {
@@ -11,11 +11,15 @@ import {
 } from "@/services/camera-lab.service";
 import {
   cameraCoverage,
+  cameraFrameAge,
   cameraFrameIsRecent,
   cameraFrameTime,
   cameraFrameWindowMs,
+  cameraNumber,
   cameraObservationPaused,
 } from "./camera-diagnostics";
+import { CameraLiveVideo } from "./camera-live-video";
+import { usePageVisible } from "./camera-visibility";
 
 const statusLabels: Record<string, string> = {
   available: "Disponible",
@@ -30,19 +34,6 @@ const statusLabels: Record<string, string> = {
 };
 export function statusLabel(status: string) {
   return statusLabels[status] ?? "Estado desconocido";
-}
-
-function subscribeToVisibility(listener: () => void) {
-  document.addEventListener("visibilitychange", listener);
-  return () => document.removeEventListener("visibilitychange", listener);
-}
-
-function usePageVisible() {
-  return useSyncExternalStore(
-    subscribeToVisibility,
-    () => document.visibilityState === "visible",
-    () => true,
-  );
 }
 
 export function useCameraData<T>(
@@ -126,7 +117,7 @@ type CameraPreviewProps = {
   recentOnly?: boolean;
 };
 
-export function CameraPreview(props: CameraPreviewProps) {
+function CameraPreview(props: CameraPreviewProps) {
   const visible = usePageVisible();
   const { id, url, active, interval, recentOnly } = props;
   return (
@@ -215,8 +206,8 @@ function CameraPreviewFrame({
       src={frame}
       alt={
         name
-          ? `Último fotograma analizado de ${name}`
-          : "Último fotograma analizado"
+          ? `Fotograma anotado de la última observación de ${name}`
+          : "Fotograma anotado de la última observación"
       }
       className="size-full object-contain"
     />
@@ -227,57 +218,118 @@ function CameraPreviewFrame({
   );
 }
 
+export function CameraMediaPanels({
+  camera,
+  live,
+  preview,
+  refreshPreview,
+  recentOnly,
+  receivedAt,
+  previewInterval,
+}: {
+  camera: Pick<LabCamera, "id" | "name" | "metrics" | "last_frame_at"> & {
+    run_id?: string | null;
+  };
+  live: boolean;
+  preview: string | null;
+  refreshPreview: boolean;
+  recentOnly: boolean;
+  receivedAt: number;
+  previewInterval?: number;
+}) {
+  const { id, name, last_frame_at: frameAt } = camera;
+  const timestamp = cameraFrameTime(frameAt);
+  const age = cameraFrameAge(frameAt, camera.metrics, receivedAt);
+
+  return (
+    <div className="@container">
+      <div
+        className={`grid items-start gap-4 ${live ? "@lg:grid-cols-2" : ""}`}
+      >
+        {live && (
+          <CameraLiveVideo key={camera.run_id ?? id} id={id} name={name} />
+        )}
+        <figure className="grid min-w-0 gap-2">
+          <figcaption className="text-sm font-semibold">
+            Última observación anotada
+          </figcaption>
+          {preview ? (
+            <CameraPreview
+              key={camera.run_id}
+              id={id}
+              name={name}
+              url={preview}
+              active={refreshPreview}
+              interval={previewInterval}
+              recentOnly={recentOnly}
+            />
+          ) : (
+            <div className="grid aspect-video place-content-center justify-items-center gap-2 rounded-md bg-surface-muted p-3 text-center text-sm text-text-secondary">
+              <Camera className="size-5" aria-hidden="true" />
+              {recentOnly
+                ? "Sin fotograma reciente"
+                : "Sin fotograma disponible"}
+            </div>
+          )}
+          {((timestamp && frameAt) || age !== null) && (
+            <div className="text-sm text-text-secondary">
+              {timestamp && frameAt && (
+                <p>
+                  Última recepción del análisis ·{" "}
+                  <time dateTime={frameAt}>{timestamp}</time>
+                </p>
+              )}
+              {age !== null && (
+                <p className="tabular-nums">
+                  Antigüedad al consultar · {cameraNumber(age / 1000, " s")}
+                </p>
+              )}
+            </div>
+          )}
+        </figure>
+      </div>
+    </div>
+  );
+}
+
 export function CameraCard({
   camera,
+  live,
   receivedAt,
   stale = false,
 }: {
   camera: Pick<
     LabCamera,
     "id" | "name" | "status" | "preview_url" | "metrics" | "last_frame_at"
-  >;
+  > & { run_id?: string | null };
+  live: boolean;
   stale?: boolean;
   receivedAt: number;
 }) {
   const recent =
     !cameraObservationPaused(camera.status, stale) &&
     cameraFrameIsRecent(camera.last_frame_at, camera.metrics, receivedAt);
-  const timestamp = cameraFrameTime(camera.last_frame_at);
   const coverage = recent ? cameraCoverage(camera.metrics) : null;
-  const fps = camera.metrics?.analysis_fps_5s;
+  const fps = cameraNumber(camera.metrics?.analysis_fps_5s, " FPS de análisis");
   return (
     <>
-      {recent && camera.preview_url ? (
-        <CameraPreview
-          key={camera.preview_url}
-          id={camera.id}
-          name={camera.name}
-          url={camera.preview_url}
-          active
-          interval={3500}
-          recentOnly
-        />
-      ) : (
-        <div className="grid aspect-video place-content-center justify-items-center gap-2 rounded-md bg-surface-muted p-3 text-center text-sm text-text-secondary">
-          <Camera className="size-5" aria-hidden="true" />
-          Sin fotograma reciente
-        </div>
-      )}
       <div className="grid gap-1">
         <h3 className="font-semibold break-words">{camera.name}</h3>
         <p className="text-sm text-text-secondary">
           {stale ? "Estado sin actualizar" : statusLabel(camera.status)}
-          {recent &&
-            typeof fps === "number" &&
-            ` · ${fps.toLocaleString("es-CL", { maximumFractionDigits: 1 })} FPS`}
+          {recent && fps && ` · ${fps}`}
           {coverage !== null && ` · Cobertura (5 s) ${coverage}`}
         </p>
-        {recent && timestamp && camera.last_frame_at && (
-          <p className="text-sm text-text-secondary">
-            <time dateTime={camera.last_frame_at}>{timestamp}</time>
-          </p>
-        )}
       </div>
+      <CameraMediaPanels
+        camera={camera}
+        live={live}
+        preview={recent ? camera.preview_url : null}
+        refreshPreview
+        recentOnly
+        receivedAt={receivedAt}
+        previewInterval={3500}
+      />
     </>
   );
 }

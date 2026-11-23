@@ -302,7 +302,7 @@ test(
     );
     await control({ labCameraStatus: "reconnecting" });
     await wait(
-      `document.querySelector(${JSON.stringify(cameras)}).textContent.includes('Reconectando')`,
+      `document.querySelector(${JSON.stringify(cameras)}).textContent.includes('Sin fotograma reciente')`,
       "reconnect snapshot",
     );
     assert.equal(await evaluate(`typeof (${frameWidth})`), "undefined");
@@ -324,5 +324,92 @@ test(
       "fresh JPEG after reconnect",
     );
     assert.deepEqual(await evaluate("window.labLoadedWidths"), [192]);
+  },
+);
+
+test(
+  "temporary auth and transport failures keep the lab mounted until confirmed expiration",
+  {
+    skip: !base || !api ? "Set the two private camera lab fixture URLs" : false,
+    timeout: 100_000,
+  },
+  async (t) => {
+    for (const address of [base, api]) {
+      assert.match(new URL(address).hostname, /^(127\.0\.0\.1|localhost)$/);
+    }
+    const post = async (path, body, headers) => {
+      const response = await fetch(`${api}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(body),
+      });
+      assert.equal(response.status, 200);
+    };
+    await post("/__fixture", {
+      reset: true,
+      managedCamera: "data:image/jpeg;base64,/9j/2Q==",
+    });
+    const sessionPath = "/api/v1/auth/session/";
+    const { csrf_token: csrfToken } = await fetch(`${base}${sessionPath}`).then(
+      (response) => response.json(),
+    );
+    assert.equal(csrfToken, "TEST_ONLY_CSRF");
+    await post(
+      "/api/v1/auth/login/",
+      { username: "fixture-admin", password: "TEST_ONLY_PASSWORD" },
+      { "X-CSRFToken": csrfToken },
+    );
+    const { call, evaluate } = await openBrowser(t);
+    await call("Page.navigate", { url: `${base}${route}` });
+    const wait = (expression, label) =>
+      waitFor(() => evaluate(expression), label);
+    const toggle = (label) =>
+      `[...document.querySelectorAll('button')].find(button =>
+        button.textContent.trim() === "${label}" && !button.disabled)`;
+    const disable = toggle("Deshabilitar laboratorio");
+    const enable = toggle("Habilitar laboratorio");
+    await wait(`Boolean(${disable})`, "lab loaded with an active session");
+    await evaluate(`(${disable}).click()`);
+    await wait(`Boolean(${enable})`, "lab ready for activation");
+    await evaluate(`(() => {
+      const originalFetch = window.fetch;
+      window.labHeading = document.querySelector("h1");
+      window.sessionFailures = 0;
+      window.activationAttempts = 0;
+      window.fetch = (url, init) => {
+        if (url === "${sessionPath}" && window.sessionFailures < 2) {
+          window.sessionFailures++;
+          return Promise.resolve(new Response("Unavailable", { status: 503 }));
+        }
+        if (url === "${controlPath}" && init?.method === "PATCH" && ++window.activationAttempts === 1) {
+          return Promise.resolve(new Response(null, { status: 401 }));
+        }
+        return originalFetch(url, init);
+      };
+      window.dispatchEvent(new Event("focus"));
+    })()`);
+    await wait("window.sessionFailures === 1", "transient focus failure");
+    await evaluate(`(${enable})?.click()`);
+    await wait(
+      `document.body.innerText.includes("No se pudo completar la consulta con Operix.") && Boolean(${enable})`,
+      "failed PATCH recovers on the next lab poll",
+    );
+    assert.equal(await evaluate("window.sessionFailures"), 2);
+    assert.equal(await evaluate("window.activationAttempts"), 1);
+    assert.equal(
+      await evaluate(
+        `location.pathname === "${route}" && document.querySelector("h1") === window.labHeading`,
+      ),
+      true,
+    );
+    await evaluate(`(${enable}).click()`);
+    await wait(`Boolean(${disable})`, "explicit retry succeeded");
+    await post("/__fixture", { expire: true });
+    await wait(
+      `location.pathname === "/login" &&
+        new URLSearchParams(location.search).get("next") === "${route}" &&
+        document.body.innerText.includes("Tu sesión terminó.")`,
+      "confirmed expiration returns to login with the lab as the destination",
+    );
   },
 );

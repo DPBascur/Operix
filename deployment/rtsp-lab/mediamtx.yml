@@ -5,7 +5,16 @@ rtsp: true
 rtspAddress: :8554
 rtspTransports: [tcp]
 rtmp: false
-hls: false
+hls: true
+hlsAddress: :8888
+hlsAlwaysRemux: false
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsSegmentMaxSize: 8M
+hlsMuxerCloseAfter: 12s
+hlsAllowOrigins: []
 webrtc: false
 srt: false
 moq: false

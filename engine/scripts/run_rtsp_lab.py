@@ -226,6 +226,7 @@ class WorkerStatus:
             completed_from_recent_frames = sum(now - 5 <= received <= now for _, received in self.completed)
             covered = min(1., completed_from_recent_frames / decoded_recently)
         api_state = {"starting": "connecting", "processing": "analyzing", "completed": "stopped"}.get(state, state)
+        source_fps = getattr(self.args, "source_fps", None) or self.args.fps
         error_message = None
         if state == "error":
             error_message = (
@@ -239,7 +240,9 @@ class WorkerStatus:
             "analysis_run_id": self.run_id,
             "metrics": {
                 **self.metrics, **timing_metrics, "elapsed_s": round(elapsed, 3), "received_fps": received_fps,
-                "source_fps": self.args.fps if math.isfinite(self.args.fps) else None,
+                "source_fps": source_fps if math.isfinite(source_fps) else None,
+                "configured_analysis_fps": self.args.fps if math.isfinite(self.args.fps) else None,
+                "frames_sampling_skipped": capture_counts.get("sampling_skip", 0),
                 "analysis_fps": round(self.metrics["frames_processed"] / max(elapsed, 1e-9), 2),
                 "analysis_fps_5s": round(results_recently / 5, 2),
                 "observed_fraction_5s": round(covered, 4) if covered is not None else None,
@@ -257,6 +260,7 @@ class WorkerStatus:
                 "inference_profile": self.inference_profile,
                 "width": self.args.width, "height": self.args.height, "capture": capture_counts,
                 "epoch": self.epoch, "epochs": dict(self.epochs), "preview_frame": self.preview_frame,
+                "preview_clock_basis": "local_receive_mtime" if self.preview_frame is not None else None,
                 "event_limit": self.event_policy.event_limit if self.event_policy else None,
                 "event_policy": self.event_policy.status() if self.event_policy else None,
                 **({"framing": self.framing.status()} if self.framing is not None else {}),
@@ -580,7 +584,9 @@ class EventPublisher:
 
 
 def run(args, status, stop_reason):
-    if not (0 < args.seconds <= MAX_SECONDS and 0 < args.fps <= 60
+    source_fps = getattr(args, "source_fps", None)
+    source_fps = args.fps if source_fps is None else source_fps
+    if not (0 < args.seconds <= MAX_SECONDS and 0 < args.fps <= source_fps <= 60
             and 0 < args.width <= 1920 and 0 < args.height <= 1080):
         raise ValueError("Límites de sesión inválidos")
     if reason := stop_reason():
@@ -627,7 +633,9 @@ def run(args, status, stop_reason):
     preview_interval = 1.0 if os.environ.get("OPERIX_RTSP_LAB_MANAGED_PREVIEW") == "1" else PREVIEW_INTERVAL
     failures_at_frame = 0
     inference_stalled_since = None
-    capture = Capture(lambda: Reader(url, args.fps, pipeline.dimensions), fps=args.fps, trace=status.capture_trace)
+    capture_rates = {"source_fps": source_fps} if source_fps != args.fps else {}
+    capture = Capture(lambda: Reader(url, source_fps, pipeline.dimensions), fps=args.fps,
+                      trace=status.capture_trace, **capture_rates)
     status.capture = capture
     status.write("connecting")
     with (
@@ -744,7 +752,8 @@ def run(args, status, stop_reason):
                             ring.append(frame.index, data)
                         publisher.advance(frame.index, data, ring)
                         if preview_due:
-                            _write_atomic(args.output / "preview.jpg", data)
+                            _write_atomic(args.output / "preview.jpg", data,
+                                          mtime_ns=round(received_at.timestamp() * 1e9))
                             last_preview, status.preview_frame = now, frame.index
                     if keep_context and not publisher.has_quota:
                         ring.clear()
@@ -760,6 +769,7 @@ def main():
     for name in ("output", "config", "person-weights", "forklift-weights"):
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--fps", type=float, default=12)
+    parser.add_argument("--source-fps", type=float)
     parser.add_argument("--width", type=int, default=960)
     parser.add_argument("--height", type=int, default=540)
     parser.add_argument("--seconds", type=float, default=MAX_SECONDS)

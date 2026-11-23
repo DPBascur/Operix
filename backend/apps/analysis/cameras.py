@@ -8,6 +8,7 @@ import subprocess
 import socket
 from urllib.parse import urlsplit
 from threading import Lock, Thread
+from time import time_ns
 from uuid import uuid4
 
 from django.conf import settings
@@ -47,8 +48,10 @@ def run_dir(run_id):
     return Path(settings.MEDIA_ROOT) / "rtsp-lab" / str(run_id)
 
 
-def last_run(camera_id, *, lock=False):
+def last_run(camera_id, *, lock=False, calibration_sha256=None):
     query = CameraRun.objects.filter(camera_id=camera_id).order_by("-started_at")
+    if calibration_sha256 is not None:
+        query = query.filter(snapshot__configuration__calibration__sha256=calibration_sha256)
     return (query.select_for_update() if lock else query).first()
 
 
@@ -125,23 +128,21 @@ def default_document(camera):
     }
 
 
+def latest_revision(camera):
+    return CameraRevision.objects.filter(camera_id=camera.id).order_by("-revision").first()
+
+
 def document_for(camera):
-    revision = CameraRevision.objects.filter(camera_id=camera.id).order_by("-revision").first()
+    revision = latest_revision(camera)
     return (revision.document, revision.revision) if revision else (default_document(camera), 0)
 
 
-def playback_spatial_issue(camera):
-    revision = CameraRevision.objects.filter(camera_id=camera.id).order_by("-revision").first()
-    if not revision:
-        return None
-    document = revision.document
-    action = ("Las zonas y la calibración se confirman para el medio predeterminado de la cámara. "
-              "Quite este medio de la lista o restablezca toda la imagen y quite la calibración y el movimiento personalizado.")
-    if document.get("calibration"):
-        return action if calibration_issue(camera, document, None, {}) else None
+def spatial_capture_issue(camera, document, revision):
+    if issue := calibration_issue(camera, document, None, {}):
+        return issue
     if ((document["zones"] != default_document(camera)["zones"] or document.get("motion"))
-            and revision.capture_signature != camera_capture_signature(camera)):
-        return action
+            and (revision is None or revision.capture_signature != camera_capture_signature(camera))):
+        return "Las zonas o el movimiento personalizado no están verificados para esta grabación."
     return None
 
 
@@ -170,6 +171,7 @@ def camera_json(request, camera):
         "provenance": camera_registry.public_provenance(run.provenance if active_snapshot else camera.provenance),
         "profile": camera.profile,
         "expected_fps": camera.expected_fps, "width": camera.width, "height": camera.height,
+        "configured_analysis_fps": camera.expected_fps, "configured_source_fps": camera.capture_fps,
         "status": state, "metrics": metrics, "configuration": document, "revision": revision,
         "calibration_requires_reconfirmation": bool(calibration_issue(capture_camera, document, run, metrics)),
         "policy": active_snapshot.policy if active_snapshot else policy,
@@ -222,7 +224,7 @@ def calibration_issue(camera, document, run, metrics):
     calibration = document.get("calibration")
     if not calibration:
         return None
-    if calibration.get("pattern_evidence", {}).get("capture_signature") != camera_capture_signature(camera):
+    if (calibration.get("pattern_evidence") or {}).get("capture_signature") != camera_capture_signature(camera):
         return "Cambió la fuente o el encuadre configurado. Vuelva a calibrar la cámara."
     prior = (run.snapshot.configuration.get("calibration") or {}) if run else {}
     if (prior.get("sha256") == calibration.get("sha256")
@@ -351,11 +353,22 @@ def start_camera(camera, owner, *, managed=False, playback=None):
             active += 1
     if active >= camera_registry.capacity():
         raise CameraConflict()
-    document, revision = document_for(camera)
+    saved = latest_revision(camera)
+    document = saved.document if saved else default_document(camera)
+    revision = saved.revision if saved else 0
     document, policy = effective(camera, document, owner.pk)
+    issue = spatial_capture_issue(camera, document, saved)
+    if issue:
+        # Keep the saved revision and policy for traceability. Freeze only safe geometry in this run.
+        document = default_document(camera)
+        document["zones"][0]["enabled"] = False
+        document["rules"] = []
+        if playback:
+            playback = {**playback, "spatial_suspension_reason": issue}
     checked_document(camera, document)
-    if document.get("calibration"):
-        last = last_run(camera_id, lock=True)
+    if calibration := document.get("calibration"):
+        # A run with suspended spatial rules must not clear a prior framing invalidation.
+        last = last_run(camera_id, calibration_sha256=calibration["sha256"])
         _, metrics, _ = status_for(last)
         if issue := calibration_issue(camera, document, last, metrics):
             raise CameraConflict(issue)
@@ -396,7 +409,8 @@ def start_camera(camera, owner, *, managed=False, playback=None):
         try:
             process = subprocess.Popen([
                 settings.OPERIX_ENGINE_PYTHON, str(worker), "--output", str(folder), "--config", str(config_path),
-                "--fps", str(camera.expected_fps), "--width", str(camera.width), "--height", str(camera.height),
+                "--fps", str(camera.expected_fps), "--source-fps", str(camera.capture_fps),
+                "--width", str(camera.width), "--height", str(camera.height),
                 "--person-weights", os.environ["OPERIX_PERSON_WEIGHTS"],
                 "--forklift-weights", os.environ["OPERIX_FORKLIFT_WEIGHTS"],
             ], cwd=ROOT, env=env, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -436,6 +450,7 @@ class CameraPreviewView(CameraView):
     def get(self, request, camera_id):
         camera = self.camera(camera_id)
         run = last_run(camera_id)
+        runtime = None
         if camera_registry.automatic(camera):
             state, _, runtime = status_for(run)
             if state != "analyzing" or not recent_frame(runtime):
@@ -446,8 +461,16 @@ class CameraPreviewView(CameraView):
             raise Http404 from None
         if file is None:
             raise Http404
+        age_ms = None
+        if (runtime or {}).get("metrics", {}).get("preview_clock_basis") == "local_receive_mtime":
+            age_ms = (time_ns() - os.fstat(file.fileno()).st_mtime_ns) / 1e6
+            if not 0 <= age_ms < 5000:
+                file.close()
+                raise Http404
         response = FileResponse(file, content_type="image/jpeg")
         response["Cache-Control"] = "private, no-store"
+        if age_ms is not None:
+            response["Server-Timing"] = f"preview-receive-age;dur={age_ms:.1f}"
         return response
 
 

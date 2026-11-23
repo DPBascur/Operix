@@ -1,7 +1,37 @@
 import threading
 import unittest
 
-from operix_engine.rtsp_pilot import Capture, Epoch, Frame
+from operix_engine.rtsp_pilot import Capture, Epoch, Frame, TemporalSampler
+
+
+class TemporalSamplingTests(unittest.TestCase):
+    def test_regular_30_fps_sampling_selects_unique_observations(self):
+        for fps in (15, 20):
+            with self.subTest(fps=fps):
+                sampler, epoch = TemporalSampler(30, fps), Epoch(fps)
+                selected = []
+                for index in range(60):
+                    pts = index / 30
+                    include, gap = sampler.select(index, pts)
+                    if include:
+                        reason, stamp = epoch.advance(Frame(len(selected), 1, 10 + pts, pts, None,
+                                                            source_discontinuity=gap, source_index=index))
+                        self.assertEqual(reason, "initial" if index == 0 else None)
+                        self.assertEqual(stamp, pts)
+                        selected.append(index)
+                self.assertEqual(len(selected), 2 * fps)
+                self.assertEqual(sorted(set(selected)), selected)
+
+    def test_missing_source_timestamp_breaks_rules_even_if_selected_pts_look_regular(self):
+        sampler, epoch = TemporalSampler(30, 15), Epoch(15)
+        self.assertEqual(sampler.select(0, 1), (True, False))
+        epoch.advance(Frame(0, 1, 10, 1, None))
+        self.assertEqual(sampler.select(1, None), (False, False))
+        selected, gap = sampler.select(2, 1 + 2 / 30)
+        self.assertTrue(selected and gap)
+        self.assertEqual(epoch.advance(Frame(1, 1, 10 + 2 / 30, 1 + 2 / 30, None,
+                                             source_discontinuity=gap)), ("source_sampling_gap", 0))
+        self.assertFalse(epoch.preserve_tracking)
 
 
 class EpochTests(unittest.TestCase):

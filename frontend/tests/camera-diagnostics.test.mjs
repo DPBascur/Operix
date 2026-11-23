@@ -121,6 +121,7 @@ test("los descartes acumulados por motivo y los totales vienen de la API", () =>
   assert.deepEqual(
     cameraTechnicalMetrics({
       frames_dropped: 10,
+      frames_sampling_skipped: 0,
       frames_inference_dropped: 4,
       inference_drops: { busy: 2, deadline: 1, failed: 1, shutdown: 0 },
     }),
@@ -137,7 +138,10 @@ test("los descartes acumulados por motivo y los totales vienen de la API", () =>
       },
       {
         title: "Totales de la ejecución",
-        rows: [["Fotogramas descartados", "10"]],
+        rows: [
+          ["Fotogramas omitidos por muestreo", "0"],
+          ["Fotogramas descartados", "10"],
+        ],
       },
     ],
   );

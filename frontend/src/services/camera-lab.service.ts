@@ -46,6 +46,8 @@ export type LabCamera = {
     scenario?: string;
   } | null;
   expected_fps: number | null;
+  configured_analysis_fps?: number | null;
+  configured_source_fps?: number | null;
   width: number | null;
   height: number | null;
   status: string;

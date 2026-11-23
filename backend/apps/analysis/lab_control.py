@@ -24,7 +24,7 @@ from rest_framework.views import APIView
 from config.access import request_role, user_role
 from . import camera_registry
 from .cameras import (
-    CameraConflict, camera_json, last_run, playback_spatial_issue, recent_frame, scheduler_lock,
+    CameraConflict, camera_json, last_run, recent_frame, scheduler_lock,
     start_camera, stop_camera, status_for,
 )
 from .models import CameraLabControl, CameraRun
@@ -105,13 +105,15 @@ def checked_hash(path, identity):
         return digest.hexdigest()
 
 
-def media_eligible(source, expected_fps):
+def media_eligible(source, capture_fps):
     name, digest, fps = source.get("filename"), source.get("sha256"), source.get("fps")
     license_ = source.get("license")
+    synthetic_test = (os.environ.get("OPERIX_CAMERA_LAB_ALLOW_SYNTHETIC") == "1"
+                      and source.get("footage") == "synthetic validation video")
     return (isinstance(name, str) and camera_registry.MEDIA_FILENAME.fullmatch(name)
             and isinstance(digest, str) and camera_registry.SHA256.fullmatch(digest)
-            and source.get("real") is True and isinstance(license_, str) and bool(license_.strip())
-            and type(fps) in (int, float) and expected_fps <= fps <= 240)
+            and (source.get("real") is True or synthetic_test) and isinstance(license_, str) and bool(license_.strip())
+            and type(fps) in (int, float) and capture_fps <= fps <= 240)
 
 
 def supported_duration(source):
@@ -121,8 +123,8 @@ def supported_duration(source):
 
 def media_file(camera):
     source = camera.provenance or {}
-    if not media_eligible(source, camera.expected_fps):
-        raise MediaRejected("El archivo carece de procedencia autorizada o su FPS es inferior al perfil.")
+    if not media_eligible(source, camera.capture_fps):
+        raise MediaRejected("El archivo carece de procedencia autorizada o su FPS es inferior al de captura configurado.")
     if not supported_duration(source):
         raise MediaRejected(DURATION_LIMIT)
     name, digest = source["filename"], source["sha256"]
@@ -304,23 +306,16 @@ def reconcile_slot(id_, camera, playlist, catalog, progress, run, owner):
                     "last_transition": transition}
         return new_attempt(signature, position, progress["cycle"], transition, retry=True)
 
-    spatial_issue = playback_spatial_issue(selected)
-    if media_eligible(source, camera.expected_fps) and not supported_duration(source):
+    if media_eligible(source, selected.capture_fps) and not supported_duration(source):
         update_lease(id_, None)
         if progress.get("blocked") != DURATION_LIMIT:
             progress = {**progress, "last_transition": breadcrumb("interrupted", "unsupported_duration", playback)}
         return {**progress, "phase": "duration_blocked", "blocked": DURATION_LIMIT}
     if progress["phase"] == "idle":
         update_lease(id_, (token, "idle"))
-        if not spatial_issue and time() >= progress["retry_at"] and ack == "idle" and not rtsp_ready(id_):
+        if time() >= progress["retry_at"] and ack == "idle" and not rtsp_ready(id_):
             return {**progress, "phase": "play", "launch_at": time(), "blocked": None}
-        if spatial_issue and not progress.get("blocked"):
-            progress = {**progress, "last_transition": breadcrumb("expected", "spatial_confirmation_required", playback)}
-        return {**progress, "blocked": spatial_issue}
-    if spatial_issue:
-        update_lease(id_, None)
-        transition = breadcrumb("expected", "spatial_confirmation_required", playback)
-        return {**new_attempt(signature, position, progress["cycle"], transition), "blocked": spatial_issue}
+        return {**progress, "blocked": None}
 
     failure = None
     try:
@@ -453,7 +448,7 @@ def describe(request):
                          ("filename", "title", "duration_s", "fps", "scenario", "footage", "license", "sha256")}}
                         for media_id, source in catalog.items()
                         if supported_duration(source)
-                        and any(media_eligible(source, camera.expected_fps) for camera in inventory.values())],
+                        and any(media_eligible(source, camera.capture_fps) for camera in inventory.values())],
             "playlists": playlists,
             "updated_by": control.updated_by.get_username() if control and control.updated_by_id else None}
 
