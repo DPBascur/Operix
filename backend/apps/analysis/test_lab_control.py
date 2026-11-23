@@ -289,7 +289,6 @@ class ManagedLabTests(APITestCase):
         self.assertEqual(self.lease(), [token, "idle"])
         ready.return_value = False
         lab_control.reconcile()
-        lab_control.reconcile()
         self.assertEqual(self.lease()[:2], [token, "play"])
         ready.return_value = True
         self.ack(uuid4().hex, "playing")
@@ -326,6 +325,8 @@ class ManagedLabTests(APITestCase):
             self.assertEqual(first.playback["transition"]["reason"], "media_eof")
             self.assertEqual(first.playback["transition"]["outcome"], "expected")
             self.assertEqual(self.progress()["position"], 1)
+            self.assertEqual(self.lease(), [self.progress()["token"], "idle"])
+            self.assertNotEqual(self.lease()[0], first.playback["token"])
             next_run = self.launch_clip(ready)
             self.assertEqual(next_run.provenance["filename"], "second.mp4")
             self.assertNotEqual(next_run.snapshot.source_sha256, first.snapshot.source_sha256)

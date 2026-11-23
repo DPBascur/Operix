@@ -203,6 +203,12 @@ def new_attempt(signature, position=0, cycle=0, last=None, *, retry=False):
             "phase": "idle", "token": uuid4().hex, "retry_at": time() + RETRY_SECONDS if retry else 0}
 
 
+def release_to_attempt(id_, signature, position=0, cycle=0, last=None):
+    attempt = new_attempt(signature, position, cycle, last)
+    update_lease(id_, (attempt["token"], "idle"))
+    return attempt
+
+
 def breadcrumb(outcome, reason, playback=None):
     data = playback or {}
     return {"outcome": outcome, "reason": reason, "at": now().isoformat(),
@@ -263,7 +269,7 @@ def reconcile_slot(id_, camera, playlist, catalog, progress, run, owner):
 
     transition = seal_playback(run, state, runtime) if run and run.managed and not run.active else None
     if changed:
-        return new_attempt(signature, last=transition or progress.get("last_transition"))
+        return release_to_attempt(id_, signature, last=transition or progress.get("last_transition"))
     if progress["phase"] in {"finished", "duration_blocked"}:
         return progress
     token, position = progress["token"], progress["position"]
@@ -295,9 +301,9 @@ def reconcile_slot(id_, camera, playlist, catalog, progress, run, owner):
         if transition["reason"] == "media_eof" and transition["outcome"] == "expected":
             next_position = position + 1
             if next_position < len(playlist["media_ids"]):
-                return new_attempt(signature, next_position, progress["cycle"], transition)
+                return release_to_attempt(id_, signature, next_position, progress["cycle"], transition)
             if playlist["repeat"]:
-                return new_attempt(signature, 0, progress["cycle"] + 1, transition)
+                return release_to_attempt(id_, signature, 0, progress["cycle"] + 1, transition)
             update_lease(id_, None)
             return {**progress, "phase": "finished", "last_transition": transition}
         if transition["reason"] == "duration_exceeded":
@@ -314,8 +320,9 @@ def reconcile_slot(id_, camera, playlist, catalog, progress, run, owner):
     if progress["phase"] == "idle":
         update_lease(id_, (token, "idle"))
         if time() >= progress["retry_at"] and ack == "idle" and not rtsp_ready(id_):
-            return {**progress, "phase": "play", "launch_at": time(), "blocked": None}
-        return {**progress, "blocked": None}
+            progress = {**progress, "phase": "play", "launch_at": time(), "blocked": None}
+        else:
+            return {**progress, "blocked": None}
 
     failure = None
     try:
