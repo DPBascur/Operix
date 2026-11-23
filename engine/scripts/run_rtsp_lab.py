@@ -35,6 +35,7 @@ from operix_engine.operational_config import load_operational_config
 from operix_engine.pattern_framing import PatternFramingGuard
 from operix_engine.rtsp_inference import InferenceBusy, InferenceClient, InferenceError, InferenceTimeout
 from operix_engine.rtsp_lab_clips import ClipStore, JpegRing
+from operix_engine.rtsp_lab_policy import CameraRateBudget, EventAdmission, EventPolicy, InvalidEventPolicy
 from operix_engine.rtsp_pilot import Capture, Epoch
 from operix_engine.rules import RuleEngine
 from operix_engine.spatiotemporal import SpatiotemporalAnalyzer
@@ -46,8 +47,6 @@ from stream_dual_perception import _write_atomic
 
 
 MAX_SECONDS = 1800
-MAX_EVENTS = 20
-MAX_PENDING = 3
 PREVIEW_INTERVAL = .1
 STATUS_INTERVAL = 1
 PNG_LIMIT = 2 * 1024 * 1024
@@ -138,6 +137,7 @@ class WorkerStatus:
         self.run_id = None
         self.inference_mode = "dedicated"
         self.inference_profile = None
+        self.event_policy = None
         self.capture = None
         self.epochs = Counter()
         self.received = deque(maxlen=600)
@@ -155,9 +155,13 @@ class WorkerStatus:
         )}
         self.metrics = Counter({key: 0 for key in (
             "frames_processed", "candidates", "events_submitted", "events_published", "events_duplicate",
-            "events_failed", "events_skipped_quota", "events_skipped_backpressure", "clips_saved",
-            "clips_existing", "clips_unavailable", "clips_disk_limit", "clips_failed",
-            "evidence_saved", "evidence_failed",
+            "events_failed", "events_skipped_quota", "events_skipped_backpressure",
+            "events_skipped_rate_limit", "events_skipped_rate_unavailable", "events_skipped_episode_duplicate",
+            "clips_saved",
+            "clips_existing", "clips_unavailable", "clips_disk_limit", "clips_failed", "clips_storage_busy",
+            "evidence_saved", "evidence_failed", "png_skipped_disk_limit",
+            "evidence_skipped_storage_busy", "evidence_skipped_storage_error",
+            "clips_expired", "clip_retention_errors",
             "registration_attempts", "png_upload_attempts", "evidence_status_attempts",
             "evidence_status_failed", "tracking_resets", "tracking_preserved_gaps",
         )})
@@ -245,13 +249,16 @@ class WorkerStatus:
                 "frames_dropped": (sum(self.inference_drops.values())
                                    + sum(value for key, value in capture_counts.items() if key.endswith("_drop"))),
                 "frames_inference_dropped": sum(self.inference_drops.values()),
+                "frames_disconnect_dropped": capture_counts.get("disconnect_drop", 0)
+                                             + self.inference_drops["disconnect"],
                 "inference_drops": dict(self.inference_drops),
                 "inference_batch_sizes": dict(self.inference_batch_sizes),
                 "inference_mode": self.inference_mode,
                 "inference_profile": self.inference_profile,
                 "width": self.args.width, "height": self.args.height, "capture": capture_counts,
                 "epoch": self.epoch, "epochs": dict(self.epochs), "preview_frame": self.preview_frame,
-                "event_limit": MAX_EVENTS,
+                "event_limit": self.event_policy.event_limit if self.event_policy else None,
+                "event_policy": self.event_policy.status() if self.event_policy else None,
                 **({"framing": self.framing.status()} if self.framing is not None else {}),
             },
         }
@@ -420,12 +427,18 @@ class PendingEvent:
 
 
 class EventPublisher:
-    def __init__(self, sink, clips, registration_executor, evidence_executor, metrics, fps, timings=None):
+    def __init__(self, sink, clips, registration_executor, evidence_executor, metrics, fps, timings=None, *,
+                 policy, rate_budget=None):
         self.sink, self.clips, self.metrics = sink, clips, metrics
         self.registration_executor, self.evidence_executor = registration_executor, evidence_executor
         self.pending = []
         self.post_frames = math.floor(fps)
         self.timings = timings
+        self.admission = EventAdmission(policy, rate_budget=rate_budget)
+
+    @property
+    def has_quota(self):
+        return self.admission.has_quota(self.metrics["events_submitted"])
 
     @property
     def waiting(self):
@@ -444,13 +457,38 @@ class EventPublisher:
         return result, attempts, timings
 
     def _save_evidence(self, job):
+        timings = {"postroll": (job.postroll_finished - job.accepted) * 1000}
+        counters = {}
+        operational = self.admission.policy.mode == "operational"
+        try:
+            with self.clips.evidence_slot() if operational else nullcontext(True) as acquired:
+                if acquired:
+                    self._write_evidence(job, counters, timings, operational)
+                else:
+                    counters.update(evidence_skipped_storage_busy=1, evidence_failed=1)
+        except OSError:
+            counters["evidence_skipped_storage_error"] = 1
+            if "evidence_saved" not in counters:
+                counters["evidence_failed"] = 1
+
+        started = monotonic()
+        result, attempts = report_evidence_with_retries(
+            self.sink, job.event_id, max_attempts=2,
+        )
+        timings["evidence_status"] = (monotonic() - started) * 1000
+        counters["evidence_status_attempts"] = attempts
+        counters["evidence_status_failed"] = int(result.status == "failed")
+        return counters, timings
+
+    def _write_evidence(self, job, counters, timings, operational):
         was_encoded = "encoded" in vars(job.image)
         png, png_ms = job.image.encoded
-        timings = {"postroll": (job.postroll_finished - job.accepted) * 1000}
         if not was_encoded:
             timings["png"] = png_ms
-        counters = {}
         png_status = "failed"
+        if operational and png is not None and not self.clips.png_fits(len(png), self.admission.policy.png_total_bytes):
+            counters["png_skipped_disk_limit"] = 1
+            png = None
         if png is not None:
             started = monotonic()
             result, attempts = upload_evidence_with_retries(
@@ -466,6 +504,8 @@ class EventPublisher:
 
         started = monotonic()
         try:
+            if operational:
+                counters["clips_expired"], counters["clip_retention_errors"] = self.clips.expire()
             clip_status = self.clips.save(job.event_id, job.payload, job.frames or [])
         except (OSError, RuntimeError, ValueError, cv2.error):
             clip_status = "failed"
@@ -474,14 +514,6 @@ class EventPublisher:
         timings["clip"] = (finished - started) * 1000
         if clip_status in {"saved", "existing"}:
             timings["arrival_to_clip"] = (finished - job.received) * 1000
-
-        result, attempts = report_evidence_with_retries(
-            self.sink, job.event_id, max_attempts=2,
-        )
-        timings["evidence_status"] = (monotonic() - finished) * 1000
-        counters["evidence_status_attempts"] = attempts
-        counters["evidence_status_failed"] = int(result.status == "failed")
-        return counters, timings
 
     def advance(self, index, data, ring):
         for job in self.pending:
@@ -531,20 +563,20 @@ class EventPublisher:
         self.metrics["candidates"] += len(candidates)
         image = None
         for candidate in candidates:
-            if self.metrics["events_submitted"] >= MAX_EVENTS:
-                self.metrics["events_skipped_quota"] += 1
-            elif len(self.pending) >= MAX_PENDING:
-                self.metrics["events_skipped_backpressure"] += 1
-            else:
-                payload = reception_payload(candidate, context, received_at, processed_at, frame.pts, epoch.uses_pts)
-                if image is None:
-                    image = EventImage(annotated.copy())
-                accepted = monotonic()
-                registration = self.registration_executor.submit(
-                    self._register, {**payload, "evidence_pending": True}, frame.received, accepted,
-                )
-                self.pending.append(PendingEvent(payload, image, frame.received, accepted, registration))
-                self.metrics["events_submitted"] += 1
+            accepted = monotonic()
+            reason = self.admission.suppress(candidate, now=accepted,
+                                             submitted=self.metrics["events_submitted"], pending=len(self.pending))
+            if reason:
+                self.metrics[f"events_skipped_{reason}"] += 1
+                continue
+            payload = reception_payload(candidate, context, received_at, processed_at, frame.pts, epoch.uses_pts)
+            if image is None:
+                image = EventImage(annotated.copy())
+            registration = self.registration_executor.submit(
+                self._register, {**payload, "evidence_pending": True}, frame.received, accepted,
+            )
+            self.pending.append(PendingEvent(payload, image, frame.received, accepted, registration))
+            self.metrics["events_submitted"] += 1
 
 
 def run(args, status, stop_reason):
@@ -553,6 +585,7 @@ def run(args, status, stop_reason):
         raise ValueError("Límites de sesión inválidos")
     if reason := stop_reason():
         return reason
+    event_policy = status.event_policy = EventPolicy.from_env(os.environ)
     profile = inference_profile(os.environ, args)
     url = authorized_url(os.environ)
     if not os.environ.get("OPERIX_EVENT_PUBLISH_TOKEN", "").strip():
@@ -560,8 +593,15 @@ def run(args, status, stop_reason):
     sink = HttpEventSink(os.environ["OPERIX_EVENT_API_BASE_URL"], timeout_s=1, local_only=True)
     context, config = load_context(args.output, args.config)
     status.run_id = str(context.analysis_run_id)
-    media_root = Path(__file__).resolve().parents[2] / "backend" / os.environ.get("OPERIX_MEDIA_ROOT", "media")
-    clips = ClipStore(media_root.resolve(), args.fps)
+    media_root = (Path(__file__).resolve().parents[2] / "backend" / os.environ.get("OPERIX_MEDIA_ROOT", "media")).resolve()
+    rate_budget = None
+    if event_policy.mode == "operational":
+        camera_id = os.environ.get("OPERIX_RTSP_LAB_CAMERA_ID")
+        if camera_id != context.source.get("camera_id"):
+            raise InvalidEventPolicy("RTSP camera does not match the authorized snapshot")
+        rate_budget = CameraRateBudget(media_root, camera_id)
+    clips = ClipStore(media_root, args.fps, total_bytes=event_policy.clip_total_bytes,
+                      retention_days=event_policy.clip_retention_days, operational=event_policy.mode == "operational")
     if reason := stop_reason():
         return reason
     inference_socket = os.environ.get("OPERIX_RTSP_INFERENCE_SOCKET")
@@ -594,12 +634,16 @@ def run(args, status, stop_reason):
         ThreadPoolExecutor(max_workers=1, thread_name_prefix="rtsp-event") as registration,
         ThreadPoolExecutor(max_workers=1, thread_name_prefix="rtsp-evidence") as evidence,
     ):
-        publisher = EventPublisher(sink, clips, registration, evidence, status.metrics, args.fps, status.timings)
+        publisher = EventPublisher(sink, clips, registration, evidence, status.metrics, args.fps, status.timings,
+                                   policy=event_policy, rate_budget=rate_budget)
         try:
             with capture:
                 while not (reason := stop_reason()):
                     frame = capture.next()
                     if reason := stop_reason():
+                        if frame is not None:
+                            with capture.ready:
+                                capture.counts["shutdown_drop"] += 1
                         break
                     now = monotonic()
                     publisher.collect()
@@ -687,7 +731,7 @@ def run(args, status, stop_reason):
                     last_frame = now
                     failures_at_frame = failures
                     preview_due = now - last_preview >= preview_interval or epoch_reason is not None
-                    keep_context = status.metrics["events_submitted"] < MAX_EVENTS
+                    keep_context = publisher.has_quota
                     publisher.submit(candidates, context, received_at, processed_at, frame, epoch, annotated)
                     if preview_due or keep_context or publisher.waiting:
                         encoding = monotonic()
@@ -702,7 +746,7 @@ def run(args, status, stop_reason):
                         if preview_due:
                             _write_atomic(args.output / "preview.jpg", data)
                             last_preview, status.preview_frame = now, frame.index
-                    if keep_context and status.metrics["events_submitted"] == MAX_EVENTS:
+                    if keep_context and not publisher.has_quota:
                         ring.clear()
                     status.write("processing")
         finally:
@@ -781,7 +825,9 @@ def main():
         status.write("completed" if reason == "TIME_LIMIT" else "stopped", reason)
         return 0
     except Exception as error:
-        if isinstance(error, InvalidInferenceProfile):
+        if isinstance(error, InvalidEventPolicy):
+            reason = "EVENT_POLICY_INVALID"
+        elif isinstance(error, InvalidInferenceProfile):
             reason = "INFERENCE_PROFILE_INVALID"
         elif isinstance(error, OnnxStartupError):
             reason = "ONNX_CUDA_STARTUP_FAILED"

@@ -60,6 +60,61 @@ class EpochTests(unittest.TestCase):
 
 
 class CaptureTests(unittest.TestCase):
+    def test_eof_counts_every_queued_tail_frame_before_the_reconnect_epoch(self):
+        tail_ready = threading.Event()
+        eof = threading.Event()
+        tail_discarded = threading.Event()
+        reconnect_wait = threading.Event()
+        dropped = []
+        readers = iter((1, 2))
+
+        class Reader:
+            def __init__(self):
+                self.connection = next(readers)
+                self.index = 0
+
+            def read(self):
+                self.index += 1
+                if self.connection == 1 and self.index == 4:
+                    tail_ready.set()
+                    eof.wait(2)
+                    raise OSError("EOF")
+                if self.connection == 2 and self.index == 2:
+                    reconnect_wait.wait(2)
+                    raise OSError
+                return object(), self.index / 12
+
+            def close(self):
+                pass
+
+        def trace(kind, connection, _timestamp, **fields):
+            if kind == "disconnect_drop":
+                dropped.append((connection, fields["index"]))
+                if len(dropped) == 2:
+                    tail_discarded.set()
+
+        capture = Capture(Reader, fps=12, capacity=3, startup_seconds=0, max_age=2, trace=trace)
+        epoch = Epoch(12)
+        with capture:
+            try:
+                self.assertTrue(tail_ready.wait(2))
+                first = capture.next()
+                self.assertEqual(epoch.advance(first), ("initial", 0))
+                eof.set()
+                self.assertTrue(tail_discarded.wait(2))
+                resumed = capture.next(timeout=2)
+                self.assertIsNotNone(resumed)
+                self.assertEqual((resumed.connection, resumed.index), (2, 3))
+                self.assertEqual(epoch.advance(resumed), ("reconnect", 0))
+                self.assertFalse(epoch.preserve_tracking)
+                self.assertEqual(dropped, [(1, 1), (1, 2)])
+                self.assertEqual(capture.counts["disconnect_drop"], 2)
+                self.assertEqual(capture.counts["decoded"], 2 + capture.counts["disconnect_drop"])
+            finally:
+                capture.stop.set()
+                eof.set()
+                reconnect_wait.set()
+
     def test_a_failed_connection_invalidates_an_inflight_frame_before_reopening(self):
         fail = threading.Event()
         closing = threading.Event()

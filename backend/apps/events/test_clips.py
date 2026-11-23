@@ -1,6 +1,7 @@
 import tempfile
 from pathlib import Path
-from subprocess import CalledProcessError
+from subprocess import CalledProcessError, run as run_process
+import sys
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -94,3 +95,40 @@ class EvidenceClipTests(TestCase):
         with patch("apps.events.clips.subprocess.run", side_effect=encode):
             generate_clips(Path("unused.mp4"), self.config)
         self.assertIsNone(clip_info(self.event))
+
+    @override_settings(OPERIX_CLIP_TOTAL_BYTES=10)
+    def test_rtsp_process_consuming_last_capacity_during_offline_encode(self):
+        from django.conf import settings
+
+        media = Path(settings.MEDIA_ROOT)
+        root = media / "evidence-clips"
+        historical = root / str(uuid4()) / str(uuid4()) / "clip.mp4"
+        historical.parent.mkdir(parents=True)
+        historical.write_bytes(b"old")
+        child_event, child_run = str(uuid4()), str(uuid4())
+        script = """
+from pathlib import Path
+import sys
+from unittest.mock import patch
+from operix_engine.rtsp_lab_clips import ClipStore
+media, event, run_id = sys.argv[1:]
+payload = {"analysis_run_id": run_id, "frame_index": 0, "video_timestamp_s": "0.000",
+           "source": {"video_sha256": "1" * 64, "config_sha256": "2" * 64}}
+with patch("operix_engine.rtsp_lab_clips._encode_clip", side_effect=lambda path, *_: path.write_bytes(b"rtsp123")):
+    print(ClipStore(Path(media), 12, total_bytes=10).save(event, payload, [(0, b"frame")]))
+"""
+
+        def encode(command, **kwargs):
+            self.assertEqual(command[8], "7")
+            Path(command[4]).write_bytes(b"offline")
+            result = run_process([sys.executable, "-c", script, str(media), child_event, child_run],
+                                 capture_output=True, text=True, check=True, timeout=10)
+            self.assertEqual(result.stdout.strip(), "saved")
+
+        with patch("apps.events.clips.subprocess.run", side_effect=encode):
+            generate_clips(Path("unused.mp4"), self.config)
+        self.assertIsNone(clip_info(self.event))
+        self.assertEqual(historical.read_bytes(), b"old")
+        saved = root / child_event / child_run / "clip.mp4"
+        self.assertEqual(saved.read_bytes(), b"rtsp123")
+        self.assertEqual(set(root.rglob("*.mp4")), {historical, saved})

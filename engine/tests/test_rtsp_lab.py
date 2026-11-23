@@ -2,6 +2,7 @@ import hashlib
 from io import BytesIO
 import json
 from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
@@ -20,11 +21,17 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import run_rtsp_lab as lab
 from operix_engine.detection import BoundingBox, Detection
+from operix_engine.clip_capacity import publish_clip
 from operix_engine.event_publishing import EventContext, HttpEventSink, PublishResult
 from operix_engine.operational_config import OperationalConfig, RuleConfig, Zone
 from operix_engine.rtsp_lab_clips import ClipStore, JpegRing
+from operix_engine.rtsp_lab_policy import BENCHMARK_EVENT_LIMIT, MAX_PENDING, CameraRateBudget, EventPolicy
 from operix_engine.rtsp_pilot import Frame
 from operix_engine.rules import EventCandidate
+
+
+def benchmark_publisher(*args, **kwargs):
+    return lab.EventPublisher(*args, **kwargs, policy=EventPolicy(mode="benchmark"))
 
 
 class ImmediateExecutor:
@@ -114,6 +121,18 @@ class WorkerTests(TestCase):
             self.assertEqual(metrics["p95_capture_read_wall_ms"], 80.)
             self.assertIsNone(metrics["p95_arrival_to_result_ms"])
 
+    def test_disconnect_accounting_includes_queue_and_inflight_losses_once(self):
+        with TemporaryDirectory() as directory:
+            args = SimpleNamespace(output=Path(directory), fps=12, width=32, height=16)
+            status = lab.WorkerStatus(args)
+            status.capture = SimpleNamespace(ready=Condition(), counts={"disconnect_drop": 2, "queue_drop": 4},
+                                             queue=[], depth=0)
+            status.inference_drops.update(disconnect=1, busy=2)
+            status.write("reconnecting")
+            metrics = json.loads((args.output / "status.json").read_bytes())["metrics"]
+            self.assertEqual(metrics["frames_disconnect_dropped"], 3)
+            self.assertEqual(metrics["frames_dropped"], 9)
+
     def test_requires_explicit_pinned_literal_rtsp_address(self):
         for url, address in (
             ("rtsp://mediamtx:8554/camera", "192.168.1.2"),
@@ -139,6 +158,22 @@ class WorkerTests(TestCase):
             self.assertIsNone(status["last_frame_at"])
             self.assertEqual(status["metrics"]["frames_processed"], 0)
             self.assertFalse((folder / "status.json.tmp").exists())
+
+    def test_operational_camera_identity_must_match_the_snapshot(self):
+        args = SimpleNamespace(width=960, height=540, fps=12, seconds=5, output=None, config=None)
+        context = SimpleNamespace(analysis_run_id=uuid4(), source={"camera_id": "lab-cam-01"})
+        with (mock.patch.dict(lab.os.environ, {
+            "OPERIX_RTSP_LAB_CAMERA_ID": "lab-cam-02", "OPERIX_RTSP_URL": "rtsp://127.0.0.1/camera",
+            "OPERIX_RTSP_ALLOWED_IP": "127.0.0.1", "OPERIX_EVENT_PUBLISH_TOKEN": "test",
+            "OPERIX_EVENT_API_BASE_URL": "http://127.0.0.1:8000/api/v1",
+        }, clear=True),
+              mock.patch.object(lab, "load_context", return_value=(context, None)),
+              mock.patch.object(lab, "CameraRateBudget") as budget,
+              mock.patch.object(lab, "LabPipeline") as pipeline):
+            with self.assertRaises(lab.InvalidEventPolicy):
+                lab.run(args, lab.WorkerStatus(args), lambda: None)
+        budget.assert_not_called()
+        pipeline.assert_not_called()
 
     def test_worker_does_not_open_source_before_snapshot_commit_signal(self):
         startup = Event()
@@ -199,7 +234,7 @@ class WorkerTests(TestCase):
         image = np.zeros((16, 32, 3), dtype=np.uint8)
         pipeline = mock.Mock()
         pipeline.process.return_value = (image, (), 7.0, 2.0)
-        context = SimpleNamespace(analysis_run_id=uuid4())
+        context = SimpleNamespace(analysis_run_id=uuid4(), source={"camera_id": "lab-cam-01"})
         with TemporaryDirectory() as directory:
             args = SimpleNamespace(output=Path(directory), fps=10.0, width=32, height=16, seconds=10, config=None)
             status = lab.WorkerStatus(args)
@@ -209,7 +244,7 @@ class WorkerTests(TestCase):
                   mock.patch.dict(lab.os.environ, {"OPERIX_RTSP_URL": "rtsp://127.0.0.1/camera",
                       "OPERIX_RTSP_ALLOWED_IP": "127.0.0.1", "OPERIX_EVENT_PUBLISH_TOKEN": "test",
                       "OPERIX_EVENT_API_BASE_URL": "http://127.0.0.1:8000/api/v1",
-                      "OPERIX_RTSP_INFERENCE_SOCKET": ""})):
+                      "OPERIX_RTSP_INFERENCE_SOCKET": "", "OPERIX_RTSP_LAB_CAMERA_ID": "lab-cam-01"})):
                 reason = lab.run(args, status, lambda: "OPERATOR_STOP" if status.metrics["frames_processed"] == 2 else None)
             self.assertEqual(reason, "OPERATOR_STOP")
             self.assertEqual(states.call_args_list, [mock.call(name) for name in (
@@ -224,8 +259,45 @@ class WorkerTests(TestCase):
             self.assertEqual(data["metrics"]["epochs"], {"initial": 1, "reconnect": 1})
             self.assertEqual(data["metrics"]["p95_inference_ms"], 7)
             self.assertEqual(data["metrics"]["p95_rules_ms"], 2)
+            self.assertEqual(data["metrics"]["event_policy"]["mode"], "operational")
+            self.assertEqual(data["metrics"]["event_policy"]["rate_scope"], "camera")
+            self.assertIsNone(data["metrics"]["event_limit"])
             self.assertGreaterEqual(data["metrics"]["p95_arrival_to_result_ms"], 0)
             self.assertTrue((args.output / "preview.jpg").read_bytes().startswith(b"\xff\xd8"))
+
+    def test_stop_after_dequeue_counts_the_unprocessed_frame(self):
+        stopped = Event()
+        capture = mock.MagicMock()
+        capture.ready = Condition()
+        capture.counts = lab.Counter(decoded=1)
+        capture.queue = []
+        capture.depth = 1
+        pipeline = mock.Mock()
+        context = SimpleNamespace(analysis_run_id=uuid4(), source={"camera_id": "lab-cam-01"})
+
+        def dequeue():
+            stopped.set()
+            return Frame(0, 1, lab.monotonic(), 0, object())
+
+        capture.next.side_effect = dequeue
+        with TemporaryDirectory() as directory:
+            args = SimpleNamespace(output=Path(directory), fps=12, width=32, height=16, seconds=10, config=None)
+            status = lab.WorkerStatus(args)
+            with (mock.patch.object(lab, "Capture", return_value=capture),
+                  mock.patch.object(lab, "LabPipeline", return_value=pipeline),
+                  mock.patch.object(lab, "load_context", return_value=(context, None)),
+                  mock.patch.dict(lab.os.environ, {"OPERIX_RTSP_URL": "rtsp://127.0.0.1/camera",
+                      "OPERIX_RTSP_ALLOWED_IP": "127.0.0.1", "OPERIX_EVENT_PUBLISH_TOKEN": "test",
+                      "OPERIX_EVENT_API_BASE_URL": "http://127.0.0.1:8000/api/v1",
+                      "OPERIX_RTSP_INFERENCE_SOCKET": "", "OPERIX_RTSP_LAB_CAMERA_ID": "lab-cam-01"})):
+                reason = lab.run(args, status, lambda: "OPERATOR_STOP" if stopped.is_set() else None)
+            self.assertEqual(reason, "OPERATOR_STOP")
+            pipeline.process.assert_not_called()
+            status.write("stopped", reason)
+            metrics = json.loads((args.output / "status.json").read_bytes())["metrics"]
+            self.assertEqual(metrics["capture"].get("shutdown_drop", 0), 1)
+            self.assertEqual(metrics["frames_dropped"], 1)
+            self.assertEqual(metrics["frames_processed"], 0)
 
     def test_shared_timeout_creates_an_observation_gap_before_tracking(self):
         image = np.zeros((16, 32, 3), dtype=np.uint8)
@@ -255,7 +327,8 @@ class WorkerTests(TestCase):
                   mock.patch.dict(lab.os.environ, {"OPERIX_RTSP_URL": "rtsp://127.0.0.1/camera",
                       "OPERIX_RTSP_ALLOWED_IP": "127.0.0.1", "OPERIX_EVENT_PUBLISH_TOKEN": "test",
                       "OPERIX_EVENT_API_BASE_URL": "http://127.0.0.1:8000/api/v1",
-                      "OPERIX_RTSP_INFERENCE_SOCKET": "/private/lab.sock"})):
+                      "OPERIX_RTSP_INFERENCE_SOCKET": "/private/lab.sock",
+                      "OPERIX_RTSP_LAB_CAMERA_ID": "lab-cam-01"})):
                 lab.run(args, status, lambda: "OPERATOR_STOP" if status.metrics["frames_processed"] == 3 else None)
             self.assertEqual(status.inference_drops, {"deadline": 1})
             self.assertEqual(status.inference_batch_sizes, {2: 3})
@@ -296,7 +369,7 @@ class EventTests(TestCase):
         clips = mock.Mock()
         clips.save.return_value = "saved"
         timings = lab.WorkerStatus(SimpleNamespace()).timings
-        publisher = lab.EventPublisher(sink, clips, ImmediateExecutor(), ImmediateExecutor(), metrics, 2, timings)
+        publisher = benchmark_publisher(sink, clips, ImmediateExecutor(), ImmediateExecutor(), metrics, 2, timings)
         ring = JpegRing(2)
         ring.append(7, b"previous")
         ring.append(8, b"trigger")
@@ -347,8 +420,8 @@ class EventTests(TestCase):
     def test_epoch_cut_flushes_pending_and_quota_survives_reset(self):
         sink = self.successful_sink()
         clips = mock.Mock(save=mock.Mock(return_value="saved"))
-        metrics = lab.Counter({"events_submitted": lab.MAX_EVENTS - 1})
-        publisher = lab.EventPublisher(sink, clips, ImmediateExecutor(), ImmediateExecutor(), metrics, fps=12)
+        metrics = lab.Counter({"events_submitted": BENCHMARK_EVENT_LIMIT - 1})
+        publisher = benchmark_publisher(sink, clips, ImmediateExecutor(), ImmediateExecutor(), metrics, fps=12)
         ring = JpegRing(12)
         ring.append(8, b"trigger")
         publisher.submit((self.candidate,) * 2, self.context, self.received, self.processed,
@@ -358,14 +431,62 @@ class EventTests(TestCase):
         ring.clear()
         publisher.advance(9, b"new epoch", ring)
         publisher.collect()
-        self.assertEqual(metrics["events_submitted"], lab.MAX_EVENTS)
+        self.assertEqual(metrics["events_submitted"], BENCHMARK_EVENT_LIMIT)
         self.assertEqual(metrics["events_skipped_quota"], 1)
         event_id, _, frames = clips.save.call_args.args
         self.assertEqual((event_id, frames), (self.event_id, [(8, b"trigger")]))
 
+    def test_operational_evidence_caps_keep_event_and_finalize_status(self):
+        sink = self.successful_sink()
+        metrics = lab.Counter()
+        policy = EventPolicy(events_per_minute=1, png_total_bytes=0, clip_total_bytes=0)
+        with TemporaryDirectory() as directory:
+            store = ClipStore(Path(directory), 12, total_bytes=policy.clip_total_bytes, operational=True)
+            publisher = lab.EventPublisher(sink, store, ImmediateExecutor(), ImmediateExecutor(),
+                                           metrics, fps=12, policy=policy,
+                                           rate_budget=CameraRateBudget(Path(directory), "lab-cam-01"))
+            ring = JpegRing(12)
+            ring.append(8, b"trigger")
+            distinct = replace(self.candidate, track_id=2)
+            publisher.submit((self.candidate, self.candidate, distinct), self.context, self.received, self.processed,
+                             self.frame, self.epoch, self.image)
+            publisher.advance(8, b"trigger", ring)
+            publisher.flush()
+            publisher.collect()
+            sink.upload_evidence.assert_not_called()
+            sink.report_evidence.assert_called_once_with(self.event_id)
+            self.assertEqual(metrics["events_published"], 1)
+            self.assertEqual(metrics["events_skipped_episode_duplicate"], 1)
+            self.assertEqual(metrics["events_skipped_rate_limit"], 1)
+            self.assertEqual(metrics["png_skipped_disk_limit"], 1)
+            self.assertEqual(metrics["clips_disk_limit"], 1)
+            self.assertEqual(metrics["evidence_failed"], 1)
+            self.assertFalse(publisher.pending)
+
+    def test_operational_storage_contention_finalizes_registered_event(self):
+        sink = self.successful_sink()
+        metrics = lab.Counter()
+        policy = EventPolicy()
+        with TemporaryDirectory() as directory:
+            store = ClipStore(Path(directory), 12, operational=True)
+            publisher = lab.EventPublisher(sink, store, ImmediateExecutor(), ImmediateExecutor(),
+                                           metrics, fps=12, policy=policy,
+                                           rate_budget=CameraRateBudget(Path(directory), "lab-cam-01"))
+            with store.evidence_slot(timeout_s=0), mock.patch.object(
+                store, "evidence_slot", side_effect=lambda: ClipStore.evidence_slot(store, timeout_s=0),
+            ):
+                publisher.submit((self.candidate,), self.context, self.received, self.processed,
+                                 self.frame, self.epoch, self.image)
+                publisher.flush()
+                publisher.collect()
+            self.assertEqual(metrics["events_published"], 1)
+            self.assertEqual(metrics["evidence_skipped_storage_busy"], 1)
+            sink.upload_evidence.assert_not_called()
+            sink.report_evidence.assert_called_once_with(self.event_id)
+
     def test_png_is_deferred_shared_and_uses_the_trigger_snapshot(self):
         sink = self.successful_sink()
-        publisher = lab.EventPublisher(sink, mock.Mock(), ImmediateExecutor(), ImmediateExecutor(),
+        publisher = benchmark_publisher(sink, mock.Mock(), ImmediateExecutor(), ImmediateExecutor(),
                                        lab.Counter(), fps=2)
         ring = JpegRing(2)
         ring.append(8, b"trigger")
@@ -394,7 +515,7 @@ class EventTests(TestCase):
         sink = self.successful_sink()
         metrics = lab.Counter()
         clips = mock.Mock(save=mock.Mock(return_value="saved"))
-        publisher = lab.EventPublisher(sink, clips, ImmediateExecutor(), ImmediateExecutor(), metrics, fps=2)
+        publisher = benchmark_publisher(sink, clips, ImmediateExecutor(), ImmediateExecutor(), metrics, fps=2)
         ring = JpegRing(2)
         ring.append(8, b"trigger")
         with mock.patch.object(lab, "evidence_png", side_effect=RuntimeError("encode failure")):
@@ -416,7 +537,7 @@ class EventTests(TestCase):
         sink.publish_document.return_value = PublishResult("failed", http_status=409)
         clips = mock.Mock()
         metrics = lab.Counter()
-        publisher = lab.EventPublisher(sink, clips, ImmediateExecutor(), ImmediateExecutor(), metrics, fps=2)
+        publisher = benchmark_publisher(sink, clips, ImmediateExecutor(), ImmediateExecutor(), metrics, fps=2)
         publisher.submit((self.candidate,), self.context, self.received, self.processed,
                          self.frame, self.epoch, self.image)
         publisher.collect()
@@ -439,7 +560,7 @@ class EventTests(TestCase):
         clips = mock.Mock(save=save)
         metrics = lab.Counter()
         with ThreadPoolExecutor(1) as register, ThreadPoolExecutor(1) as evidence:
-            publisher = lab.EventPublisher(sink, clips, register, evidence, metrics, fps=2)
+            publisher = benchmark_publisher(sink, clips, register, evidence, metrics, fps=2)
             try:
                 publisher.submit((self.candidate,), self.context, self.received, self.processed,
                                  self.frame, self.epoch, self.image)
@@ -447,20 +568,20 @@ class EventTests(TestCase):
                 publisher.flush()
                 publisher.collect()
                 self.assertTrue(clip_started.wait(3))
-                publisher.submit((self.candidate,) * lab.MAX_PENDING, self.context, self.received,
+                publisher.submit((self.candidate,) * MAX_PENDING, self.context, self.received,
                                  self.processed, self.frame, self.epoch, self.image)
                 for job in publisher.pending[1:]:
                     job.registration.result(timeout=3)
                 publisher.collect()
-                self.assertEqual(len(publisher.pending), lab.MAX_PENDING)
+                self.assertEqual(len(publisher.pending), MAX_PENDING)
                 self.assertEqual(metrics["events_skipped_backpressure"], 1)
-                self.assertEqual(metrics["events_published"], lab.MAX_PENDING)
+                self.assertEqual(metrics["events_published"], MAX_PENDING)
                 self.assertEqual(metrics["clips_saved"], 0)
             finally:
                 release_clip.set()
                 publisher.flush()
                 publisher.collect(drain=True)
-        self.assertEqual(metrics["clips_saved"], lab.MAX_PENDING)
+        self.assertEqual(metrics["clips_saved"], MAX_PENDING)
         self.assertFalse(publisher.pending)
 
     def test_retries_registration_and_evidence_independently_with_same_snapshots(self):
@@ -472,7 +593,7 @@ class EventTests(TestCase):
         sink = HttpEventSink("http://127.0.0.1:8000/api/v1")
         metrics = lab.Counter()
         clips = mock.Mock(save=mock.Mock(return_value="unavailable"))
-        publisher = lab.EventPublisher(sink, clips, ImmediateExecutor(), ImmediateExecutor(), metrics, fps=2)
+        publisher = benchmark_publisher(sink, clips, ImmediateExecutor(), ImmediateExecutor(), metrics, fps=2)
         with mock.patch.object(sink, "_request", side_effect=[
             TimeoutError, response(200, id=self.event_id, created=False),
             URLError("lost response"), response(200), response(204),
@@ -493,7 +614,7 @@ class EventTests(TestCase):
     def test_postroll_limit_retains_trigger_and_finishes_before_oversize_frame(self):
         sink = self.successful_sink()
         clips = mock.Mock(save=mock.Mock(return_value="saved"))
-        publisher = lab.EventPublisher(sink, clips, ImmediateExecutor(), ImmediateExecutor(),
+        publisher = benchmark_publisher(sink, clips, ImmediateExecutor(), ImmediateExecutor(),
                                        lab.Counter(), fps=2)
         ring = JpegRing(2)
         ring.append(8, b"trigger")
@@ -525,6 +646,23 @@ class EventTests(TestCase):
                 "duration_s": .25, "event_offset_s": 1 / 12, "bytes": len(mp4),
                 "sha256": hashlib.sha256(mp4).hexdigest(),
             })
+
+    def test_rtsp_rechecks_capacity_after_a_peer_publishes_during_encode(self):
+        payload = lab.reception_payload(self.candidate, self.context, self.received, self.processed, None, False)
+        with TemporaryDirectory() as directory:
+            store = ClipStore(Path(directory), 12, total_bytes=7)
+            peer = store.root / str(uuid4()) / str(uuid4())
+
+            def encode(path, *_):
+                path.write_bytes(b"rtsp123")
+                with TemporaryDirectory(prefix=".clip-", dir=store.root) as scratch_dir:
+                    scratch = Path(scratch_dir)
+                    (scratch / "clip.mp4").write_bytes(b"offline")
+                    self.assertEqual(publish_clip(store.root, scratch, peer, total_bytes=7), "saved")
+
+            with mock.patch("operix_engine.rtsp_lab_clips._encode_clip", side_effect=encode):
+                self.assertEqual(store.save(self.event_id, payload, [(8, b"at")]), "disk_limit")
+            self.assertEqual(list(store.root.rglob("clip.mp4")), [peer / "clip.mp4"])
 
     def test_ring_bounds_memory_and_drops_context_across_index_gap(self):
         ring = JpegRing(2, seconds=1, max_bytes=7)

@@ -550,6 +550,7 @@ def worker_group():
     processes = []
     broker = None
     env = {**os.environ, **manifest["env"]}
+    env["OPERIX_RTSP_LAB_EVENT_POLICY"] = "benchmark"
     env.pop("OPERIX_RTSP_INFERENCE_SOCKET", None)
     with ThreadingHTTPServer(("127.0.0.1", 18081), LocalEvents) as receiver:
         Thread(target=receiver.serve_forever, daemon=True).start()

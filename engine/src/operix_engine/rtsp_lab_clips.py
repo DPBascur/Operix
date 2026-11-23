@@ -7,10 +7,20 @@ import math
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from time import monotonic, time
 from uuid import UUID
 
-import cv2
-import numpy as np
+from operix_engine.clip_capacity import (
+    SHARED_CLIP_TOTAL_BYTES, clip_bytes_remaining, exclusive_file_slot, publish_clip, stored_bytes,
+)
+
+
+CLIP_MAX_BYTES = 12 * 1024 * 1024
+RETENTION_SCOPE = "rtsp-lab-operational"
+
+
+class ClipSizeLimit(ValueError):
+    pass
 
 
 class JpegRing:
@@ -37,6 +47,9 @@ class JpegRing:
 
 
 def _encode_clip(path, frames, fps, limit):
+    import cv2
+    import numpy as np
+
     writer = None
     try:
         for _, jpeg in frames:
@@ -55,7 +68,7 @@ def _encode_clip(path, frames, fps, limit):
                 frame = cv2.resize(frame, dimensions, interpolation=cv2.INTER_AREA)
             writer.write(frame)
             if path.stat().st_size > limit:
-                raise ValueError("Clip fuera del límite de almacenamiento")
+                raise ClipSizeLimit("Clip fuera del límite de almacenamiento")
     finally:
         if writer is not None:
             writer.release()
@@ -72,9 +85,51 @@ def _encode_clip(path, frames, fps, limit):
 class ClipStore:
     """Publica juntos el MP4 verificado y los metadatos del evento confirmado."""
 
-    def __init__(self, media_root: Path, fps: float):
+    def __init__(self, media_root: Path, fps: float, *, total_bytes=SHARED_CLIP_TOTAL_BYTES,
+                 retention_days=0, operational=False):
         self.root = media_root / "evidence-clips"
         self.fps = fps
+        self.total_bytes = total_bytes
+        self.retention_days = retention_days
+        self.operational = operational
+        self.next_retention = 0
+
+    def evidence_slot(self, *, timeout_s=2):
+        return exclusive_file_slot(self.root.parent / ".rtsp-evidence.lock", timeout_s=timeout_s)
+
+    def png_fits(self, size, total_bytes):
+        return size <= total_bytes and stored_bytes((self.root.parent / "events").glob("*/*.png")) + size <= total_bytes
+
+    def expire(self):
+        """Expire only tagged RTSP clips, leaving historical evidence in place."""
+        if not self.retention_days or monotonic() < self.next_retention or self.root.is_symlink():
+            return 0, 0
+        self.next_retention = monotonic() + 3600
+        cutoff = time() - self.retention_days * 86400
+        expired = errors = 0
+        for metadata in self.root.glob("*/*/metadata.json"):
+            directory = metadata.parent
+            clip = directory / "clip.mp4"
+            if any(path.is_symlink() for path in (metadata, clip, directory, directory.parent)):
+                continue
+            try:
+                if clip.stat().st_mtime >= cutoff:
+                    continue
+                document = json.loads(metadata.read_text(encoding="utf-8"))
+                event_id = str(UUID(directory.parent.name))
+                run_id = str(UUID(directory.name))
+                if (document.get("retention_scope") != RETENTION_SCOPE or document.get("event_id") != event_id
+                        or document.get("analysis_run_id") != run_id or set(directory.iterdir()) != {metadata, clip}):
+                    continue
+                clip.unlink()
+                metadata.unlink()
+                directory.rmdir()
+                expired += 1
+            except (FileNotFoundError, ValueError, AttributeError):
+                continue
+            except OSError:
+                errors += 1
+        return expired, errors
 
     def save(self, event_id, payload, frames):
         event_id = str(UUID(event_id))
@@ -85,21 +140,19 @@ class ClipStore:
             return "unavailable"
         destination = self.root / event_id / run_id
         if destination.exists():
-            return "existing"
-        remaining = 512 * 1024 * 1024
-        for path in self.root.glob("*/*/clip.mp4"):
-            try:
-                remaining -= path.stat().st_size
-            except FileNotFoundError:
-                continue  # Un evento pudo borrarse durante el recorrido.
-        limit = min(remaining, 12 * 1024 * 1024)
+            return "existing" if (destination / "clip.mp4").is_file() else "unavailable"
+        remaining = clip_bytes_remaining(self.root, self.total_bytes)
+        limit = min(remaining, CLIP_MAX_BYTES)
         if limit <= 0:
             return "disk_limit"
-        destination.parent.mkdir(parents=True, exist_ok=True)
+        self.root.mkdir(parents=True, exist_ok=True)
         with TemporaryDirectory(prefix=".clip-", dir=self.root) as directory:
             scratch = Path(directory)
             output = scratch / "clip.mp4"
-            _encode_clip(output, frames, self.fps, limit)
+            try:
+                _encode_clip(output, frames, self.fps, limit)
+            except ClipSizeLimit:
+                return "disk_limit"
             size = output.stat().st_size
             if not 0 < size <= limit:
                 return "disk_limit"
@@ -115,11 +168,7 @@ class ClipStore:
                 "duration_s": len(frames) / self.fps, "event_offset_s": (event_frame - start) / self.fps,
                 "bytes": size, "sha256": digest,
             }
+            if self.operational:
+                metadata["retention_scope"] = RETENTION_SCOPE
             (scratch / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
-            try:
-                scratch.rename(destination)
-            except OSError:
-                if destination.is_dir():
-                    return "existing"
-                raise
-        return "saved"
+            return publish_clip(self.root, scratch, destination, total_bytes=self.total_bytes)

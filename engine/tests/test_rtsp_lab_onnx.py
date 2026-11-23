@@ -18,6 +18,7 @@ class OnnxLabTests(TestCase):
         self.env = {
             "OPERIX_RTSP_LAB_INFERENCE_PROFILE": "onnx-cuda",
             "OPERIX_RTSP_LAB_ONNX_DIR": "/verified/models",
+            "OPERIX_RTSP_LAB_CAMERA_ID": "lab-cam-01",
             "OPERIX_RTSP_URL": "rtsp://127.0.0.1/lab",
             "OPERIX_RTSP_ALLOWED_IP": "127.0.0.1",
             "OPERIX_EVENT_PUBLISH_TOKEN": "test",
@@ -122,7 +123,7 @@ class OnnxLabTests(TestCase):
     def test_real_worker_reports_effective_profile_and_never_retries_with_pytorch(self):
         with TemporaryDirectory() as temp:
             self.args.output = Path(temp)
-            context = SimpleNamespace(analysis_run_id=uuid4())
+            context = SimpleNamespace(analysis_run_id=uuid4(), source={"camera_id": "lab-cam-01"})
             status = lab.WorkerStatus(self.args)
             with (mock.patch.dict(lab.os.environ, self.env, clear=True),
                   mock.patch.object(lab, "load_context", return_value=(context, None)),

@@ -16,6 +16,7 @@ from django.db import close_old_connections, transaction
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.urls import reverse
+from operix_engine.clip_capacity import clip_bytes_remaining, publish_clip
 
 from .models import Event
 
@@ -70,17 +71,16 @@ def generate_clips(video_path, config):
     ).order_by("frame_index", "id")
     root = Path(settings.MEDIA_ROOT) / "evidence-clips"
     root.mkdir(parents=True, exist_ok=True)
-    remaining = settings.OPERIX_CLIP_TOTAL_BYTES - sum(p.stat().st_size for p in root.glob("*/*/clip.mp4"))
+    total_bytes = settings.OPERIX_CLIP_TOTAL_BYTES
     for event in events[:settings.OPERIX_CLIP_MAX_PER_RUN]:
         if (not 0 <= event.frame_index < count or abs(float(event.video_timestamp_s) - event.frame_index / fps)
                 > max(0.001, 0.25 / fps) or clip_info(event)):
             continue
-        limit = min(remaining, settings.OPERIX_CLIP_MAX_BYTES)
+        limit = min(clip_bytes_remaining(root, total_bytes), settings.OPERIX_CLIP_MAX_BYTES)
         if limit <= 0:
             return
         start, stop = clip_window(event.frame_index, count, fps, settings.OPERIX_CLIP_WINDOW_SECONDS)
         destination = clip_directory(event)
-        destination.parent.mkdir(parents=True, exist_ok=True)
         scratch = Path(tempfile.mkdtemp(prefix=".clip-", dir=root))
         try:
             output = scratch / "clip.mp4"
@@ -106,8 +106,9 @@ def generate_clips(video_path, config):
             with transaction.atomic():
                 if not Event.objects.select_for_update().filter(pk=event.pk).exists():
                     continue
-                scratch.rename(destination)
-            remaining -= size
+                result = publish_clip(root, scratch, destination, total_bytes=total_bytes)
+            if result == "storage_busy":
+                logger.warning("No se pudo obtener el bloqueo de capacidad del clip %s", event.pk)
         except subprocess.CalledProcessError as error:
             details = (error.stderr or "").strip().splitlines()
             logger.warning("No se pudo codificar el clip %s (%s): %s",
