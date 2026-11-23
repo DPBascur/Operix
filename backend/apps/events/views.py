@@ -4,6 +4,7 @@ import re
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone
 
+from django.core.paginator import Paginator
 from django.db import DatabaseError, connection, transaction
 from django.db.models import Count, Q
 from django.db.models.functions import TruncDate
@@ -22,7 +23,7 @@ from config.access import CanReviewEvents, HasOperixRole
 from .clips import clip_directory, clip_info
 from .models import Event
 from .publication import require_event_publisher
-from .serializers import EventFilterSerializer, EventSerializer
+from .serializers import EventFilterSerializer, EventHistorySerializer, EventSerializer
 
 
 @api_view(["GET"])
@@ -58,6 +59,42 @@ class EventListCreateView(PublisherWriteMixin, generics.ListCreateAPIView):
         if self.request.method != "GET":
             return queryset
         return filtered_events(queryset, self.request.query_params)
+
+    def list(self, request, *args, **kwargs):
+        if "page" not in request.query_params:
+            return super().list(request, *args, **kwargs)
+
+        params = request.query_params.copy()
+        history = EventHistorySerializer(data={
+            field: params.pop(field)[-1]
+            for field in EventHistorySerializer().fields
+            if field in params
+        })
+        history.is_valid(raise_exception=True)
+        options = history.validated_data
+        queryset = filtered_events(self.queryset.all(), params, include_lab=True)
+        if stage := options.get("evidence_stage"):
+            queryset = queryset.filter(evidence_stage="" if stage == "legacy" else stage)
+        if search := options.get("search"):
+            queryset = queryset.filter(
+                Q(zone_id__icontains=search)
+                | Q(rule_id__icontains=search)
+                | Q(view_id__icontains=search)
+                | Q(source__filename__icontains=search)
+                | Q(source__camera_id__icontains=search)
+            )
+        if options["order"] == "oldest":
+            queryset = queryset.reverse()
+
+        paginator = Paginator(queryset, options["page_size"])
+        page = paginator.get_page(options["page"])
+        return Response({
+            "count": paginator.count,
+            "page": page.number,
+            "page_size": paginator.per_page,
+            "total_pages": paginator.num_pages,
+            "results": self.get_serializer(page.object_list, many=True).data,
+        })
 
     def create(self, request, *args, **kwargs):
         require_event_publisher(request)
@@ -147,7 +184,7 @@ class EventClipView(APIView):
         return _video_response(request, clip_directory(event) / "clip.mp4", "operix-evidence.mp4")
 
 
-def filtered_events(queryset, query_params):
+def filtered_events(queryset, query_params, *, include_lab=False):
     """Comparte el contrato de filtros y sus límites inclusivos con la lista."""
     unknown = set(query_params) - {"event_type", "zone_id", "occurred_after", "occurred_before",
                                     "source_kind", "source_sha256", "camera_id"}
@@ -166,7 +203,7 @@ def filtered_events(queryset, query_params):
         queryset = queryset.filter(occurred_at__lte=data["occurred_before"])
     if "camera_id" in data:
         queryset = queryset.filter(source__kind="lab", source__camera_id=data["camera_id"])
-    elif "source_kind" not in data:
+    elif not include_lab and "source_kind" not in data:
         # Lab runs cannot inflate operational aggregates through repetitive replay.
         queryset = queryset.filter(Q(source__kind__isnull=True) | ~Q(source__kind="lab"))
     if data.get("source_kind") == "unknown":

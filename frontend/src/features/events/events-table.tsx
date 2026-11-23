@@ -2,13 +2,16 @@
 
 import { Activity } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Fragment,
   useCallback,
   useEffect,
   useId,
+  useRef,
   useState,
   useSyncExternalStore,
+  useTransition,
 } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { EventPreview, EventThumbnail } from "./event-preview";
@@ -23,11 +26,16 @@ import { Button } from "@/components/ui/button";
 import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { eventsService } from "@/services/events.service";
 import {
-  eventQueryParams,
-  type EventQuery,
-} from "@/services/adapters/frontend-data.adapter";
+  eventsService,
+  type EventHistoryPage,
+} from "@/services/events.service";
+import {
+  changeEventHistoryMode,
+  eventHistoryHref,
+  type EventHistoryFilters,
+  type EventHistoryQuery,
+} from "./event-history-query";
 import type { EventListItem } from "@/types/operix";
 import { historyError, sourceNames } from "@/features/dashboard/history-model";
 import { controlTransition } from "@/lib/motion/presets";
@@ -73,7 +81,10 @@ function watchEventWidth(callback: () => void) {
   return () => query.removeEventListener("change", callback);
 }
 
-export function EventsTable({ initial }: { initial: EventQuery }) {
+export function EventsTable({ initial }: { initial: EventHistoryQuery }) {
+  const { filters } = initial;
+  const router = useRouter();
+  const [navigating, startTransition] = useTransition();
   const desktop = useSyncExternalStore(
     watchEventWidth,
     () => wideEvents().matches,
@@ -82,48 +93,63 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
   const reduced = useReducedMotion();
   const [expanded, setExpanded] = useState<string | null>(null);
   const animation = reduced ? { duration: 0 } : controlTransition;
-  const [events, setEvents] = useState<EventListItem[]>([]);
+  const [result, setResult] = useState<{
+    key: string;
+    data?: EventHistoryPage;
+    error?: string;
+  }>();
   const previewId = useId();
+  const resultsStart = useRef<HTMLDivElement>(null);
   const updateEvidence = useCallback((id: string, evidence: EventEvidence) => {
-    setEvents((rows) =>
-      rows.map((row) =>
-        row.id === id
-          ? { ...row, evidence: mergeEvidence(evidence, row.evidence) }
-          : row,
-      ),
-    );
+    setResult((current) => {
+      if (!current?.data) return current;
+      return {
+        ...current,
+        data: {
+          ...current.data,
+          rows: current.data.rows.map((row) =>
+            row.id === id
+              ? { ...row, evidence: mergeEvidence(evidence, row.evidence) }
+              : row,
+          ),
+        },
+      };
+    });
   }, []);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
-  const [from, setFrom] = useState(() => dateInput(initial.occurredAfter));
-  const [to, setTo] = useState(() => dateInput(initial.occurredBefore));
+  const [from, setFrom] = useState(() => dateInput(filters.occurredAfter));
+  const [to, setTo] = useState(() => dateInput(filters.occurredBefore));
   const [eventType, setEventType] = useState<
-    | ""
-    | "zone_dwell"
-    | "person_forklift_proximity"
-    | "zone_entry"
-    | "zone_coexistence"
-  >(initial.eventType ?? "");
+    NonNullable<EventHistoryFilters["eventType"]> | ""
+  >(filters.eventType ?? "");
   const [source, setSource] = useState<
-    NonNullable<EventQuery["sourceKind"]> | ""
-  >(initial.sourceKind ?? "");
-  const [filters, setFilters] = useState<EventQuery>(initial);
-  function updateFilters(values: EventQuery) {
-    const params = eventQueryParams(values);
-    window.history.replaceState(
-      null,
-      "",
-      params.size ? `/events?${params}` : "/events",
-    );
-    setFilters(values);
+    NonNullable<EventHistoryFilters["sourceKind"]> | ""
+  >(filters.sourceKind ?? "");
+  const [camera, setCamera] = useState(filters.cameraId ?? "");
+  const [stage, setStage] = useState<
+    NonNullable<EventHistoryFilters["evidenceStage"]> | ""
+  >(filters.evidenceStage ?? "");
+  const [search, setSearch] = useState(filters.search ?? "");
+  const [order, setOrder] = useState(filters.order ?? "newest");
+  const currentHref = eventHistoryHref(initial);
+  const key = `${currentHref}#${retry}`;
+  const loading = result?.key !== key;
+  const data = loading ? undefined : result.data;
+  const error = loading ? undefined : result.error;
+
+  function navigate(query: EventHistoryQuery) {
     setExpanded(null);
+    const href = eventHistoryHref(query);
+    if (href === currentHref) {
+      setRetry((current) => current + 1);
+      return;
+    }
+    startTransition(() => router.push(href, { scroll: false }));
   }
   function dossier(url: string) {
-    const params = eventQueryParams(filters);
-    return params.size
-      ? `${url}?${new URLSearchParams({ back: `/events?${params}` })}`
-      : url;
+    return currentHref === "/events"
+      ? url
+      : `${url}?${new URLSearchParams({ back: currentHref })}`;
   }
 
   function evidenceButton(row: EventListItem) {
@@ -162,24 +188,24 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
   }
   const [filterError, setFilterError] = useState<string | null>(null);
   useEffect(() => {
-    let active = true;
-    eventsService.listRows(filters).then(
-      (items) => {
-        if (!active) return;
-        setEvents(items);
-        setError(null);
-        setLoading(false);
+    const controller = new AbortController();
+    eventsService.listPage(initial, controller.signal).then(
+      (page) => {
+        if (controller.signal.aborted) return;
+        setResult({ key, data: page });
+        if (page.page !== initial.page) {
+          router.replace(eventHistoryHref({ ...initial, page: page.page }), {
+            scroll: false,
+          });
+        }
       },
       (failure: unknown) => {
-        if (!active) return;
-        setError(historyError(failure));
-        setLoading(false);
+        if (!controller.signal.aborted)
+          setResult({ key, error: historyError(failure) });
       },
     );
-    return () => {
-      active = false;
-    };
-  }, [filters, retry]);
+    return () => controller.abort();
+  }, [initial, key, router]);
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const occurredAfter =
@@ -207,36 +233,54 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
       return;
     }
     setFilterError(null);
-    setLoading(true);
-    updateFilters({
-      occurredAfter: occurredAfter ?? undefined,
-      occurredBefore: occurredBefore ?? undefined,
-      eventType: eventType || undefined,
-      sourceKind: source || undefined,
-      sourceSha256: filters.sourceSha256,
-      zoneId: filters.zoneId,
-      cameraId: filters.cameraId,
+    navigate({
+      all: initial.all,
+      page: 1,
+      filters: {
+        ...filters,
+        occurredAfter: occurredAfter ?? undefined,
+        occurredBefore: occurredBefore ?? undefined,
+        eventType: eventType || undefined,
+        sourceKind: source || undefined,
+        cameraId: camera.trim().toLowerCase() || undefined,
+        evidenceStage: stage || undefined,
+        search: search.trim() || undefined,
+        order: order === "oldest" ? order : undefined,
+      },
     });
-    setRetry((current) => current + 1);
   }
   function clearFilters() {
     setFrom("");
     setTo("");
     setEventType("");
     setSource("");
+    setCamera("");
+    setStage("");
+    setSearch("");
+    setOrder("newest");
     setFilterError(null);
-    setLoading(true);
-    updateFilters({});
-    setRetry((current) => current + 1);
+    navigate({ all: initial.all, page: 1, filters: {} });
   }
-  const hasAppliedFilters = Object.values(filters).some(Boolean);
-  const hasDraftFilters = Boolean(from || to || eventType || source);
-  const filteredEvents = events;
+  const hasAppliedFilters = Object.entries(filters).some(
+    ([name, value]) => name !== "order" && Boolean(value),
+  );
+  const hasDraftFilters = Boolean(
+    from ||
+    to ||
+    eventType ||
+    source ||
+    camera ||
+    stage ||
+    search ||
+    order === "oldest",
+  );
+  const filteredEvents = data?.rows ?? [];
+  const offset = data ? (data.page - 1) * data.pageSize : 0;
 
   return (
     <>
       <form
-        className="grid gap-3 border-b border-border pb-5 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_auto] xl:items-end"
+        className="grid gap-3 border-b border-border pb-5 sm:grid-cols-2 xl:grid-cols-4 xl:items-end"
         onSubmit={applyFilters}
       >
         <label className="grid gap-1 text-xs font-medium text-text-secondary">
@@ -262,14 +306,7 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
           <select
             className="select-control"
             onChange={(event) =>
-              setEventType(
-                event.target.value as
-                  | ""
-                  | "zone_dwell"
-                  | "person_forklift_proximity"
-                  | "zone_entry"
-                  | "zone_coexistence",
-              )
+              setEventType(event.target.value as typeof eventType)
             }
             value={eventType}
           >
@@ -297,7 +334,63 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
             ))}
           </select>
         </label>
-        <Button type="submit">Aplicar filtros</Button>
+        <label className="grid gap-1 text-xs font-medium text-text-secondary">
+          Cámara de laboratorio
+          <Input
+            value={camera}
+            onChange={(event) => setCamera(event.target.value)}
+            pattern="[Ll][Aa][Bb]-[Cc][Aa][Mm]-[0-9]{2}"
+            title="ID de cámara, por ejemplo lab-cam-01"
+            placeholder="lab-cam-01"
+          />
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-text-secondary">
+          Estado de publicación de evidencia
+          <select
+            className="select-control"
+            value={stage}
+            onChange={(event) => setStage(event.target.value as typeof stage)}
+          >
+            <option value="">Todos los estados</option>
+            <option value="pending">Pendiente de confirmación</option>
+            <option value="finished">Publicación finalizada</option>
+            <option value="legacy">Sin seguimiento de publicación</option>
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-text-secondary">
+          Buscar por zona, regla, vista o fuente
+          <Input
+            type="search"
+            maxLength={120}
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-text-secondary">
+          Orden
+          <select
+            className="select-control"
+            value={order}
+            onChange={(event) => setOrder(event.target.value)}
+          >
+            <option value="newest">Más recientes primero</option>
+            <option value="oldest">Más antiguos primero</option>
+          </select>
+        </label>
+        <div className="flex flex-wrap items-center gap-2 sm:col-span-2 xl:col-span-4">
+          <Button type="submit" disabled={navigating}>
+            Aplicar filtros
+          </Button>
+          {(hasDraftFilters || hasAppliedFilters) && (
+            <Button
+              variant="ghost"
+              onClick={clearFilters}
+              disabled={navigating}
+            >
+              Limpiar filtros
+            </Button>
+          )}
+        </div>
       </form>
       {filterError && (
         <p role="alert" className="mt-2 text-sm text-danger">
@@ -309,28 +402,32 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
           Zona filtrada · {filters.zoneId}
         </p>
       )}
-      {filters.cameraId && (
-        <p className="mt-2 break-words text-xs text-text-secondary">
-          Cámara filtrada · {filters.cameraId}
-        </p>
-      )}
       {filters.sourceSha256 && (
         <p className="mt-2 text-xs text-text-secondary">
           Video filtrado · SHA-256 {filters.sourceSha256.slice(0, 12)}…
         </p>
       )}
 
-      <div className="mt-4 flex min-h-11 items-center justify-between gap-3">
-        <p role="status" className="text-xs text-text-secondary">
-          {loading
-            ? null
-            : error
-              ? "Eventos no disponibles"
-              : `${filteredEvents.length} ${filteredEvents.length === 1 ? "evento registrado" : "eventos registrados"}`}
+      <div
+        ref={resultsStart}
+        className="my-4 flex min-h-11 flex-wrap items-center justify-between gap-3"
+      >
+        <p role="status" className="text-sm tabular-nums text-text-secondary">
+          {filteredEvents.length
+            ? `Mostrando ${offset + 1}–${offset + filteredEvents.length} de ${data?.count} ${data?.count === 1 ? "evento" : "eventos"}`
+            : data?.count === 0
+              ? "0 eventos"
+              : null}
         </p>
-        {(hasDraftFilters || hasAppliedFilters) && (
-          <Button variant="ghost" onClick={clearFilters}>
-            Limpiar filtros
+        {data && (
+          <Button
+            variant="outline"
+            onClick={() =>
+              navigate(changeEventHistoryMode({ ...initial, page: data.page }))
+            }
+            disabled={navigating}
+          >
+            {initial.all ? "Volver a 15 por página" : "Ver todos"}
           </Button>
         )}
       </div>
@@ -348,7 +445,6 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
             className="mt-2"
             variant="outline"
             onClick={() => {
-              setLoading(true);
               setRetry((current) => current + 1);
             }}
           >
@@ -356,8 +452,33 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
           </Button>
         </div>
       )}
-      {!loading && !error && (
+      {data && (
         <>
+          {data.totalPages > 1 && (
+            <nav
+              aria-label="Paginación de eventos"
+              className="mb-4 flex flex-wrap items-center gap-2"
+            >
+              <Button
+                variant="outline"
+                onClick={() => navigate({ ...initial, page: data.page - 1 })}
+                disabled={navigating || data.page <= 1}
+              >
+                Anterior
+              </Button>
+              <span className="px-1 text-sm tabular-nums text-text-secondary">
+                {initial.all ? "Bloque" : "Página"} {data.page} de{" "}
+                {data.totalPages}
+              </span>
+              <Button
+                variant="outline"
+                onClick={() => navigate({ ...initial, page: data.page + 1 })}
+                disabled={navigating || data.page >= data.totalPages}
+              >
+                {initial.all ? "Cargar más" : "Siguiente"}
+              </Button>
+            </nav>
+          )}
           <ul
             aria-label="Eventos registrados"
             className="divide-y divide-border xl:hidden"
@@ -549,6 +670,20 @@ export function EventsTable({ initial }: { initial: EventQuery }) {
                 : "Todavía no hay eventos registrados."}
             </p>
           ) : null}
+          {initial.all && data.page < data.totalPages && (
+            <div className="mt-4 flex justify-center border-t border-border pt-4">
+              <Button
+                variant="outline"
+                disabled={navigating}
+                onClick={() => {
+                  navigate({ ...initial, page: data.page + 1 });
+                  resultsStart.current?.scrollIntoView({ block: "start" });
+                }}
+              >
+                Cargar más eventos
+              </Button>
+            </div>
+          )}
         </>
       )}
     </>

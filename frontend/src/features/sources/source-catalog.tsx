@@ -135,6 +135,7 @@ export function SourceCatalog({ compact = false }: { compact?: boolean }) {
 
   return (
     <div className={compact ? "source-catalog is-compact" : "source-catalog"}>
+      {!compact && <CameraLab />}
       {compact && (
         <section className="analysis-launch" aria-labelledby="launch-title">
           <div className="analysis-launch-copy">
@@ -249,8 +250,6 @@ export function SourceCatalog({ compact = false }: { compact?: boolean }) {
               </Link>
             </div>
           </section>
-
-          <CameraLab />
         </>
       )}
     </div>

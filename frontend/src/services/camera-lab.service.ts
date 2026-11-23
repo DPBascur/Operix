@@ -32,8 +32,18 @@ export type CameraDocument = {
 export type LabCamera = {
   id: string;
   name: string;
+  automatic?: boolean;
   description: string;
-  provenance: { title?: string; author?: string; license?: string } | null;
+  provenance: {
+    title?: string;
+    author?: string;
+    license?: string;
+    filename?: string;
+    duration_s?: number;
+    fps?: number;
+    footage?: string;
+    scenario?: string;
+  } | null;
   expected_fps: number | null;
   width: number | null;
   height: number | null;
@@ -41,6 +51,7 @@ export type LabCamera = {
   metrics: Record<string, unknown> | null;
   preview_url: string | null;
   configuration: CameraDocument | null;
+  effective_rules?: CameraDocument["rules"] | null;
   calibration_requires_reconfirmation?: boolean;
   policy?: { rule_set: { name: string; version: number } } | null;
   revision: number;
@@ -52,21 +63,44 @@ export type LabCamera = {
 
 export type CameraCatalog = {
   enabled: boolean;
+  managed?: boolean;
   cameras: LabCamera[];
   capacity: number;
   can_edit: boolean;
 };
 
+export type CameraControlEntry = Pick<
+  LabCamera,
+  "id" | "name" | "status" | "metrics" | "preview_url" | "last_frame_at" | "provenance"
+> & { enabled: boolean; run_id?: string | null; problem?: string | null };
+
+export type CameraLabControl = {
+  available: boolean;
+  enabled: boolean;
+  status: "disabled" | "starting" | "partial" | "active" | "stopping";
+  capacity: number;
+  cameras: CameraControlEntry[];
+  publisher: Record<string, "idle" | "starting" | "publishing" | "error">;
+  mediamtx: "ready" | "unavailable";
+  updated_by: string | null;
+};
+
+export type CameraControlUpdate = {
+  enabled?: boolean;
+  cameras?: Record<string, boolean>;
+};
+
 const base = (environment.apiBaseUrl ?? "/api/v1").replace(/\/$/, "");
 const collection = `${base}/analysis/cameras/`;
+const controlPath = `${collection}control/`;
 const cameraPath = (id: string) => `${collection}${encodeURIComponent(id)}/`;
 
 export class CameraRequestError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
     super(message);
+    this.status = status;
   }
 }
 
@@ -113,6 +147,15 @@ async function cameraJson<T>(response: Response): Promise<T> {
 export const cameraLabService = {
   list: (signal: AbortSignal) =>
     readCameraData<CameraCatalog>(collection, signal),
+  control: (signal: AbortSignal) =>
+    readCameraData<CameraLabControl>(controlPath, signal),
+  async updateControl(update: CameraControlUpdate) {
+    await cameraRequest(controlPath, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(update),
+    });
+  },
   detail: (id: string, signal: AbortSignal) =>
     readCameraData<LabCamera>(cameraPath(id), signal),
   async monitor(id: string, action: "start" | "stop") {

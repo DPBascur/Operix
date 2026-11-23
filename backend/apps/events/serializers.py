@@ -221,3 +221,13 @@ class EventFilterSerializer(serializers.Serializer):
             if attrs["occurred_after"] > attrs["occurred_before"]:
                 raise serializers.ValidationError("occurred_after no puede superar occurred_before.")
         return attrs
+
+
+class EventHistorySerializer(serializers.Serializer):
+    page = serializers.IntegerField(min_value=1, max_value=2**53 - 1)
+    page_size = serializers.ChoiceField(choices=(15, 60), default=15)
+    evidence_stage = serializers.ChoiceField(
+        choices=("pending", "finished", "legacy"), required=False,
+    )
+    search = serializers.CharField(max_length=120, required=False)
+    order = serializers.ChoiceField(choices=("newest", "oldest"), default="newest")

@@ -6,7 +6,7 @@ import { AutomaticCalibration } from "@/features/calibration/automatic-calibrati
 
 import { ArrowRight, Camera } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
@@ -15,7 +15,6 @@ import { operationalError } from "@/features/operations/operation-request";
 import { eventTypeName } from "@/services/event-contract";
 import {
   cameraLabService,
-  CameraRequestError,
   type CameraDocument,
   type LabCamera,
 } from "@/services/camera-lab.service";
@@ -27,18 +26,14 @@ import {
   cameraNumber,
   cameraTechnicalMetrics,
 } from "./camera-diagnostics";
+import {
+  CameraCard,
+  CameraPreview,
+  LoadError,
+  statusLabel,
+  useCameraData,
+} from "./camera-overview";
 
-const statusLabels: Record<string, string> = {
-  available: "Disponible",
-  connecting: "Conectando",
-  transmitting: "Transmitiendo",
-  analyzing: "Analizando",
-  no_signal: "Sin señal",
-  overloaded: "Inferencia saturada",
-  reconnecting: "Reconectando",
-  stopped: "Detenida",
-  error: "Error",
-};
 const idle = new Set(["available", "stopped", "error"]);
 const calibrationSectionId = "camera-automatic-calibration";
 const monitoring = new Set([
@@ -50,69 +45,11 @@ const monitoring = new Set([
   "reconnecting",
 ]);
 
-function statusLabel(status: string) {
-  return statusLabels[status] ?? "Estado desconocido";
-}
-
-function useCameraData<T>(
-  load: (signal: AbortSignal) => Promise<T>,
-  interval: number,
-  paused = false,
-) {
-  const [data, setData] = useState<T>();
-  const [error, setError] = useState<Error>();
-  const [attempt, setAttempt] = useState(0);
-
-  useEffect(() => {
-    if (paused) return;
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    async function refresh() {
-      try {
-        const result = await load(controller.signal);
-        if (controller.signal.aborted) return;
-        setData(result);
-        setError(undefined);
-      } catch (cause) {
-        if (controller.signal.aborted) return;
-        if (
-          cause instanceof CameraRequestError &&
-          [401, 403, 404].includes(cause.status)
-        ) {
-          setData(undefined);
-          setError(cause);
-          return;
-        }
-        setError(new Error(operationalError(cause)));
-      }
-      timer = setTimeout(refresh, interval);
-    }
-    void refresh();
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, [load, interval, paused, attempt]);
-
-  return { data, setData, error, retry: () => setAttempt((n) => n + 1) };
-}
-
-function LoadError({ error, retry }: { error: Error; retry: () => void }) {
-  const forbidden = error instanceof CameraRequestError && error.status === 403;
-  return (
-    <div className="inline-message is-error flex flex-wrap items-center gap-3">
-      <p role="alert">{error.message}</p>
-      {!forbidden && (
-        <Button variant="outline" onClick={retry}>
-          Reintentar consulta
-        </Button>
-      )}
-    </div>
-  );
-}
-
 export function CameraLab() {
-  const { data, error, retry } = useCameraData(cameraLabService.list, 5000);
+  const { data, error, receivedAt, retry } = useCameraData(
+    cameraLabService.list,
+    5000,
+  );
   const max = cameraNumber(data?.capacity);
   return (
     <section
@@ -122,9 +59,9 @@ export function CameraLab() {
     >
       <div className="section-intro">
         <div>
-          <h2 id="camera-source-title">Laboratorio de cámaras</h2>
+          <h2 id="camera-source-title">Cámaras virtuales</h2>
           <p className="text-text-secondary">
-            Monitoreo y revisión de cámaras configuradas para el laboratorio.
+            Monitoreo y fotogramas recientes del laboratorio de cámaras.
           </p>
         </div>
       </div>
@@ -136,38 +73,32 @@ export function CameraLab() {
         <p className="surface-card p-4">El laboratorio está deshabilitado.</p>
       )}
       {data?.enabled && (
-        <div className="surface-card grid gap-3 p-4">
+        <div className="grid gap-3">
           {max !== null && (
             <p className="text-sm text-text-secondary">
-              Límite configurado de monitoreos simultáneos · {max}
+              Límite de monitoreos simultáneos · {max}
             </p>
           )}
           {data.cameras.length ? (
-            <ul className="divide-y divide-border">
+            <ul className="grid gap-4 md:grid-cols-2">
               {data.cameras.map((camera) => (
                 <li
                   key={camera.id}
-                  className="flex flex-wrap items-center justify-between gap-2 py-3"
+                  className="surface-card grid min-w-0 content-start gap-3 p-4"
                 >
-                  <div className="min-w-0 break-words">
-                    <h3 className="font-semibold">{camera.name}</h3>
+                  <CameraCard
+                    key={camera.run_id}
+                    camera={camera}
+                    receivedAt={receivedAt}
+                    stale={Boolean(error)}
+                  />
+                  {(camera.automatic ?? data.managed) && (
                     <p className="text-sm text-text-secondary">
-                      Conexión ·{" "}
-                      {error
-                        ? "Estado sin actualizar"
-                        : statusLabel(camera.status)}
+                      Monitoreo automático
                     </p>
-                    {!error && (
-                      <p className="text-sm text-text-secondary">
-                        Última cobertura informada (5 s) ·{" "}
-                        <span className="font-medium tabular-nums text-foreground">
-                          {cameraCoverage(camera.metrics) ?? "Sin datos"}
-                        </span>
-                      </p>
-                    )}
-                  </div>
+                  )}
                   <Link
-                    className="button button-outline"
+                    className="button button-outline w-fit"
                     href={`/sources/cameras/${encodeURIComponent(camera.id)}`}
                     aria-label={`Abrir cámara ${camera.name}`}
                   >
@@ -177,84 +108,11 @@ export function CameraLab() {
               ))}
             </ul>
           ) : (
-            <p>Aún no hay cámaras configuradas.</p>
+            <p className="surface-card p-4">Aún no hay cámaras configuradas.</p>
           )}
         </div>
       )}
     </section>
-  );
-}
-
-function CameraPreview({
-  id,
-  url,
-  active,
-}: {
-  id: string;
-  url: string;
-  active: boolean;
-}) {
-  const [frame, setFrame] = useState<string>();
-  const [unavailable, setUnavailable] = useState(false);
-  useEffect(() => {
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    async function refresh() {
-      try {
-        const blob = await cameraLabService.preview(id, url, controller.signal);
-        if (controller.signal.aborted) return;
-        setFrame(URL.createObjectURL(blob));
-        setUnavailable(false);
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        setUnavailable(true);
-        if (
-          error instanceof CameraRequestError &&
-          [401, 403].includes(error.status)
-        ) {
-          setFrame(undefined);
-          return;
-        }
-      }
-      if (active) timer = setTimeout(refresh, 2500);
-    }
-    void refresh();
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, [id, url, active]);
-  useEffect(
-    () => () => {
-      if (frame) URL.revokeObjectURL(frame);
-    },
-    [frame],
-  );
-
-  return (
-    <>
-      <div className="grid aspect-video place-items-center overflow-hidden rounded-md bg-surface-muted">
-        {frame ? (
-          // eslint-disable-next-line @next/next/no-img-element -- authenticated JPEG as a blob URL
-          <img
-            src={frame}
-            alt="Último fotograma analizado de la cámara seleccionada"
-            className="size-full object-contain"
-          />
-        ) : (
-          <p className="p-4 text-center text-sm text-text-secondary">
-            {unavailable
-              ? "No hay un fotograma disponible."
-              : "Cargando fotograma…"}
-          </p>
-        )}
-      </div>
-      {unavailable && frame && (
-        <p className="text-sm text-text-secondary">
-          No se pudo actualizar el fotograma.
-        </p>
-      )}
-    </>
   );
 }
 
@@ -733,6 +591,10 @@ export function CameraLabDetail({ id }: { id: string }) {
     busy || calibrationBusy || !catalog.data?.enabled,
   );
   const camera = detail.data;
+  const automatic =
+    camera?.automatic ??
+    catalog.data?.cameras.find((item) => item.id === id)?.automatic ??
+    catalog.data?.managed === true;
   const canEdit = catalog.data?.can_edit === true && !catalog.error;
 
   async function change(
@@ -761,6 +623,10 @@ export function CameraLabDetail({ id }: { id: string }) {
     catalog.error ?? (catalog.data?.enabled ? detail.error : undefined);
   const history = `/events?${new URLSearchParams({ camera_id: id })}`;
   const event = camera?.last_event;
+  const submittedEvents = camera?.metrics?.events_submitted;
+  const eventLimit = camera?.metrics?.event_limit;
+  const eventQuotaReached = typeof submittedEvents === "number" &&
+    typeof eventLimit === "number" && eventLimit > 0 && submittedEvents >= eventLimit;
   const canStart = camera && idle.has(camera.status);
   const canStop = camera && monitoring.has(camera.status);
   const framing = camera?.metrics?.framing;
@@ -880,7 +746,7 @@ export function CameraLabDetail({ id }: { id: string }) {
                   Conexión ·{" "}
                   {error ? "Estado sin actualizar" : statusLabel(camera.status)}
                 </p>
-                {canEdit && (canStart || canStop) && (
+                {canEdit && !automatic && (canStart || canStop) && (
                   <Button
                     disabled={
                       busy ||
@@ -916,6 +782,11 @@ export function CameraLabDetail({ id }: { id: string }) {
                   </Button>
                 )}
               </div>
+              {automatic && (
+                <p className="text-sm text-text-secondary">
+                  Monitoreo automático gestionado por el laboratorio.
+                </p>
+              )}
               {framingWarning && (
                 <div className="inline-message grid gap-2" role="status">
                   <p>{framingWarning}</p>
@@ -948,12 +819,16 @@ export function CameraLabDetail({ id }: { id: string }) {
               {camera.status === "error" && (
                 <p role="alert" className="text-sm text-danger">
                   {camera.last_error ??
-                    "El monitoreo se interrumpió. Revisa la fuente e inicia otra ejecución."}
+                    (automatic
+                      ? "El monitoreo automático se interrumpió."
+                      : "El monitoreo se interrumpió. Revisa la fuente e inicia otra ejecución.")}
                 </p>
               )}
               <ActionFeedback
                 message={
-                  action?.area === "monitor" ? action.message : undefined
+                  !automatic && action?.area === "monitor"
+                    ? action.message
+                    : undefined
                 }
               />
               <figure className="grid gap-2">
@@ -979,6 +854,35 @@ export function CameraLabDetail({ id }: { id: string }) {
                   Procedencia · {provenance}
                 </p>
               )}
+              {camera.automatic && camera.provenance?.filename && (
+                <p className="break-words text-sm text-text-secondary">
+                  Grabación en bucle · {camera.provenance.filename}
+                  {camera.provenance.footage === "real recorded logistics trial" &&
+                    " · ensayo logístico grabado"}
+                  {camera.provenance.duration_s != null &&
+                    ` · ${new Intl.NumberFormat("es-CL", { maximumFractionDigits: 1 }).format(camera.provenance.duration_s)} s`}
+                  {camera.provenance.fps != null &&
+                    ` · ${new Intl.NumberFormat("es-CL", { maximumFractionDigits: 1 }).format(camera.provenance.fps)} FPS de origen`}
+                </p>
+              )}
+              {camera.provenance?.scenario && (
+                <p className="break-words text-sm text-text-secondary">
+                  {camera.provenance.scenario}
+                </p>
+              )}
+              {camera.effective_rules && (
+                <details className="text-sm text-text-secondary">
+                  <summary className="cursor-pointer font-medium">Reglas de esta sesión</summary>
+                  <ul className="mt-2 grid gap-1">
+                    {camera.effective_rules.map((rule) => (
+                      <li key={rule.rule_id} className="break-words">
+                        {eventTypeName(String(rule.parameters.kind ?? ""))} · {rule.rule_id} · v{rule.version}
+                        {!rule.enabled && " · deshabilitada"}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
             </section>
             <CameraDiagnostics
               key={camera.run_id}
@@ -992,6 +896,12 @@ export function CameraLabDetail({ id }: { id: string }) {
               <h2 id="camera-events" className="font-semibold">
                 Eventos de la cámara
               </h2>
+              {canStop && eventQuotaReached && (
+                <p className="text-sm text-text-secondary">
+                  Se alcanzó el límite de publicación de esta sesión. El
+                  monitoreo sigue activo.
+                </p>
+              )}
               {event?.id ? (
                 <p className="text-sm">
                   Último registro{" "}

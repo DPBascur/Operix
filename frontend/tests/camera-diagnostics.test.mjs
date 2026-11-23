@@ -3,10 +3,36 @@ import test from "node:test";
 import {
   cameraAnalysisRate,
   cameraCoverage,
+  cameraFrameIsRecent,
   cameraFrameTime,
   cameraObservationPaused,
   cameraTechnicalMetrics,
 } from "../src/features/sources/camera-diagnostics.ts";
+
+test("la miniatura exige un fotograma de menos de cinco segundos", () => {
+  const receivedAt = Date.parse("2026-11-18T12:00:05.000Z");
+  assert.equal(
+    cameraFrameIsRecent(null, { last_frame_age_ms: 0 }, receivedAt),
+    true,
+  );
+  assert.equal(
+    cameraFrameIsRecent(null, { last_frame_age_ms: 5000 }, receivedAt),
+    false,
+  );
+  assert.equal(
+    cameraFrameIsRecent("2026-11-18T12:00:01Z", null, receivedAt),
+    true,
+  );
+  assert.equal(
+    cameraFrameIsRecent("2026-11-18T12:00:00Z", null, receivedAt),
+    false,
+  );
+  assert.equal(
+    cameraFrameIsRecent("2026-11-18T12:00:06Z", null, receivedAt),
+    false,
+  );
+  assert.equal(cameraFrameIsRecent("inválido", null, receivedAt), false);
+});
 
 test("la cobertura usa solo la fracción informada y conserva el cero", () => {
   assert.equal(cameraCoverage({ observed_fraction_5s: 0 }), "0%");

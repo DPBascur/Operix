@@ -10,6 +10,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ShieldCheck,
+  SlidersHorizontal,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -85,6 +86,11 @@ const navigationGroups: {
       { href: "/zones", label: "Zonas", icon: Map },
       { href: "/indicators", label: "Indicadores", icon: BarChart3 },
       { href: "/users", label: "Usuarios", icon: Users },
+      {
+        href: "/admin/camera-lab",
+        label: "Control de cámaras",
+        icon: SlidersHorizontal,
+      },
     ],
   },
 ];
@@ -98,6 +104,7 @@ const routeNames: Record<string, string> = {
   "/zones": "Zonas",
   "/indicators": "Indicadores",
   "/users": "Usuarios y roles",
+  "/admin/camera-lab": "Control del laboratorio",
   "/account": "Mi cuenta",
   "/experience": "Cómo funciona Operix",
 };
@@ -257,7 +264,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const compact = useSyncExternalStore(subscribeToSidebarPreference, getSidebarPreference, () => null);
   if (pathname === "/login") return children;
   const activePath =
-    pathname === "/dashboard" ? "/" : "/" + (pathname.split("/")[1] || "");
+    pathname === "/dashboard"
+      ? "/"
+      : pathname.startsWith("/admin/")
+        ? pathname
+        : "/" + (pathname.split("/")[1] || "");
   const routeTitle = routeNames[activePath] ?? "Operix";
   const width =
     activePath === "/account"

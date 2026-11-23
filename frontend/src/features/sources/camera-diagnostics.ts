@@ -48,6 +48,20 @@ export function cameraFrameTime(timestamp: string | null | undefined) {
     : null;
 }
 
+export function cameraFrameIsRecent(
+  timestamp: string | null | undefined,
+  metrics: Metrics,
+  receivedAt: number,
+) {
+  const maxAge = 5000;
+  const age = metrics?.last_frame_age_ms;
+  if (typeof age === "number" && Number.isFinite(age) && age >= 0)
+    return age < maxAge;
+
+  const elapsed = receivedAt - (timestamp ? Date.parse(timestamp) : NaN);
+  return elapsed >= 0 && elapsed < maxAge;
+}
+
 function metricRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)

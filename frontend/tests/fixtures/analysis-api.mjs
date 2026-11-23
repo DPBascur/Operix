@@ -69,6 +69,8 @@ export async function startFixtureApi(port = 8000) {
   let evidenceSteps = [];
   let eventDetailReads = 0;
   let cameraFixture;
+  let historyCount = 1;
+  let labControl;
   let calibrationPreview;
   let candidateAvailable;
   let calibrationRequests = [];
@@ -185,11 +187,14 @@ export async function startFixtureApi(port = 8000) {
           evidenceSteps = [];
           eventDetailReads = 0;
           cameraFixture = undefined;
+          historyCount = 1;
+          labControl = undefined;
           calibrationPreview = undefined;
           candidateAvailable = false;
           calibrationRequests = [];
         }
         if (body.calibrationCamera) {
+          labControl = undefined;
           cameraFixture = {
             id: "lab-cam-01",
             name: "Cámara fixture",
@@ -208,7 +213,23 @@ export async function startFixtureApi(port = 8000) {
           calibrationPreview = body.calibrationCamera;
           candidateAvailable = false;
         }
+        if (body.managedCamera) {
+          cameraFixture = {
+            id: "lab-cam-01",
+            name: "Cámara virtual fixture",
+            automatic: true,
+            revision: 0,
+            status: "analyzing",
+            metrics: { observed_fraction_5s: 0.75, last_frame_age_ms: 0 },
+          };
+          labControl = {
+            enabled: true,
+            cameraEnabled: true,
+            preview: body.managedCamera,
+          };
+        }
         if (body.calibrationCandidate) candidateAvailable = true;
+        if (Number.isSafeInteger(body.historyCount)) historyCount = body.historyCount;
         if (Array.isArray(body.evidenceSteps)) {
           evidenceSteps = body.evidenceSteps;
           eventDetailReads = 0;
@@ -361,17 +382,85 @@ export async function startFixtureApi(port = 8000) {
                   },
           })),
         );
-      if (cameraFixture && url.pathname === "/api/v1/analysis/cameras/") {
+      const cameraRoute = "/api/v1/analysis/cameras/lab-cam-01/";
+      const currentCamera = () => {
+        if (!labControl) return cameraFixture;
+        if (!labControl.enabled || !labControl.cameraEnabled)
+          return {
+            ...cameraFixture,
+            status: "stopped",
+            preview_url: null,
+            metrics: null,
+          };
+        return {
+          ...cameraFixture,
+          last_frame_at: new Date().toISOString(),
+          preview_url: `${cameraRoute}preview/`,
+        };
+      };
+      if (url.pathname === "/api/v1/analysis/cameras/control/") {
+        if (account.role !== "administrator")
+          return send({ detail: "Acceso denegado" }, 403);
+        if (!labControl)
+          return send({
+            available: false,
+            enabled: false,
+            status: "disabled",
+            capacity: 1,
+            cameras: [],
+            publisher: {},
+            mediamtx: "unavailable",
+            updated_by: null,
+          });
+        if (req.method === "PATCH") {
+          if (req.headers["x-csrftoken"] !== csrf)
+            return send({ detail: "CSRF inválido" }, 403);
+          if (typeof body.enabled === "boolean")
+            labControl.enabled = body.enabled;
+          if (typeof body.cameras?.[cameraFixture.id] === "boolean")
+            labControl.cameraEnabled = body.cameras[cameraFixture.id];
+        }
+        const camera = currentCamera();
+        return send(
+          {
+            available: true,
+            enabled: labControl.enabled,
+            status: !labControl.enabled
+              ? "disabled"
+              : labControl.cameraEnabled
+                ? "active"
+                : "partial",
+            capacity: 1,
+            cameras: [{ ...camera, enabled: labControl.cameraEnabled }],
+            publisher: {
+              [camera.id]:
+                labControl.enabled && labControl.cameraEnabled
+                  ? "publishing"
+                  : "idle",
+            },
+            mediamtx: "ready",
+            updated_by: account.username,
+          },
+          req.method === "PATCH" ? 202 : 200,
+        );
+      }
+      const camera = currentCamera();
+      if (url.pathname === "/api/v1/analysis/cameras/") {
         return send({
-          enabled: true,
+          enabled: Boolean(camera),
+          managed: Boolean(labControl),
           can_edit: true,
           capacity: 1,
-          cameras: [cameraFixture],
+          cameras: camera ? [camera] : [],
         });
       }
-      const cameraRoute = "/api/v1/analysis/cameras/lab-cam-01/";
-      if (cameraFixture && url.pathname === cameraRoute)
-        return send(cameraFixture);
+      if (camera && url.pathname === cameraRoute) return send(camera);
+      if (labControl && url.pathname === `${cameraRoute}preview/`) {
+        if (!camera.preview_url)
+          return send({ detail: "Sin fotograma reciente" }, 404);
+        res.writeHead(200, { "Content-Type": "image/jpeg" });
+        return res.end(Buffer.from(labControl.preview.split(",")[1], "base64"));
+      }
       if (
         cameraFixture &&
         url.pathname.startsWith(`${cameraRoute}calibration/`)
@@ -694,6 +783,21 @@ export async function startFixtureApi(port = 8000) {
         if (url.pathname === "/api/v1/events/") {
           const row = { ...stagedEvent(evidenceSteps[0]) };
           delete row.evidence_clip;
+          if (params.has("page")) {
+            const count = matches ? historyCount : 0;
+            const page_size = Number(params.get("page_size") ?? 15);
+            const total_pages = Math.max(1, Math.ceil(count / page_size));
+            const page = Math.min(Number(params.get("page")), total_pages);
+            const from = (page - 1) * page_size;
+            const results = Array.from({ length: Math.min(page_size, count - from) }, (_, index) => {
+              const position = from + index;
+              return position === 0 ? row : {
+                ...row,
+                id: `00000000-0000-4000-8000-${String(1000 + position).padStart(12, "0")}`,
+              };
+            });
+            return send({ count, page, page_size, total_pages, results });
+          }
           return send(matches ? [row] : []);
         }
         return send({

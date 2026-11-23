@@ -18,7 +18,7 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 test(
   "flujo web: sesión, progreso, navegación, evidencia, teclado y estados terminales",
-  { timeout: 120000 },
+  { timeout: 210000 },
   async () => {
     // Nunca ejecutar las acciones de este test contra una API real.
     const control = async (body = {}) => {
@@ -632,7 +632,17 @@ test(
         true,
         "Un poll anterior no sustituye la cancelación",
       );
+      await control({ historyCount: 68 });
       await navigate("/events");
+      await wait(text("Mostrando 1–15 de 68 eventos"));
+      await click("Siguiente");
+      await wait(text("Mostrando 16–30 de 68 eventos"));
+      await click("Ver todos");
+      await wait(text("Mostrando 1–60 de 68 eventos"));
+      await click("Cargar más");
+      await wait(text("Mostrando 61–68 de 68 eventos"));
+      await control({ historyCount: 1 });
+      await go("/events");
       await wait(text("Proximidad persona"));
       await wait(`!!document.querySelector('a[href="/events/${eventId}"]')`);
       await evaluate(
@@ -790,7 +800,7 @@ test(
       await wait(
         "location.pathname==='/events' && location.search.includes('zone_id=TEST_DATA_ZONE')",
       );
-      await wait(text("1 evento registrado"));
+      await wait(text("Mostrando 1–1 de 1 evento"));
       await go("/indicators");
       await wait(text("Eventos por procedencia"));
       assert.equal(await evaluate(text("Ejemplo ilustrativo")), false);
@@ -813,7 +823,7 @@ test(
       await wait(
         "location.pathname==='/events' && location.search.includes('source_sha256=') && location.search.includes('source_kind=demo')",
       );
-      await wait(text("1 evento registrado"));
+      await wait(text("Mostrando 1–1 de 1 evento"));
       await wait(text("Video filtrado"));
       await click("Ver evidencia");
       await wait("document.querySelector('.event-preview video')?.preload==='none'");
@@ -888,6 +898,35 @@ test(
         ctx.fillStyle = '#111'; ctx.fillRect(87, 59, 23, 15);
         return canvas.toDataURL('image/jpeg', 0.85);
       })()`);
+      await control({ managedCamera: patternPreview });
+      await go("/sources");
+      await wait("document.querySelector('#laboratorio-camaras img')?.naturalWidth === 640");
+      assert.equal(
+        await evaluate("!!(document.querySelector('#camera-source-title').compareDocumentPosition(document.querySelector('#demo-sources-title')) & Node.DOCUMENT_POSITION_FOLLOWING)"),
+        true,
+      );
+      await go("/sources/cameras/lab-cam-01");
+      await wait(text("Monitoreo automático gestionado por el laboratorio."));
+      assert.equal(
+        await evaluate("Array.from(document.querySelectorAll('button')).some(b => /^(Iniciar|Detener) monitoreo$/.test(b.textContent.trim()))"),
+        false,
+      );
+      await navigate("/admin/camera-lab");
+      await wait("document.querySelector('a[aria-current=page][href=\"/admin/camera-lab\"]') !== null");
+      await wait(text("Publicador Publicando"));
+      await click("Deshabilitar");
+      await wait(text("Operación parcial"));
+      await wait(text("Sin fotograma reciente"));
+      await click("Deshabilitar laboratorio");
+      await wait(text("Habilitar laboratorio"));
+      await click("Habilitar");
+      await click("Habilitar laboratorio");
+      await wait(text("Publicador Publicando"));
+      for (const width of [1440, 390]) {
+        await viewport(width);
+        await wait("document.documentElement.scrollWidth <= innerWidth");
+      }
+      await viewport(1440);
       await control({ calibrationCamera: patternPreview });
       await go("/sources/cameras/lab-cam-01");
       await wait("!!document.querySelector('main#main-content')");
@@ -1028,6 +1067,11 @@ test(
       await go("/analysis?profile=C");
       await wait(text("Perfil C · demo no disponible"));
       assert.ok(await evaluate("!!document.querySelector('.analysis-contextbar input[type=file]')"));
+      const createdBeforeEntry = (await control()).created;
+      await go("/analysis");
+      await wait("!!document.querySelector('#analysis-camera-title')");
+      await wait(text("Usar video demo"));
+      assert.equal((await control()).created, createdBeforeEntry);
       await evaluate(`(${accountTrigger}).click()`);
       await click("Cerrar sesión");
       await wait("location.pathname==='/login'");
@@ -1040,6 +1084,9 @@ test(
       await wait(text("Sin eventos de cargas manuales"));
       await wait("!!document.querySelector('#operix-sidebar a[href=\"/indicators\"]')");
       assert.equal(await evaluate("!!document.querySelector('#operix-sidebar a[href=\"/analysis\"]')"), false);
+      assert.equal(await evaluate("!!document.querySelector('#operix-sidebar a[href=\"/admin/camera-lab\"]')"), false);
+      await go("/admin/camera-lab");
+      await wait("location.pathname==='/indicators'");
       assert.deepEqual(
         await evaluate(`Promise.all([
           fetch('/api/v1/users/'), fetch('/api/v1/events/'), fetch('/api/v1/analysis/profiles/')

@@ -255,7 +255,13 @@ export function AnalysisWorkspace({
         }
         if (catalogResult.status === "rejected") throw catalogResult.reason;
         setProfile(initialProfile);
-        if (initialManual || requestedSha || requestedSessionId) return;
+        if (
+          !requestedProfile ||
+          initialManual ||
+          requestedSha ||
+          requestedSessionId
+        )
+          return;
         const initial = catalog.find((item) => item.id === initialProfile);
         if (!initial?.default_demo_video) return;
         setBusy(true);
@@ -1187,7 +1193,7 @@ export function AnalysisWorkspace({
                   }}
                 />
               </label>
-              {sourceKind === "manual" &&
+              {(!sourceKind || sourceKind === "manual") &&
                 selectedProfile?.default_demo_video && (
                   <Button
                     variant="secondary"
