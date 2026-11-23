@@ -71,6 +71,7 @@ export async function startFixtureApi(port = 8000) {
   let cameraFixture;
   let historyCount = 1;
   let labControl;
+  let heldLabPreview;
   let calibrationPreview;
   let candidateAvailable;
   let calibrationRequests = [];
@@ -189,6 +190,7 @@ export async function startFixtureApi(port = 8000) {
           cameraFixture = undefined;
           historyCount = 1;
           labControl = undefined;
+          heldLabPreview?.();
           calibrationPreview = undefined;
           candidateAvailable = false;
           calibrationRequests = [];
@@ -228,6 +230,15 @@ export async function startFixtureApi(port = 8000) {
             preview: body.managedCamera,
           };
         }
+        if (labControl && body.labCatalog) {
+          labControl.catalog = body.labCatalog;
+          labControl.playlists = {};
+        }
+        if (labControl && body.labCameraStatus)
+          labControl.cameraStatus = body.labCameraStatus;
+        if (labControl && body.labPreview) labControl.preview = body.labPreview;
+        if (labControl && body.holdLabPreview) labControl.holdPreview = true;
+        if (body.releaseLabPreview) heldLabPreview?.();
         if (body.calibrationCandidate) candidateAvailable = true;
         if (Number.isSafeInteger(body.historyCount)) historyCount = body.historyCount;
         if (Array.isArray(body.evidenceSteps)) {
@@ -254,6 +265,7 @@ export async function startFixtureApi(port = 8000) {
           requestedSourceSha,
           eventDetailReads,
           calibrationRequests,
+          labPreviewWaiting: Boolean(heldLabPreview),
           waitingZones: pendingZones.length,
           ids: [...sessions.keys()],
         });
@@ -392,6 +404,13 @@ export async function startFixtureApi(port = 8000) {
             preview_url: null,
             metrics: null,
           };
+        if (labControl.cameraStatus === "reconnecting")
+          return {
+            ...cameraFixture,
+            status: "reconnecting",
+            preview_url: null,
+            metrics: null,
+          };
         return {
           ...cameraFixture,
           last_frame_at: new Date().toISOString(),
@@ -415,6 +434,21 @@ export async function startFixtureApi(port = 8000) {
         if (req.method === "PATCH") {
           if (req.headers["x-csrftoken"] !== csrf)
             return send({ detail: "CSRF inválido" }, 403);
+          if (body.playlists) {
+            const playlist = body.playlists[cameraFixture.id];
+            const permitted = new Set(labControl.catalog?.map(({ id }) => id));
+            if (
+              !labControl.playlists ||
+              Object.keys(body.playlists).length !== 1 ||
+              !playlist ||
+              Object.keys(playlist).length !== 2 ||
+              typeof playlist.repeat !== "boolean" ||
+              !Array.isArray(playlist.media_ids) ||
+              !playlist.media_ids.every((id) => permitted.has(id))
+            )
+              return send({ detail: "Lista de reproducción inválida" }, 400);
+            labControl.playlists[cameraFixture.id] = playlist;
+          }
           if (typeof body.enabled === "boolean")
             labControl.enabled = body.enabled;
           if (typeof body.cameras?.[cameraFixture.id] === "boolean")
@@ -440,6 +474,7 @@ export async function startFixtureApi(port = 8000) {
             },
             mediamtx: "ready",
             updated_by: account.username,
+            ...(labControl.catalog && { catalog: labControl.catalog, playlists: labControl.playlists }),
           },
           req.method === "PATCH" ? 202 : 200,
         );
@@ -458,8 +493,22 @@ export async function startFixtureApi(port = 8000) {
       if (labControl && url.pathname === `${cameraRoute}preview/`) {
         if (!camera.preview_url)
           return send({ detail: "Sin fotograma reciente" }, 404);
+        const preview = labControl.preview;
+        if (labControl.holdPreview) {
+          labControl.holdPreview = false;
+          await new Promise((resolve) => {
+            const release = () => {
+              res.off("close", release);
+              if (heldLabPreview === release) heldLabPreview = undefined;
+              resolve();
+            };
+            heldLabPreview = release;
+            res.once("close", release);
+          });
+        }
+        if (res.destroyed) return;
         res.writeHead(200, { "Content-Type": "image/jpeg" });
-        return res.end(Buffer.from(labControl.preview.split(",")[1], "base64"));
+        return res.end(Buffer.from(preview.split(",")[1], "base64"));
       }
       if (
         cameraFixture &&

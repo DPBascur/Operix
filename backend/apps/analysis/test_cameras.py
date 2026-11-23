@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient, APITestCase
 
 from .camera_registry import approved_destination
-from .cameras import default_document, reap_run
+from .cameras import default_document, reap_run, run_dir, status_for
 from .models import AnalysisRunSnapshot, CameraRun
 from .camera_registry import inventory
 
@@ -91,3 +91,33 @@ class CameraLabTests(APITestCase):
         self.assertFalse(run.active)
         self.assertEqual(run.terminal_state, "error")
         self.assertIsNotNone(run.ended_at)
+
+    def test_reaper_discards_only_terminal_managed_previews(self):
+        camera = inventory()["lab-cam-01"]
+        with TemporaryDirectory() as root, self.settings(MEDIA_ROOT=root):
+            for managed in (True, False):
+                with self.subTest(managed=managed):
+                    snapshot = AnalysisRunSnapshot.objects.create(
+                        pk=uuid4(), source_sha256=camera.spatial_key, profile=camera.profile,
+                        configuration=default_document(camera), config_sha256="a" * 64,
+                    )
+                    run = CameraRun.objects.create(snapshot=snapshot, camera_id=camera.id, managed=managed)
+                    folder = run_dir(run.pk)
+                    folder.mkdir(parents=True)
+                    preview = folder / "preview.jpg"
+                    preview.write_bytes(b"preview")
+                    (folder / "context.json").write_text("{}")
+                    (folder / "evidence.jpg").write_bytes(b"evidence")
+                    process = Mock()
+                    process.poll.return_value = None
+                    with patch("apps.analysis.cameras.close_old_connections"), patch.dict(
+                        "apps.analysis.cameras._processes", {run.pk: process}
+                    ):
+                        status_for(run)
+                        self.assertTrue(preview.exists())
+                        process.poll.return_value = 0
+                        reap_run(run.pk, process)
+                    self.assertEqual(preview.exists(), not managed)
+                    self.assertTrue((folder / "context.json").exists())
+                    self.assertTrue((folder / "evidence.jpg").exists())
+                    self.assertTrue(AnalysisRunSnapshot.objects.filter(pk=run.pk).exists())

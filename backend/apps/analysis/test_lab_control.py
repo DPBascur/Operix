@@ -1,10 +1,13 @@
 import hashlib
 import json
 import os
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from time import time
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import patch
+from uuid import uuid4
 
 from django.contrib.admin.models import LogEntry
 from django.contrib.auth import get_user_model
@@ -13,8 +16,9 @@ from rest_framework.test import APIClient, APITestCase
 
 from config.access import SAFETY_GROUP
 from . import lab_control
-from .camera_registry import inventory
-from .models import CameraLabControl
+from .camera_registry import inventory, media_registry, public_link
+from .cameras import camera_capture_signature, default_document, run_dir, start_camera
+from .models import AnalysisRunSnapshot, CameraLabControl, CameraRevision, CameraRun
 
 
 class ManagedLabTests(APITestCase):
@@ -25,16 +29,21 @@ class ManagedLabTests(APITestCase):
         self.addCleanup(folder.cleanup)
         root = self.root = Path(folder.name)
         (root / "sample.mp4").write_bytes(b"media fixture")
-        source = {"id": "lab-cam-01", "filename": "sample.mp4", "average_fps": 24,
+        source = {"id": "lab-cam-01", "filename": "sample.mp4", "average_fps": 24, "duration_seconds": 10,
                   "footage": "real industrial CCTV", "sha256": hashlib.sha256(b"media fixture").hexdigest()}
-        (root / "manifest.json").write_text(json.dumps({"source": {"license": "CC BY 4.0"}, "clips": [source]}))
+        (root / "second.mp4").write_bytes(b"second recording")
+        second = {**source, "id": "second", "filename": "second.mp4", "duration_seconds": 15,
+                  "sha256": hashlib.sha256(b"second recording").hexdigest()}
+        (root / "manifest.json").write_text(json.dumps({"source": {"license": "CC BY 4.0"}, "clips": [source, second]}))
         env = patch.dict(os.environ, {"OPERIX_CAMERA_LAB_ENABLED": "1", "OPERIX_CAMERA_LAB_CONTROL_DIR": str(root),
-                                      "OPERIX_CAMERA_LAB_MANIFEST": str(root / "manifest.json")})
+                                      "OPERIX_CAMERA_LAB_MANIFEST": str(root / "manifest.json"),
+                                      "OPERIX_CAMERA_LAB_ACK_DIR": str(root / "ack")})
         env.start()
         self.addCleanup(env.stop)
         self.owner = get_user_model().objects.create(username="supervisor", is_superuser=True)
         self.admin = APIClient()
         self.admin.force_authenticate(user=self.owner)
+        lab_control.ack_path("lab-cam-01").parent.mkdir(parents=True)
 
     def test_configuration_is_admin_only_audited_and_rejects_arbitrary_destinations(self):
         self.assertEqual(self.client.get(self.endpoint).status_code, 401)
@@ -51,34 +60,102 @@ class ManagedLabTests(APITestCase):
         self.assertTrue(LogEntry.objects.filter(user=self.owner).exists())
         self.assertEqual(self.admin.post("/api/v1/analysis/cameras/lab-cam-01/start/", {}, format="json").status_code, 409)
 
-    def test_reconcile_starts_configured_camera_and_stops_only_owned_runs(self):
-        CameraLabControl.objects.create(pk=1, enabled=True, cameras={"lab-cam-02": False}, updated_by=self.owner)
-        manual = SimpleNamespace(active=True, managed=False)
-        managed = SimpleNamespace(active=True, managed=True)
-        with (patch("apps.analysis.lab_control.scheduler_lock"),
-              patch("apps.analysis.lab_control.last_run", side_effect=lambda id_, **_: None if id_.endswith("01") else manual),
-              patch("apps.analysis.lab_control.status_for", return_value=("stopped", {}, None)),
-              patch("apps.analysis.lab_control.rtsp_ready", return_value=True),
-              patch("apps.analysis.lab_control.start_camera") as start,
-              patch("apps.analysis.lab_control.stop_camera") as stop):
-            lab_control.reconcile()
-            start.assert_called_once()
-            self.assertEqual(start.call_args.args[0].id, "lab-cam-01")
-            self.assertEqual(start.call_args.kwargs, {"managed": True})
-            self.assertTrue((self.root / "lab-cam-01.lease").is_file())
-            stop.assert_not_called()
+    def test_ordered_catalog_ids_are_audited_and_cannot_supply_paths(self):
+        selected = {"media_ids": ["second", "lab-cam-01", "second"], "repeat": False}
+        with patch("apps.analysis.lab_control.rtsp_ready", return_value=False):
+            response = self.admin.patch(self.endpoint, {"playlists": {"lab-cam-01": selected}}, format="json")
+            self.assertEqual(response.status_code, 202, response.content)
+            self.assertEqual(response.data["playlists"]["lab-cam-01"], selected)
+            self.assertEqual([(item["id"], item["duration_s"]) for item in response.data["catalog"]],
+                             [("lab-cam-01", 10), ("second", 15)])
+            for invalid in ("second.mp4", "../second.mp4", "rtsp://mediamtx:8554/lab-cam-01", {}):
+                response = self.admin.patch(self.endpoint, {"playlists": {"lab-cam-01": {
+                    "media_ids": [invalid], "repeat": True,
+                }}}, format="json")
+                self.assertEqual(response.status_code, 400, invalid)
+        self.assertEqual(CameraLabControl.objects.get().playlists["lab-cam-01"], selected)
+        self.assertEqual(json.loads(LogEntry.objects.get().change_message)["playlists"]["lab-cam-01"], selected)
 
-            CameraLabControl.objects.filter(pk=1).update(enabled=False)
-            with patch("apps.analysis.lab_control.last_run", side_effect=[managed, manual]):
-                lab_control.reconcile()
-            stop.assert_called_once_with(managed)
-            self.assertFalse((self.root / "lab-cam-01.lease").exists())
-
-    def test_invalid_media_never_receives_a_lease(self):
+    def test_patch_verifier_rejects_wrong_digest(self):
         camera = inventory()["lab-cam-01"]
         (self.root / "sample.mp4").write_bytes(b"wrong digest")
         with self.assertRaisesRegex(ValueError, "inventario"):
             lab_control.approved_media(camera)
+
+    def test_catalog_removes_paths_and_camera_links_drop_tokens(self):
+        path = self.root / "manifest.json"
+        document = json.loads(path.read_text())
+        document["clips"][0].update(title=r"C:\private\sample.mp4", scenario="Recorded at /srv/private",
+                                    author="https://user:password@publisher.example/",
+                                    source_file_url="https://publisher.example/study?access=secret#token",
+                                    license_url="file:///etc/private", license="CC BY 4.0")
+        path.write_text(json.dumps(document))
+        with patch("apps.analysis.lab_control.rtsp_ready", return_value=False):
+            catalog = self.admin.get(self.endpoint).data["catalog"]
+        self.assertEqual(catalog[0]["title"], "sample.mp4")
+        self.assertIsNone(catalog[0]["scenario"])
+        provenance = self.admin.get("/api/v1/analysis/cameras/lab-cam-01/").data["provenance"]
+        self.assertEqual(provenance["source_url"], "https://publisher.example/study")
+        self.assertIsNone(provenance["author"])
+        self.assertIsNone(provenance["license_url"])
+
+    def test_public_links_reject_credentials_private_hosts_and_encoded_paths(self):
+        for url in ("http://127.0.0.1/report", "https://server.local/report",
+                    "https://user:password@example.com/report", "https://example.com/C:%5cprivate",
+                    "https://example.com/%2fetc/passwd", "https://example.com/%252fetc/passwd"):
+            with self.subTest(url=url):
+                self.assertIsNone(public_link(url))
+
+    def test_catalog_and_patch_reject_unsupported_or_unknown_duration(self):
+        path = self.root / "manifest.json"
+        document = json.loads(path.read_text())
+        for duration in (1801, None):
+            with self.subTest(duration=duration), patch("apps.analysis.lab_control.rtsp_ready", return_value=False):
+                document["clips"][1]["duration_seconds"] = duration
+                path.write_text(json.dumps(document))
+                result = self.admin.patch(self.endpoint, {"playlists": {"lab-cam-01": {
+                    "media_ids": ["second"], "repeat": True,
+                }}}, format="json")
+                self.assertEqual(result.status_code, 400)
+                self.assertIn(str(lab_control.MAX_CLIP_SECONDS), result.content.decode())
+                self.assertNotIn("second", [clip["id"] for clip in self.admin.get(self.endpoint).data["catalog"]])
+
+    def test_saved_oversized_media_stays_blocked_without_a_publisher_lease(self):
+        control = self.configure()
+        control.playlists["lab-cam-01"]["media_ids"] = ["second"]
+        control.save(update_fields=["playlists"])
+        path = self.root / "manifest.json"
+        document = json.loads(path.read_text())
+        document["clips"][1]["duration_seconds"] = 1801
+        path.write_text(json.dumps(document))
+        with patch("apps.analysis.lab_control.checked_hash", side_effect=AssertionError("hash under scheduler lock")):
+            for _ in range(4):
+                lab_control.reconcile()
+        self.assertEqual(self.progress()["phase"], "duration_blocked")
+        self.assertEqual(self.progress()["last_transition"]["reason"], "unsupported_duration")
+        self.assertFalse(lab_control.marker("lab-cam-01").exists())
+
+    @patch("apps.analysis.lab_control.rtsp_ready", return_value=False)
+    def test_patch_hashes_before_scheduler_lock_and_get_does_not_hash(self, ready):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        original_hash = lab_control.checked_hash
+        with CaptureQueriesContext(connection) as queries:
+            def observe(path, identity):
+                self.assertFalse(any("pg_advisory_xact_lock" in query["sql"] for query in queries))
+                return original_hash(path, identity)
+
+            with patch("apps.analysis.lab_control.checked_hash", side_effect=observe) as verify:
+                response = self.admin.patch(self.endpoint, {"enabled": True, "playlists": {"lab-cam-01": {
+                    "media_ids": ["second"], "repeat": False,
+                }}}, format="json")
+            self.assertEqual(response.status_code, 202)
+            verify.assert_called_once()
+        with patch("apps.analysis.lab_control.checked_hash", side_effect=AssertionError("unexpected hash")):
+            self.assertEqual(self.admin.get(self.endpoint).status_code, 200)
+            for _ in range(4):
+                lab_control.reconcile()
 
     def test_lab_trial_provenance_keeps_its_distinction_from_industrial_cctv(self):
         path = self.root / "manifest.json"
@@ -89,12 +166,44 @@ class ManagedLabTests(APITestCase):
         self.assertEqual(camera.provenance["footage"], "real recorded logistics trial")
         self.assertEqual(lab_control.approved_media(camera)[0], "sample.mp4")
 
+    def test_existing_sparl_manifest_provides_legacy_default_ids(self):
+        root = Path(__file__).resolve().parents[3]
+        with patch.dict(os.environ, {"OPERIX_CAMERA_LAB_MANIFEST": str(root / "deployment/rtsp-lab/sparl-catalog.v1.json")}):
+            catalog, defaults = media_registry()
+        self.assertEqual(defaults, {"lab-cam-01": "lab-cam-01", "lab-cam-02": "lab-cam-02"})
+        self.assertEqual(catalog["lab-cam-02"]["duration_s"], 466.866667)
+        self.assertTrue(catalog["lab-cam-02"]["real"])
+
+    def test_spawn_freezes_selected_source_and_effective_configuration(self):
+        source = media_registry()[0]["second"]
+        camera = replace(inventory()["lab-cam-01"], provenance=source)
+        playback = {"media_id": "second", "source_sha256": source["sha256"], "position": 1, "token": uuid4().hex}
+        with (self.settings(EVENT_POST_ENABLED=True, MEDIA_ROOT=self.root),
+              patch.dict(os.environ, {"OPERIX_PERSON_WEIGHTS": "person", "OPERIX_FORKLIFT_WEIGHTS": "forklift",
+                                      "OPERIX_RTSP_INFERENCE_SOCKET": ""}),
+              patch("apps.analysis.cameras.camera_worker_destination", return_value=("10.0.0.2", "rtsp://10.0.0.2/live")),
+              patch("apps.analysis.cameras.checked_document"),
+              patch("apps.analysis.cameras.subprocess.Popen"),
+              patch("apps.analysis.cameras.Thread"),
+              patch("apps.analysis.cameras._processes", {})):
+            run_id = start_camera(camera, self.owner, managed=True, playback=playback)
+            context = json.loads((run_dir(run_id) / "context.json").read_text())
+        run = CameraRun.objects.get(pk=run_id)
+        self.assertEqual(run.snapshot.source_sha256, source["sha256"])
+        self.assertEqual(run.provenance, source)
+        self.assertEqual(context["source"]["video_sha256"], source["sha256"])
+        self.assertEqual(context["source"]["filename"], "second.mp4")
+        self.assertEqual(context["source"]["spatial_configuration"], run.snapshot.configuration)
+
     def test_live_camera_reports_the_run_snapshot_to_any_authorized_reviewer(self):
         rules = [{"rule_id": "effective-rule", "version": 2, "enabled": True}]
         policy = {"rule_set": {"name": "Assigned when started", "version": 2}}
-        run = SimpleNamespace(pk=self.owner.pk, active=True, provenance={"filename": "started.mp4"}, snapshot=SimpleNamespace(
-            configuration={"rules": rules}, policy=policy,
-        ))
+        provenance = {"filename": "started.mp4", "title": "/var/lib/secret",
+                      "source_url": "https://user:password@example.com/article",
+                      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+                      "local_path": "/private/run"}
+        run = SimpleNamespace(pk=self.owner.pk, active=True, provenance=provenance,
+                              snapshot=SimpleNamespace(configuration={"rules": rules}, policy=policy))
         with (patch("apps.analysis.cameras.last_run", return_value=run),
               patch("apps.analysis.cameras.status_for", return_value=("analyzing", {}, None)),
               patch("apps.analysis.cameras.calibration_issue", return_value=None)):
@@ -103,32 +212,199 @@ class ManagedLabTests(APITestCase):
         self.assertEqual(response.data["effective_rules"], rules)
         self.assertEqual(response.data["policy"], policy)
         self.assertEqual(response.data["provenance"]["filename"], "started.mp4")
+        self.assertEqual(response.data["provenance"]["title"], "started.mp4")
+        self.assertIsNone(response.data["provenance"]["source_url"])
+        self.assertEqual(response.data["provenance"]["license_url"], provenance["license_url"])
+        self.assertNotIn("local_path", response.data["provenance"])
+        self.assertEqual(run.provenance["title"], "/var/lib/secret")
         self.assertIsNone(response.data["preview_url"])
 
-    def test_source_replacement_revokes_old_publisher_before_new_start(self):
-        CameraLabControl.objects.create(pk=1, enabled=True, cameras={"lab-cam-02": False}, updated_by=self.owner)
-        previous = SimpleNamespace(active=True, managed=True, provenance={"sha256": "0" * 64})
-        lab_control.update_lease("lab-cam-01", ("previous.mp4", "0" * 64))
-        with (patch("apps.analysis.lab_control.scheduler_lock"),
-              patch("apps.analysis.lab_control.last_run", side_effect=lambda id_, **_: previous if id_.endswith("01") else None),
-              patch("apps.analysis.lab_control.status_for", return_value=("stopped", {}, None)),
-              patch("apps.analysis.lab_control.rtsp_ready", return_value=True) as ready,
-              patch("apps.analysis.lab_control.start_camera") as start,
-              patch("apps.analysis.lab_control.stop_camera") as stop):
+    def progress(self):
+        return CameraLabControl.objects.get().playback["lab-cam-01"]
+
+    def lease(self):
+        return lab_control.marker("lab-cam-01").read_text().split()
+
+    def ack(self, token, state):
+        lab_control.ack_path("lab-cam-01").write_text(f"{token} {state}\n", encoding="ascii")
+
+    def configure(self, *, repeat=False):
+        return CameraLabControl.objects.create(pk=1, enabled=True, cameras={"lab-cam-02": False},
+                                               playlists={"lab-cam-01": {
+                                                   "media_ids": ["lab-cam-01", "second"], "repeat": repeat,
+                                               }}, updated_by=self.owner)
+
+    def simulate_worker(self, camera, owner, *, managed, playback):
+        snapshot = AnalysisRunSnapshot.objects.create(pk=uuid4(), owner=owner, profile=camera.profile,
+                                                       source_sha256=camera.provenance["sha256"],
+                                                       configuration=default_document(camera), config_sha256="a" * 64)
+        return CameraRun.objects.create(snapshot=snapshot, camera_id=camera.id, managed=managed,
+                                        provenance=camera.provenance, playback=playback)
+
+    def launch_clip(self, ready):
+        ready.return_value = False
+        lab_control.reconcile()
+        token = self.progress()["token"]
+        self.assertEqual(self.lease(), [token, "idle"])
+        self.ack(token, "idle")
+        ready.return_value = True
+        lab_control.reconcile()
+        self.assertEqual(self.lease(), [token, "idle"])
+        ready.return_value = False
+        lab_control.reconcile()
+        lab_control.reconcile()
+        self.assertEqual(self.lease()[:2], [token, "play"])
+        ready.return_value = True
+        self.ack(uuid4().hex, "playing")
+        lab_control.reconcile()
+        self.assertFalse(CameraRun.objects.filter(active=True).exists())
+        self.ack(token, "playing")
+        lab_control.reconcile()
+        return CameraRun.objects.get(active=True)
+
+    @patch("apps.analysis.lab_control.stop_camera")
+    @patch("apps.analysis.lab_control.rtsp_ready")
+    def test_waits_for_old_worker_and_token_ack_then_finishes_ordered_playlist(self, ready, stop):
+        self.configure()
+        def worker_state(run):
+            return ("analyzing", {"frames_processed": 4}, None) if run and run.active else (
+                "stopped", {}, {"termination_reason": "OPERATOR_STOP"})
+
+        with (patch("apps.analysis.lab_control.status_for", side_effect=worker_state),
+              patch("apps.analysis.lab_control.checked_hash", side_effect=AssertionError("hash during rotation")),
+              patch("apps.analysis.lab_control.start_camera", side_effect=self.simulate_worker) as start):
             lab_control.reconcile()
-            stop.assert_called_once_with(previous)
+            first = self.launch_clip(ready)
+            self.assertEqual(first.provenance["filename"], "sample.mp4")
+            self.ack(first.playback["token"], "eof")
+            lab_control.reconcile()
+            stop.assert_called_once()
+            lab_control.reconcile()
+            self.assertEqual(self.progress()["position"], 0)
+            self.assertEqual(self.lease()[0], first.playback["token"])
+            first.active = False
+            first.save(update_fields=["active"])
+            lab_control.reconcile()
+            first.refresh_from_db()
+            self.assertEqual(first.playback["transition"]["reason"], "media_eof")
+            self.assertEqual(first.playback["transition"]["outcome"], "expected")
+            self.assertEqual(self.progress()["position"], 1)
+            next_run = self.launch_clip(ready)
+            self.assertEqual(next_run.provenance["filename"], "second.mp4")
+            self.assertNotEqual(next_run.snapshot.source_sha256, first.snapshot.source_sha256)
+            self.ack(next_run.playback["token"], "eof")
+            lab_control.reconcile()
+            next_run.active = False
+            next_run.save(update_fields=["active"])
+            lab_control.reconcile()
+            lab_control.reconcile()
+            self.assertEqual(start.call_count, 2)
+            self.assertEqual(self.progress()["phase"], "finished")
             self.assertFalse(lab_control.marker("lab-cam-01").exists())
-
-            previous.active = False
+            self.assertEqual(self.admin.get(self.endpoint).data["status"], "finished")
+            self.admin.patch(self.endpoint, {"enabled": False}, format="json")
+            self.admin.patch(self.endpoint, {"enabled": True}, format="json")
             lab_control.reconcile()
-            self.assertFalse(lab_control.marker("lab-cam-01").exists())
-            start.assert_not_called()
+            self.assertEqual((self.progress()["phase"], self.progress()["position"]), ("idle", 0))
 
-            ready.return_value = False
-            lab_control.reconcile()
-            self.assertTrue(lab_control.marker("lab-cam-01").is_file())
-            start.assert_not_called()
+    @patch("apps.analysis.lab_control.status_for", return_value=("stopped", {}, {"termination_reason": "TIME_LIMIT"}))
+    def test_worker_deadline_blocks_mislabeled_media_instead_of_replaying(self, status):
+        control = self.configure(repeat=True)
+        catalog, _ = media_registry()
+        camera = inventory()["lab-cam-01"]
+        progress = lab_control.new_attempt(lab_control.playlist_signature(control.playlists[camera.id], catalog))
+        run = self.simulate_worker(camera, self.owner, managed=True, playback={
+            "token": progress["token"], "media_id": "lab-cam-01", "position": 0, "cycle": 0,
+        })
+        run.active = False
+        run.save(update_fields=["active"])
+        control.playback = {camera.id: progress}
+        control.save(update_fields=["playback"])
+        lab_control.update_lease(camera.id, (progress["token"], "play", "sample.mp4", camera.provenance["sha256"]))
+        lab_control.reconcile()
+        blocked = self.progress()
+        lab_control.reconcile()
+        self.assertEqual(self.progress(), blocked)
+        self.assertEqual(blocked["phase"], "duration_blocked")
+        self.assertEqual(blocked["last_transition"]["reason"], "duration_exceeded")
+        self.assertFalse(lab_control.marker(camera.id).exists())
 
-            ready.return_value = True
+    @patch("apps.analysis.lab_control.stop_camera")
+    @patch("apps.analysis.lab_control.rtsp_ready")
+    def test_interruption_retries_same_position_with_fresh_token(self, ready, stop):
+        self.configure(repeat=True)
+        with (patch("apps.analysis.lab_control.status_for", side_effect=lambda run: (
+            "analyzing" if run and run.active else "stopped", {"frames_processed": 4},
+            {"termination_reason": "OPERATOR_STOP"})),
+              patch("apps.analysis.lab_control.start_camera", side_effect=self.simulate_worker)):
             lab_control.reconcile()
-            start.assert_called_once()
+            run = self.launch_clip(ready)
+            self.ack(run.playback["token"], "failed")
+            lab_control.reconcile()
+            stop.assert_called_once()
+            run.active = False
+            run.save(update_fields=["active"])
+            lab_control.reconcile()
+            progress = self.progress()
+            self.assertEqual(progress["position"], 0)
+            self.assertNotEqual(progress["token"], run.playback["token"])
+            self.assertGreater(progress["retry_at"], time())
+            self.assertEqual(progress["last_transition"]["reason"], "publisher_interrupted")
+            self.assertEqual(progress["last_transition"]["outcome"], "interrupted")
+
+    def test_repeat_wraps_to_first_position_after_last_clip(self):
+        control = self.configure(repeat=True)
+        catalog, _ = media_registry()
+        playlist = control.playlists["lab-cam-01"]
+        progress = lab_control.new_attempt(lab_control.playlist_signature(playlist, catalog), 1, 2)
+        run = self.simulate_worker(inventory()["lab-cam-01"], self.owner, managed=True, playback={
+            "token": progress["token"], "position": 1, "cycle": 2, "media_id": "second",
+            "transition": {"outcome": "expected", "reason": "media_eof"},
+        })
+        run.active = False
+        run.save(update_fields=["active"])
+        control.playback = {"lab-cam-01": progress}
+        control.save(update_fields=["playback"])
+        lab_control.reconcile()
+        self.assertEqual((self.progress()["position"], self.progress()["cycle"]), (0, 3))
+
+    @patch("apps.analysis.lab_control.stop_camera")
+    @patch("apps.analysis.lab_control.status_for", return_value=("analyzing", {}, None))
+    def test_does_not_take_over_manual_run(self, status, stop):
+        self.configure()
+        camera = inventory()["lab-cam-01"]
+        manual = self.simulate_worker(camera, self.owner, managed=False, playback={})
+        lab_control.update_lease(camera.id, (uuid4().hex, "idle"))
+        lab_control.reconcile()
+        manual.refresh_from_db()
+        self.assertTrue(manual.active)
+        self.assertFalse(lab_control.marker(camera.id).exists())
+        stop.assert_not_called()
+
+    def test_rejects_stale_live_acknowledgement(self):
+        token = uuid4().hex
+        self.ack(token, "playing")
+        stale = time() - lab_control.LEASE_SECONDS - 1
+        os.utime(lab_control.ack_path("lab-cam-01"), (stale, stale))
+        self.assertIsNone(lab_control.publisher_ack("lab-cam-01", token))
+
+    @patch("apps.analysis.lab_control.rtsp_ready", return_value=False)
+    def test_bound_custom_zones_suspend_other_viewpoint_before_publishing(self, ready):
+        control = self.configure()
+        camera = inventory()["lab-cam-01"]
+        document = default_document(camera)
+        document["zones"][0]["polygon"][1] = [.5, 0]
+        CameraRevision.objects.create(camera_id=camera.id, revision=1, document=document,
+                                      capture_signature=camera_capture_signature(camera))
+        control.playlists[camera.id]["media_ids"] = ["second"]
+        control.save(update_fields=["playlists"])
+        lab_control.reconcile()
+        token = self.progress()["token"]
+        lab_control.reconcile()
+        self.ack(token, "idle")
+        lab_control.reconcile()
+        self.assertEqual(self.lease(), [token, "idle"])
+        self.assertFalse(CameraRun.objects.exists())
+        row = self.admin.get(self.endpoint).data["cameras"][0]
+        self.assertTrue(row["playlist_blocked"])
+        self.assertIn("Quite este medio de la lista", row["problem"])

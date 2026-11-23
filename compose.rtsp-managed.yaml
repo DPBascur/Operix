@@ -1,21 +1,39 @@
 # Last override after compose.rtsp-lab.yaml. No Docker socket or host-wide mounts.
 x-managed-publisher: &managed-publisher
   entrypoint: ["/bin/sh", "/lab/supervise-publisher.sh"]
-  volumes:
-    - lab_control:/lab-control:ro
-    - ./deployment/rtsp-lab/supervise-publisher.sh:/lab/supervise-publisher.sh:ro
   healthcheck:
     # Idle is a valid state. RTSP readiness is measured by the Backend.
-    test: [CMD, /bin/sh, -c, "test -r /lab/supervise-publisher.sh && test -d /lab-control"]
+    test: [CMD, /bin/sh, -c, "test -r /lab/supervise-publisher.sh && test -d /lab-control && test -w /lab-ack"]
 
 services:
   backend:
     environment:
       OPERIX_CAMERA_LAB_CONTROL_DIR: /var/lib/operix/lab-control
+      OPERIX_CAMERA_LAB_ACK_DIR: /var/lib/operix/lab-ack
     volumes:
       - lab_control:/var/lib/operix/lab-control
-  lab-publisher-01: *managed-publisher
-  lab-publisher-02: *managed-publisher
+      - lab_ack_01:/var/lib/operix/lab-ack/lab-cam-01
+      - lab_ack_02:/var/lib/operix/lab-ack/lab-cam-02
+  lab-publisher-01:
+    <<: *managed-publisher
+    volumes:
+      - &lease-volume lab_control:/lab-control:ro
+      - &supervisor ./deployment/rtsp-lab/supervise-publisher.sh:/lab/supervise-publisher.sh:ro
+      - lab_ack_01:/lab-ack
+    depends_on:
+      backend:
+        condition: service_started
+  lab-publisher-02:
+    <<: *managed-publisher
+    volumes:
+      - *lease-volume
+      - *supervisor
+      - lab_ack_02:/lab-ack
+    depends_on:
+      backend:
+        condition: service_started
 
 volumes:
   lab_control:
+  lab_ack_01:
+  lab_ack_02:

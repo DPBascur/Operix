@@ -79,6 +79,7 @@ class CameraRevision(models.Model):
     camera_id = models.CharField(max_length=64)
     revision = models.PositiveIntegerField()
     document = models.JSONField()
+    capture_signature = models.CharField(max_length=64, blank=True)
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -97,6 +98,7 @@ class CameraRun(models.Model):
     metrics = models.JSONField(default=dict)
     provenance = models.JSONField(default=dict)
     managed = models.BooleanField(default=False)
+    playback = models.JSONField(default=dict)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=("camera_id",), condition=models.Q(active=True),
@@ -106,5 +108,7 @@ class CameraRun(models.Model):
 class CameraLabControl(models.Model):
     enabled = models.BooleanField(default=False)
     cameras = models.JSONField(default=dict)
+    playlists = models.JSONField(default=dict)
+    playback = models.JSONField(default=dict)
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
     updated_at = models.DateTimeField(auto_now=True)

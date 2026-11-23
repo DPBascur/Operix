@@ -59,8 +59,14 @@ docker @stack up -d --build --wait
 Sign in as an administrator and open **Gestión → Control de cámaras** to enable
 the lab and choose its virtual cameras. **Fuentes** shows their current analysis.
 The saved intent survives Backend restarts. Turning the lab off stops its
-publishers and workers while keeping events and evidence. Both publishers loop
-their approved recording independently, with an RTSP discontinuity at EOF.
+publishers and workers while keeping events and evidence. In **Control de
+cámaras**, select clips from the approved inventory, set their order, and choose
+whether to repeat the playlist. Each segment has a new worker and run snapshot,
+with its own source hash, time base, tracking and rule state. The controller
+records expected ends of media separately from interrupted streams. A change
+of viewpoint that conflicts with saved spatial settings requires confirmation.
+Managed playlists accept verified clips of up to 29 minutes, leaving startup
+and shutdown time within the worker's 30-minute limit.
 
 To use the longer SPARL logistics recordings locally, set
 `OPERIX_CAMERA_LAB_MEDIA_HOST` to `D:/Operix-Lab/media/sparl-rtsp`.
@@ -73,6 +79,27 @@ PyTorch FP32 is the default. To opt in to ONNX CUDA, first build the base Backen
 image, set `OPERIX_RTSP_LAB_ONNX_HOST` to the approved export directory, then
 append `-f compose.rtsp-lab.onnx.yaml` and run `up -d --build --wait`. To revert,
 run the original stack command again with the ONNX override omitted.
+
+### Event limits and retention
+
+Continuous monitoring uses a per-camera limit that persists across runs and
+playlist segments. The benchmark runner explicitly selects its own 20-event
+profile. The camera diagnostics distinguish episode duplicates, rate limits,
+backpressure, and unavailable rate storage.
+
+| Worker setting | Operational default |
+| --- | --- |
+| `OPERIX_RTSP_LAB_EVENTS_PER_MINUTE` | 6 |
+| `OPERIX_RTSP_LAB_EVENT_DEDUP_SECONDS` | 120 |
+| `OPERIX_RTSP_LAB_PNG_TOTAL_BYTES` | 536870912 |
+| `OPERIX_RTSP_LAB_CLIP_TOTAL_BYTES` | 536870912 |
+| `OPERIX_RTSP_LAB_CLIP_RETENTION_DAYS` | 0 (expiration disabled) |
+
+Set worker variables under the Backend service's `environment` in a local
+Compose override. The evidence budgets count existing PNGs and clips when
+evaluating new writes. Configured expiration applies to clips produced by the
+operational RTSP policy. Expiration is checked during evidence generation and
+leaves event rows, PNGs and historical clips intact.
 
 ## Start and check the lab
 

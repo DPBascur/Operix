@@ -1,5 +1,7 @@
 type Metrics = Record<string, unknown> | null | undefined;
 
+export const cameraFrameWindowMs = 5000;
+
 const numberFormat = new Intl.NumberFormat("es-CL", {
   maximumFractionDigits: 2,
 });
@@ -53,13 +55,12 @@ export function cameraFrameIsRecent(
   metrics: Metrics,
   receivedAt: number,
 ) {
-  const maxAge = 5000;
   const age = metrics?.last_frame_age_ms;
   if (typeof age === "number" && Number.isFinite(age) && age >= 0)
-    return age < maxAge;
+    return age < cameraFrameWindowMs;
 
   const elapsed = receivedAt - (timestamp ? Date.parse(timestamp) : NaN);
-  return elapsed >= 0 && elapsed < maxAge;
+  return elapsed >= 0 && elapsed < cameraFrameWindowMs;
 }
 
 function metricRecord(value: unknown) {
@@ -90,7 +91,10 @@ export function cameraTechnicalMetrics(metrics: Metrics) {
         ],
         ["Descartes por cola llena", cameraNumber(counters?.queue_drop)],
         ["Descartes por antigüedad", cameraNumber(counters?.expired_drop)],
-        ["Descartes al desconectar", cameraNumber(counters?.disconnect_drop)],
+        [
+          "Descartes al desconectar",
+          cameraNumber(metrics?.frames_disconnect_dropped ?? counters?.disconnect_drop),
+        ],
         ["Descartes al detener", cameraNumber(counters?.shutdown_drop)],
         ["Fotogramas en cola", cameraNumber(metrics?.queue_depth)],
         ["Máximo observado en cola", cameraNumber(metrics?.max_queue_depth)],

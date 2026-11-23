@@ -12,7 +12,8 @@ case "$VIDEO_FILE" in
     *) fail "VIDEO_FILE must be an MP4 basename" ;;
 esac
 video="/data/rtsp-lab/$VIDEO_FILE"
-[ -f "$video" ] && [ -r "$video" ] || fail "Cannot read $video"
+[ -f "$video" ] && [ -r "$video" ] && [ ! -L "$video" ] || fail "Cannot read $video"
+exec 3< "$video"
 
 case "$VIDEO_SHA256" in
     ""|*[!0-9a-fA-F]*) fail "VIDEO_SHA256 must be a 64-digit hexadecimal digest" ;;
@@ -54,14 +55,19 @@ run_child() {
 }
 
 epoch=0
+set --
+if [ -n "${VIDEO_PROGRESS_FILE:-}" ]; then
+    set -- -progress "$VIDEO_PROGRESS_FILE" -stats_period 0.25
+fi
 while :; do
-    checksum=$(sha256sum < "$video") || fail "Cannot hash $VIDEO_FILE"
+    checksum=$(sha256sum < /proc/self/fd/3) || fail "Cannot hash $VIDEO_FILE"
     [ "${checksum%% *}" = "$expected_hash" ] || fail "SHA-256 mismatch for $VIDEO_FILE"
     epoch=$((epoch + 1))
     printf '[%s] epoch=%s starting %s\n' "$CAMERA_PATH" "$epoch" "$VIDEO_FILE"
     # One real-time pass to EOF. A fresh RTSP connection starts the next pass.
-    if run_child ffmpeg -nostdin -hide_banner -loglevel warning \
-        -re -protocol_whitelist file -f mov -threads 2 -i "$video" -map 0:v:0 \
+    status=0
+    if run_child ffmpeg "$@" -nostdin -hide_banner -loglevel warning -xerror -abort_on empty_output \
+        -re -protocol_whitelist file -f mov -threads 2 -i /proc/self/fd/3 -map 0:v:0 \
         -vf "fps=$VIDEO_FPS,$fit,$canvas" \
         -c:v libx264 -threads 2 -preset veryfast -tune zerolatency \
         -pix_fmt yuv420p -g "$VIDEO_FPS" \
@@ -69,8 +75,9 @@ while :; do
         printf '[%s] epoch=%s reached EOF\n' "$CAMERA_PATH" "$epoch"
     else
         status=$?
-        printf '[%s] epoch=%s ffmpeg exited with status %s, retrying\n' \
+        printf '[%s] epoch=%s ffmpeg exited with status %s\n' \
             "$CAMERA_PATH" "$epoch" "$status" >&2
     fi
+    [ "${VIDEO_PLAY_ONCE:-0}" != 1 ] || exit "$status"
     run_child sleep "$LOOP_GAP_SECONDS"
 done

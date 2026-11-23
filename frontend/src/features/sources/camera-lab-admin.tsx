@@ -9,10 +9,13 @@ import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
 import { operationalError } from "@/features/operations/operation-request";
 import {
   cameraLabService,
+  CameraRequestError,
   type CameraControlUpdate,
   type CameraLabControl,
 } from "@/services/camera-lab.service";
 import { CameraCard, LoadError, useCameraData } from "./camera-overview";
+import { CameraPlaylistEditor } from "./camera-playlist-editor";
+import { cameraMediaForRate, emptyPlaylist } from "./camera-playlist";
 
 const labStatuses: Record<CameraLabControl["status"], string> = {
   disabled: "Deshabilitado",
@@ -20,6 +23,7 @@ const labStatuses: Record<CameraLabControl["status"], string> = {
   partial: "Operación parcial",
   active: "Activo",
   stopping: "Deteniendo",
+  finished: "Reproducción finalizada",
 };
 
 const publisherStatuses: Record<CameraLabControl["publisher"][string], string> =
@@ -33,26 +37,39 @@ const publisherStatuses: Record<CameraLabControl["publisher"][string], string> =
 export function CameraLabAdmin() {
   const [pending, setPending] = useState(false);
   const [refreshAfter, setRefreshAfter] = useState(0);
-  const [feedback, setFeedback] = useState<{ text: string; error?: boolean }>();
+  const [feedback, setFeedback] = useState<{
+    text: string;
+    error?: boolean;
+    cameraId?: string;
+  }>();
   const patchInFlight = useRef(false);
   const { data, error, receivedAt, retry } = useCameraData(
     cameraLabService.control,
     3000,
     pending,
   );
-  const locked =
-    pending || receivedAt < refreshAfter || Boolean(error) || !data?.available;
+  const awaitingSnapshot =
+    pending || (refreshAfter > 0 && receivedAt <= refreshAfter);
+  const locked = awaitingSnapshot || Boolean(error) || !data?.available;
 
-  async function update(change: CameraControlUpdate) {
-    if (locked || patchInFlight.current) return;
+  async function update(change: CameraControlUpdate, cameraId?: string) {
+    if (locked || patchInFlight.current) return false;
     patchInFlight.current = true;
     setPending(true);
-    setFeedback(undefined);
+    setFeedback({ text: "Guardando cambios…", cameraId });
     try {
       await cameraLabService.updateControl(change);
-      setFeedback({ text: "Cambios guardados." });
+      setFeedback({ text: "Cambios guardados.", cameraId });
+      return true;
     } catch (cause) {
-      setFeedback({ text: operationalError(cause), error: true });
+      const text =
+        change.playlists &&
+        cause instanceof CameraRequestError &&
+        cause.status === 400
+          ? "El servidor rechazó la lista. Comprueba que los videos sigan permitidos para esta cámara."
+          : operationalError(cause);
+      setFeedback({ text, error: true, cameraId });
+      return false;
     } finally {
       setRefreshAfter(Date.now());
       patchInFlight.current = false;
@@ -124,7 +141,12 @@ export function CameraLabAdmin() {
               <div>
                 <dt className="text-text-secondary">Cámaras analizando</dt>
                 <dd className="font-medium tabular-nums">
-                  {data.cameras.filter((camera) => camera.status === "analyzing" && camera.preview_url).length}
+                  {
+                    data.cameras.filter(
+                      (camera) =>
+                        camera.status === "analyzing" && camera.preview_url,
+                    ).length
+                  }
                 </dd>
               </div>
               <div>
@@ -141,7 +163,7 @@ export function CameraLabAdmin() {
               </div>
             </dl>
           </section>
-          {(pending || feedback) && (
+          {feedback && !feedback.cameraId && (
             <p
               className={
                 feedback?.error
@@ -150,7 +172,7 @@ export function CameraLabAdmin() {
               }
               role={feedback?.error ? "alert" : "status"}
             >
-              {pending ? "Guardando cambios…" : feedback?.text}
+              {feedback.text}
             </p>
           )}
           <section className="grid gap-3" aria-labelledby="lab-control-cameras">
@@ -162,6 +184,15 @@ export function CameraLabAdmin() {
                 {data.cameras.map((camera) => {
                   const publisher = data.publisher[camera.id];
                   const action = camera.enabled ? "Deshabilitar" : "Habilitar";
+                  const transition = camera.last_transition;
+                  const transitionText =
+                    transition?.outcome === "expected" &&
+                    transition.reason === "media_eof"
+                      ? "Fin de video programado"
+                      : transition?.outcome === "interrupted" &&
+                        transition.reason === "publisher_interrupted"
+                        ? "Interrupción del emisor"
+                        : undefined;
                   return (
                     <li
                       key={camera.id}
@@ -171,13 +202,23 @@ export function CameraLabAdmin() {
                         key={camera.run_id}
                         camera={camera}
                         receivedAt={receivedAt}
-                        stale={Boolean(error)}
+                        stale={Boolean(error) || awaitingSnapshot}
                       />
                       <p className="text-sm text-text-secondary">
                         {camera.enabled ? "Habilitada" : "Deshabilitada"} ·
                         Publicador{" "}
                         {publisher ? publisherStatuses[publisher] : "Sin datos"}
                       </p>
+                      {!error && camera.playlist_finished && (
+                        <p className="text-sm text-text-secondary">
+                          Lista finalizada
+                        </p>
+                      )}
+                      {!error && transitionText && (
+                        <p className="text-sm text-text-secondary">
+                          Última transición · {transitionText}
+                        </p>
+                      )}
                       {!error && camera.problem && (
                         <p className="text-sm text-danger">{camera.problem}</p>
                       )}
@@ -202,6 +243,24 @@ export function CameraLabAdmin() {
                           Abrir cámara <ArrowRight aria-hidden="true" />
                         </Link>
                       </div>
+                      {data.catalog && data.playlists && (
+                        <CameraPlaylistEditor
+                          cameraId={camera.id}
+                          cameraName={camera.name}
+                          catalog={cameraMediaForRate(
+                            data.catalog,
+                            camera.expected_fps,
+                          )}
+                          saved={data.playlists[camera.id] ?? emptyPlaylist}
+                          locked={locked}
+                          save={(change) => update(change, camera.id)}
+                          feedback={
+                            feedback?.cameraId === camera.id
+                              ? feedback
+                              : undefined
+                          }
+                        />
+                      )}
                     </li>
                   );
                 })}

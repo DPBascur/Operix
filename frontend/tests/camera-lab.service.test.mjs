@@ -45,6 +45,9 @@ test("camera control uses authenticated GET and PATCH and reads inventory and pr
     body: JSON.stringify({ managedCamera: "data:image/jpeg;base64,/9j/2Q==" }),
   });
   assert.equal(seeded.status, 200);
+  const legacy = await cameraLabService.control(signal);
+  assert.equal(legacy.catalog, undefined);
+  assert.equal(legacy.playlists, undefined);
   const inventory = await cameraLabService.list(signal);
   assert.equal(inventory.managed, true);
   const [camera] = inventory.cameras;
@@ -53,6 +56,63 @@ test("camera control uses authenticated GET and PATCH and reads inventory and pr
     (await cameraLabService.preview(camera.id, camera.preview_url, signal))
       .type,
     "image/jpeg",
+  );
+
+  const reading = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  const originalBlob = Response.prototype.blob;
+  const pausedBlob = t.mock.method(
+    Response.prototype,
+    "blob",
+    async function () {
+      const blob = await originalBlob.call(this);
+      reading.resolve();
+      await release.promise;
+      return blob;
+    },
+  );
+  try {
+    const controller = new AbortController();
+    const cancelled = assert.rejects(
+      cameraLabService.preview(
+        camera.id,
+        camera.preview_url,
+        controller.signal,
+      ),
+      { name: "AbortError" },
+    );
+    await reading.promise;
+    controller.abort();
+    release.resolve();
+    await cancelled;
+  } finally {
+    release.resolve();
+    pausedBlob.mock.restore();
+  }
+
+  const catalog = [
+    { id: "media-a", filename: "a.mp4", title: "Recepción" },
+    { id: "media-b", filename: "b.mp4", duration_s: 42 },
+  ];
+  const extended = await fetch("/__fixture", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ labCatalog: catalog }),
+  });
+  assert.equal(extended.status, 200);
+  assert.deepEqual((await cameraLabService.control(signal)).catalog, catalog);
+  const playlist = { media_ids: ["media-b", "media-a"], repeat: true };
+  await cameraLabService.updateControl({
+    playlists: { [camera.id]: playlist },
+  });
+  assert.deepEqual((await cameraLabService.control(signal)).playlists, {
+    [camera.id]: playlist,
+  });
+  await assert.rejects(
+    cameraLabService.updateControl({
+      playlists: { [camera.id]: { media_ids: ["a.mp4"], repeat: false } },
+    }),
+    { status: 400 },
   );
 
   await cameraLabService.updateControl({ cameras: { [camera.id]: false } });
@@ -65,6 +125,7 @@ test("camera control uses authenticated GET and PATCH and reads inventory and pr
   const disabled = await cameraLabService.control(signal);
   assert.equal(disabled.enabled, false);
   assert.equal(disabled.cameras[0].enabled, false);
+  assert.deepEqual(disabled.playlists[camera.id], playlist);
 
   const lead = { username: "fixture-lead", password: "TEST_ONLY_LEAD" };
   const created = await apiFetch("/api/v1/users/", {

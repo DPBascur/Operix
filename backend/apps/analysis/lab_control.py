@@ -1,15 +1,17 @@
 """Persistent intent and bounded reconciliation for the two private RTSP publishers."""
 
+from dataclasses import replace
 from functools import lru_cache
 import hashlib
 import json
 import logging
 import os
 from pathlib import Path
-import re
 import socket
+import stat
 from threading import Thread
-from time import sleep
+from time import sleep, time
+from uuid import uuid4
 
 from django.contrib.admin.models import CHANGE, LogEntry
 from django.db import close_old_connections, transaction
@@ -21,7 +23,10 @@ from rest_framework.views import APIView
 
 from config.access import request_role, user_role
 from . import camera_registry
-from .cameras import CameraConflict, camera_json, last_run, recent_frame, scheduler_lock, start_camera, stop_camera, status_for
+from .cameras import (
+    CameraConflict, camera_json, last_run, playback_spatial_issue, recent_frame, scheduler_lock,
+    start_camera, stop_camera, status_for,
+)
 from .models import CameraLabControl, CameraRun
 
 
@@ -30,11 +35,22 @@ CONTROL_ID = 1
 RETRY_SECONDS = 30
 SLOTS = ("lab-cam-01", "lab-cam-02")
 MAX_MEDIA_BYTES = 100 * 1024**3
+MAX_PLAYLIST_ITEMS = 64
+LEASE_SECONDS = 12
+START_SECONDS = 60
+# The engine has a hard 1,800-second ceiling. Leave time to detect EOF and drain.
+MAX_CLIP_SECONDS = 1740
+DURATION_LIMIT = f"El medio requiere una duración verificada de hasta {MAX_CLIP_SECONDS} segundos. Retírelo o divídalo en clips autorizados."
+DURATION_EXCEEDED = "El medio alcanzó el límite del Motor. Verifique su duración real y retírelo o divídalo en clips autorizados."
 
 
 class LabAdministrator(BasePermission):
     def has_permission(self, request, view):
         return request_role(request) == "administrator"
+
+
+class MediaRejected(ValueError):
+    """A media validation error safe to report to administrators."""
 
 
 def candidates(inventory=None):
@@ -54,29 +70,77 @@ def marker(id_):
     return Path(os.environ["OPERIX_CAMERA_LAB_CONTROL_DIR"]) / (id_ + ".lease")
 
 
-@lru_cache(maxsize=8)
-def checked_hash(path, size, modified, inode):
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+def ack_path(id_):
+    if id_ not in SLOTS:
+        raise ValueError("Slot inválido")
+    return Path(os.environ["OPERIX_CAMERA_LAB_ACK_DIR"]) / id_ / "status"
+
+
+def file_identity(stat_result):
+    return (stat_result.st_dev, stat_result.st_ino, stat_result.st_size,
+            stat_result.st_mtime_ns, stat_result.st_ctime_ns)
+
+
+@lru_cache(maxsize=128)
+def checked_hash(path, identity):
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+    descriptor = os.open(path, flags)
+    with os.fdopen(descriptor, "rb") as stream:
+        opened = os.fstat(stream.fileno())
+        opened_identity = file_identity(opened)
+        # Windows reports different ctime semantics for the path and the open handle.
+        if not stat.S_ISREG(opened.st_mode) or opened_identity[:4] != identity[:4]:
+            raise MediaRejected("El archivo cambió durante la verificación.")
+        digest = hashlib.sha256()
+        remaining = opened.st_size
+        while remaining:
+            chunk = stream.read(min(1024**2, remaining))
+            if not chunk:
+                raise MediaRejected("El archivo cambió durante la verificación.")
+            digest.update(chunk)
+            remaining -= len(chunk)
+        if (stream.read(1) or file_identity(os.fstat(stream.fileno())) != opened_identity
+                or file_identity(path.lstat()) != identity):
+            raise MediaRejected("El archivo cambió durante la verificación.")
+        return digest.hexdigest()
+
+
+def media_eligible(source, expected_fps):
+    name, digest, fps = source.get("filename"), source.get("sha256"), source.get("fps")
+    license_ = source.get("license")
+    return (isinstance(name, str) and camera_registry.MEDIA_FILENAME.fullmatch(name)
+            and isinstance(digest, str) and camera_registry.SHA256.fullmatch(digest)
+            and source.get("real") is True and isinstance(license_, str) and bool(license_.strip())
+            and type(fps) in (int, float) and expected_fps <= fps <= 240)
+
+
+def supported_duration(source):
+    duration = source.get("duration_s")
+    return type(duration) in (int, float) and 0 < duration <= MAX_CLIP_SECONDS
+
+
+def media_file(camera):
+    source = camera.provenance or {}
+    if not media_eligible(source, camera.expected_fps):
+        raise MediaRejected("El archivo carece de procedencia autorizada o su FPS es inferior al perfil.")
+    if not supported_duration(source):
+        raise MediaRejected(DURATION_LIMIT)
+    name, digest = source["filename"], source["sha256"]
+    root = Path(os.environ["OPERIX_CAMERA_LAB_MANIFEST"]).resolve().parent
+    path = root / name
+    details = path.lstat()
+    if not stat.S_ISREG(details.st_mode) or not 0 < details.st_size <= MAX_MEDIA_BYTES:
+        raise MediaRejected("El archivo autorizado no está disponible.")
+    return path, digest, file_identity(details)
 
 
 def approved_media(camera):
-    source = camera.provenance or {}
-    name, digest, fps = source.get("filename"), source.get("sha256"), source.get("fps")
-    if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,126}\.mp4", name)
-            or not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest)
-            or source.get("real") is not True or not source.get("license")
-            or type(fps) not in (int, float) or not camera.expected_fps <= fps <= 240):
-        raise ValueError("El archivo carece de procedencia autorizada o su FPS es inferior al perfil.")
-    root = Path(os.environ["OPERIX_CAMERA_LAB_MANIFEST"]).resolve().parent
-    path = root / name
-    if path.is_symlink() or not path.is_file():
-        raise ValueError("El archivo autorizado no está disponible.")
-    details = path.stat()
-    if (not 0 < details.st_size <= MAX_MEDIA_BYTES
-            or checked_hash(path, details.st_size, details.st_mtime_ns, details.st_ino) != digest):
-        raise ValueError("El archivo autorizado no coincide con el inventario.")
-    return name, digest
+    # PATCH verifies before taking the scheduler lock. During reconciliation
+    # the publisher hashes its opened descriptor before reporting frame output.
+    path, digest, identity = media_file(camera)
+    if checked_hash(path, identity) != digest:
+        raise MediaRejected("El archivo autorizado no coincide con el inventario.")
+    return path.name, digest
 
 
 def rtsp_ready(id_=None):
@@ -107,11 +171,179 @@ def update_lease(id_, media):
     scratch.replace(lease)
 
 
-def issued_lease(id_, media):
+def publisher_ack(id_, token):
     try:
-        return marker(id_).read_text(encoding="ascii").split() == list(media)
-    except (OSError, UnicodeError):
-        return False
+        with ack_path(id_).open("rb") as stream:
+            age = time() - os.fstat(stream.fileno()).st_mtime
+            fields = stream.read(128).decode("ascii").split()
+        if len(fields) == 2 and fields[0] == token:
+            state = fields[1]
+            if state in {"eof", "failed", "expired"} or (0 <= age < LEASE_SECONDS and state in {"idle", "playing"}):
+                return state
+    except (KeyError, OSError, UnicodeError):
+        pass
+    return None
+
+
+def configured_playlists(control, inventory, defaults):
+    saved = control.playlists if control else {}
+    return {id_: saved.get(id_, {"media_ids": [defaults[id_]] if id_ in defaults else [], "repeat": True})
+            for id_ in inventory}
+
+
+def playlist_signature(playlist, catalog):
+    sources = [(id_, catalog.get(id_)) for id_ in playlist["media_ids"]]
+    return hashlib.sha256(json.dumps([sources, playlist["repeat"]], sort_keys=True).encode()).hexdigest()
+
+
+def new_attempt(signature, position=0, cycle=0, last=None, *, retry=False):
+    return {"signature": signature, "position": position, "cycle": cycle, "last_transition": last,
+            "phase": "idle", "token": uuid4().hex, "retry_at": time() + RETRY_SECONDS if retry else 0}
+
+
+def breadcrumb(outcome, reason, playback=None):
+    data = playback or {}
+    return {"outcome": outcome, "reason": reason, "at": now().isoformat(),
+            **{key: data[key] for key in ("media_id", "source_sha256", "position", "cycle") if key in data}}
+
+
+def drain(run, transition):
+    if run.active:
+        if run.playback and "stop_requested" not in run.playback:
+            run.playback = {**run.playback, "stop_requested": transition}
+            run.save(update_fields=["playback"])
+        stop_camera(run)
+
+
+def seal_playback(run, state, runtime):
+    if not run.playback:
+        return None
+    if "transition" not in run.playback:
+        requested = run.playback.get("stop_requested")
+        if requested and state == "stopped" and (runtime or {}).get("termination_reason") == "OPERATOR_STOP":
+            transition = requested
+        else:
+            reason = ("duration_exceeded" if (runtime or {}).get("termination_reason") == "TIME_LIMIT"
+                      else "worker_drain_failed" if requested else "worker_exited")
+            transition = breadcrumb("interrupted", reason, run.playback)
+        run.playback = {**run.playback, "transition": transition}
+        run.save(update_fields=["playback"])
+    return run.playback["transition"]
+
+
+def reconcile_slot(id_, camera, playlist, catalog, progress, run, owner):
+    state, metrics, runtime = status_for(run)
+    if run and not run.managed and run.active:
+        update_lease(id_, None)
+        return {}
+    if playlist is None or not playlist["media_ids"]:
+        update_lease(id_, None)
+        if run and run.managed:
+            if run.active:
+                drain(run, breadcrumb("expected", "disabled", run.playback))
+            else:
+                seal_playback(run, state, runtime)
+        return {}
+
+    signature = playlist_signature(playlist, catalog)
+    changed = progress.get("signature") != signature
+    if run and run.active and (changed or run.playback.get("token") != progress.get("token")):
+        # Keep the prior publisher unchanged during the drain, if its lease still exists.
+        try:
+            previous = marker(id_).read_text(encoding="ascii").split()
+            if (len(previous) == 4 and previous[0] == run.playback.get("token") and previous[1] == "play"
+                    and previous[2:] == [run.provenance.get("filename"), run.provenance.get("sha256")]):
+                update_lease(id_, previous)
+        except (OSError, UnicodeError):
+            pass
+        drain(run, breadcrumb("expected", "playlist_changed", run.playback))
+        return progress
+
+    transition = seal_playback(run, state, runtime) if run and run.managed and not run.active else None
+    if changed:
+        return new_attempt(signature, last=transition or progress.get("last_transition"))
+    if progress["phase"] in {"finished", "duration_blocked"}:
+        return progress
+    token, position = progress["token"], progress["position"]
+    media_id = playlist["media_ids"][position]
+    source = catalog.get(media_id) or {}
+    selected = replace(camera, provenance={**source, "media_id": media_id})
+    playback = {"token": token, "media_id": media_id, "source_sha256": source.get("sha256"),
+                "position": position, "cycle": progress["cycle"]}
+    ack = publisher_ack(id_, token)
+    if run and run.playback.get("token") == token:
+        if run.active:
+            if run.playback.get("stop_requested"):
+                stop_camera(run)
+            elif ack == "eof" and (metrics.get("frames_processed") or 0) > 0:
+                drain(run, breadcrumb("expected", "media_eof", playback))
+            elif ack != "playing":
+                reason = "no_frames_analyzed" if ack == "eof" else "publisher_interrupted"
+                drain(run, breadcrumb("interrupted", reason, playback))
+            else:
+                try:
+                    path, digest, _ = media_file(selected)
+                except (KeyError, OSError, ValueError):
+                    update_lease(id_, None)
+                    drain(run, breadcrumb("interrupted", "media_unavailable", playback))
+                else:
+                    update_lease(id_, (token, "play", path.name, digest))
+            return progress
+
+        if transition["reason"] == "media_eof" and transition["outcome"] == "expected":
+            next_position = position + 1
+            if next_position < len(playlist["media_ids"]):
+                return new_attempt(signature, next_position, progress["cycle"], transition)
+            if playlist["repeat"]:
+                return new_attempt(signature, 0, progress["cycle"] + 1, transition)
+            update_lease(id_, None)
+            return {**progress, "phase": "finished", "last_transition": transition}
+        if transition["reason"] == "duration_exceeded":
+            update_lease(id_, None)
+            return {**progress, "phase": "duration_blocked", "blocked": DURATION_EXCEEDED,
+                    "last_transition": transition}
+        return new_attempt(signature, position, progress["cycle"], transition, retry=True)
+
+    spatial_issue = playback_spatial_issue(selected)
+    if media_eligible(source, camera.expected_fps) and not supported_duration(source):
+        update_lease(id_, None)
+        if progress.get("blocked") != DURATION_LIMIT:
+            progress = {**progress, "last_transition": breadcrumb("interrupted", "unsupported_duration", playback)}
+        return {**progress, "phase": "duration_blocked", "blocked": DURATION_LIMIT}
+    if progress["phase"] == "idle":
+        update_lease(id_, (token, "idle"))
+        if not spatial_issue and time() >= progress["retry_at"] and ack == "idle" and not rtsp_ready(id_):
+            return {**progress, "phase": "play", "launch_at": time(), "blocked": None}
+        if spatial_issue and not progress.get("blocked"):
+            progress = {**progress, "last_transition": breadcrumb("expected", "spatial_confirmation_required", playback)}
+        return {**progress, "blocked": spatial_issue}
+    if spatial_issue:
+        update_lease(id_, None)
+        transition = breadcrumb("expected", "spatial_confirmation_required", playback)
+        return {**new_attempt(signature, position, progress["cycle"], transition), "blocked": spatial_issue}
+
+    failure = None
+    try:
+        path, digest, _ = media_file(selected)
+        media = path.name, digest
+    except (KeyError, OSError, ValueError):
+        failure = "media_unavailable"
+    if ack in {"eof", "failed", "expired"}:
+        failure = "publisher_ended_before_worker"
+    if not failure and ack == "playing" and rtsp_ready(id_):
+        try:
+            start_camera(selected, owner, managed=True, playback=playback)
+        except (CameraConflict, ValidationError):
+            pass
+        else:
+            update_lease(id_, (token, "play", *media))
+            return progress
+    if failure or time() - progress["launch_at"] >= START_SECONDS:
+        update_lease(id_, None)
+        transition = breadcrumb("interrupted", failure or "startup_timeout", playback)
+        return new_attempt(signature, position, progress["cycle"], transition, retry=True)
+    update_lease(id_, (token, "play", *media))
+    return progress
 
 
 @transaction.atomic
@@ -119,47 +351,22 @@ def reconcile():
     scheduler_lock()
     control = CameraLabControl.objects.select_related("updated_by").filter(pk=CONTROL_ID).first()
     authorized = bool(control and control.enabled and control.updated_by and user_role(control.updated_by) == "administrator")
-    inventory = candidates()
+    registry = camera_registry.media_registry()
+    inventory = candidates(camera_registry.inventory(registry))
+    catalog, defaults = registry
     desired = intent(control, inventory) if authorized else {}
+    playlists = configured_playlists(control, inventory, defaults)
+    progress = control.playback if control else {}
+    updated = {}
     for id_ in SLOTS:
-        camera = inventory.get(id_)
-        run = last_run(id_, lock=True)
-        state, _, _ = status_for(run)
-        # A legacy/manual process in a camera slot remains under its original control.
-        if not desired.get(id_) or (run and run.active and not run.managed):
-            update_lease(id_, None)
-            if run and run.managed:
-                stop_camera(run)
-            continue
-        try:
-            media = approved_media(camera)
-        except (KeyError, OSError, ValueError):
-            update_lease(id_, None)
-            if run and run.managed:
-                stop_camera(run)
-            continue
-        if run and run.active:
-            if run.provenance.get("sha256") != media[1]:
-                update_lease(id_, None)
-                stop_camera(run)
-            else:
-                update_lease(id_, media)
-            continue
-        if run and run.provenance.get("sha256") != media[1] and not issued_lease(id_, media):
-            # Wait for the old publisher to release the slot before authorizing
-            # a different file. A new worker must not see it under the new hash.
-            update_lease(id_, None if rtsp_ready(id_) else media)
-            continue
-        update_lease(id_, media)
-        if run and state == "error" and (now() - (run.ended_at or run.started_at)).total_seconds() < RETRY_SECONDS:
-            continue
-        if rtsp_ready(id_):
-            try:
-                start_camera(camera, control.updated_by, managed=True)
-            except (CameraConflict, ValidationError):
-                # Capacity or invalid spatial setup is shown as partial. The
-                # intent is retained and reconciliation retries after recovery.
-                pass
+        slot = reconcile_slot(id_, inventory.get(id_), playlists[id_] if desired.get(id_) else None,
+                              catalog, progress.get(id_, {}), last_run(id_, lock=True),
+                              control.updated_by if authorized else None)
+        if slot:
+            updated[id_] = slot
+    if control and updated != progress:
+        control.playback = updated
+        control.save(update_fields=["playback"])
 
 
 def start_reconciler():
@@ -182,10 +389,13 @@ def start_reconciler():
 
 def describe(request):
     available = camera_registry.managed()
-    inventory = candidates()
+    registry = camera_registry.media_registry()
+    inventory = candidates(camera_registry.inventory(registry))
+    catalog, defaults = registry
     control = CameraLabControl.objects.filter(pk=CONTROL_ID).select_related("updated_by").first() if available else None
     enabled = bool(control and control.enabled)
     desired = intent(control, inventory)
+    playlists = configured_playlists(control, inventory, defaults)
     rows, publishers = [], {}
     rtsp = available and rtsp_ready()
     for id_, camera in inventory.items():
@@ -194,32 +404,78 @@ def describe(request):
         slot_enabled = desired.get(id_, True)
         publishers[id_] = "publishing" if live else "idle"
         detail = None
-        if enabled and slot_enabled:
+        playlist = playlists[id_]
+        progress = (control.playback.get(id_, {}) if control else {})
+        if progress.get("signature") != playlist_signature(playlist, catalog):
+            progress = {}
+        position = progress.get("position", 0)
+        media_ids = playlist["media_ids"]
+        finished = progress.get("phase") == "finished"
+        if enabled and slot_enabled and media_ids and not finished:
             try:
-                approved_media(camera)
-                if not live:
+                media_file(replace(camera, provenance=catalog.get(media_ids[position])))
+                if progress.get("blocked"):
+                    publishers[id_] = "error"
+                    detail = progress["blocked"]
+                elif not live:
                     publishers[id_] = "starting" if rtsp else "error"
-            except (ValueError, OSError, KeyError):
+            except MediaRejected as error:
+                publishers[id_] = "error"
+                detail = str(error)
+            except (OSError, KeyError, ValueError):
                 publishers[id_] = "error"
                 detail = "Compruebe el archivo, la licencia, la huella y la cadencia del inventario."
-        rows.append({**row, "enabled": slot_enabled, "problem": detail})
-    selected = [row for row in rows if row["enabled"]]
-    active = [row for row in selected if row["status"] == "analyzing" and publishers[row["id"]] == "publishing"
+        transitions = [item for item in (progress.get("last_transition"), (row["playback"] or {}).get("transition")) if item]
+        rows.append({**row, "enabled": slot_enabled, "problem": detail, "playlist_finished": finished,
+                     "playlist_blocked": bool(progress.get("blocked")),
+                     "playlist_position": position if enabled and slot_enabled and media_ids else None,
+                     "last_transition": max(transitions, key=lambda item: item.get("at", ""), default=None)})
+    selected = [row for row in rows if row["enabled"] and playlists[row["id"]]["media_ids"]]
+    pending = [row for row in selected if not row["playlist_finished"]]
+    active = [row for row in pending if row["status"] == "analyzing" and publishers[row["id"]] == "publishing"
               and recent_frame(row)]
     if not enabled:
         running = CameraRun.objects.filter(active=True, managed=True).exists() or "publishing" in publishers.values()
         state = "stopping" if running else "disabled"
-    elif selected and len(active) == len(selected):
+    elif selected and not pending:
+        state = "finished"
+    elif pending and len(active) == len(pending):
         state = "active"
     elif (not selected or not rtsp or active or any(row["status"] in {"error", "reconnecting", "overloaded"}
-          or publishers[row["id"]] == "error" for row in selected)):
+          or publishers[row["id"]] == "error" for row in pending)):
         state = "partial"
     else:
         state = "starting"
     return {"available": available, "enabled": enabled, "status": state,
             "capacity": min(2, camera_registry.capacity()), "cameras": rows,
             "publisher": publishers, "mediamtx": "ready" if rtsp else "unavailable",
+            "catalog": [{"id": media_id, **{key: source[key] for key in
+                         ("filename", "title", "duration_s", "fps", "scenario", "footage", "license", "sha256")}}
+                        for media_id, source in catalog.items()
+                        if supported_duration(source)
+                        and any(media_eligible(source, camera.expected_fps) for camera in inventory.values())],
+            "playlists": playlists,
             "updated_by": control.updated_by.get_username() if control and control.updated_by_id else None}
+
+
+def checked_playlists(updates, inventory, catalog):
+    if not isinstance(updates, dict) or updates.keys() - inventory.keys():
+        raise ValidationError("Identificador de cámara inválido.")
+    for id_, playlist in updates.items():
+        if not isinstance(playlist, dict) or playlist.keys() != {"media_ids", "repeat"}:
+            raise ValidationError("Indique los identificadores de medios y si se repite la lista.")
+        ids = playlist["media_ids"]
+        if (type(playlist["repeat"]) is not bool or not isinstance(ids, list) or len(ids) > MAX_PLAYLIST_ITEMS
+                or any(not isinstance(media_id, str) or media_id not in catalog for media_id in ids)):
+            raise ValidationError("Lista de medios inválida.")
+        for media_id in set(ids):
+            try:
+                approved_media(replace(inventory[id_], provenance=catalog[media_id]))
+            except MediaRejected as error:
+                raise ValidationError(str(error)) from None
+            except (KeyError, OSError, ValueError):
+                raise ValidationError("La lista contiene un medio no autorizado para esta cámara.") from None
+    return updates
 
 
 class CameraLabControlView(APIView):
@@ -228,24 +484,35 @@ class CameraLabControlView(APIView):
     def get(self, request):
         return Response(describe(request))
 
-    @transaction.atomic
     def patch(self, request):
         if not camera_registry.managed():
             raise CameraConflict("El despliegue no incluye el supervisor virtual.")
         body = request.data
-        if not isinstance(body, dict) or not body or body.keys() - {"enabled", "cameras"}:
-            raise ValidationError("Envíe el estado global o los estados por cámara.")
+        if not isinstance(body, dict) or not body or body.keys() - {"enabled", "cameras", "playlists"}:
+            raise ValidationError("Envíe el estado del laboratorio, los estados por cámara o las listas de reproducción.")
+        registry = camera_registry.media_registry()
+        inventory = candidates(camera_registry.inventory(registry))
         updates = body.get("cameras", {})
-        if (not isinstance(updates, dict) or updates.keys() - candidates().keys()
+        if (not isinstance(updates, dict) or updates.keys() - inventory.keys()
                 or any(type(value) is not bool for value in updates.values())
                 or ("enabled" in body and type(body["enabled"]) is not bool)):
             raise ValidationError("Estado o identificador de cámara inválido.")
-        scheduler_lock()
-        control, _ = CameraLabControl.objects.get_or_create(pk=CONTROL_ID)
-        control.cameras = {**control.cameras, **updates}
-        control.enabled = body.get("enabled", control.enabled)
-        control.updated_by = request.user
-        control.save()
-        LogEntry.objects.log_actions(user_id=request.user.pk, queryset=[control], action_flag=CHANGE,
-                                     change_message=json.dumps({"enabled": control.enabled, "cameras": updates}))
+        playlists = checked_playlists(body.get("playlists", {}), inventory, registry[0])
+        with transaction.atomic():
+            scheduler_lock()
+            control, _ = CameraLabControl.objects.get_or_create(pk=CONTROL_ID)
+            enabled = body.get("enabled", control.enabled)
+            if enabled and not control.enabled:
+                control.playback = {}
+            for id_, active in updates.items():
+                if active and control.cameras.get(id_) is False:
+                    control.playback.pop(id_, None)
+            control.cameras = {**control.cameras, **updates}
+            control.playlists = {**control.playlists, **playlists}
+            control.enabled = enabled
+            control.updated_by = request.user
+            control.save()
+            LogEntry.objects.log_actions(user_id=request.user.pk, queryset=[control], action_flag=CHANGE,
+                                         change_message=json.dumps({"enabled": control.enabled, "cameras": updates,
+                                                                    "playlists": playlists}))
         return Response(describe(request), status=202)

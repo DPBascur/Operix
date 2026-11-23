@@ -21,6 +21,7 @@ import {
 import {
   cameraAnalysisRate,
   cameraCoverage,
+  cameraFrameIsRecent,
   cameraObservationPaused,
   cameraFrameTime,
   cameraNumber,
@@ -590,7 +591,7 @@ export function CameraLabDetail({ id }: { id: string }) {
     2500,
     busy || calibrationBusy || !catalog.data?.enabled,
   );
-  const camera = detail.data;
+  const camera = detail.data?.id === id ? detail.data : undefined;
   const automatic =
     camera?.automatic ??
     catalog.data?.cameras.find((item) => item.id === id)?.automatic ??
@@ -649,6 +650,17 @@ export function CameraLabDetail({ id }: { id: string }) {
         : undefined;
   const stopping = canStop && camera.run_id === stoppingRun;
   const frameTime = cameraFrameTime(camera?.last_frame_at);
+  const preview =
+    camera?.preview_url &&
+    (!automatic ||
+      (!cameraObservationPaused(camera.status, Boolean(error)) &&
+        cameraFrameIsRecent(
+          camera.last_frame_at,
+          camera.metrics,
+          detail.receivedAt,
+        )))
+      ? camera.preview_url
+      : null;
   const eventTime = cameraFrameTime(event?.occurred_at);
   const provenance = [
     camera?.provenance?.title,
@@ -835,12 +847,13 @@ export function CameraLabDetail({ id }: { id: string }) {
                 <figcaption className="text-sm font-medium">
                   Último fotograma analizado · captura estática
                 </figcaption>
-                {camera.preview_url ? (
+                {preview ? (
                   <CameraPreview
-                    key={`${camera.run_id}:${camera.preview_url}`}
+                    key={`${camera.run_id}:${preview}`}
                     id={id}
-                    url={camera.preview_url}
+                    url={preview}
                     active={Boolean(canStop)}
+                    recentOnly={automatic}
                   />
                 ) : (
                   <div className="flex min-h-32 items-center justify-center gap-2 rounded-md bg-surface-muted p-3 text-center text-sm text-text-secondary">
@@ -856,7 +869,11 @@ export function CameraLabDetail({ id }: { id: string }) {
               )}
               {camera.automatic && camera.provenance?.filename && (
                 <p className="break-words text-sm text-text-secondary">
-                  Grabación en bucle · {camera.provenance.filename}
+                  {typeof camera.playback?.position === "number"
+                    ? `Video ${camera.playback.position + 1} de la lista`
+                    : "Grabación de la cámara virtual"}
+                  {" · "}
+                  {camera.provenance.filename}
                   {camera.provenance.footage === "real recorded logistics trial" &&
                     " · ensayo logístico grabado"}
                   {camera.provenance.duration_s != null &&

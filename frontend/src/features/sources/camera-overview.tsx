@@ -13,6 +13,7 @@ import {
   cameraCoverage,
   cameraFrameIsRecent,
   cameraFrameTime,
+  cameraFrameWindowMs,
   cameraObservationPaused,
 } from "./camera-diagnostics";
 
@@ -116,81 +117,113 @@ export function LoadError({
   );
 }
 
-export function CameraPreview({
-  id,
-  url,
-  active,
-  interval = 2500,
-  name,
-}: {
+type CameraPreviewProps = {
   id: string;
   url: string;
   active: boolean;
   interval?: number;
   name?: string;
-}) {
+  recentOnly?: boolean;
+};
+
+export function CameraPreview(props: CameraPreviewProps) {
+  const visible = usePageVisible();
+  const { id, url, active, interval, recentOnly } = props;
+  return (
+    <div className="grid aspect-video place-items-center overflow-hidden rounded-md bg-surface-muted">
+      {visible && (
+        <CameraPreviewFrame
+          key={JSON.stringify([id, url, active, interval, recentOnly])}
+          {...props}
+        />
+      )}
+    </div>
+  );
+}
+
+function CameraPreviewFrame({
+  id,
+  url,
+  active,
+  interval = 2500,
+  name,
+  recentOnly = false,
+}: CameraPreviewProps) {
   const [frame, setFrame] = useState<string>();
   const [unavailable, setUnavailable] = useState(false);
-  const visible = usePageVisible();
   useEffect(() => {
-    if (!visible) return;
     const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
+    let refreshTimer: ReturnType<typeof setTimeout>;
+    let expiration: ReturnType<typeof setTimeout>;
+    let objectUrl: string | undefined;
+
+    function releaseFrame() {
+      clearTimeout(expiration);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      objectUrl = undefined;
+    }
+
+    function clearFrame() {
+      releaseFrame();
+      setFrame(undefined);
+      setUnavailable(true);
+    }
+
     async function refresh() {
+      const startedAt = performance.now();
+      const signal = recentOnly
+        ? AbortSignal.any([
+            controller.signal,
+            AbortSignal.timeout(cameraFrameWindowMs),
+          ])
+        : controller.signal;
       try {
-        const blob = await cameraLabService.preview(id, url, controller.signal);
+        const blob = await cameraLabService.preview(id, url, signal);
         if (controller.signal.aborted) return;
-        setFrame(URL.createObjectURL(blob));
-        setUnavailable(false);
+        const remaining = cameraFrameWindowMs - (performance.now() - startedAt);
+        if (recentOnly && (signal.aborted || remaining <= 0)) {
+          clearFrame();
+        } else {
+          releaseFrame();
+          objectUrl = URL.createObjectURL(blob);
+          setFrame(objectUrl);
+          setUnavailable(false);
+          if (recentOnly) expiration = setTimeout(clearFrame, remaining);
+        }
       } catch (error) {
         if (controller.signal.aborted) return;
-        setUnavailable(true);
-        setFrame(undefined);
+        clearFrame();
         if (
           error instanceof CameraRequestError &&
-          [401, 403, 404].includes(error.status)
-        ) {
-          if (error.status !== 404) return;
-        }
+          [401, 403].includes(error.status)
+        )
+          return;
       }
-      if (active) timer = setTimeout(refresh, interval);
+      if (active) refreshTimer = setTimeout(refresh, interval);
     }
     void refresh();
     return () => {
       controller.abort();
-      clearTimeout(timer);
+      clearTimeout(refreshTimer);
+      releaseFrame();
     };
-  }, [id, url, active, interval, visible]);
-  useEffect(
-    () => () => {
-      if (frame) URL.revokeObjectURL(frame);
-    },
-    [frame],
-  );
+  }, [id, url, active, interval, recentOnly]);
 
-  return (
-    <>
-      <div className="grid aspect-video place-items-center overflow-hidden rounded-md bg-surface-muted">
-        {frame ? (
-          // eslint-disable-next-line @next/next/no-img-element -- authenticated JPEG as a blob URL
-          <img
-            src={frame}
-            alt={
-              name
-                ? `Último fotograma analizado de ${name}`
-                : "Último fotograma analizado"
-            }
-            className="size-full object-contain"
-          />
-        ) : (
-          <p className="p-4 text-center text-sm text-text-secondary">
-            {unavailable
-              ? "No hay un fotograma disponible."
-              : "Cargando fotograma…"}
-          </p>
-        )}
-      </div>
-    </>
+  return frame ? (
+    // eslint-disable-next-line @next/next/no-img-element -- authenticated JPEG as a blob URL
+    <img
+      src={frame}
+      alt={
+        name
+          ? `Último fotograma analizado de ${name}`
+          : "Último fotograma analizado"
+      }
+      className="size-full object-contain"
+    />
+  ) : (
+    <p className="p-4 text-center text-sm text-text-secondary">
+      {unavailable ? "No hay un fotograma disponible." : "Cargando fotograma…"}
+    </p>
   );
 }
 
@@ -221,7 +254,8 @@ export function CameraCard({
           name={camera.name}
           url={camera.preview_url}
           active
-          interval={5000}
+          interval={3500}
+          recentOnly
         />
       ) : (
         <div className="grid aspect-video place-content-center justify-items-center gap-2 rounded-md bg-surface-muted p-3 text-center text-sm text-text-secondary">
@@ -233,7 +267,9 @@ export function CameraCard({
         <h3 className="font-semibold break-words">{camera.name}</h3>
         <p className="text-sm text-text-secondary">
           {stale ? "Estado sin actualizar" : statusLabel(camera.status)}
-          {recent && typeof fps === "number" && ` · ${fps.toLocaleString("es-CL", { maximumFractionDigits: 1 })} FPS`}
+          {recent &&
+            typeof fps === "number" &&
+            ` · ${fps.toLocaleString("es-CL", { maximumFractionDigits: 1 })} FPS`}
           {coverage !== null && ` · Cobertura (5 s) ${coverage}`}
         </p>
         {recent && timestamp && camera.last_frame_at && (

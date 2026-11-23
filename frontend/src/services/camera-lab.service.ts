@@ -33,6 +33,7 @@ export type LabCamera = {
   id: string;
   name: string;
   automatic?: boolean;
+  playback?: { media_id?: string; position?: number } | null;
   description: string;
   provenance: {
     title?: string;
@@ -71,23 +72,51 @@ export type CameraCatalog = {
 
 export type CameraControlEntry = Pick<
   LabCamera,
-  "id" | "name" | "status" | "metrics" | "preview_url" | "last_frame_at" | "provenance"
-> & { enabled: boolean; run_id?: string | null; problem?: string | null };
+  | "id"
+  | "name"
+  | "status"
+  | "metrics"
+  | "preview_url"
+  | "last_frame_at"
+  | "provenance"
+> & {
+  enabled: boolean;
+  run_id?: string | null;
+  problem?: string | null;
+  expected_fps?: number | null;
+  playlist_finished?: boolean;
+  last_transition?: { outcome?: string; reason?: string } | null;
+};
+
+export type CameraMedia = {
+  id: string;
+  filename: string;
+  title?: string | null;
+  scenario?: string | null;
+  duration_s?: number | null;
+  fps?: number | null;
+};
+
+export type CameraPlaylist = { media_ids: string[]; repeat: boolean };
 
 export type CameraLabControl = {
   available: boolean;
   enabled: boolean;
-  status: "disabled" | "starting" | "partial" | "active" | "stopping";
+  status:
+    "disabled" | "starting" | "partial" | "active" | "stopping" | "finished";
   capacity: number;
   cameras: CameraControlEntry[];
   publisher: Record<string, "idle" | "starting" | "publishing" | "error">;
   mediamtx: "ready" | "unavailable";
   updated_by: string | null;
+  catalog?: CameraMedia[];
+  playlists?: Record<string, CameraPlaylist>;
 };
 
 export type CameraControlUpdate = {
   enabled?: boolean;
   cameras?: Record<string, boolean>;
+  playlists?: Record<string, CameraPlaylist>;
 };
 
 const base = (environment.apiBaseUrl ?? "/api/v1").replace(/\/$/, "");
@@ -183,11 +212,16 @@ export const cameraLabService = {
     ) {
       throw new Error("La dirección de la vista previa no es válida.");
     }
+    const requestSignal = AbortSignal.any([
+      signal,
+      AbortSignal.timeout(12_000),
+    ]);
     const response = await cameraRequest(url.href, {
       redirect: "error",
-      signal: AbortSignal.any([signal, AbortSignal.timeout(12_000)]),
+      signal: requestSignal,
     });
     const frame = await response.blob();
+    requestSignal.throwIfAborted();
     if (frame.type !== "image/jpeg" || !frame.size)
       throw new Error("El servidor no devolvió un fotograma JPEG.");
     return frame;

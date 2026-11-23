@@ -1,5 +1,6 @@
 """Authorized monitoring and revision management for the local RTSP lab."""
 import atexit
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -51,6 +52,17 @@ def last_run(camera_id, *, lock=False):
     return (query.select_for_update() if lock else query).first()
 
 
+def remove_retired_preview(run):
+    if not getattr(run, "managed", False) or run.active:
+        return
+    try:
+        (run_dir(run.pk) / "preview.jpg").unlink(missing_ok=True)
+    except OSError:
+        # An in-flight response can hold the file open on Windows. Reaping or
+        # reconciliation can retry without delaying run finalization.
+        pass
+
+
 def status_for(run):
     if run is None:
         return "stopped", {}, None
@@ -72,10 +84,14 @@ def status_for(run):
     with _lock:
         process = _processes.get(run.pk)
     if not run.active:
+        remove_retired_preview(run)
         return run.terminal_state, metrics, runtime
-    if process is None or process.poll() is not None:
+    exit_code = process.poll() if process is not None else None
+    if process is None or exit_code is not None:
         # Compose uses one Django server. Restart terminates its workers and never welds epochs.
         state = state if state in TERMINAL else "error"
+        if getattr(run, "playback", {}) and (process is None or exit_code != 0):
+            state = "error"
         with transaction.atomic():
             if CameraRun.objects.filter(pk=run.pk, active=True).update(
                 active=False, terminal_state=state, ended_at=now(), metrics=metrics,
@@ -83,9 +99,14 @@ def status_for(run):
                 Event.objects.filter(analysis_run_id=run.pk, evidence_stage=Event.EvidenceStage.PENDING).update(
                     evidence_stage=Event.EvidenceStage.FINISHED,
                 )
+            else:
+                run.refresh_from_db(fields=["terminal_state", "ended_at"])
+                state = run.terminal_state
         with _lock:
             _processes.pop(run.pk, None)
         run.active = False
+        run.terminal_state = state
+        remove_retired_preview(run)
     elif state not in ACTIVE | TERMINAL:
         state = "connecting"
     return state, metrics, runtime
@@ -109,6 +130,21 @@ def document_for(camera):
     return (revision.document, revision.revision) if revision else (default_document(camera), 0)
 
 
+def playback_spatial_issue(camera):
+    revision = CameraRevision.objects.filter(camera_id=camera.id).order_by("-revision").first()
+    if not revision:
+        return None
+    document = revision.document
+    action = ("Las zonas y la calibración se confirman para el medio predeterminado de la cámara. "
+              "Quite este medio de la lista o restablezca toda la imagen y quite la calibración y el movimiento personalizado.")
+    if document.get("calibration"):
+        return action if calibration_issue(camera, document, None, {}) else None
+    if ((document["zones"] != default_document(camera)["zones"] or document.get("motion"))
+            and revision.capture_signature != camera_capture_signature(camera)):
+        return action
+    return None
+
+
 def effective(camera, document, owner_id):
     rules, policy = resolve_policy(load_catalog(owner_id), profile=None, demo_source_id=None,
                                    source_sha256=None, camera_id=camera.id)
@@ -124,22 +160,26 @@ def camera_json(request, camera):
     event = Event.objects.filter(analysis_run_id=run.pk).order_by("-created_at").first() if run else None
     _, policy = effective(camera, document, request.user.pk)
     active_snapshot = run.snapshot if run and run.active else None
+    capture_camera = replace(camera, provenance=run.provenance) if active_snapshot else camera
     preview = run_dir(run.pk) / "preview.jpg" if run else None
     if camera_registry.automatic(camera) and (state != "analyzing" or not recent_frame(runtime)):
         preview = None
     return {
         "id": camera.id, "name": camera.name, "description": camera.description,
         "kind": "lab", "automatic": camera_registry.automatic(camera),
-        "provenance": run.provenance if active_snapshot else camera.provenance, "profile": camera.profile,
+        "provenance": camera_registry.public_provenance(run.provenance if active_snapshot else camera.provenance),
+        "profile": camera.profile,
         "expected_fps": camera.expected_fps, "width": camera.width, "height": camera.height,
         "status": state, "metrics": metrics, "configuration": document, "revision": revision,
-        "calibration_requires_reconfirmation": bool(calibration_issue(camera, document, run, metrics)),
+        "calibration_requires_reconfirmation": bool(calibration_issue(capture_camera, document, run, metrics)),
         "policy": active_snapshot.policy if active_snapshot else policy,
         "effective_rules": active_snapshot.configuration.get("rules", []) if active_snapshot else None,
         "run_id": str(run.pk) if run else None,
+        "playback": {key: value for key, value in getattr(run, "playback", {}).items() if key != "token"} or None,
         "preview_url": reverse("lab-camera-preview", args=[camera.id]) if preview and preview.is_file() else None,
         "last_frame_at": runtime.get("last_frame_at") if runtime else None,
         "last_error": (runtime.get("last_error") or runtime.get("termination_reason")) if runtime and state == "error" else None,
+        "termination_reason": runtime.get("termination_reason") if runtime else None,
         "last_event": {"id": event.id, "event_type": event.event_type,
                        "occurred_at": event.occurred_at} if event else None,
     }
@@ -266,7 +306,8 @@ class CameraDetailView(CameraView):
             version = max(versions.get(rule["rule_id"], 0), old["version"] if old else 0)
             rule["version"] = version + 1 if changed else old["version"]
         CameraRevision.objects.create(camera_id=camera_id, revision=revision + 1,
-                                      document=document, updated_by=request.user)
+                                      document=document, updated_by=request.user,
+                                      capture_signature=camera_capture_signature(camera) if camera.provenance else "")
         return Response(camera_json(request, camera))
 
 
@@ -284,7 +325,7 @@ class CameraStartView(CameraView):
 
 
 @transaction.atomic
-def start_camera(camera, owner, *, managed=False):
+def start_camera(camera, owner, *, managed=False, playback=None):
     camera_id = camera.id
     worker = ROOT / "engine/scripts/run_rtsp_lab.py"
     if not (camera.provenance and worker.is_file() and settings.EVENT_POST_ENABLED):
@@ -292,6 +333,8 @@ def start_camera(camera, owner, *, managed=False):
     inference_socket = os.environ.get("OPERIX_RTSP_INFERENCE_SOCKET")
     if inference_socket:
         try:
+            if not hasattr(socket, "AF_UNIX"):
+                raise OSError("AF_UNIX no está disponible")
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
                 probe.settimeout(.25)
                 probe.connect(inference_socket)
@@ -319,11 +362,13 @@ def start_camera(camera, owner, *, managed=False):
     run_id = uuid4()
     snapshot = rule_snapshot(document)
     stored = AnalysisRunSnapshot.objects.create(
-        pk=run_id, owner=owner, source_sha256=camera.spatial_key, profile=camera.profile,
+        pk=run_id, owner=owner, source_sha256=camera.provenance["sha256"] if playback else camera.spatial_key,
+        profile=camera.profile,
         spatial_revision=revision or None, configuration=document, config_sha256=snapshot["config_sha256"],
         policy=policy,
     )
-    CameraRun.objects.create(snapshot=stored, camera_id=camera_id, provenance=camera.provenance, managed=managed)
+    CameraRun.objects.create(snapshot=stored, camera_id=camera_id, provenance=camera.provenance,
+                             managed=managed, playback=playback or {})
     folder = run_dir(run_id)
     folder.mkdir(parents=True, exist_ok=False)
     config_path = folder / "config.json"
@@ -433,7 +478,7 @@ def reap_run(run_id, process):
         process.stdin.close()
     close_old_connections()
     try:
-        run = CameraRun.objects.filter(pk=run_id, active=True).first()
+        run = CameraRun.objects.filter(pk=run_id).first()
         if run is not None:
             status_for(run)
     finally:
