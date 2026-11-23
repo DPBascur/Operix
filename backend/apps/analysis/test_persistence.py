@@ -53,7 +53,9 @@ class WebPersistenceTests(LiveServerTestCase):
         fixture = Path(__file__).parent / "fixtures/perception_worker.py"
 
         def spawn(command, **kwargs):
-            return self.real_popen([command[0], "-B", str(fixture), *command[1:]], **kwargs)
+            if Path(command[1]).name == "stream_dual_perception.py":
+                command = [command[0], "-B", str(fixture), *command[1:]]
+            return self.real_popen(command, **kwargs)
 
         # Solo se sustituye percepción/carga CUDA en el proceso hijo. El bucle real,
         # OpenCV, ByteTrack, reglas, outbox, HTTP, PostgreSQL y rutas API se ejecutan.
@@ -193,6 +195,33 @@ class WebPersistenceTests(LiveServerTestCase):
         result = self.client.get(f"/api/v1/analysis/sessions/{identity}/result/")
         self.assertEqual(result.status_code,200)
         result.close()
+
+    def test_equipment_profile_gates_electric_rule_and_preserves_manual_event_dossier(self):
+        document = json.loads(self.config.read_text(encoding="utf-8"))
+        manual, = document["rules"]
+        manual["parameters"].update(equipment_category="MANUAL_PALLET_JACK", unknown_equipment_policy="exclude")
+        electric = {**manual, "rule_id": "TEST_DATA_ELECTRIC",
+                    "parameters": {**manual["parameters"], "equipment_category": "ELECTRIC_PALLET_JACK"}}
+        document["rules"].append(electric)
+        profile = {"category": "MANUAL_PALLET_JACK",
+                   "source_sha256": hashlib.sha256(self.video.read_bytes()).hexdigest(),
+                   "authority_reference": "fixture-review"}
+        document["equipment_profile"] = profile
+        self.config.write_text(json.dumps(document), encoding="utf-8")
+
+        data = self.run_analysis(self.create())
+        self.assertEqual(data["state"], "completed", data)
+        self.assertEqual(data["persistence"]["saved"], 2, data)
+        equipment = data["result"]["equipment_context"]
+        self.assertEqual(equipment["taxonomy"]["profile"], profile)
+        self.assertEqual(equipment["taxonomy"]["subtype"], "UNKNOWN")
+        audit = {item["rule_id"]: item for item in equipment["rule_scope"]}
+        self.assertEqual(audit[manual["rule_id"]]["counts"], {"equipment_category_match": 8})
+        self.assertEqual(audit[electric["rule_id"]]["counts"], {"equipment_category_mismatch": 8})
+        self.assertEqual(audit[electric["rule_id"]]["last_exclusion"]["frame_index"], 3)
+        self.assertEqual(set(Event.objects.values_list("rule_id", flat=True)), {manual["rule_id"]})
+        for event in Event.objects.all():
+            self.assertEqual(event.observations["equipment_taxonomy"], equipment["taxonomy"])
 
     def test_http_failure_completes_analysis_but_is_not_saved_then_replay_recovers(self):
         with override_settings(OPERIX_EVENT_API_BASE_URL="http://127.0.0.1:1/api/v1"):

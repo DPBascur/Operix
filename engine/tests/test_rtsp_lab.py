@@ -42,6 +42,33 @@ class ImmediateExecutor:
 
 
 class WorkerTests(TestCase):
+    def test_rtsp_equipment_scope_keeps_unknown_and_accounts_for_its_exclusion(self):
+        zone = Zone("frame", "Frame", ((0, 0), (1, 0), (1, 1), (0, 1)))
+        rules = tuple(RuleConfig(policy, 1, True, {
+            "kind": "zone_dwell", "zone_id": "frame", "class_name": "forklift", "min_duration_s": 0.,
+            "equipment_category": "ELECTRIC_STACKER", "unknown_equipment_policy": policy,
+        }) for policy in ("include", "exclude"))
+        config = OperationalConfig(1, "lab-cam-01", (zone,), rules)
+        with TemporaryDirectory() as directory:
+            args = SimpleNamespace(output=Path(directory), width=320, height=180, fps=12)
+            pipeline = lab.LabPipeline(config, args, infer_remotely=True)
+            image = np.zeros((args.height, args.width, 3), dtype=np.uint8)
+            equipment = Detection(0, "forklift", .95, BoundingBox(40, 65, 85, 145))
+            frame = Frame(0, 1, 10, 0., image)
+            _, candidates, _, _ = pipeline.process(
+                frame, 0., detected=SimpleNamespace(person=(), forklift=(equipment,)),
+            )
+            self.assertEqual([item.rule_id for item in candidates], ["include"])
+            self.assertEqual(candidates[0].equipment_taxonomy.category, "UNKNOWN")
+            status = lab.WorkerStatus(args)
+            status.equipment_scope = pipeline.equipment_scope
+            status.write("processing")
+            metrics = json.loads((args.output / "status.json").read_bytes())["metrics"]
+            counts = {item["rule_id"]: item for item in metrics["equipment_rule_scope"]}
+            self.assertEqual(counts["exclude"]["counts"], {"equipment_unknown_excluded": 1})
+            self.assertEqual(counts["include"]["counts"], {"equipment_unknown_included": 1})
+            self.assertEqual(counts["exclude"]["last_exclusion"]["frame_index"], 0)
+
     def test_observation_gaps_do_not_reassign_visible_tracks_by_detection_order(self):
         config = OperationalConfig(1, "lab-cam-01", (), ())
         args = SimpleNamespace(width=320, height=180, fps=12)

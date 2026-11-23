@@ -60,6 +60,17 @@ class CameraLabTests(APITestCase):
         self.assertFalse(CameraRun.objects.exists())
         process.assert_not_called()
 
+    def test_cannot_declare_a_category_for_every_object_in_an_rtsp_camera(self):
+        camera = inventory()["lab-cam-01"]
+        doc = default_document(camera)
+        doc["equipment_profile"] = {
+            "category": "COUNTERBALANCE_FORKLIFT", "source_sha256": camera.spatial_key,
+            "authority_reference": "pilot-01",
+        }
+        saved = self.admin.put(self.camera, {"revision": 0, "document": doc}, format="json")
+        self.assertEqual(saved.status_code, 400)
+        self.assertEqual(self.admin.get(self.camera).data["revision"], 0)
+
     def test_camera_config_is_isolated_and_optimistically_versioned(self):
         doc = default_document(inventory()["lab-cam-01"])
         doc["zones"][0]["name"] = "Pasillo uno"

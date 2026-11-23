@@ -12,6 +12,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from .motion import MotionConfig
+from .equipment_taxonomy import EquipmentProfile
 
 
 class OperationalConfigError(ValueError):
@@ -120,6 +121,7 @@ class OperationalConfig:
     calibration: dict | None = None
     motion: MotionConfig | None = None
     relations: RelationDisplayConfig | None = None
+    equipment_profile: EquipmentProfile | None = None
 
     @property
     def observe_occupants(self) -> bool:
@@ -152,6 +154,8 @@ class OperationalConfig:
             raise OperationalConfigError("motion debe ser MotionConfig")
         if self.relations is not None and not isinstance(self.relations, RelationDisplayConfig):
             raise OperationalConfigError("relations debe ser RelationDisplayConfig")
+        if self.equipment_profile is not None and not isinstance(self.equipment_profile, EquipmentProfile):
+            raise OperationalConfigError("equipment_profile debe ser EquipmentProfile")
         zone_ids = {zone.zone_id for zone in self.zones}
         if len(zone_ids) != len(self.zones):
             raise OperationalConfigError("zone_id duplicado")
@@ -216,6 +220,14 @@ def load_operational_config(path: str | Path) -> OperationalConfig:
     if calibration is not None:
         from .calibration import calibration_snapshot
         calibration = calibration_snapshot(calibration)
+    equipment_profile = None
+    if isinstance(document, dict) and "equipment_profile" in document:
+        fields = _object_fields(document.pop("equipment_profile"), "equipment_profile",
+                                {"category", "source_sha256", "authority_reference"})
+        try:
+            equipment_profile = EquipmentProfile(**fields)
+        except ValueError as error:
+            raise OperationalConfigError(str(error)) from error
     root = _object_fields(
         document,
         "raíz",
@@ -246,4 +258,5 @@ def load_operational_config(path: str | Path) -> OperationalConfig:
         )
         for item in root["rules"]
     )
-    return OperationalConfig(root["schema_version"], root["view_id"], zones, rules, calibration, motion, relations)
+    return OperationalConfig(root["schema_version"], root["view_id"], zones, rules, calibration, motion,
+                             relations, equipment_profile)

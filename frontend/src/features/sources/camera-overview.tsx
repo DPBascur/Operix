@@ -240,54 +240,68 @@ export function CameraMediaPanels({
   const { id, name, last_frame_at: frameAt } = camera;
   const timestamp = cameraFrameTime(frameAt);
   const age = cameraFrameAge(frameAt, camera.metrics, receivedAt);
+  const [showPreview, setShowPreview] = useState(false);
+
+  const annotated = (
+    <figure className={`grid min-w-0 gap-2 ${live ? "mt-2 max-w-lg" : ""}`}>
+      {!live && (
+        <figcaption className="text-sm font-semibold">
+          Última observación anotada
+        </figcaption>
+      )}
+      {preview ? (
+        <CameraPreview
+          key={camera.run_id}
+          id={id}
+          name={name}
+          url={preview}
+          active={refreshPreview}
+          interval={previewInterval}
+          recentOnly={recentOnly}
+        />
+      ) : (
+        <div className="grid aspect-video place-content-center justify-items-center gap-2 rounded-md bg-surface-muted p-3 text-center text-sm text-text-secondary">
+          <Camera className="size-5" aria-hidden="true" />
+          {recentOnly ? "Sin fotograma reciente" : "Sin fotograma disponible"}
+        </div>
+      )}
+      {((timestamp && frameAt) || age !== null) && (
+        <div className="text-sm text-text-secondary">
+          {timestamp && frameAt && (
+            <p>
+              Última recepción del análisis ·{" "}
+              <time dateTime={frameAt}>{timestamp}</time>
+            </p>
+          )}
+          {age !== null && (
+            <p className="tabular-nums">
+              Antigüedad al consultar · {cameraNumber(age / 1000, " s")}
+            </p>
+          )}
+        </div>
+      )}
+    </figure>
+  );
+
+  if (!live) return annotated;
 
   return (
-    <div className="@container">
-      <div
-        className={`grid items-start gap-4 ${live ? "@lg:grid-cols-2" : ""}`}
+    <div className="grid min-w-0 gap-3">
+      <CameraLiveVideo
+        key={JSON.stringify([id, camera.run_id])}
+        id={id}
+        name={name}
+        runId={camera.run_id}
+      />
+      <details
+        onToggle={(event) => setShowPreview(event.currentTarget.open)}
+        className="border-t border-border pt-1"
       >
-        {live && (
-          <CameraLiveVideo key={camera.run_id ?? id} id={id} name={name} />
-        )}
-        <figure className="grid min-w-0 gap-2">
-          <figcaption className="text-sm font-semibold">
-            Última observación anotada
-          </figcaption>
-          {preview ? (
-            <CameraPreview
-              key={camera.run_id}
-              id={id}
-              name={name}
-              url={preview}
-              active={refreshPreview}
-              interval={previewInterval}
-              recentOnly={recentOnly}
-            />
-          ) : (
-            <div className="grid aspect-video place-content-center justify-items-center gap-2 rounded-md bg-surface-muted p-3 text-center text-sm text-text-secondary">
-              <Camera className="size-5" aria-hidden="true" />
-              {recentOnly
-                ? "Sin fotograma reciente"
-                : "Sin fotograma disponible"}
-            </div>
-          )}
-          {((timestamp && frameAt) || age !== null) && (
-            <div className="text-sm text-text-secondary">
-              {timestamp && frameAt && (
-                <p>
-                  Última recepción del análisis ·{" "}
-                  <time dateTime={frameAt}>{timestamp}</time>
-                </p>
-              )}
-              {age !== null && (
-                <p className="tabular-nums">
-                  Antigüedad al consultar · {cameraNumber(age / 1000, " s")}
-                </p>
-              )}
-            </div>
-          )}
-        </figure>
-      </div>
+        <summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold">
+          Última observación anotada
+        </summary>
+        {showPreview && annotated}
+      </details>
     </div>
   );
 }

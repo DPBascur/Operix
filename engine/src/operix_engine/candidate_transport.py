@@ -77,6 +77,7 @@ def candidate_payload(candidate: EventCandidate | PairEventCandidate) -> dict[st
             "observed_inside": candidate.observed_inside,
             "observed_dwell_time_s": candidate.observed_dwell_time_s,
             "candidate_kind": candidate.parameters["kind"], "subjects": [_subject("object", identity)],
+            **({"equipment_taxonomy": candidate.equipment_taxonomy.to_dict()} if candidate.equipment_taxonomy else {}),
             **({"epoch": candidate.epoch} if candidate.epoch else {}),
         }
     else:

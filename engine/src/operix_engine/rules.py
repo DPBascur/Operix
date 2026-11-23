@@ -8,13 +8,18 @@ Los candidatos son transitorios: este módulo no clasifica riesgos ni persiste e
 from __future__ import annotations
 
 import math
+from collections import Counter, defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
+from operix_engine.equipment_taxonomy import (
+    EQUIPMENT_SCOPE_EXCLUSIONS, EQUIPMENT_SCOPE_KEYS, EquipmentTaxonomy,
+    equipment_scope_decision, validate_equipment_scope,
+)
 from operix_engine.operational_config import OperationalConfig, RuleConfig
 from operix_engine.occupants import OccupantObservation
-from operix_engine.spatiotemporal import FrameSpatialState, ObjectIdentity
+from operix_engine.spatiotemporal import FrameSpatialState, ObjectIdentity, ObjectSpatialState
 from operix_engine.zone_geometry import NormalizedPoint
 from operix_engine.proximity_geometry import PROXIMITY_GEOMETRY_VERSION, LEGACY_PROXIMITY_GEOMETRY_VERSION
 
@@ -62,6 +67,8 @@ class RuleEvaluation:
     evaluated: bool
     satisfied: bool
     reason: str | None
+    equipment_taxonomy: EquipmentTaxonomy | None = None
+    equipment_scope: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +86,7 @@ class EventCandidate:
     observed_inside: bool
     observed_dwell_time_s: float
     epoch: int = 0
+    equipment_taxonomy: EquipmentTaxonomy | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +119,8 @@ class PairRuleEvaluation:
     equipment_motion: dict | None = None
     epoch: int = 0
     occupant_association: OccupantObservation | None = None
+    equipment_taxonomy: EquipmentTaxonomy | None = None
+    equipment_scope: str | None = None
 
     @property
     def episode_key(self) -> tuple | None:
@@ -148,6 +158,7 @@ class PairEventCandidate:
     ground: dict | None = None
     equipment_motion: dict | None = None
     epoch: int = 0
+    equipment_taxonomy: EquipmentTaxonomy | None = None
 
     @property
     def proximity_geometry(self) -> dict | None:
@@ -197,6 +208,7 @@ class PairEventCandidate:
             **({"proximity_geometry": self.proximity_geometry} if self.proximity_geometry is not None else {}),
             **({"ground": self.ground} if self.ground is not None else {}),
             **({"equipment_motion": self.equipment_motion} if self.equipment_motion is not None else {}),
+            **({"equipment_taxonomy": self.equipment_taxonomy.to_dict()} if self.equipment_taxonomy else {}),
             **({"epoch": self.epoch} if self.epoch else {}),
         }
 
@@ -208,6 +220,40 @@ class RuleFrameResult:
     evaluations: tuple[RuleEvaluation | PairRuleEvaluation, ...]
     candidates: tuple[EventCandidate | PairEventCandidate, ...]
     epoch: int = 0
+
+
+class EquipmentScopeAudit:
+    """Conteo por regla de observaciones de alcance, con la última exclusión de cada regla."""
+
+    def __init__(self) -> None:
+        self._counts: dict[tuple[str, int], Counter[str]] = defaultdict(Counter)
+        self._last_exclusions: dict[tuple[str, int], dict] = {}
+
+    def update(self, result: RuleFrameResult) -> None:
+        for item in result.evaluations:
+            decision = item.equipment_scope
+            if decision is None:
+                continue
+            key = (item.rule_id, item.rule_version)
+            self._counts[key][decision] += 1
+            if decision in EQUIPMENT_SCOPE_EXCLUSIONS:
+                tracks = (
+                    {"person_track_id": item.interaction.person.track_id,
+                     "equipment_track_id": item.interaction.forklift.track_id}
+                    if isinstance(item, PairRuleEvaluation) else {"equipment_track_id": item.track_id}
+                )
+                self._last_exclusions[key] = {
+                    "frame_index": item.frame_index, "timestamp_s": item.timestamp_s,
+                    "epoch": result.epoch, "zone_id": item.zone_id, "reason": decision,
+                    "equipment_taxonomy": item.equipment_taxonomy.to_dict(), **tracks,
+                }
+
+    def snapshot(self) -> list[dict]:
+        return [
+            {"rule_id": rule_id, "rule_version": version, "counts": dict(counts),
+             "last_exclusion": self._last_exclusions.get((rule_id, version))}
+            for (rule_id, version), counts in sorted(self._counts.items())
+        ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,7 +286,7 @@ class _PairEpisode:
 def _validate_pair_rule(rule: RuleConfig, zone_ids: set[str]) -> _PairProximityRule:
     # No hay distancia/duración industrial por defecto: la configuración debe declararlas.
     required = {"kind", "zone_id", "max_distance", "minimum_duration_seconds"}
-    optional = {"person_class", "forklift_class", "distance_unit", "motion_condition", "exclude_possible_occupant"}
+    optional = {"person_class", "forklift_class", "distance_unit", "motion_condition", "exclude_possible_occupant"} | EQUIPMENT_SCOPE_KEYS
     values = dict(rule.parameters)
     if required - values.keys() or values.keys() - (required | optional):
         raise RuleEngineError(f"{rule.rule_id}: parámetros de proximidad faltantes o desconocidos")
@@ -281,10 +327,10 @@ def _validate_rule(rule: RuleConfig, zone_ids: set[str]) -> _ZoneDwellRule | _Pa
         return _validate_pair_rule(rule, zone_ids)
     expected = {"kind", "class_name", "zone_id", "min_duration_s"}
     actual = set(rule.parameters)
-    if actual != expected:
+    if expected - actual or actual - (expected | EQUIPMENT_SCOPE_KEYS):
         raise RuleEngineError(
             f"{rule.rule_id}: parámetros faltantes {sorted(expected - actual)}; "
-            f"desconocidos {sorted(actual - expected)}"
+            f"desconocidos {sorted(actual - (expected | EQUIPMENT_SCOPE_KEYS))}"
         )
     values = rule.parameters
     if values["kind"] not in {"zone_dwell", "zone_entry"}:
@@ -317,6 +363,13 @@ class RuleEngine:
             if rule.parameters.get("kind") == "zone_entry" and (rule.parameters.get("min_duration_s") != 0 or not any(z.zone_id == rule.parameters.get("zone_id") and z.purpose == "restricted" for z in config.zones)):
                 raise RuleEngineError("Ingreso requiere zona restringida y duración cero")
         self._rules = tuple(_validate_rule(rule, zone_ids) for rule in config.rules)
+        for rule in self._rules:
+            equipment_class = rule.forklift_class if isinstance(rule, _PairProximityRule) else rule.class_name
+            try:
+                validate_equipment_scope(rule.parameters, equipment_class)
+            except ValueError as error:
+                raise RuleEngineError(f"{rule.config.rule_id}: {error}") from error
+        self._equipment_profile = config.equipment_profile
         if any(r.enabled and r.parameters.get("motion_condition") == "moving" for r in config.rules):
             if config.motion is None:
                 raise RuleEngineError("Movimiento condicionado requiere configuración explícita")
@@ -333,6 +386,12 @@ class RuleEngine:
         self._pair_episodes: dict[tuple[str, int, InteractionIdentity, str], _PairEpisode] = {}
         self._last_timestamp_s: float | None = None
         self._memberships = {}
+
+    def _equipment_taxonomy(self, obj: ObjectSpatialState | None) -> EquipmentTaxonomy | None:
+        taxonomy = obj.equipment_taxonomy if obj is not None else None
+        if taxonomy is not None and taxonomy.profile is not None and taxonomy.profile != self._equipment_profile:
+            raise RuleEngineError("Perfil de equipo distinto de la configuración de reglas")
+        return taxonomy
 
     def _evaluate_pair_rule(
         self,
@@ -373,10 +432,15 @@ class RuleEngine:
             if association is None and rule.parameters.get("exclude_possible_occupant") is True:
                 association = OccupantObservation("UNCERTAIN", "cabin_geometry_unconfirmed", 0, 0.)
             motion_snapshot = motion.to_dict() if motion is not None else None
+            taxonomy = self._equipment_taxonomy(forklift)
+            scope = equipment_scope_decision(rule.parameters, taxonomy) if person is not None else None
+            snapshot = taxonomy if scope is not None or (taxonomy and taxonomy.profile) else None
             metric = rule.parameters.get("distance_unit") == "m"
             distance = (proximity.ground["distance"] if proximity.ground else math.inf) if metric else proximity.normalized_distance
             if person is None or forklift is None:
                 reason = "object_missing"
+            elif scope in EQUIPMENT_SCOPE_EXCLUSIONS:
+                reason = scope
             elif person_inside is None or forklift_inside is None:
                 reason = "zone_missing"
             elif not (person_inside and forklift_inside):
@@ -406,6 +470,7 @@ class RuleEngine:
                         episode.started_timestamp_s, proximity.normalized_distance, duration,
                         proximity.geometry_version, person_anchor, equipment_target,
                         proximity.ground if metric else None, motion_snapshot, frame.epoch,
+                        equipment_taxonomy=snapshot,
                     ))
                 episodes[key] = _PairEpisode(
                     episode.started_frame_index, episode.started_timestamp_s,
@@ -420,6 +485,7 @@ class RuleEngine:
                 episode.started_timestamp_s if episode else None,
                 proximity.geometry_version, person_anchor, equipment_target,
                 proximity.ground if metric else None, motion_snapshot, frame.epoch, association,
+                equipment_taxonomy=taxonomy, equipment_scope=scope,
             ))
         return evaluations, candidates
 
@@ -472,10 +538,15 @@ class RuleEngine:
                 )
                 inside = membership.inside if membership is not None else None
                 dwell = membership.dwell_time_s if membership is not None else None
+                taxonomy = self._equipment_taxonomy(obj)
+                scope = (equipment_scope_decision(rule.parameters, taxonomy)
+                         if rule.config.enabled and obj.class_name == rule.class_name else None)
                 if not rule.config.enabled:
                     evaluated, satisfied, reason = False, False, "disabled"
                 elif obj.class_name != rule.class_name:
                     evaluated, satisfied, reason = False, False, "class_mismatch"
+                elif scope in EQUIPMENT_SCOPE_EXCLUSIONS:
+                    evaluated, satisfied, reason = False, False, scope
                 elif membership is None:
                     evaluated, satisfied, reason = False, False, "zone_missing"
                 elif not inside:
@@ -484,7 +555,7 @@ class RuleEngine:
                     evaluated, satisfied, reason = True, False, "insufficient_dwell"
                 else:
                     evaluated, satisfied, reason = True, True, None
-                if rule.config.parameters.get("kind") == "zone_entry":
+                if rule.config.parameters.get("kind") == "zone_entry" and scope not in EQUIPMENT_SCOPE_EXCLUSIONS:
                     satisfied = bool(evaluated and inside and previous_memberships.get((obj.identity, rule.zone_id)) is False)
                     reason = None if satisfied else "no_observed_entry"
                 evaluations.append(
@@ -492,6 +563,7 @@ class RuleEngine:
                         rule.config.rule_id, rule.config.version, frame.frame_index,
                         frame.timestamp_s, obj.track_id, obj.class_name, rule.zone_id,
                         rule.parameters, inside, dwell, evaluated, satisfied, reason,
+                        equipment_taxonomy=taxonomy, equipment_scope=scope,
                     )
                 )
                 if satisfied:
@@ -503,6 +575,7 @@ class RuleEngine:
                                 rule.config.rule_id, rule.config.version, frame.frame_index,
                                 frame.timestamp_s, obj.track_id, obj.class_name, rule.zone_id,
                                 rule.parameters, True, dwell, epoch=frame.epoch,
+                                equipment_taxonomy=taxonomy if scope is not None or (taxonomy and taxonomy.profile) else None,
                             )
                         )
         self._active = active

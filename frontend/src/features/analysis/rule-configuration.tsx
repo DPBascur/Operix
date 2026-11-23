@@ -1,4 +1,8 @@
-import type { AnalysisRuleSnapshot } from "@/services/analysis.service";
+import {
+  equipmentCategoryLabels,
+  type AnalysisRuleSnapshot,
+  type EquipmentContext,
+} from "@/services/analysis.service";
 
 const labels: Record<string, string> = {
   kind: "Tipo",
@@ -12,6 +16,15 @@ const labels: Record<string, string> = {
   motion_condition: "Condición de movimiento",
   exclude_possible_occupant: "Exclusión experimental de posibles ocupantes",
   distance_unit: "Unidad de distancia",
+  equipment_category: "Categoría operacional requerida",
+  unknown_equipment_policy: "Política para categoría desconocida",
+};
+
+const scopeLabels: Record<string, string> = {
+  equipment_category_match: "con categoría coincidente",
+  equipment_category_mismatch: "excluidas por categoría distinta",
+  equipment_unknown_included: "con UNKNOWN incluido",
+  equipment_unknown_excluded: "con UNKNOWN excluido",
 };
 
 const kinds: Record<string, string> = {
@@ -21,10 +34,32 @@ const kinds: Record<string, string> = {
   person_forklift_proximity: "Proximidad persona ↔ montacargas",
 };
 
+function parameterValue(key: string, value: unknown) {
+  if (key === "motion_condition") {
+    return value === "moving"
+      ? "Solo con movimiento confirmado"
+      : "Independiente del movimiento";
+  }
+  if (key === "unknown_equipment_policy") {
+    return value === "include"
+      ? "Incluir en la evaluación"
+      : "Excluir de la evaluación";
+  }
+  if (key === "equipment_category" && typeof value === "string") {
+    return (
+      equipmentCategoryLabels[value as keyof typeof equipmentCategoryLabels] ??
+      value
+    );
+  }
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
 export function RuleConfiguration({
   snapshot,
+  equipmentContext,
 }: {
   snapshot?: Partial<AnalysisRuleSnapshot> | null;
+  equipmentContext?: EquipmentContext;
 }) {
   if (!snapshot?.rules) {
     return (
@@ -33,7 +68,7 @@ export function RuleConfiguration({
       </p>
     );
   }
-  if (!snapshot.rules.length) {
+  if (!snapshot.rules.length && !snapshot.equipment_profile) {
     return (
       <p className="text-sm text-text-secondary">
         El perfil no declara reglas.
@@ -43,6 +78,33 @@ export function RuleConfiguration({
 
   return (
     <div className="grid gap-2">
+      {snapshot.equipment_profile && (
+        <p className="text-sm">
+          Categoría declarada{" "}
+          {equipmentCategoryLabels[snapshot.equipment_profile.category]} ·
+          autorización {snapshot.equipment_profile.authority_reference}. El
+          perfil se aplica solo a la fuente con la huella SHA-256 declarada.
+        </p>
+      )}
+      {equipmentContext && (
+        <p className="text-sm">
+          Categoría aplicada{" "}
+          {equipmentCategoryLabels[equipmentContext.taxonomy.category]} ·
+          subtipo del detector UNKNOWN.
+        </p>
+      )}
+      {(snapshot.equipment_profile ||
+        snapshot.rules.some(
+          (rule) => "equipment_category" in rule.parameters,
+        )) && (
+        <p className="text-sm text-text-secondary">
+          La categoría procede de una declaración autorizada para una fuente
+          homogénea. En fuentes mixtas o sin una declaración aplicable, la
+          categoría es UNKNOWN. El detector mantiene la clase FORKLIFT y el
+          subtipo UNKNOWN. Incluir UNKNOWN permite evaluar la regla sin atribuir
+          motorización.
+        </p>
+      )}
       {snapshot.calibration && (
         <p className="text-sm">
           Plano del suelo:{" "}
@@ -68,6 +130,10 @@ export function RuleConfiguration({
       )}
       {snapshot.rules.map((rule) => {
         const kind = String(rule.parameters.kind ?? "");
+        const scope = equipmentContext?.rule_scope.find(
+          (item) =>
+            item.rule_id === rule.rule_id && item.rule_version === rule.version,
+        );
         return (
           <details
             key={rule.rule_id}
@@ -92,18 +158,28 @@ export function RuleConfiguration({
                       ? "Distancia máxima aproximada (m)"
                       : (labels[key] ?? key)}
                   </dt>
-                  <dd>
-                    {key === "motion_condition"
-                      ? value === "moving"
-                        ? "Solo con movimiento confirmado"
-                        : "Independiente del movimiento"
-                      : typeof value === "string"
-                        ? value
-                        : JSON.stringify(value)}
-                  </dd>
+                  <dd>{parameterValue(key, value)}</dd>
                 </div>
               ))}
             </dl>
+            {equipmentContext &&
+              rule.enabled &&
+              rule.parameters.equipment_category !== undefined && (
+                <p className="mt-2 text-sm">
+                  {scope
+                    ? `Observaciones por fotograma · ${Object.entries(
+                        scope.counts,
+                      )
+                        .map(
+                          ([key, count]) =>
+                            `${count} ${scopeLabels[key] ?? key}`,
+                        )
+                        .join(" · ")}`
+                    : "Sin observaciones de alcance"}
+                  {scope?.last_exclusion &&
+                    ` · última exclusión en el fotograma ${scope.last_exclusion.frame_index}`}
+                </p>
+              )}
           </details>
         );
       })}

@@ -51,7 +51,9 @@ export type LabCamera = {
   width: number | null;
   height: number | null;
   status: string;
-  metrics: Record<string, unknown> | null;
+  metrics: (Record<string, unknown> & {
+    equipment_rule_scope?: import("./analysis.service").EquipmentContext["rule_scope"];
+  }) | null;
   preview_url: string | null;
   configuration: CameraDocument | null;
   effective_rules?: CameraDocument["rules"] | null;
@@ -176,6 +178,17 @@ async function cameraJson<T>(response: Response): Promise<T> {
 }
 
 export const cameraLabService = {
+  observations: (id: string, signal: AbortSignal) =>
+    cameraRequest(
+      `/api/v1/analysis/cameras/${encodeURIComponent(id)}/live/observations/`,
+      {
+        credentials: "same-origin",
+        redirect: "error",
+        signal: AbortSignal.any([signal, AbortSignal.timeout(3000)]),
+      },
+    ).then((response) =>
+      response.status === 204 ? null : cameraJson<unknown>(response),
+    ),
   list: (signal: AbortSignal) =>
     readCameraData<CameraCatalog>(collection, signal),
   control: (signal: AbortSignal) =>

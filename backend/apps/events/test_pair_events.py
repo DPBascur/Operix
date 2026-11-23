@@ -43,6 +43,45 @@ class PairEventApiTests(APITestCase):
     def post(self, payload=None):
         return self.client.post("/api/v1/events/", payload or self.payload, format="json")
 
+    def test_equipment_scope_preserves_authorized_profile_in_dossier(self):
+        payload = deepcopy(self.payload)
+        category = "ELECTRIC_STACKER"
+        profile = {"category": category, "source_sha256": "a" * 64, "authority_reference": "review-1"}
+        payload["source"].update(video_sha256=profile["source_sha256"],
+                                 spatial_configuration={"equipment_profile": profile})
+        payload["rule_parameters"].update(equipment_category=category, unknown_equipment_policy="exclude")
+        taxonomy = {"perception_class": "FORKLIFT", "operational_role": "MOBILE_EQUIPMENT",
+                    "subtype": "UNKNOWN", "category": category, "category_source": "AUTHORIZED_PROFILE",
+                    "profile": profile}
+        payload["observations"]["equipment_taxonomy"] = taxonomy
+        for changes in ({"subtype": "ELECTRIC_STACKER"}, {"category": "MANUAL_STACKER"}, {"profile": {}}):
+            invalid = deepcopy(payload)
+            invalid["observations"]["equipment_taxonomy"].update(changes)
+            self.assertEqual(self.post(invalid).status_code, 400)
+        wrong_source = deepcopy(payload)
+        wrong_source["source"]["video_sha256"] = "b" * 64
+        self.assertEqual(self.post(wrong_source).status_code, 400)
+        created = self.post(payload)
+        self.assertEqual(created.status_code, 201, created.data)
+        dossier = self.client.get(f"/api/v1/events/{created.data['id']}/")
+        self.assertEqual(dossier.data["observations"]["equipment_taxonomy"], taxonomy)
+        self.assertEqual(self.post(payload).status_code, 200)
+
+    def test_equipment_scope_requires_compatible_unknown_policy_and_snapshot(self):
+        payload = deepcopy(self.payload)
+        payload["rule_parameters"].update(equipment_category="ELECTRIC_PALLET_JACK",
+                                          unknown_equipment_policy="include")
+        self.assertEqual(self.post(payload).status_code, 400)
+        payload["observations"]["equipment_taxonomy"] = {
+            "perception_class": "FORKLIFT", "operational_role": "MOBILE_EQUIPMENT",
+            "subtype": "UNKNOWN", "category": "UNKNOWN", "category_source": "UNKNOWN",
+        }
+        excluded = deepcopy(payload)
+        excluded["rule_parameters"]["unknown_equipment_policy"] = "exclude"
+        self.assertEqual(self.post(excluded).status_code, 400)
+        included = self.post(payload)
+        self.assertEqual(included.status_code, 201, included.data)
+
     def test_extreme_pair_parameters_are_400_without_persistence(self):
         for name in ("max_distance", "minimum_duration_seconds"):
             for value in (10**1000, math.nan, math.inf, -math.inf, "9" * 5000, "bad", True, None, [], -1):

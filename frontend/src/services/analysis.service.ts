@@ -48,7 +48,39 @@ export interface EquipmentMotion {
   epoch: number;
   reason: string | null;
 }
+export const equipmentCategoryLabels = {
+  COUNTERBALANCE_FORKLIFT: "Montacargas contrapesado",
+  REACH_TRUCK: "Montacargas retráctil",
+  POWERED_PALLET_TRUCK: "Transpaleta motorizada",
+  MANUAL_PALLET_JACK: "Transpaleta manual",
+  MANUAL_STACKER: "Apilador manual",
+  ELECTRIC_STACKER: "Apilador eléctrico",
+  ELECTRIC_PALLET_JACK: "Transpaleta eléctrica",
+  UNKNOWN: "Desconocida (UNKNOWN)",
+} as const;
+
+export interface EquipmentProfile {
+  category: Exclude<keyof typeof equipmentCategoryLabels, "UNKNOWN">;
+  source_sha256: string;
+  authority_reference: string;
+}
+
+export interface EquipmentContext {
+  taxonomy: {
+    category: keyof typeof equipmentCategoryLabels;
+    subtype: "UNKNOWN";
+    profile?: EquipmentProfile;
+  };
+  rule_scope: {
+    rule_id: string;
+    rule_version: number;
+    counts: Record<string, number>;
+    last_exclusion: { frame_index: number; reason: string } | null;
+  }[];
+}
+
 export interface AnalysisRuleSnapshot {
+  equipment_profile?: EquipmentProfile;
   motion?: MotionSettings | null;
   relations?: RelationSettings | null;
   calibration?: {
@@ -67,6 +99,8 @@ export interface AnalysisRuleSnapshot {
 }
 
 export interface AnalysisResultConfig {
+  equipment_profile?: EquipmentProfile;
+  equipment_context?: EquipmentContext;
   spatial_revision?: number | null;
   motion?: MotionSettings | null;
   relations?: RelationSettings | null;
@@ -108,7 +142,12 @@ export interface AnalysisSessionStatus {
   configuration?: (AnalysisRuleSnapshot & { profile: AnalysisProfile }) | null;
   active_configuration?: Pick<
     AnalysisResultConfig,
-    "profile" | "run" | "rules" | "config_sha256" | "spatial_revision"
+    | "profile"
+    | "run"
+    | "rules"
+    | "config_sha256"
+    | "spatial_revision"
+    | "equipment_profile"
   > | null;
   pending_changes: boolean;
   frame: number;
@@ -121,6 +160,7 @@ export interface AnalysisSessionStatus {
   result_video?: AnalysisResultConfig["video"];
   timing_ms?: Record<string, number>;
   equipment_motion?: EquipmentMotion[];
+  equipment_context?: EquipmentContext;
   framing?: {
     state: "VALID" | "SUSPECT" | "INVALID" | "UNAVAILABLE";
     reason: string;

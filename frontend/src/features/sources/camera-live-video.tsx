@@ -4,6 +4,8 @@ import type Hls from "hls.js";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { cameraNumber } from "./camera-diagnostics";
+import { CameraFrameMatcher } from "./camera-frame-match";
+import { CameraLiveOverlay, type OverlayStats } from "./camera-live-overlay";
 import { usePageVisible } from "./camera-visibility";
 
 const hlsMime = "application/vnd.apple.mpegurl";
@@ -20,11 +22,27 @@ const statusLabels = {
 };
 type PlaybackStatus = keyof typeof statusLabels;
 
-export function CameraLiveVideo({ id, name }: { id: string; name: string }) {
+export function CameraLiveVideo({
+  id,
+  name,
+  runId,
+}: {
+  id: string;
+  name: string;
+  runId?: string | null;
+}) {
+  const player = useRef<HTMLElement>(null);
   const frame = useRef<HTMLDivElement>(null);
   const pauseButton = useRef<HTMLButtonElement>(null);
+  const [matcher] = useState(() => new CameraFrameMatcher());
   const [inView, setInView] = useState(false);
   const [paused, setPaused] = useState(false);
+  const [overlay, setOverlay] = useState(true);
+  const [showIds, setShowIds] = useState(false);
+  const [showZones, setShowZones] = useState(true);
+  const [showStats, setShowStats] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [fullscreenError, setFullscreenError] = useState(false);
   const visible = usePageVisible();
 
   useEffect(() => {
@@ -41,14 +59,47 @@ export function CameraLiveVideo({ id, name }: { id: string; name: string }) {
     return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    const update = () =>
+      setFullscreen(document.fullscreenElement === player.current);
+    document.addEventListener("fullscreenchange", update);
+    return () => document.removeEventListener("fullscreenchange", update);
+  }, []);
+
+  async function toggleFullscreen() {
+    setFullscreenError(false);
+    try {
+      if (document.fullscreenElement === player.current)
+        await document.exitFullscreen();
+      else await player.current?.requestFullscreen();
+    } catch {
+      setFullscreenError(true);
+    }
+  }
+
   return (
-    <figure className="grid min-w-0 content-start gap-2">
-      <figcaption className="text-sm font-semibold">
-        Video original en vivo
-      </figcaption>
-      <div ref={frame} className="grid gap-2">
+    <figure
+      ref={player}
+      className="flex min-w-0 flex-col gap-2 fullscreen:bg-surface fullscreen:p-3"
+    >
+      <figcaption className="text-sm font-semibold">Video en vivo</figcaption>
+      <div
+        ref={frame}
+        className={`grid min-h-0 gap-2 ${fullscreen ? "flex-1 grid-rows-[minmax(0,1fr)_auto]" : ""}`}
+      >
         {visible && inView && !paused ? (
-          <LiveStream key={id} id={id} name={name} pauseButton={pauseButton} />
+          <LiveStream
+            id={id}
+            name={name}
+            runId={runId}
+            matcher={matcher}
+            pauseButton={pauseButton}
+            overlay={overlay}
+            showIds={showIds}
+            showZones={showZones}
+            showStats={showStats}
+            fullscreen={fullscreen}
+          />
         ) : (
           <div className="grid aspect-video place-items-center rounded-md bg-surface-muted">
             {paused && (
@@ -59,33 +110,118 @@ export function CameraLiveVideo({ id, name }: { id: string; name: string }) {
           </div>
         )}
       </div>
-      <Button
-        ref={pauseButton}
-        variant="outline"
-        className="min-h-11 w-fit"
-        aria-label={`${paused ? "Reanudar" : "Pausar"} video en vivo de ${name}`}
-        onClick={() => setPaused((value) => !value)}
+      <div
+        role="group"
+        aria-label="Controles de video"
+        className="flex flex-wrap gap-2"
       >
-        {paused ? "Reanudar video" : "Pausar video"}
-      </Button>
+        <Button
+          ref={pauseButton}
+          variant="outline"
+          className="min-h-11"
+          aria-label={`${paused ? "Reanudar" : "Pausar"} video en vivo de ${name}`}
+          onClick={() => setPaused((value) => !value)}
+        >
+          {paused ? "Reanudar video" : "Pausar video"}
+        </Button>
+        <VideoToggle pressed={overlay} onClick={() => setOverlay(!overlay)}>
+          Superposición
+        </VideoToggle>
+        <VideoToggle
+          pressed={showIds}
+          disabled={!overlay}
+          onClick={() => setShowIds(!showIds)}
+        >
+          ID
+        </VideoToggle>
+        <VideoToggle
+          pressed={showZones}
+          disabled={!overlay}
+          onClick={() => setShowZones(!showZones)}
+        >
+          Zonas
+        </VideoToggle>
+        <VideoToggle
+          pressed={showStats}
+          onClick={() => setShowStats(!showStats)}
+        >
+          Estadísticas
+        </VideoToggle>
+        <Button
+          variant="outline"
+          className="min-h-11"
+          onClick={() => void toggleFullscreen()}
+        >
+          {fullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
+        </Button>
+      </div>
+      {fullscreenError && (
+        <p role="status" className="text-sm text-text-secondary">
+          Pantalla completa no disponible.
+        </p>
+      )}
+      {overlay && (
+        <p className="text-sm text-text-secondary">
+          La superposición aparece solo en fotogramas verificados.
+        </p>
+      )}
     </figure>
+  );
+}
+
+function VideoToggle({
+  children,
+  pressed,
+  disabled,
+  onClick,
+}: {
+  children: string;
+  pressed: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      variant={pressed ? "secondary" : "outline"}
+      className="min-h-11"
+      aria-pressed={pressed}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {children}
+    </Button>
   );
 }
 
 function LiveStream({
   id,
   name,
+  runId,
+  matcher,
   pauseButton,
+  overlay,
+  showIds,
+  showZones,
+  showStats,
+  fullscreen,
 }: {
   id: string;
   name: string;
+  runId?: string | null;
+  matcher: CameraFrameMatcher;
   pauseButton: RefObject<HTMLButtonElement | null>;
+  overlay: boolean;
+  showIds: boolean;
+  showZones: boolean;
+  showStats: boolean;
+  fullscreen: boolean;
 }) {
   const media = useRef<HTMLVideoElement>(null);
   const playButton = useRef<HTMLButtonElement>(null);
   const [status, setStatus] = useState<PlaybackStatus>("connecting");
   const [fps, setFps] = useState<number>();
   const [edgeDistance, setEdgeDistance] = useState<number>();
+  const [overlayStats, setOverlayStats] = useState<OverlayStats>();
 
   useEffect(() => {
     if (!media.current) return;
@@ -280,7 +416,9 @@ function LiveStream({
   const edge = playing ? cameraNumber(edgeDistance, " s") : null;
   return (
     <>
-      <div className="relative flex aspect-video flex-col items-center justify-center gap-2 overflow-hidden rounded-md bg-surface-muted p-3">
+      <div
+        className={`relative flex flex-col items-center justify-center gap-2 overflow-hidden rounded-md bg-surface-muted p-3 ${fullscreen ? "min-h-0" : "aspect-video"}`}
+      >
         <video
           ref={media}
           aria-label={`Video original en vivo de ${name} (${id})`}
@@ -290,6 +428,16 @@ function LiveStream({
           playsInline
           disablePictureInPicture
           disableRemotePlayback
+        />
+        <CameraLiveOverlay
+          id={id}
+          runId={runId}
+          matcher={matcher}
+          media={media}
+          active={playing && overlay}
+          showIds={showIds}
+          showZones={showZones}
+          onStats={setOverlayStats}
         />
         <p
           role="status"
@@ -310,11 +458,41 @@ function LiveStream({
           </Button>
         )}
       </div>
-      {(frameRate || edge) && (
+      {showStats && (
         <div className="flex flex-wrap gap-x-3 text-sm text-text-secondary tabular-nums">
           {frameRate && <span>{frameRate}</span>}
           {edge && (
             <span>Distancia estimada al borde reproducible · {edge}</span>
+          )}
+          {!frameRate && !edge && (
+            <span>Estadísticas de reproducción no disponibles.</span>
+          )}
+          {playing && overlay && (
+            <>
+              <span>Muestreados {overlayStats?.sampled ?? 0}</span>
+              <span>Coincidencias {overlayStats?.matched ?? 0}</span>
+              <span>Dibujados {overlayStats?.drawn ?? 0}</span>
+              <span>Por continuidad {overlayStats?.continuity ?? 0}</span>
+              <span>Sustituidos {overlayStats?.substituted ?? 0}</span>
+              {overlayStats?.presentedAgeMs != null && (
+                <span>
+                  Recepción a presentación (última coincidencia) ·{" "}
+                  {cameraNumber(overlayStats.presentedAgeMs, " ms")}
+                </span>
+              )}
+              <span>
+                Observaciones en ventana {overlayStats?.observations ?? 0}
+              </span>
+              {!!overlayStats?.sampled && (
+                <span>
+                  Verificación media ·{" "}
+                  {cameraNumber(
+                    overlayStats.sampleMs / overlayStats.sampled,
+                    " ms",
+                  )}
+                </span>
+              )}
+            </>
           )}
         </div>
       )}

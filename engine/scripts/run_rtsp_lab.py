@@ -6,7 +6,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import nullcontext, redirect_stderr
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
-from functools import cached_property
+from functools import cached_property, partial
 import hashlib
 import ipaddress
 import json
@@ -35,9 +35,10 @@ from operix_engine.operational_config import load_operational_config
 from operix_engine.pattern_framing import PatternFramingGuard
 from operix_engine.rtsp_inference import InferenceBusy, InferenceClient, InferenceError, InferenceTimeout
 from operix_engine.rtsp_lab_clips import ClipStore, JpegRing
+from operix_engine.rtsp_lab_overlay import OverlayMetadata
 from operix_engine.rtsp_lab_policy import CameraRateBudget, EventAdmission, EventPolicy, InvalidEventPolicy
 from operix_engine.rtsp_pilot import Capture, Epoch
-from operix_engine.rules import RuleEngine
+from operix_engine.rules import EquipmentScopeAudit, RuleEngine
 from operix_engine.spatiotemporal import SpatiotemporalAnalyzer
 from operix_engine.video_event_pipeline import _visible_tracks
 from operix_engine.visualization import OpenCvRenderer, TrajectoryAccumulator, VisualizationConfig
@@ -138,6 +139,7 @@ class WorkerStatus:
         self.inference_mode = "dedicated"
         self.inference_profile = None
         self.event_policy = None
+        self.equipment_scope = None
         self.capture = None
         self.epochs = Counter()
         self.received = deque(maxlen=600)
@@ -263,6 +265,7 @@ class WorkerStatus:
                 "preview_clock_basis": "local_receive_mtime" if self.preview_frame is not None else None,
                 "event_limit": self.event_policy.event_limit if self.event_policy else None,
                 "event_policy": self.event_policy.status() if self.event_policy else None,
+                **({"equipment_rule_scope": self.equipment_scope.snapshot()} if self.equipment_scope is not None else {}),
                 **({"framing": self.framing.status()} if self.framing is not None else {}),
             },
         }
@@ -316,6 +319,11 @@ class LabPipeline:
             observe_occupants=config.observe_occupants,
         )
         self.rules = None if invalidated else RuleEngine(config)
+        self.equipment_scope = (
+            EquipmentScopeAudit() if any(
+                rule.enabled and "equipment_category" in rule.parameters for rule in config.rules
+            ) else None
+        )
         self.zones = tuple(zone for zone in config.zones if zone.enabled)
         visual = VisualizationConfig(max_trajectory_points=60, inactive_retention_frames=30, relations=config.relations)
         self.renderer = OpenCvRenderer(visual)
@@ -333,7 +341,7 @@ class LabPipeline:
         for history in self.histories.values():
             history.reset()
 
-    def process(self, frame, timestamp, *, detected=None, inference_ms=None, timings=None):
+    def process(self, frame, timestamp, *, detected=None, inference_ms=None, timings=None, observe_overlay=None):
         if detected is None:
             observed, timing = self.perception.process(frame.image, synchronize=torch.cuda.synchronize)
             inference_ms = (timing.person_inference_s + timing.forklift_inference_s) * 1000
@@ -357,10 +365,14 @@ class LabPipeline:
         geometry_started = monotonic()
         spatial = self.analyzer.update(frame.index, tracks, timestamp_s=timestamp, image_only=not spatial_allowed)
         evaluation_started = monotonic()
-        result = self.rules.evaluate(spatial) if spatial_allowed else None
+        result = self.rules.evaluate(spatial) if spatial_allowed and self.rules is not None else None
+        if result is not None and self.equipment_scope is not None:
+            self.equipment_scope.update(result)
         candidates = result.candidates if result is not None else ()
         overlay_started = monotonic()
         rules_ms = (overlay_started - rules_started) * 1000
+        if observe_overlay is not None:
+            observe_overlay(frame, tracks, spatial_allowed=spatial_allowed)
         annotated = frame.image
         occupied = []
         boxes = [track.bounding_box for track in tracks]
@@ -606,6 +618,8 @@ def run(args, status, stop_reason):
         if camera_id != context.source.get("camera_id"):
             raise InvalidEventPolicy("RTSP camera does not match the authorized snapshot")
         rate_budget = CameraRateBudget(media_root, camera_id)
+    overlay = OverlayMetadata(args.output, status.run_id, config.zones if config else (), write_atomic=_write_atomic)
+    overlay.clear()
     clips = ClipStore(media_root, args.fps, total_bytes=event_policy.clip_total_bytes,
                       retention_days=event_policy.clip_retention_days, operational=event_policy.mode == "operational")
     if reason := stop_reason():
@@ -624,6 +638,8 @@ def run(args, status, stop_reason):
         pipeline = LabPipeline(config, args, infer_remotely=inference is not None)
     if inference is None:
         status.inference_profile = profile
+    if config is not None and any(rule.enabled and "equipment_category" in rule.parameters for rule in config.rules):
+        status.equipment_scope = pipeline.equipment_scope
     if config is not None and config.calibration is not None:
         status.framing = pipeline.framing
     if reason := stop_reason():
@@ -654,13 +670,19 @@ def run(args, status, stop_reason):
                                 capture.counts["shutdown_drop"] += 1
                         break
                     now = monotonic()
+                    overlay.expire(now)
                     publisher.collect()
                     with capture.ready:
                         failures = capture.counts["open_failure"] + capture.counts["read_failure"]
+                    reconnecting = failures > failures_at_frame or (
+                        frame is None and epoch.number and now - last_frame > .5
+                    )
+                    if reconnecting:
+                        overlay.clear()
                     if frame is None:
                         if not capture.thread.is_alive():
                             raise RuntimeError("El lector RTSP terminó inesperadamente")
-                        if failures > failures_at_frame or (epoch.number and now - last_frame > .5):
+                        if reconnecting:
                             publisher.flush()
                             status.write("reconnecting")
                         else:
@@ -693,6 +715,7 @@ def run(args, status, stop_reason):
                             if detected is not None:
                                 status.inference_drops["disconnect"] += 1
                             if obsolete:
+                                overlay.clear()
                                 inference_stalled_since = None
                                 status.write("reconnecting")
                             else:
@@ -712,20 +735,23 @@ def run(args, status, stop_reason):
                         status.inference_batch_sizes[detected.batch_size] += 1
                     epoch_reason, timestamp = epoch.advance(frame)
                     if epoch_reason:
+                        overlay.clear()
                         publisher.flush()
                         pipeline.reset(epoch.number, preserve_tracking=epoch.preserve_tracking)
                         ring.clear()
                         status.epoch = epoch.number
                         status.epochs[epoch_reason] += 1
                         status.metrics["tracking_preserved_gaps" if epoch.preserve_tracking else "tracking_resets"] += 1
+                    observe_overlay = partial(overlay.observe, epoch=epoch.number, received_utc=received_at)
                     if detected is None:
                         annotated, candidates, inference_ms, rules_ms = pipeline.process(
-                            frame, timestamp, timings=status.timings,
+                            frame, timestamp, timings=status.timings, observe_overlay=observe_overlay,
                         )
                     else:
                         annotated, candidates, inference_ms, rules_ms = pipeline.process(
                             frame, timestamp, detected=detected,
                             inference_ms=detected.person_ms + detected.forklift_ms, timings=status.timings,
+                            observe_overlay=observe_overlay,
                         )
                     completed = monotonic()
                     status.completed.append((completed, frame.received))
@@ -757,8 +783,15 @@ def run(args, status, stop_reason):
                             last_preview, status.preview_frame = now, frame.index
                     if keep_context and not publisher.has_quota:
                         ring.clear()
+                    with capture.ready:
+                        disconnected = capture.counts["open_failure"] + capture.counts["read_failure"] > failures
+                    if disconnected:
+                        overlay.clear()
+                    else:
+                        overlay.publish(monotonic())
                     status.write("processing")
         finally:
+            overlay.clear()
             publisher.flush()
             publisher.collect(drain=True)
     return reason

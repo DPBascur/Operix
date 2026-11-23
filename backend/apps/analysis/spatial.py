@@ -24,7 +24,7 @@ class SpatialConfigurationView(AnalysisView):
             effective, policy = session.policy_configuration(document)
             return Response({"source_sha256": session.source_sha256, "document": document,
                              "revision": saved.revision if saved else 0,
-                             "saved": saved.document if saved else None,
+                             "saved": session.with_equipment_profile(saved.document) if saved else None,
                              "effective_rules": effective["rules"], "policy": policy})
 
     def put(self, request, pk):
@@ -39,8 +39,14 @@ class SpatialConfigurationView(AnalysisView):
         with session._guard:
             if session._closed or session.state not in RESTARTABLE or (session.process and session.process.poll() is None):
                 return Response({"detail":"Detenga el análisis antes de editar"}, status=409)
+            submitted = data["document"]
+            configured_profile = (session.profile_config or {}).get("equipment_profile")
+            if pattern_confirmed:
+                submitted = session.with_equipment_profile(submitted)
+            elif isinstance(submitted, dict) and submitted.get("equipment_profile") != configured_profile:
+                return Response({"detail": "El perfil de equipo se administra en la configuración del servidor."}, status=400)
             try:
-                document = validate_spatial(data["document"], session.source_sha256, ROOT)
+                document = validate_spatial(submitted, session.source_sha256, ROOT)
             except ValueError as error:
                 return Response({"detail": str(error)}, status=400)
             with transaction.atomic():
@@ -87,6 +93,8 @@ class SpatialConfigurationView(AnalysisView):
                             or saved.document["zones"] != document["zones"]
                             or saved.document.get("calibration") != document.get("calibration")
                             or (uses_motion and saved.document.get("motion") != document.get("motion"))
+                            or ("equipment_category" in rule["parameters"]
+                                and saved.document.get("equipment_profile") != document.get("equipment_profile"))
                         )
                     else:
                         changed = True

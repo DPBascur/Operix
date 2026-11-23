@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from operix_engine.occupants import OccupantEstimator, OccupantObservation
 from operix_engine.motion import MotionConfig, MotionEstimator, MotionObservation
 from operix_engine.detection import BoundingBox
+from operix_engine.equipment_taxonomy import EquipmentProfile, EquipmentTaxonomy
 from operix_engine.operational_config import Zone
 from operix_engine.tracking import Track
 from operix_engine.zone_geometry import NormalizedPoint, normalized_bottom_center, point_in_zone
@@ -65,10 +66,16 @@ class ObjectSpatialState:
     bounding_box: BoundingBox
     confidence: float
     motion: MotionObservation | None = None
+    equipment_taxonomy: EquipmentTaxonomy | None = None
     identity: ObjectIdentity = field(init=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "identity", ObjectIdentity(self.class_name, self.track_id))
+        if self.class_name == "forklift" and self.equipment_taxonomy is None:
+            object.__setattr__(self, "equipment_taxonomy", EquipmentTaxonomy())
+        elif self.equipment_taxonomy is not None and (
+                self.class_name != "forklift" or not isinstance(self.equipment_taxonomy, EquipmentTaxonomy)):
+            raise ValueError("La taxonomía corresponde al canal forklift")
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +128,8 @@ class SpatiotemporalAnalyzer:
         calibration: dict | None = None,
         motion: MotionConfig | None = None,
         observe_occupants: bool = False,
+        equipment_profile: EquipmentProfile | None = None,
+        source_sha256: str | None = None,
     ) -> None:
         if type(width) is not int or width <= 0 or type(height) is not int or height <= 0:
             raise ValueError("width y height deben ser enteros positivos")
@@ -140,6 +149,10 @@ class SpatiotemporalAnalyzer:
         self.calibration = calibration
         self.motion = MotionEstimator(motion) if motion is not None else None
         self.occupants = OccupantEstimator() if observe_occupants else None
+        profile = equipment_profile
+        self.equipment_taxonomy = EquipmentTaxonomy(
+            profile if profile is not None and profile.source_sha256 == source_sha256 else None
+        )
         self.max_trajectory_points = max_trajectory_points
         if (not isinstance(proximity_roles, tuple) or any(
                 not isinstance(pair, tuple) or len(pair) != 2 or pair[0] == pair[1]
@@ -278,6 +291,7 @@ class SpatiotemporalAnalyzer:
                     motion.update(identity,frame_index,timestamp_s,(position.x,position.y),
                         epoch=self.epoch,calibration=calibration)
                     if motion is not None and track.class_name == "forklift" else None,
+                    self.equipment_taxonomy if track.class_name == "forklift" else None,
                 )
             )
 

@@ -116,6 +116,7 @@ def event_candidate_payload(candidate: EventCandidate | PairEventCandidate, cont
                              "duration_s": data["observed_duration_s"],
                              **({"ground": data["ground"]} if "ground" in data else {}),
                              **({"equipment_motion": data["equipment_motion"]} if "equipment_motion" in data else {}),
+                             **({"equipment_taxonomy": data["equipment_taxonomy"]} if "equipment_taxonomy" in data else {}),
                              **({"proximity_geometry": data["proximity_geometry"]} if "proximity_geometry" in data else {})},
             "episode": {"started_frame_index": data["started_frame_index"],
                         "started_timestamp_s": data["started_timestamp_s"], "timestamp_s": data["timestamp_s"]},
@@ -127,6 +128,8 @@ def event_candidate_payload(candidate: EventCandidate | PairEventCandidate, cont
         "class_name": candidate.class_name,
         "observed_inside": candidate.observed_inside,
         "observed_dwell_time_s": dwell,
+        **({"observations": {"equipment_taxonomy": candidate.equipment_taxonomy.to_dict()}}
+           if candidate.equipment_taxonomy else {}),
     }
 
 

@@ -2,6 +2,7 @@
 import { PageTitle } from "@/components/layout/page-title";
 
 import { sourceKind, sourceNames } from "@/features/dashboard/history-model";
+import { equipmentCategoryLabels } from "@/services/analysis.service";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -378,10 +379,14 @@ function EventContent(props: EvidenceProps) {
     ? {
         inside: event.observed_inside,
         dwell_time_s: event.observed_dwell_time_s,
+          ...record(event.observations),
       }
     : event.observations;
   const reducedMotion = useReducedMotion();
   const equipmentMotion = eventMotion(event);
+  const taxonomy = record(record(event.observations).equipment_taxonomy);
+  const equipmentCategory = text(taxonomy.category, "");
+  const equipmentProfile = record(taxonomy.profile);
   const isPair =
     event.interaction &&
     ["person_forklift_proximity", "zone_coexistence"].includes(
@@ -572,6 +577,23 @@ function EventContent(props: EvidenceProps) {
                     {geometry.equipmentTarget}
                   </Field>
                 )}
+              </>
+            )}
+            {equipmentCategory && (
+              <>
+                <Field label="Categoría operacional">
+                  {equipmentCategoryLabels[
+                    equipmentCategory as keyof typeof equipmentCategoryLabels
+                  ] ?? equipmentCategory}
+                </Field>
+                <Field label="Origen de la categoría">
+                  {taxonomy.category_source === "AUTHORIZED_PROFILE"
+                    ? `Declaración autorizada de fuente homogénea · ${text(equipmentProfile.authority_reference)}`
+                    : "UNKNOWN · fuente mixta o sin declaración aplicable"}
+                </Field>
+                <Field label="Clase y subtipo del detector">
+                  FORKLIFT · UNKNOWN
+                </Field>
               </>
             )}
             <Field label="Timestamp original recibido">

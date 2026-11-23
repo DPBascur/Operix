@@ -34,6 +34,22 @@ class SpatialConfigurationTests(TestCase):
     def save(self, document=None, revision=0):
         return self.client.put(self.url, {"document": document or self.document, "revision": revision}, format="json")
 
+    def test_equipment_profile_can_only_come_from_server_configuration(self):
+        profile = {"category": "MANUAL_PALLET_JACK", "source_sha256": self.session.source_sha256,
+                   "authority_reference": "review-1"}
+        declaration = self.document | {"equipment_profile": profile}
+        self.assertEqual(self.save(declaration).status_code, 400)
+        self.assertFalse(SpatialConfiguration.objects.exists())
+        self.session.profile_config = deepcopy(declaration)
+        self.session.apply_spatial(self.document, 0)
+        self.assertEqual(self.session.profile_config["equipment_profile"], profile)
+        self.assertEqual(self.save().status_code, 400)
+        changed = declaration | {"equipment_profile": profile | {"category": "ELECTRIC_PALLET_JACK"}}
+        self.assertEqual(self.save(changed).status_code, 400)
+        response = self.save(declaration)
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["document"]["equipment_profile"], profile)
+
     def test_persists_revisions_without_mutating_previous_snapshot(self):
         response = self.save()
         self.assertEqual(response.status_code, 200, response.data)

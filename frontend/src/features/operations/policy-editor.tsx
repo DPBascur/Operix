@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
 import {
   analysisService,
+  equipmentCategoryLabels,
   type AnalysisProfileDefinition,
 } from "@/services/analysis.service";
 import { operationalError, operationalRequest } from "./operation-request";
@@ -70,6 +71,7 @@ function Parameters({
 }) {
   const proximity = value.kind === "person_forklift_proximity";
   const pair = proximity || value.kind === "zone_coexistence";
+  const equipment = pair || value.class_name === "forklift";
   return (
     <>
       <div className={styles.fieldGrid}>
@@ -135,12 +137,13 @@ function Parameters({
           <select
             className="input"
             value={value.class_name ?? "person"}
-            onChange={(event) =>
-              onChange({
-                ...value,
-                class_name: event.target.value as "person" | "forklift",
-              })
-            }
+            onChange={(event) => {
+              const class_name = event.target.value as "person" | "forklift";
+              onChange(class_name === "person" ? {
+                ...value, class_name, equipment_category: undefined,
+                unknown_equipment_policy: undefined,
+              } : { ...value, class_name });
+            }}
           >
             <option value="person">Persona</option>
             <option value="forklift">Montacargas</option>
@@ -202,6 +205,38 @@ function Parameters({
               <option value="moving">Solo con movimiento confirmado</option>
             </select>
           </label>
+        </div>
+      )}
+      {equipment && (
+        <div className={styles.fieldGrid}>
+          <label>
+            Categoría operacional de equipo
+            <select className="input" value={value.equipment_category ?? ""}
+              onChange={(event) => onChange({
+                ...value,
+                equipment_category: (event.target.value || undefined) as PolicyParameters["equipment_category"],
+                unknown_equipment_policy: undefined,
+              })}>
+              <option value="">Cualquier categoría</option>
+              {Object.entries(equipmentCategoryLabels).filter(([category]) => category !== "UNKNOWN").map(([category, label]) => (
+                <option key={category} value={category}>{label}</option>
+              ))}
+            </select>
+          </label>
+          {value.equipment_category && (
+            <label>
+              Si la categoría es desconocida
+              <select className="input" required value={value.unknown_equipment_policy ?? ""}
+                onChange={(event) => onChange({
+                  ...value,
+                  unknown_equipment_policy: (event.target.value || undefined) as PolicyParameters["unknown_equipment_policy"],
+                })}>
+                <option value="">Elige cómo evaluar</option>
+                <option value="include">Evaluar como equipo de categoría desconocida</option>
+                <option value="exclude">Excluir y registrar la exclusión</option>
+              </select>
+            </label>
+          )}
         </div>
       )}
     </>

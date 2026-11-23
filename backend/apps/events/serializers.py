@@ -3,9 +3,11 @@ from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.utils.timezone import now
+from operix_engine.equipment_taxonomy import EQUIPMENT_SCOPE_KEYS
 from rest_framework import serializers
 
 from .clips import clip_info
+from .equipment_contract import validate_equipment_scope, validate_equipment_taxonomy
 from .models import Event
 from .pair_contract import EVENT_TYPES, validate_pair, validate_pair_parameters
 
@@ -89,12 +91,13 @@ class EventSerializer(serializers.ModelSerializer):
             validate_pair_parameters(value)
             return value
         expected = {"kind", "class_name", "zone_id", "min_duration_s"}
-        if set(value) != expected:
+        if expected - value.keys() or value.keys() - (expected | EQUIPMENT_SCOPE_KEYS):
             raise serializers.ValidationError("Claves requeridas: kind, class_name, zone_id, min_duration_s.")
         if value["kind"] not in {"zone_dwell", "zone_entry"}:
             raise serializers.ValidationError("Solo se admite kind=zone_dwell en esta versión.")
         if not all(isinstance(value[key], str) and value[key].strip() for key in ("class_name", "zone_id")):
             raise serializers.ValidationError("class_name y zone_id deben ser textos no vacíos.")
+        validate_equipment_scope(value, value["class_name"])
         duration = value["min_duration_s"]
         if type(duration) not in (int, float):
             raise serializers.ValidationError("min_duration_s debe ser numérico, finito y no negativo.")
@@ -122,13 +125,18 @@ class EventSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"zone_id": "No coincide con la regla."})
         if attrs["event_type"] in {"person_forklift_proximity", "zone_coexistence"}:
             return validate_pair(attrs)
-        if any(attrs.get(field) for field in ("interaction", "observations", "episode")):
+        observations = attrs.get("observations", {})
+        if (any(attrs.get(field) for field in ("interaction", "episode"))
+                or (observations and (not isinstance(observations, dict)
+                                      or set(observations) != {"equipment_taxonomy"}))):
             raise serializers.ValidationError("zone_dwell no admite un snapshot por pares.")
         if any(attrs.get(field) is None for field in ("track_id", "class_name", "observed_inside", "observed_dwell_time_s")):
             raise serializers.ValidationError("zone_dwell requiere sus observaciones originales.")
         for field in ("class_name", "zone_id"):
             if parameters[field] != attrs[field]:
                 raise serializers.ValidationError({field: "No coincide con los parámetros de la regla."})
+        if observations or "equipment_category" in parameters:
+            validate_equipment_taxonomy(attrs, attrs["class_name"])
         if attrs["observed_inside"] is not True:
             raise serializers.ValidationError({"observed_inside": "Un candidato zone_dwell debe estar dentro de la zona."})
         # Misma tolerancia NUMÉRICA del Motor, no gracia operacional.
@@ -172,7 +180,7 @@ class EventSerializer(serializers.ModelSerializer):
             ):
                 raise serializers.ValidationError("Identidad de cámara inválida.")
             if key == "spatial_configuration":
-                if not isinstance(item, dict) or set(item) - {"schema_version","view_id","coordinate_system","zones","rules","calibration","motion","relations"}:
+                if not isinstance(item, dict) or set(item) - {"schema_version","view_id","coordinate_system","zones","rules","calibration","motion","relations","equipment_profile"}:
                     raise serializers.ValidationError("Snapshot espacial inválido")
             elif key == "perception":
                 if not isinstance(item, dict) or set(item) != {"person", "forklift"}:

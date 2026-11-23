@@ -4,7 +4,9 @@ import hashlib
 import json
 import math
 
+from operix_engine.equipment_taxonomy import EQUIPMENT_SCOPE_KEYS
 from rest_framework.exceptions import ValidationError
+from .equipment_contract import validate_equipment_scope, validate_equipment_taxonomy
 from .motion_contract import validate_motion
 
 
@@ -26,13 +28,14 @@ def number(value, name):
 def validate_pair_parameters(parameters):
     expected = {"kind", "zone_id", "person_class", "forklift_class",
                 "max_distance", "minimum_duration_seconds"}
-    if expected-set(parameters) or set(parameters)-(expected|{"distance_unit","motion_condition","exclude_possible_occupant"}):
+    if expected-set(parameters) or set(parameters)-(expected|{"distance_unit","motion_condition","exclude_possible_occupant"}|EQUIPMENT_SCOPE_KEYS):
         raise ValidationError({"rule_parameters": "Snapshot de parámetros por pares incompleto."})
     if not all(isinstance(parameters[k], str) and parameters[k].strip()
                for k in ("zone_id", "person_class", "forklift_class")):
         raise ValidationError({"rule_parameters": "Roles y zona requieren texto."})
     if parameters["person_class"] == parameters["forklift_class"]:
         raise ValidationError({"rule_parameters": "Las clases de los roles deben ser distintas."})
+    validate_equipment_scope(parameters, parameters["forklift_class"])
     if not isinstance(parameters.get("motion_condition","any"), str) or parameters.get("motion_condition","any") not in {"any","moving"}:
         raise ValidationError("Condici\u00f3n de movimiento no soportada")
     if parameters["kind"]=="zone_coexistence" and parameters.get("motion_condition","any")!="any":
@@ -67,9 +70,10 @@ def validate_pair(attrs):
                 or type(subject["track_id"]) is not int or not 0 <= subject["track_id"] <= 2147483647):
             raise ValidationError({"interaction": "Identidad incompatible con el rol."})
     observations, episode = attrs.get("observations", {}), attrs.get("episode", {})
-    if (not isinstance(observations, dict) or set(observations) - {"normalized_distance","duration_s","proximity_geometry","ground","equipment_motion"}
+    if (not isinstance(observations, dict) or set(observations) - {"normalized_distance","duration_s","proximity_geometry","ground","equipment_motion","equipment_taxonomy"}
             or not {"normalized_distance","duration_s"} <= observations.keys()):
         raise ValidationError({"observations": "Se requieren distancia y duración observadas."})
+    validate_equipment_taxonomy(attrs, parameters["forklift_class"])
     if "proximity_geometry" in observations:
         geometry = observations["proximity_geometry"]
         if (not isinstance(geometry, dict) or set(geometry) != {"version", "person_anchor", "equipment_target"}

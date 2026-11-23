@@ -28,7 +28,7 @@ from operix_engine.event_publishing import EventContext, HttpEventSink
 from operix_engine.framing import RecordedFraming
 from operix_engine.dual_perception import ClassPerceptionChannel, DualPerception
 from operix_engine.operational_config import load_operational_config
-from operix_engine.rules import RuleEngine
+from operix_engine.rules import EquipmentScopeAudit, RuleEngine
 from operix_engine.spatiotemporal import SpatiotemporalAnalyzer
 from operix_engine.video_event_pipeline import _visible_tracks
 from operix_engine.video_processor import RecordedVideoSource, VideoContractError, VideoSourceError, inspect_recorded_video
@@ -183,11 +183,12 @@ def process(args: argparse.Namespace) -> None:
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA no está disponible para ambos detectores")
     config = _validated_zone(load_operational_config(args.config), args.polygon)
-    if config.calibration:
+    source_sha256 = None
+    if config.calibration or config.equipment_profile:
         import hashlib
         with args.video.open("rb") as media:
-            digest = hashlib.file_digest(media, "sha256").hexdigest()
-        if config.calibration["source_sha256"] != digest:
+            source_sha256 = hashlib.file_digest(media, "sha256").hexdigest()
+        if config.calibration and config.calibration["source_sha256"] != source_sha256:
             raise ValueError("La calibración pertenece a otra fuente")
     outbox = None
     context = None
@@ -228,6 +229,7 @@ def process(args: argparse.Namespace) -> None:
             fps=metadata.declared_fps, zones=config.zones,
             proximity_roles=config.proximity_roles,
             calibration=config.calibration, motion=config.motion, observe_occupants=config.observe_occupants,
+            equipment_profile=config.equipment_profile, source_sha256=source_sha256,
         )
         framing = RecordedFraming(config.calibration)
         rules = None if framing.manually_invalid else RuleEngine(config)
@@ -245,6 +247,18 @@ def process(args: argparse.Namespace) -> None:
         last_preview = None
         excluded_observations = 0
         last_occupant_exclusion = None
+        equipment_audit = EquipmentScopeAudit() if any(
+            rule.enabled and "equipment_category" in rule.parameters for rule in config.rules
+        ) else None
+
+        def equipment_status():
+            if equipment_audit is None and config.equipment_profile is None:
+                return {}
+            return {"equipment_context": {
+                "taxonomy": analyzer.equipment_taxonomy.to_dict(),
+                "rule_scope": equipment_audit.snapshot() if equipment_audit is not None else [],
+            }}
+
         preview_fps = getattr(args, "preview_fps", 10.0)
         preview_dir = args.session_dir / "preview"
         preview_dir.mkdir(exist_ok=True)
@@ -279,6 +293,8 @@ def process(args: argparse.Namespace) -> None:
                 )
                 result = rules.evaluate(spatial) if spatial_allowed else None
                 frame_candidates = candidate_payloads(result.candidates) if result is not None else []
+                if equipment_audit is not None and result is not None:
+                    equipment_audit.update(result)
                 if config.observe_occupants and result is not None:
                     for item in result.evaluations:
                         if item.reason == "possible_occupant":
@@ -361,6 +377,7 @@ def process(args: argparse.Namespace) -> None:
                     person_tracks=len(observed.person_tracks),
                     forklift_tracks=len(observed.forklift_tracks),
                     candidates=frame_candidates, persistence=persistence,
+                    **equipment_status(),
                     **({"occupant_context": {
                         "excluded_pair_rule_observations": excluded_observations,
                         "last_exclusion": last_occupant_exclusion,
@@ -418,6 +435,7 @@ def process(args: argparse.Namespace) -> None:
             person_tracks=len(observed.person_tracks),
             forklift_tracks=len(observed.forklift_tracks),
             candidates=frame_candidates, persistence=persistence,
+            **equipment_status(),
             framing=framing.status(),
             equipment_motion=[dict(track_id=o.track_id, class_name=o.class_name, **o.motion.to_dict())
                               for o in spatial.objects if o.motion is not None],

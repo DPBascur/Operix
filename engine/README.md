@@ -518,6 +518,34 @@ peligro ni suprime personas por una supuesta asociación con un operador.
 La combinación disponible es espacial + temporal, sin lenguaje arbitrario de reglas
 y admite proximidad opcional condicionada al movimiento observable descrito abajo.
 
+**Alcance por categoría operacional de equipo**
+
+El canal FORKLIFT conserva su clase, IDs y geometría. Su subtipo es siempre
+`UNKNOWN`. Un perfil JSON autorizado en el servidor puede declarar una sola
+categoría operacional para todos los tracks del canal en una fuente homogénea.
+Agregue al perfil `equipment_profile` con `category`, `source_sha256` (SHA-256
+del archivo) y `authority_reference` (identificador de la revisión autorizada).
+Omita el perfil para fuentes mixtas o sin revisión. Una huella distinta deja la
+categoría en `UNKNOWN`. El sistema aplica la declaración cuando coincide la
+huella. La revisión debe cubrir el video completo y todos los equipos que se
+ven simultáneamente. La cantidad de pistas y la huella por sí solas no prueban
+homogeneidad.
+
+Las categorías disponibles son `MANUAL_PALLET_JACK`, `MANUAL_STACKER`,
+`ELECTRIC_STACKER`, `ELECTRIC_PALLET_JACK`, `COUNTERBALANCE_FORKLIFT`,
+`REACH_TRUCK` y `POWERED_PALLET_TRUCK`. La coincidencia usa el valor exacto.
+Use el mismo valor en la declaración y en el parámetro `equipment_category` de
+la regla. Declare también `unknown_equipment_policy` como `exclude` para exigir
+la categoría conocida, o `include` para evaluar también tracks de categoría
+desconocida. La inclusión conserva `UNKNOWN` y no atribuye motorización.
+Las reglas sin ambos campos conservan su alcance histórico. El alcance se admite
+en proximidad, coexistencia, permanencia e ingreso observado de equipos.
+
+En el análisis de video grabado, `equipment_context.rule_scope` cuenta cada
+observación de alcance por regla y versión antes de comprobar las condiciones
+espaciales y temporales. La última exclusión conserva razón, frame, época, pista
+y taxonomía. Un evento emitido conserva la taxonomía aplicable en el dossier.
+
 Para metros aproximados, capture el primer fotograma de una cámara fija, seleccione entre
 4 y 16 referencias distribuidas y escriba coordenadas del suelo **medidas externamente**.
 Confirme el encuadre y la revisión de zonas; guarde antes de analizar. El servidor

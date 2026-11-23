@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { gridSourceRect } from "../../src/features/sources/camera-frame-match.ts";
 
 const { WebSocket } = createRequire(import.meta.url)("next/dist/compiled/ws");
 const base = process.env.OPERIX_CAMERA_LAB_BROWSER_URL;
@@ -116,6 +117,97 @@ async function openBrowser(t) {
   }
   return { call, evaluate };
 }
+
+test(
+  "nearest-neighbor Canvas sampling reads the engine's exact grid centers",
+  {
+    skip: !base || !api ? "Set the two private camera lab fixture URLs" : false,
+  },
+  async (t) => {
+    const { evaluate } = await openBrowser(t);
+    const cases = [
+      [640, 360],
+      [638, 362],
+      [1920, 1080],
+    ].map(([width, height]) => ({
+      width,
+      height,
+      sourceRect: gridSourceRect(width, height),
+    }));
+    const results = await evaluate(`(async () => {
+      const scratch = document.createElement("canvas");
+      scratch.width = 16;
+      scratch.height = 12;
+      const sample = scratch.getContext("2d", { willReadFrequently: true });
+      sample.imageSmoothingEnabled = false;
+      const results = [];
+      for (const { width, height, sourceRect } of ${JSON.stringify(cases)}) {
+        const source = document.createElement("canvas");
+        source.width = width;
+        source.height = height;
+        const pixels = source.getContext("2d");
+        pixels.fillStyle = "black";
+        pixels.fillRect(0, 0, width, height);
+        pixels.fillStyle = "white";
+        for (let y = 0; y < 12; y++) {
+          for (let x = 0; x < 16; x++) {
+            pixels.fillRect(Math.floor((x + 0.5) * width / 16), Math.floor((y + 0.5) * height / 12), 1, 1);
+          }
+        }
+        const grid = (image) => {
+          if (image instanceof HTMLVideoElement && (width % 16 || height % 12)) {
+            const copy = document.createElement("canvas");
+            copy.width = width;
+            copy.height = height;
+            copy.getContext("2d").drawImage(image, 0, 0);
+            image = copy;
+          }
+          sample.drawImage(image, ...sourceRect, 0, 0, 16, 12);
+          return sample.getImageData(0, 0, 16, 12).data;
+        };
+        const video = document.createElement("video");
+        video.muted = true;
+        const stream = source.captureStream(30);
+        video.srcObject = stream;
+        const frame = new Promise(resolve => video.requestVideoFrameCallback(resolve));
+        try {
+          await video.play();
+          await frame;
+          // Capture can change source colors and sampling positions. Compare
+          // against the pixels of the browser's decoded frame at native size.
+          const decoded = document.createElement("canvas");
+          decoded.width = width;
+          decoded.height = height;
+          const decodedContext = decoded.getContext("2d");
+          decodedContext.drawImage(video, 0, 0);
+          const rgba = decodedContext.getImageData(0, 0, width, height).data;
+          const sampled = grid(video);
+          let exact = 0;
+          for (let y = 0; y < 12; y++) {
+            for (let x = 0; x < 16; x++) {
+              const sx = Math.floor((x + 0.5) * width / 16);
+              const sy = Math.floor((y + 0.5) * height / 12);
+              const sourceOffset = 4 * (sy * width + sx);
+              const sampleOffset = 4 * (y * 16 + x);
+              if ([0, 1, 2].every(c => rgba[sourceOffset + c] === sampled[sampleOffset + c])) exact++;
+            }
+          }
+          const canvasCount = grid(source).filter((v, i) => i % 4 === 0 && v > 200).length;
+          results.push([video.videoWidth, video.videoHeight, canvasCount, exact]);
+        } finally {
+          video.pause();
+          stream.getTracks().forEach(track => track.stop());
+        }
+      }
+      return results;
+    })()`);
+    assert.deepEqual(results, [
+      [640, 360, 192, 192],
+      [638, 362, 192, 192],
+      [1920, 1080, 192, 192],
+    ]);
+  },
+);
 
 test(
   "administrator edits a persisted playlist and drops stale previews on reconnect",
@@ -235,6 +327,27 @@ test(
       mobile: false,
     });
     await go(route);
+    const previewSummary =
+      "[...document.querySelectorAll('summary')].find(node => node.textContent.trim() === 'Última observación anotada')";
+    await wait(`!!(${previewSummary})`, "secondary preview control");
+    for (const [label, pressed] of [
+      ["Superposición", "true"],
+      ["ID", "false"],
+      ["Zonas", "true"],
+      ["Estadísticas", "false"],
+    ]) {
+      assert.equal(
+        await evaluate(`${button(label)}.getAttribute("aria-pressed")`),
+        pressed,
+      );
+    }
+    await click("Superposición");
+    await wait(
+      `${button("ID")}.disabled && ${button("Zonas")}.disabled`,
+      "overlay layer toggles disabled",
+    );
+    await click("Superposición");
+    await evaluate(`${previewSummary}.click()`);
     await wait(`${frameWidth} === 128`, "initial camera preview");
 
     const form =
@@ -272,6 +385,11 @@ test(
     });
     const navigation = await evaluate("performance.timeOrigin");
     await call("Page.reload", { ignoreCache: true });
+    await wait(
+      `performance.timeOrigin !== ${navigation} && !!(${previewSummary})`,
+      "secondary preview control after reload",
+    );
+    await evaluate(`${previewSummary}.click()`);
     await wait(
       `performance.timeOrigin !== ${navigation} && Boolean(${form}) && ${frameWidth} === 128`,
       "refetched playlist and preview",

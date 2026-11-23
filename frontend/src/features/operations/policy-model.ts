@@ -1,4 +1,4 @@
-import type { AnalysisProfile } from "@/services/analysis.service";
+import type { AnalysisProfile, EquipmentProfile } from "@/services/analysis.service";
 
 export const ruleTypes = {
   zone_dwell: "Permanencia en zona",
@@ -19,6 +19,8 @@ export type PolicyParameters = {
   minimum_duration_seconds?: number;
   distance_unit?: "normalized" | "m";
   motion_condition?: "any" | "moving";
+  equipment_category?: EquipmentProfile["category"];
+  unknown_equipment_policy?: "include" | "exclude";
 };
 export type RuleOverride = {
   enabled?: boolean;

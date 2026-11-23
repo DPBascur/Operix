@@ -1,0 +1,371 @@
+"use client";
+
+import {
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
+import {
+  cameraLabService,
+  CameraRequestError,
+} from "@/services/camera-lab.service";
+import {
+  type CameraFrameMatcher,
+  type LiveObservation,
+  gridSourceRect,
+  observationLifetime,
+  parseLiveObservations,
+  sampleColumns,
+  sampleRows,
+  sampleLuma,
+} from "./camera-frame-match";
+
+const overlayLabels = {
+  searching: "Buscando fotogramas verificables",
+  matched: "Se encontraron fotogramas verificables",
+  unavailable: "Observaciones en vivo no disponibles",
+  unsupported: "El navegador no puede verificar los fotogramas",
+};
+
+function readFingerprint(
+  video: HTMLVideoElement,
+  sample: CanvasRenderingContext2D,
+  nativeCanvas: HTMLCanvasElement,
+) {
+  const width = video.videoWidth;
+  const height = video.videoHeight;
+  let input: CanvasImageSource = video;
+  if (width % sampleColumns || height % sampleRows) {
+    // Some Chromium video copy paths round source coordinates differently on
+    // unaligned dimensions. Copy at native size before reading the tiny grid.
+    if (nativeCanvas.width !== width) nativeCanvas.width = width;
+    if (nativeCanvas.height !== height) nativeCanvas.height = height;
+    const nativeContext = nativeCanvas.getContext("2d");
+    if (!nativeContext) throw new Error("No se puede leer el fotograma.");
+    nativeContext.drawImage(video, 0, 0);
+    input = nativeCanvas;
+  }
+  sample.drawImage(
+    input,
+    ...gridSourceRect(width, height),
+    0,
+    0,
+    sampleColumns,
+    sampleRows,
+  );
+  return sampleLuma(sample.getImageData(0, 0, sampleColumns, sampleRows).data);
+}
+
+export type OverlayStats = {
+  sampled: number;
+  matched: number;
+  drawn: number;
+  continuity: number;
+  substituted: number;
+  sampleMs: number;
+  observations: number;
+  presentedAgeMs: number | null;
+};
+
+function draw(
+  context: CanvasRenderingContext2D,
+  video: HTMLVideoElement,
+  observation: LiveObservation,
+  showIds: boolean,
+  showZones: boolean,
+  continuity: boolean,
+) {
+  const { canvas } = context;
+  const dpr = window.devicePixelRatio || 1;
+  const width = Math.round(canvas.clientWidth * dpr);
+  const height = Math.round(canvas.clientHeight * dpr);
+  if (
+    !width ||
+    !height ||
+    !(observation.objects.length || (showZones && observation.zones.length))
+  )
+    return false;
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+  const scale = Math.min(width / video.videoWidth, height / video.videoHeight);
+  const videoWidth = video.videoWidth * scale;
+  const videoHeight = video.videoHeight * scale;
+  const x = (value: number) => (width - videoWidth) / 2 + value * videoWidth;
+  const y = (value: number) => (height - videoHeight) / 2 + value * videoHeight;
+
+  context.save();
+  context.beginPath();
+  context.rect(x(0), y(0), videoWidth, videoHeight);
+  context.clip();
+  context.lineWidth = 2 * dpr;
+  if (showZones) {
+    context.strokeStyle = "#ffd775";
+    context.fillStyle = "rgba(255, 215, 117, 0.14)";
+    for (const { polygon } of observation.zones) {
+      context.beginPath();
+      polygon.forEach(([px, py], index) => {
+        if (index === 0) context.moveTo(x(px), y(py));
+        else context.lineTo(x(px), y(py));
+      });
+      context.closePath();
+      context.fill();
+      context.stroke();
+    }
+  }
+  context.font = `600 ${13 * dpr}px system-ui`;
+  context.textBaseline = "top";
+  for (const {
+    box: [x1, y1, x2, y2],
+    role,
+    track_id,
+  } of observation.objects) {
+    const equipment = role === "forklift";
+    const name = equipment ? "Equipo · FORKLIFT" : role === "person" ? "Persona" : role;
+    context.strokeStyle = equipment ? "#ffb85c" : "#2fd1c8";
+    context.strokeRect(x(x1), y(y1), x(x2) - x(x1), y(y2) - y(y1));
+    const label =
+      showIds && track_id !== null ? `${name} · #${track_id}` : name;
+    const labelWidth = Math.min(context.measureText(label).width + 8 * dpr, videoWidth);
+    const textX = Math.min(x(x1), x(1) - labelWidth);
+    const textY = Math.max(y(0), y(y1) - 19 * dpr);
+    context.fillStyle = "#101416";
+    context.fillRect(
+      textX,
+      textY,
+      labelWidth,
+      19 * dpr,
+    );
+    context.fillStyle = "#fff";
+    context.fillText(label, textX + 4 * dpr, textY + 2 * dpr, Math.max(1, labelWidth - 8 * dpr));
+  }
+  if (continuity) {
+    const badge = "Imagen + PTS";
+    const badgeWidth = context.measureText(badge).width + 12 * dpr;
+    const left = x(1) - badgeWidth - 8 * dpr;
+    const top = y(1) - 29 * dpr;
+    context.fillStyle = "#101416";
+    context.fillRect(left, top, badgeWidth, 21 * dpr);
+    context.fillStyle = "#fff";
+    context.fillText(badge, left + 6 * dpr, top + 3 * dpr);
+  }
+  context.restore();
+  return true;
+}
+
+export function CameraLiveOverlay({
+  id,
+  runId,
+  media,
+  matcher,
+  active,
+  showIds,
+  showZones,
+  onStats,
+}: {
+  id: string;
+  runId?: string | null;
+  media: RefObject<HTMLVideoElement | null>;
+  matcher: CameraFrameMatcher;
+  active: boolean;
+  showIds: boolean;
+  showZones: boolean;
+  onStats: (stats: OverlayStats) => void;
+}) {
+  const layer = useRef<HTMLCanvasElement>(null);
+  const [status, setStatus] = useState<keyof typeof overlayLabels>("searching");
+  const paint = useEffectEvent(
+    (
+      context: CanvasRenderingContext2D,
+      video: HTMLVideoElement,
+      item: LiveObservation,
+      continuity: boolean,
+    ) => draw(context, video, item, showIds, showZones, continuity),
+  );
+
+  useEffect(() => {
+    const video = media.current;
+    const output = layer.current?.getContext("2d");
+    const scratch = document.createElement("canvas");
+    scratch.width = sampleColumns;
+    scratch.height = sampleRows;
+    const sample = scratch.getContext("2d", { willReadFrequently: true });
+    if (!active) return;
+    const nativeCanvas = document.createElement("canvas");
+    const controller = new AbortController();
+    const options = { signal: controller.signal };
+    const stats: OverlayStats = {
+      sampled: 0,
+      matched: 0,
+      drawn: 0,
+      continuity: 0,
+      substituted: 0,
+      sampleMs: 0,
+      observations: 0,
+      presentedAgeMs: null,
+    };
+    let pollTimer: ReturnType<typeof setTimeout>;
+    let clearTimer: ReturnType<typeof setTimeout>;
+    let frameCallback: number | undefined;
+    let previousMediaTime = -Infinity;
+    let previousCallbackTime = -Infinity;
+    let lastMatch = -Infinity;
+    let readable = true;
+    matcher.invalidate();
+    matcher.resetTimeline();
+
+    function clear() {
+      clearTimeout(clearTimer);
+      if (output)
+        output.clearRect(0, 0, output.canvas.width, output.canvas.height);
+    }
+
+    function reset() {
+      clear();
+      matcher.resetTimeline();
+      previousMediaTime = -Infinity;
+      previousCallbackTime = -Infinity;
+      lastMatch = -Infinity;
+      stats.presentedAgeMs = null;
+    }
+
+    if (
+      !video ||
+      !output ||
+      !sample ||
+      typeof video.requestVideoFrameCallback !== "function"
+    ) {
+      queueMicrotask(() => {
+        if (!controller.signal.aborted) setStatus("unsupported");
+      });
+      return () => controller.abort();
+    }
+    const source = video;
+    const context = output;
+    const sampler = sample;
+    // Nearest-neighbor downsampling samples the centers without blending adjacent pixels.
+    sampler.imageSmoothingEnabled = false;
+    const publish = setInterval(() => onStats({ ...stats }), 1000);
+
+    function onFrame(
+      callbackTime: number,
+      metadata: VideoFrameCallbackMetadata,
+    ) {
+      clear();
+      if (!readable) return;
+      frameCallback = source.requestVideoFrameCallback(onFrame);
+      if (
+        !matcher.hasObservations ||
+        source.paused ||
+        source.seeking ||
+        !source.videoWidth ||
+        !source.videoHeight
+      )
+        return;
+      if (
+        metadata.mediaTime < previousMediaTime ||
+        callbackTime - previousCallbackTime > 250
+      )
+        reset();
+      previousCallbackTime = callbackTime;
+      if (metadata.mediaTime === previousMediaTime) return;
+      previousMediaTime = metadata.mediaTime;
+      try {
+        const started = performance.now();
+        const fingerprint = readFingerprint(source, sampler, nativeCanvas);
+        const now = Date.now();
+        const match = matcher.match(fingerprint, metadata.mediaTime, now);
+        stats.sampled++;
+        stats.sampleMs += performance.now() - started;
+        if (!match) return;
+        stats.matched++;
+        stats.presentedAgeMs = Math.max(0, now - match.observation.receivedMs);
+        const continuity = match.method === "continuity";
+        if (continuity) stats.continuity++;
+        if (paint(context, source, match.observation, continuity))
+          stats.drawn++;
+        lastMatch = performance.now();
+        clearTimer = setTimeout(
+          clear,
+          Math.min(200, observationLifetime(match.observation, now)),
+        );
+      } catch {
+        clear();
+        readable = false;
+        setStatus("unsupported");
+      }
+    }
+
+    async function poll() {
+      try {
+        const data = await cameraLabService.observations(id, controller.signal);
+        if (controller.signal.aborted || !readable) return;
+        const batch = data === null ? null : parseLiveObservations(data);
+        if (batch?.items.length && (!runId || batch.run_id === runId)) {
+          matcher.update(batch, Date.now());
+          stats.observations = batch.items.length;
+          setStatus(
+            performance.now() - lastMatch < 1500 ? "matched" : "searching",
+          );
+        } else {
+          unavailable();
+        }
+        // New metadata may have introduced an ambiguity or closed an epoch.
+        clear();
+      } catch (error) {
+        if (controller.signal.aborted || !readable) return;
+        unavailable();
+        if (
+          error instanceof CameraRequestError &&
+          [401, 403, 404].includes(error.status)
+        )
+          return;
+      }
+      pollTimer = setTimeout(poll, 400);
+    }
+
+    function unavailable() {
+      matcher.invalidate();
+      reset();
+      stats.observations = 0;
+      stats.presentedAgeMs = null;
+      setStatus("unavailable");
+      onStats({ ...stats });
+    }
+
+    for (const event of ["seeking", "emptied", "ended", "waiting", "pause"])
+      source.addEventListener(event, reset, options);
+    for (const event of ["resize"])
+      source.addEventListener(event, clear, options);
+    const resize = new ResizeObserver(clear);
+    resize.observe(context.canvas);
+    frameCallback = source.requestVideoFrameCallback(onFrame);
+    void poll();
+    return () => {
+      controller.abort();
+      resize.disconnect();
+      clearTimeout(pollTimer);
+      clearInterval(publish);
+      if (frameCallback !== undefined)
+        source.cancelVideoFrameCallback(frameCallback);
+      matcher.invalidate();
+      clear();
+    };
+  }, [active, id, matcher, media, onStats, runId]);
+
+  return (
+    <>
+      <canvas
+        ref={layer}
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 size-full"
+      />
+      {active && (
+        <span className="pointer-events-none absolute top-2 left-2 max-w-[calc(100%-1rem)] rounded bg-black/85 px-2 py-1 text-xs text-white">
+          {overlayLabels[status]}
+        </span>
+      )}
+    </>
+  );
+}

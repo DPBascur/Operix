@@ -22,8 +22,19 @@ test("camera control uses authenticated GET and PATCH and reads inventory and pr
     },
   });
   t.after(() => hooks.deregister());
+  let observationStatus = 204;
+  const observationRequests = [];
   t.mock.method(globalThis, "fetch", (url, init) => {
-    return originalFetch(new URL(url, origin), init);
+    const resolved = new URL(url, origin);
+    if (resolved.pathname.endsWith("/live/observations/")) {
+      observationRequests.push({ url, init });
+      return Promise.resolve(
+        observationStatus === 204
+          ? new Response(null, { status: 204 })
+          : Response.json({ run_id: "fixture-run", items: [] }),
+      );
+    }
+    return originalFetch(resolved, init);
   });
   process.env.NEXT_PUBLIC_API_BASE_URL = `${origin}/api/v1`;
   globalThis.window = { location: { origin } };
@@ -52,6 +63,20 @@ test("camera control uses authenticated GET and PATCH and reads inventory and pr
   assert.equal(inventory.managed, true);
   const [camera] = inventory.cameras;
   assert.equal(camera.automatic, true);
+  assert.equal(await cameraLabService.observations(camera.id, signal), null);
+  observationStatus = 200;
+  assert.deepEqual(await cameraLabService.observations(camera.id, signal), {
+    run_id: "fixture-run",
+    items: [],
+  });
+  for (const { url, init } of observationRequests) {
+    assert.equal(
+      url,
+      `/api/v1/analysis/cameras/${camera.id}/live/observations/`,
+    );
+    assert.equal(init.cache, "no-store");
+    assert.equal(init.credentials, "same-origin");
+  }
   assert.equal(
     (await cameraLabService.preview(camera.id, camera.preview_url, signal))
       .type,

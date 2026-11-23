@@ -1826,6 +1826,11 @@ export function AnalysisWorkspace({
                             : "Configuración inicial preparada."}
                     </p>
                     <RuleConfiguration
+                      equipmentContext={
+                        showResult
+                          ? session.result?.equipment_context
+                          : session.equipment_context
+                      }
                       snapshot={
                         showResult
                           ? session.result

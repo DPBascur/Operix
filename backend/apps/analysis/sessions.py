@@ -125,8 +125,16 @@ class AnalysisSession:
                                        demo_source_id=self.demo_source_id, source_sha256=self.source_sha256)
         return ({**base, "rules": rules} if rules is not None else base), policy
 
+    def with_equipment_profile(self, document):
+        profile = self.profile_config.get("equipment_profile") if self.profile_config is not None else None
+        actual = dict(document)
+        actual.pop("equipment_profile", None)
+        if profile is not None:
+            actual["equipment_profile"] = profile
+        return actual
+
     def apply_spatial(self, document, revision):
-        self.profile_config = deepcopy(document)
+        self.profile_config = deepcopy(self.with_equipment_profile(document))
         self.spatial_revision = revision
         self.zone = deepcopy(document["zones"][0])
 
@@ -187,6 +195,7 @@ class AnalysisSession:
                         "video": payload.get("result_video"),
                         "timestamp_source": payload.get("timestamp_source"),
                         "framing": payload.get("framing"),
+                        **({"equipment_context": payload["equipment_context"]} if "equipment_context" in payload else {}),
                         "warnings": payload.get("warnings", []),
                     }
                 else:
@@ -326,6 +335,7 @@ def read_profile(profile: str) -> dict:
 
 def rule_snapshot(config: dict) -> dict:
     return {"rules": config["rules"], "zones":config["zones"], "calibration":config.get("calibration"), "motion":config.get("motion"), "relations":config.get("relations"),
+            **({"equipment_profile": config["equipment_profile"]} if "equipment_profile" in config else {}),
             "config_sha256": hashlib.sha256(config_bytes(config)).hexdigest()}
 
 
@@ -603,11 +613,11 @@ def _start_session(session: AnalysisSession) -> None:
         actual, policy = session.policy_configuration(base)
         if (actual.get("calibration") or {}).get("status") == "invalid":
             raise ValueError("Encuadre invalidado. Revise zonas y recalibre antes de analizar.")
-        if policy is not None:
+        if policy is not None or "equipment_profile" in actual:
             try:
                 actual = validate_spatial(actual, session.source_sha256, ROOT)
             except ValueError as error:
-                raise ValueError(f"El conjunto asignado no es compatible con esta fuente. {error}") from error
+                raise ValueError(f"La configuración de reglas no es compatible con esta fuente. {error}") from error
         run = session.run + 1
         run_id = str(uuid.uuid5(session.id, str(run)))
         snapshot = rule_snapshot(actual)
@@ -671,7 +681,7 @@ def _start_session(session: AnalysisSession) -> None:
                       "perception": {name: dict(session.active_config[name]) for name in ("person", "forklift")},
                       "timestamp_basis": "ANALYSIS_START_PROXY_NOT_RECORDING_TIME",
                       "session_id": str(session.id), "session_run": session.run}
-            if session.spatial_revision or policy is not None:
+            if session.spatial_revision or policy is not None or "equipment_profile" in actual:
                 source["spatial_configuration"] = deepcopy(actual)
             if session.spatial_revision:
                 source["spatial_revision"] = session.spatial_revision

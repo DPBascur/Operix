@@ -7,8 +7,10 @@ from uuid import UUID
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.http import Http404
+from operix_engine.equipment_taxonomy import EQUIPMENT_SCOPE_KEYS
 from rest_framework.exceptions import APIException, ValidationError
 
+from apps.events.equipment_contract import validate_equipment_scope
 from .models import AnalysisSource, RuleCatalogEntry, RuleCatalogRevision, SpatialConfiguration
 
 
@@ -68,16 +70,18 @@ def validate_parameters(parameters):
         raise ValidationError("parameters debe ser un objeto.")
     kind = parameters.get("kind")
     if kind in ("zone_dwell", "zone_entry"):
-        require_keys(parameters, ZONE_PARAMETERS)
+        require_keys(parameters, ZONE_PARAMETERS, EQUIPMENT_SCOPE_KEYS)
         if parameters["class_name"] not in ("person", "forklift"):
             raise ValidationError("La clase debe ser person o forklift.")
+        validate_equipment_scope(parameters, parameters["class_name"])
         nonnegative(parameters["min_duration_s"], "min_duration_s")
         if kind == "zone_entry" and parameters["min_duration_s"] != 0:
             raise ValidationError("El ingreso observado requiere duración cero.")
     elif kind in ("person_forklift_proximity", "zone_coexistence"):
-        require_keys(parameters, PAIR_REQUIRED, PAIR_OPTIONAL)
+        require_keys(parameters, PAIR_REQUIRED, PAIR_OPTIONAL | EQUIPMENT_SCOPE_KEYS)
         if parameters.get("person_class", "person") != "person" or parameters.get("forklift_class", "forklift") != "forklift":
             raise ValidationError("Los roles deben ser persona y montacargas.")
+        validate_equipment_scope(parameters, parameters.get("forklift_class", "forklift"))
         unit = parameters.get("distance_unit", "normalized")
         motion = parameters.get("motion_condition", "any")
         if unit not in ("normalized", "m") or motion not in ("any", "moving"):

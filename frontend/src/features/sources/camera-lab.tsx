@@ -2,6 +2,7 @@
 
 import type { NormalizedVertex } from "@/services/analysis.service";
 import { MotionConfiguration } from "@/features/analysis/motion-configuration";
+import { RuleConfiguration } from "@/features/analysis/rule-configuration";
 import { AutomaticCalibration } from "@/features/calibration/automatic-calibration";
 
 import { ArrowRight } from "lucide-react";
@@ -887,14 +888,14 @@ export function CameraLabDetail({ id }: { id: string }) {
               {camera.effective_rules && (
                 <details className="text-sm text-text-secondary">
                   <summary className="cursor-pointer font-medium">Reglas de esta sesión</summary>
-                  <ul className="mt-2 grid gap-1">
-                    {camera.effective_rules.map((rule) => (
-                      <li key={rule.rule_id} className="break-words">
-                        {eventTypeName(String(rule.parameters.kind ?? ""))} · {rule.rule_id} · v{rule.version}
-                        {!rule.enabled && " · deshabilitada"}
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="mt-2">
+                    <RuleConfiguration snapshot={{ rules: camera.effective_rules }} equipmentContext={
+                      Array.isArray(camera.metrics?.equipment_rule_scope) ? {
+                        taxonomy: { category: "UNKNOWN", subtype: "UNKNOWN" },
+                        rule_scope: camera.metrics.equipment_rule_scope,
+                      } : undefined
+                    } />
+                  </div>
                 </details>
               )}
             </section>

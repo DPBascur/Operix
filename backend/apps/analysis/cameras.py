@@ -236,6 +236,8 @@ def calibration_issue(camera, document, run, metrics):
 def checked_document(camera, document):
     if not isinstance(document, dict) or document.get("view_id") != camera.id:
         raise ValidationError("La configuración debe pertenecer a esta cámara.")
+    if "equipment_profile" in document:
+        raise ValidationError("La categoría de equipo no se puede declarar para toda una cámara RTSP.")
     try:
         checked = validate_spatial(document, camera.spatial_key, ROOT)
     except ValueError as exc:
