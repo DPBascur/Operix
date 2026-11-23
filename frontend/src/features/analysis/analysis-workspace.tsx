@@ -5,6 +5,7 @@ import { RuleConfiguration } from "@/features/analysis/rule-configuration";
 import { SpatialEditor } from "@/features/analysis/spatial-editor";
 import { VideoControls } from "@/features/analysis/video-controls";
 import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
+import { MetricSummary } from "@/components/ui/metric-summary";
 import {
   ChevronDown,
   Info,
@@ -1863,35 +1864,12 @@ export function AnalysisWorkspace({
               transition={calmSpring}
             >
               {session && (
-                <section
-                  className="analysis-summary"
-                  aria-label="Resumen de percepción"
-                >
-                  <div>
-                    <span>Detecciones de personas</span>
-                    <strong>
-                      {session.run > 0 ? session.person_detections : "—"}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>Detecciones de montacargas</span>
-                    <strong>
-                      {session.run > 0 ? session.forklift_detections : "—"}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>FPS de procesamiento</span>
-                    <strong>
-                      {session.fps == null ? "—" : session.fps.toFixed(2)}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>Progreso</span>
-                    <strong>
-                      {percent == null ? "—" : `${percent.toFixed(1)} %`}
-                    </strong>
-                  </div>
-                </section>
+                <MetricSummary label="Resumen de percepción" metrics={[
+                  { label: "Detecciones de personas", value: session.run > 0 ? session.person_detections : null },
+                  { label: "Detecciones de montacargas", value: session.run > 0 ? session.forklift_detections : null },
+                  { label: "FPS de procesamiento", value: session.fps?.toFixed(2) },
+                  { label: "Progreso", value: percent == null ? null : `${percent.toFixed(1)} %` },
+                ]} />
               )}
             </motion.div>
           </aside>

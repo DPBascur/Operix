@@ -5,12 +5,13 @@ import { MotionConfiguration } from "@/features/analysis/motion-configuration";
 import { RuleConfiguration } from "@/features/analysis/rule-configuration";
 import { AutomaticCalibration } from "@/features/calibration/automatic-calibration";
 
-import { ArrowLeft, Settings2 } from "lucide-react";
+import { ArrowLeft, Settings2, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
+import { MetricSummary } from "@/components/ui/metric-summary";
 import { PageTitle } from "@/components/layout/page-title";
 import { operationalError } from "@/features/operations/operation-request";
 import { eventTypeName } from "@/services/event-contract";
@@ -34,6 +35,7 @@ import {
   statusLabel,
   useCameraData,
 } from "./camera-overview";
+import styles from "./camera-detail.module.css";
 
 const idle = new Set(["available", "stopped", "error"]);
 const calibrationSectionId = "camera-automatic-calibration";
@@ -362,9 +364,11 @@ function Configuration({
 function CameraDiagnostics({
   camera,
   stale,
+  playbackFps,
 }: {
   camera: LabCamera;
   stale: boolean;
+  playbackFps: number | null;
 }) {
   const rate = cameraAnalysisRate(camera.metrics);
   const received = cameraNumber(camera.metrics?.received_fps, " FPS");
@@ -392,7 +396,7 @@ function CameraDiagnostics({
 
   return (
     <section
-      className="surface-card grid gap-3 p-4"
+      className="grid gap-3"
       aria-labelledby="camera-diagnostics"
     >
       <h2 id="camera-diagnostics" className="font-semibold">
@@ -410,63 +414,27 @@ function CameraDiagnostics({
           Última lectura de la ejecución.
         </p>
       ) : null}
-      <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <div>
-          <dt className="text-sm text-text-secondary">Ritmo decodificado</dt>
-          <dd className="text-lg font-semibold tabular-nums">
-            {received ?? "Sin datos"}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-sm text-text-secondary">
-            Fotogramas observados (5 s)
-          </dt>
-          <dd className="text-lg font-semibold tabular-nums">
-            {paused ? "No disponible" : (coverage ?? "Sin datos")}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-sm text-text-secondary">{rate.label}</dt>
-          <dd className="text-lg font-semibold tabular-nums">
-            {rate.value ?? "Sin datos"}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-sm text-text-secondary">
-            Recepción a resultado p95
-          </dt>
-          <dd className="text-lg font-semibold tabular-nums">
-            {latency ?? "Sin datos"}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-sm text-text-secondary">
-            Antigüedad al actualizar
-          </dt>
-          <dd className="text-lg font-semibold tabular-nums">
-            {frameAge ?? "Sin datos"}
-          </dd>
-        </div>
-      </dl>
-      <p className="text-sm text-text-secondary">
-        La cobertura indica qué proporción de los fotogramas decodificados se
-        analizó.
-      </p>
-      {discarded !== null && discarded !== "0" && (
-        <p className="text-sm text-text-secondary">
-          Descartes en la ejecución · {discarded}. Las reglas temporales y los
-          clips se limitan a tramos observados sin interrupciones.
-        </p>
-      )}
+      <div className="analysis-telemetry">
+        <MetricSummary label="Estadísticas de la cámara" metrics={[
+          { label: "FPS de video", value: cameraNumber(playbackFps) },
+          { label: "FPS de análisis", value: paused ? null : rate.value },
+          { label: "Cobertura (5 s)", value: coverage },
+          { label: "Latencia local p95", value: paused ? null : latency },
+        ]} />
+      </div>
       <details className="border-t border-border text-sm">
         <summary className="min-h-11 cursor-pointer py-3 font-medium text-primary">
           Detalles técnicos
         </summary>
         <div className="grid gap-4 pb-1">
           <p className="text-text-secondary">
-            Los tiempos desde la recepción se miden localmente a partir de la
-            decodificación.
+            La cobertura indica qué proporción de los fotogramas decodificados se analizó.
+            La latencia se mide desde la decodificación hasta el resultado.
           </p>
+          <p className="text-text-secondary">Ritmo decodificado · {received ?? "Sin datos"} · Antigüedad al consultar · {frameAge ?? "Sin datos"}</p>
+          {discarded !== null && discarded !== "0" && <p className="text-text-secondary">
+            Descartes en la ejecución · {discarded}. Las reglas y los clips se limitan a tramos sin interrupciones.
+          </p>}
           {groups.length === 0 && (
             <p className="text-text-secondary">
               Sin mediciones técnicas informadas.
@@ -517,7 +485,11 @@ function CameraDiagnostics({
 }
 
 export function CameraLabDetail({ id }: { id: string }) {
-  const settings = useRef<HTMLDetailsElement>(null);
+  const drawer = useRef<HTMLDialogElement>(null);
+  const drawerTitle = useRef<HTMLHeadingElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const [panel, setPanel] = useState<"settings" | "calibration">();
+  const [playbackFps, setPlaybackFps] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [calibrationBusy, setCalibrationBusy] = useState(false);
   const [draft, setDraft] = useState<CameraDraft>();
@@ -545,18 +517,37 @@ export function CameraLabDetail({ id }: { id: string }) {
 
   useEffect(() => {
     function openLinkedSettings() {
-      if (settings.current && ["#camera-settings", "#camera-automatic-calibration"].includes(location.hash)) {
-        settings.current.open = true;
-        if (location.hash === "#camera-automatic-calibration") {
-          const calibration = document.getElementById(calibrationSectionId);
-          if (calibration instanceof HTMLDetailsElement) calibration.open = true;
-        }
-      }
+      if (!camera?.id || !canEdit) return;
+      if (location.hash === "#camera-settings") setPanel("settings");
+      if (location.hash === `#${calibrationSectionId}`) setPanel("calibration");
     }
     openLinkedSettings();
     addEventListener("hashchange", openLinkedSettings);
     return () => removeEventListener("hashchange", openLinkedSettings);
-  }, [camera?.id]);
+  }, [camera?.id, canEdit]);
+
+  useEffect(() => {
+    if (panel && drawer.current) {
+      if (!drawer.current.open) drawer.current.showModal();
+      drawer.current.scrollTop = 0;
+      drawerTitle.current?.focus();
+    }
+  }, [panel]);
+
+  function showPanel(next: "settings" | "calibration", trigger: HTMLElement) {
+    if (!panel) opener.current = trigger;
+    setPanel(next);
+  }
+
+  function closePanel() {
+    if (busy || calibrationBusy) return;
+    drawer.current?.close();
+    setPanel(undefined);
+    if (["#camera-settings", `#${calibrationSectionId}`].includes(location.hash)) {
+      window.history.replaceState(window.history.state, "", location.pathname + location.search);
+    }
+    requestAnimationFrame(() => (opener.current ?? document.getElementById("camera-settings-trigger"))?.focus());
+  }
 
   async function change(
     area: "monitor" | "configuration",
@@ -640,8 +631,13 @@ export function CameraLabDetail({ id }: { id: string }) {
             <ArrowLeft size={16} aria-hidden="true" className="inline" /> Centro de monitoreo
           </Link>
           <PageTitle>{camera?.name ?? "Cámara"}</PageTitle>
-          {camera?.description && <p>{camera.description}</p>}
         </div>
+        {camera && canEdit && <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={(event) => showPanel("calibration", event.currentTarget)}>Calibrar distancias</Button>
+          <Button id="camera-settings-trigger" variant="outline" onClick={(event) => showPanel("settings", event.currentTarget)}>
+            <Settings2 size={16} aria-hidden="true" /> Ajustes de cámara
+          </Button>
+        </div>}
       </header>
       {error && (
         <LoadError
@@ -659,8 +655,8 @@ export function CameraLabDetail({ id }: { id: string }) {
           <OperixScanLoader variant="panel" message="Cargando cámara…" />
         )
       ) : (
-        <div className="grid min-w-0 gap-4">
-          <div className="grid min-w-0 gap-4">
+        <>
+          <div className={styles.workspace}>
             <section
               className="grid gap-3"
               aria-labelledby="camera-monitor"
@@ -669,7 +665,7 @@ export function CameraLabDetail({ id }: { id: string }) {
                 Monitoreo
               </h2>
               <CameraMediaPanels
-                settingsUrl={canEdit ? "#camera-settings" : undefined}
+                onPlaybackFps={setPlaybackFps}
                 camera={camera}
                 live={automatic}
                 preview={preview}
@@ -677,6 +673,29 @@ export function CameraLabDetail({ id }: { id: string }) {
                 recentOnly={automatic}
                 receivedAt={detail.receivedAt}
               />
+              <details className="text-sm text-text-secondary">
+                <summary className="min-h-11 cursor-pointer py-3 font-medium">Fuente, créditos y reglas de la sesión</summary>
+                <div className="grid gap-2 pb-2">
+                  {camera.description && <p>{camera.description}</p>}
+                  {provenance && <p className="break-words">Procedencia · {provenance}</p>}
+                  {camera.provenance?.filename && <p className="break-words">{camera.provenance.filename}
+                    {typeof camera.playback?.position === "number" && ` · Video ${camera.playback.position + 1} de la lista`}
+                    {camera.provenance.duration_s != null && ` · ${cameraNumber(camera.provenance.duration_s, " s")}`}
+                    {camera.provenance.fps != null && ` · ${cameraNumber(camera.provenance.fps, " FPS de origen")}`}
+                  </p>}
+                  {camera.provenance?.scenario && <p className="break-words">{camera.provenance.scenario}</p>}
+                  {camera.effective_rules && (
+                    <RuleConfiguration snapshot={{ rules: camera.effective_rules }} equipmentContext={
+                      Array.isArray(camera.metrics?.equipment_rule_scope) ? {
+                        taxonomy: { category: "UNKNOWN", subtype: "UNKNOWN" },
+                        rule_scope: camera.metrics.equipment_rule_scope,
+                      } : undefined
+                    } />
+                  )}
+                </div>
+              </details>
+            </section>
+            <aside aria-label="Estado y actividad de la cámara" className="surface-card grid min-w-0 gap-3 p-4">
               <div className="flex flex-wrap items-center gap-3">
                 <p role="status" className="font-medium">
                   Conexión ·{" "}
@@ -720,22 +739,19 @@ export function CameraLabDetail({ id }: { id: string }) {
                 )}
               </div>
 
+              <p className="text-sm text-text-secondary">
+                Calibración · {framingState === "VALID" && !framingWarning ? "Encuadre validado" :
+                  framingWarning ? "Requiere revisión" : camera.configuration?.calibration ? "A la espera de verificación" : "Distancia normalizada"}
+              </p>
               {framingWarning && (
                 <div className="inline-message grid gap-2" role="status">
                   <p>{framingWarning}</p>
                   {(mustRecalibrate || lastRunInvalid) && canEdit && (
-                    <a
-                      className="w-fit text-primary underline"
+                    <a className="w-fit text-primary underline"
                       href={`#${calibrationSectionId}`}
-                      onClick={() => {
-                        const panel =
-                          document.getElementById(calibrationSectionId);
-                        if (panel instanceof HTMLDetailsElement) {
-                          panel.open = true;
-                          panel
-                            .querySelector("summary")
-                            ?.focus({ preventScroll: true });
-                        }
+                      onClick={(event) => {
+                        event.preventDefault();
+                        showPanel("calibration", event.currentTarget);
                       }}
                     >
                       Abrir calibración con patrón
@@ -759,52 +775,14 @@ export function CameraLabDetail({ id }: { id: string }) {
                 }
               />
 
-              {provenance && (
-                <p className="break-words text-sm text-text-secondary">
-                  Procedencia · {provenance}
-                </p>
-              )}
-              {camera.automatic && camera.provenance?.filename && (
-                <p className="break-words text-sm text-text-secondary">
-                  {typeof camera.playback?.position === "number"
-                    ? `Video ${camera.playback.position + 1} de la lista`
-                    : "Grabación de la cámara virtual"}
-                  {" · "}
-                  {camera.provenance.filename}
-                  {camera.provenance.footage === "real recorded logistics trial" &&
-                    " · ensayo logístico grabado"}
-                  {camera.provenance.duration_s != null &&
-                    ` · ${new Intl.NumberFormat("es-CL", { maximumFractionDigits: 1 }).format(camera.provenance.duration_s)} s`}
-                  {camera.provenance.fps != null &&
-                    ` · ${new Intl.NumberFormat("es-CL", { maximumFractionDigits: 1 }).format(camera.provenance.fps)} FPS de origen`}
-                </p>
-              )}
-              {camera.provenance?.scenario && (
-                <p className="break-words text-sm text-text-secondary">
-                  {camera.provenance.scenario}
-                </p>
-              )}
-              {camera.effective_rules && (
-                <details className="text-sm text-text-secondary">
-                  <summary className="cursor-pointer font-medium">Reglas de esta sesión</summary>
-                  <div className="mt-2">
-                    <RuleConfiguration snapshot={{ rules: camera.effective_rules }} equipmentContext={
-                      Array.isArray(camera.metrics?.equipment_rule_scope) ? {
-                        taxonomy: { category: "UNKNOWN", subtype: "UNKNOWN" },
-                        rule_scope: camera.metrics.equipment_rule_scope,
-                      } : undefined
-                    } />
-                  </div>
-                </details>
-              )}
-            </section>
             <CameraDiagnostics
               key={camera.run_id}
               camera={camera}
               stale={Boolean(error)}
+              playbackFps={playbackFps}
             />
             <section
-              className="surface-card grid gap-2 p-4"
+              className="grid gap-2 border-t border-border pt-3"
               aria-labelledby="camera-events"
             >
               <h2 id="camera-events" className="font-semibold">
@@ -841,15 +819,34 @@ export function CameraLabDetail({ id }: { id: string }) {
                 Ver historial de esta cámara
               </Link>
             </section>
+            </aside>
           </div>
-          <details ref={settings} id="camera-settings" className="surface-card scroll-mt-24">
-            <summary className="cursor-pointer px-4 py-3 font-semibold leading-6">
-              <Settings2 size={17} aria-hidden="true" className="me-2 inline" /> Ajustes de cámara
-            </summary>
-            <div className="grid gap-4 border-t border-border p-4">
-          {(canEdit || camera.configuration?.calibration) && (
+          {panel && canEdit && <dialog ref={drawer} id="camera-settings" className={`operix-drawer ${styles.drawer}`}
+            aria-labelledby="camera-drawer-title" onCancel={(event) => {
+              event.preventDefault();
+              closePanel();
+            }}>
+            <header className={styles.drawerHeading}>
+              <div>
+                <h2 ref={drawerTitle} tabIndex={-1} id="camera-drawer-title">
+                  {panel === "calibration" ? "Calibrar distancias" : "Ajustes de cámara"}
+                </h2>
+                <p className="text-sm text-text-secondary">{camera.name}</p>
+              </div>
+              <Button size="icon" variant="ghost" aria-label="Cerrar panel" disabled={busy || calibrationBusy} onClick={closePanel}>
+                <X size={19} aria-hidden="true" />
+              </Button>
+            </header>
+            <div className={styles.drawerBody}>
+          {panel === "settings" && (
+            <Button variant="outline" className="w-fit" onClick={(event) => showPanel("calibration", event.currentTarget)}>
+              Calibrar distancias
+            </Button>
+          )}
+          {panel === "calibration" ? (
             <div className="grid min-w-0 gap-2 ">
               <AutomaticCalibration<LabCamera>
+                standalone
                 id={calibrationSectionId}
                 key={`${camera.id}:${camera.revision}:${camera.provenance?.sha256 ?? ""}`}
                 source={{
@@ -888,8 +885,7 @@ export function CameraLabDetail({ id }: { id: string }) {
                 }
               />
             </div>
-          )}
-          <Configuration
+          ) : <Configuration
             camera={camera}
             canEdit={canEdit}
             canConfigure={Boolean(canStart)}
@@ -911,10 +907,11 @@ export function CameraLabDetail({ id }: { id: string }) {
                 "Configuración guardada.",
               )
             }
-          />
+          />}
+            <Button variant="outline" className="w-fit" disabled={busy || calibrationBusy} onClick={closePanel}>Volver al monitoreo</Button>
             </div>
-          </details>
-        </div>
+          </dialog>}
+        </>
       )}
     </div>
   );

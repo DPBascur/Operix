@@ -80,7 +80,6 @@ export function CameraPlaylistEditor({
         void submit();
       }}
     >
-      <h4 className="font-semibold">Lista de reproducción</h4>
       {playlist.media_ids.length ? (
         <ol className="divide-y divide-border">
           {playlist.media_ids.map((id, index) => {

@@ -911,13 +911,20 @@ test(
       await wait("!!document.querySelector('main .operix-live-player video')");
       await evaluate("[...document.querySelectorAll('main summary')].find(s => s.textContent.trim() === 'Última observación anotada').click()");
       await wait("document.querySelector('main details[open] img')?.naturalWidth === 640");
+      await evaluate("void (window.cameraWorkspaceVideo = document.querySelector('main .operix-live-player video'))");
+      await click("Ajustes de cámara");
+      await wait("!!document.querySelector('dialog#camera-settings[open]')");
+      assert.ok(await evaluate("window.cameraWorkspaceVideo === document.querySelector('main .operix-live-player video')"));
+      await click("Volver al monitoreo");
+      await wait("!document.querySelector('dialog#camera-settings[open]')");
+      await wait("document.activeElement.id === 'camera-settings-trigger'");
       assert.equal(
         await evaluate("Array.from(document.querySelectorAll('button')).some(b => /^(Iniciar|Detener) monitoreo$/.test(b.textContent.trim()))"),
         false,
       );
       await navigate("/admin/camera-lab");
       await wait("document.querySelector('a[aria-current=page][href=\"/admin/camera-lab\"]') !== null");
-      await wait(text("Publicador Publicando"));
+      await wait("/Publicador\\s+Publicando/.test(document.body.innerText)");
       await click("Deshabilitar");
       await wait(text("Operación parcial"));
       await wait(text("Sin fotograma reciente"));
@@ -925,7 +932,7 @@ test(
       await wait(text("Habilitar laboratorio"));
       await click("Habilitar");
       await click("Habilitar laboratorio");
-      await wait(text("Publicador Publicando"));
+      await wait("/Publicador\\s+Publicando/.test(document.body.innerText)");
       for (const width of [1440, 390]) {
         await viewport(width);
         await wait("document.documentElement.scrollWidth <= innerWidth");
@@ -939,7 +946,7 @@ test(
       assert.equal(await evaluate(`[...document.querySelectorAll('button')].find(b=>b.innerText==='Iniciar monitoreo').disabled`), true);
       const calibrationPanel = `document.querySelector('#camera-automatic-calibration')`;
       await evaluate(`document.querySelector('a[href="#camera-automatic-calibration"]').click()`);
-      await wait(`${calibrationPanel}.open`);
+      await wait(`Boolean(${calibrationPanel}?.closest('dialog[open]'))`);
       await click("Capturar imagen y detectar ArUco");
       await wait(text("Marcadores detectados · 1, 2, 3"));
       await evaluate(`(() => {

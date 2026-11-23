@@ -1,4 +1,5 @@
-.panel {
+.panel,
+.standalone {
   container-type: inline-size;
   min-inline-size: 0;
   border: 1px solid var(--border);
@@ -12,6 +13,11 @@
   --marker-ink: #ffdc83;
   --control-ink: #ffec9f;
 }
+
+.standalone { border: 0; }
+.standalone > .body { border: 0; padding: 0; }
+.standalone .figure { max-inline-size: 36rem; }
+.standalone summary { min-block-size: 44px; align-content: center; cursor: pointer; font-weight: 650; }
 
 .panel summary {
   min-block-size: 44px;

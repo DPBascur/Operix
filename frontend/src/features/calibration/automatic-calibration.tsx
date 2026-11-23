@@ -111,6 +111,7 @@ export function AutomaticCalibration<T>({
   framingWarning,
   reuseSavedReferences = true,
   id,
+  standalone = false,
   onBusyChange,
   onSaved,
   onRefresh,
@@ -122,6 +123,7 @@ export function AutomaticCalibration<T>({
   framingWarning?: string;
   reuseSavedReferences?: boolean;
   id?: string;
+  standalone?: boolean;
   onBusyChange: (busy: boolean) => void;
   onSaved: (result: T) => void;
   onRefresh: () => void;
@@ -299,16 +301,17 @@ export function AutomaticCalibration<T>({
     }
   }
 
+  const Panel = standalone ? "section" : "details";
   return (
-    <details id={id} className={styles.panel}>
-      <summary>
+    <Panel id={id} className={standalone ? styles.standalone : styles.panel}>
+      {!standalone && <summary>
         {source.kind === "cameras" ? "Calibrar distancias" : "Calibración automática con patrón"}{" "}
         {framingWarning ? (
           <span>· Revisar encuadre</span>
         ) : (
           validated ? <span>· Calibrada · v{saved.version}</span> : (source.kind === "cameras" && <span>· Sin calibrar</span>)
         )}
-      </summary>
+      </summary>}
       <div className={styles.body}>
         {source.kind === "cameras" && (
           <ol className={styles.steps} aria-label="Pasos de calibración">
@@ -704,6 +707,6 @@ export function AutomaticCalibration<T>({
           </div>
         )}
       </div>
-    </details>
+    </Panel>
   );
 }

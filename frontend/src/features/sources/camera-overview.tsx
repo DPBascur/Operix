@@ -10,13 +10,10 @@ import {
   type LabCamera,
 } from "@/services/camera-lab.service";
 import {
-  cameraCoverage,
   cameraFrameAge,
-  cameraFrameIsRecent,
   cameraFrameTime,
   cameraFrameWindowMs,
   cameraNumber,
-  cameraObservationPaused,
 } from "./camera-diagnostics";
 import { CameraLiveVideo } from "./camera-live-video";
 import { usePageVisible } from "./camera-visibility";
@@ -35,7 +32,6 @@ const statusLabels: Record<string, string> = {
 export function statusLabel(status: string) {
   return statusLabels[status] ?? "Estado desconocido";
 }
-
 export function useCameraData<T>(
   load: (signal: AbortSignal) => Promise<T>,
   interval: number,
@@ -227,6 +223,7 @@ export function CameraMediaPanels({
   receivedAt,
   previewInterval,
   settingsUrl,
+  onPlaybackFps,
 }: {
   camera: Pick<LabCamera, "id" | "name" | "metrics" | "last_frame_at"> & {
     run_id?: string | null;
@@ -239,6 +236,7 @@ export function CameraMediaPanels({
   receivedAt: number;
   previewInterval?: number;
   settingsUrl?: string;
+  onPlaybackFps?: (fps: number | null) => void;
 }) {
   const { id, name, last_frame_at: frameAt } = camera;
   const timestamp = cameraFrameTime(frameAt);
@@ -293,6 +291,7 @@ export function CameraMediaPanels({
       <CameraLiveVideo
         enabled={refreshPreview}
         settingsUrl={settingsUrl}
+        onPlaybackFps={onPlaybackFps}
         viewOnly={camera.view_only}
         id={id}
         name={name}
@@ -308,47 +307,5 @@ export function CameraMediaPanels({
         {showPreview && annotated}
       </details>
     </div>
-  );
-}
-
-export function CameraCard({
-  camera,
-  live,
-  receivedAt,
-  stale = false,
-}: {
-  camera: Pick<
-    LabCamera,
-    "id" | "name" | "status" | "preview_url" | "metrics" | "last_frame_at"
-  > & { run_id?: string | null };
-  live: boolean;
-  stale?: boolean;
-  receivedAt: number;
-}) {
-  const recent =
-    !cameraObservationPaused(camera.status, stale) &&
-    cameraFrameIsRecent(camera.last_frame_at, camera.metrics, receivedAt);
-  const coverage = recent ? cameraCoverage(camera.metrics) : null;
-  const fps = cameraNumber(camera.metrics?.analysis_fps_5s, " FPS de análisis");
-  return (
-    <>
-      <div className="grid gap-1">
-        <h3 className="font-semibold break-words">{camera.name}</h3>
-        <p className="text-sm text-text-secondary">
-          {stale ? "Estado sin actualizar" : statusLabel(camera.status)}
-          {recent && fps && ` · ${fps}`}
-          {coverage !== null && ` · Cobertura (5 s) ${coverage}`}
-        </p>
-      </div>
-      <CameraMediaPanels
-        camera={camera}
-        live={live}
-        preview={recent ? camera.preview_url : null}
-        refreshPreview
-        recentOnly
-        receivedAt={receivedAt}
-        previewInterval={3500}
-      />
-    </>
   );
 }

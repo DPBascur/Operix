@@ -6,6 +6,7 @@ import { ArrowRight } from "lucide-react";
 import { PageTitle } from "@/components/layout/page-title";
 import { Button } from "@/components/ui/button";
 import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { operationalError } from "@/features/operations/operation-request";
 import {
   cameraLabService,
@@ -13,7 +14,8 @@ import {
   type CameraControlUpdate,
   type CameraLabControl,
 } from "@/services/camera-lab.service";
-import { CameraCard, LoadError, useCameraData } from "./camera-overview";
+import { CameraMediaPanels, LoadError, statusLabel, useCameraData } from "./camera-overview";
+import { cameraFrameIsRecent, cameraObservationPaused } from "./camera-diagnostics";
 import { CameraPlaylistEditor } from "./camera-playlist-editor";
 import { cameraMediaForRate, emptyPlaylist } from "./camera-playlist";
 
@@ -36,6 +38,7 @@ const publisherStatuses: Record<CameraLabControl["publisher"][string], string> =
 
 export function CameraLabAdmin() {
   const [pending, setPending] = useState(false);
+  const [inspecting, setInspecting] = useState<Record<string, boolean>>({});
   const [refreshAfter, setRefreshAfter] = useState(0);
   const [feedback, setFeedback] = useState<{
     text: string;
@@ -51,6 +54,9 @@ export function CameraLabAdmin() {
   const awaitingSnapshot =
     pending || (refreshAfter > 0 && receivedAt <= refreshAfter);
   const locked = awaitingSnapshot || Boolean(error) || !data?.available;
+  const lockReason = error ? "Actualiza el estado antes de hacer cambios." :
+    awaitingSnapshot ? "Esperando confirmación del servidor…" :
+      !data?.available ? "El control del laboratorio no está disponible." : undefined;
   const third = data?.cameras.find(({ id }) => id === "lab-cam-03");
 
   async function update(change: CameraControlUpdate, cameraId?: string) {
@@ -82,7 +88,7 @@ export function CameraLabAdmin() {
     <div className="sources-page page-v1 grid gap-5">
       <header className="app-page-heading">
         <div className="grid gap-2">
-          <PageTitle>Control del laboratorio</PageTitle>
+          <PageTitle>Control de cámaras</PageTitle>
           <p>Gestiona la publicación y el monitoreo de cámaras virtuales.</p>
           <Link
             className="w-fit text-primary underline"
@@ -110,13 +116,13 @@ export function CameraLabAdmin() {
                 <h2 id="lab-control-status" className="font-semibold">
                   Monitoreo automático
                 </h2>
-                <p className="text-sm text-text-secondary" role="status">
+                <StatusBadge tone={error || !data.available ? "warning" : data.status === "active" ? "success" : "neutral"}>
                   {error
                     ? "Estado sin actualizar"
                     : data.available
                       ? labStatuses[data.status]
                       : "Control no disponible"}
-                </p>
+                </StatusBadge>
               </div>
               <Button
                 disabled={locked}
@@ -128,6 +134,7 @@ export function CameraLabAdmin() {
                   : "Habilitar laboratorio"}
               </Button>
             </div>
+            {lockReason && <p className="text-sm text-text-secondary" role="status">{lockReason}</p>}
             <dl className="flex flex-wrap gap-x-8 gap-y-3 border-t border-border pt-3 text-sm">
               <div>
                 <dt className="text-text-secondary">Capacidad simultánea</dt>
@@ -176,9 +183,9 @@ export function CameraLabAdmin() {
               {feedback.text}
             </p>
           )}
-          <section id="incorporar-camara" className="surface-card grid scroll-mt-24 gap-2 p-4" aria-labelledby="lab-enroll">
+          <details id="incorporar-camara" className="surface-card scroll-mt-24 p-4">
+            <summary className="min-h-10 cursor-pointer font-semibold">Incorporar cámara</summary>
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 id="lab-enroll" className="font-semibold">Incorporar cámara</h2>
               {third && <a className="button button-outline" href="#configurar-camara-03">Configurar Cámara 03 <ArrowRight size={16} aria-hidden="true" /></a>}
             </div>
             <p className="text-sm text-text-secondary">
@@ -186,7 +193,7 @@ export function CameraLabAdmin() {
                 ? "Asigna una grabación del catálogo, guarda la lista y habilita la cámara. Con capacidad de análisis de dos cámaras, la tercera transmite solo video."
                 : "Cámara 03 requiere una plaza aprovisionada y una grabación autorizada en el catálogo del laboratorio."}
             </p>
-          </section>
+          </details>
           <section className="grid gap-3" aria-labelledby="lab-control-cameras">
             <h2 id="lab-control-cameras" className="font-semibold">
               Cámaras virtuales
@@ -195,6 +202,11 @@ export function CameraLabAdmin() {
               <ul className="grid gap-4 md:grid-cols-2">
                 {data.cameras.map((camera) => {
                   const publisher = data.publisher[camera.id];
+                  const stale = Boolean(error) || awaitingSnapshot;
+                  const recent = !cameraObservationPaused(camera.status, stale) &&
+                    cameraFrameIsRecent(camera.last_frame_at, camera.metrics, receivedAt);
+                  const playlist = data.playlists?.[camera.id] ?? emptyPlaylist;
+                  const source = camera.provenance?.filename;
                   const action = camera.enabled ? "Deshabilitar" : "Habilitar";
                   const transition = camera.last_transition;
                   const transitionText =
@@ -211,18 +223,21 @@ export function CameraLabAdmin() {
                       id={camera.id === "lab-cam-03" ? "configurar-camara-03" : undefined}
                       className="surface-card grid min-w-0 scroll-mt-24 content-start gap-3 p-4"
                     >
-                      <CameraCard
-                        camera={camera}
-                        live={false}
-                        receivedAt={receivedAt}
-                        stale={Boolean(error) || awaitingSnapshot}
-                      />
-                      <p className="text-sm text-text-secondary">
-                        {camera.enabled ? "Habilitada" : "Deshabilitada"} ·
-                        {camera.view_only && " Solo video · "}
-                        Publicador{" "}
-                        {publisher ? publisherStatuses[publisher] : "Sin datos"}
-                      </p>
+                      <header className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <h3 className="break-words font-semibold">{camera.name}</h3>
+                          <p className="break-words text-sm text-text-secondary">{source ??
+                            (playlist.media_ids.length ? "Fuente asignada en la lista" : "Sin fuente asignada")}</p>
+                        </div>
+                        <StatusBadge tone={camera.enabled ? "accent" : "neutral"}>
+                          {camera.enabled ? "Habilitada" : "Deshabilitada"}
+                        </StatusBadge>
+                      </header>
+                      <dl className="grid grid-cols-3 gap-2 border-y border-border py-3 text-sm">
+                        <div><dt className="text-text-secondary">Publicador</dt><dd className="font-medium">{stale ? "—" : publisher ? publisherStatuses[publisher] : "Sin datos"}</dd></div>
+                        <div><dt className="text-text-secondary">Video</dt><dd className="font-medium">{recent && camera.preview_url ? "Fotograma reciente" : "Sin fotograma reciente"}</dd></div>
+                        <div><dt className="text-text-secondary">Motor</dt><dd className="font-medium">{stale ? "—" : camera.view_only ? "Solo video" : statusLabel(camera.status)}</dd></div>
+                      </dl>
                       {!error && camera.playlist_finished && (
                         <p className="text-sm text-text-secondary">
                           Lista finalizada
@@ -251,21 +266,25 @@ export function CameraLabAdmin() {
                         </Button>
                         <Link
                           className="button button-ghost"
-                          href={`/sources/cameras/${encodeURIComponent(camera.id)}`}
-                          aria-label={`Abrir cámara ${camera.name}`}
+                          href={`/sources/cameras/${encodeURIComponent(camera.id)}#camera-settings`}
+                          aria-label={`Ajustes de ${camera.name}`}
                         >
-                          Abrir cámara <ArrowRight aria-hidden="true" />
+                          Ajustes <ArrowRight size={16} aria-hidden="true" />
                         </Link>
                       </div>
                       {data.catalog && data.playlists && (
-                        <CameraPlaylistEditor
+                        <details className="border-t border-border">
+                          <summary className="min-h-11 cursor-pointer py-3 font-medium">
+                            Editar lista de reproducción · {playlist.media_ids.length}
+                          </summary>
+                          <CameraPlaylistEditor
                           cameraId={camera.id}
                           cameraName={camera.name}
                           catalog={cameraMediaForRate(
                             data.catalog,
                             camera.expected_fps,
                           )}
-                          saved={data.playlists[camera.id] ?? emptyPlaylist}
+                          saved={playlist}
                           locked={locked}
                           save={(change) => update(change, camera.id)}
                           feedback={
@@ -273,8 +292,20 @@ export function CameraLabAdmin() {
                               ? feedback
                               : undefined
                           }
-                        />
+                          />
+                        </details>
                       )}
+                      <details className="border-t border-border" onToggle={(event) => {
+                        const open = event.currentTarget.open;
+                        setInspecting((current) => ({...current, [camera.id]: open }));
+                      }}>
+                        <summary className="min-h-11 cursor-pointer py-3 text-sm text-text-secondary">
+                          Última observación anotada
+                        </summary>
+                        {inspecting[camera.id] && <CameraMediaPanels camera={camera} live={false}
+                          preview={recent ? camera.preview_url : null} refreshPreview recentOnly
+                          previewInterval={3500} receivedAt={receivedAt} />}
+                      </details>
                     </li>
                   );
                 })}

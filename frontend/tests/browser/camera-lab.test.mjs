@@ -327,6 +327,13 @@ test(
       mobile: false,
     });
     await go(route);
+    const expand = async (label) => {
+      const summary = `[...document.querySelectorAll('${cameras} summary')].find(s=>s.textContent.trim().startsWith(${JSON.stringify(label)}))`;
+      await wait(`Boolean(${summary})`, label);
+      await evaluate(`void (${summary}).click()`);
+    };
+    await expand("Última observación anotada");
+    await expand("Editar lista de reproducción");
     await wait(`${frameWidth} === 128`, "initial camera preview");
 
     const form =
@@ -368,6 +375,8 @@ test(
       `performance.timeOrigin !== ${navigation} && !!document.querySelector(${JSON.stringify(cameras)})`,
       "secondary preview control after reload",
     );
+    await expand("Última observación anotada");
+    await expand("Editar lista de reproducción");
     await wait(
       `performance.timeOrigin !== ${navigation} && Boolean(${form}) && ${frameWidth} === 128`,
       "refetched playlist and preview",

@@ -1,5 +1,6 @@
-import { AlertCircle, Video } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import type { ReactNode } from "react";
+import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
 import styles from "./camera-loading-state.module.css";
 
 const labels = {
@@ -24,16 +25,15 @@ export function CameraLoadingState({
 }) {
   const terminal = phase === "unsupported" || phase === "denied";
   const overVideo = phase === "buffering";
-  const Icon = terminal ? AlertCircle : Video;
+  const loading = !terminal && phase !== "blocked";
 
   return (
     <div className={styles.panel} data-camera-loading={phase} data-over-video={overVideo}>
-      {!overVideo && (
-        <span className={styles.signal} data-scan={!terminal && phase !== "blocked"} aria-hidden="true">
-          <Icon size={24} strokeWidth={1.5} />
-        </span>
-      )}
-      <p key={phase} role="status" className={styles.label}>{labels[phase]}</p>
+      {terminal && <AlertCircle aria-hidden="true" size={24} />}
+      {loading ? (
+        <OperixScanLoader message={labels[phase]} size={overVideo ? "small" : "medium"}
+          variant={overVideo ? "inline" : "panel"} className={styles.label} />
+      ) : <p role="status" className={styles.label}>{labels[phase]}</p>}
       {children}
     </div>
   );

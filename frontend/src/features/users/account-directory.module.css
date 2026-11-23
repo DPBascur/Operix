@@ -243,25 +243,6 @@
   display: none;
 }
 
-.drawer {
-  inset-block: 0;
-  inset-inline: auto 0;
-  margin: 0;
-  width: min(100%, 30rem);
-  max-width: none;
-  height: 100dvh;
-  max-height: none;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  border-inline-start: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--foreground);
-}
-
-.drawer::backdrop {
-  background: rgb(8 12 18 / 52%);
-}
-
 .editor {
   padding: clamp(1rem, 3vw, 1.6rem);
 }

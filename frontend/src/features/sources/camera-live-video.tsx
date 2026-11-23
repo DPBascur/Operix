@@ -32,6 +32,7 @@ export function CameraLiveVideo({
   cameraUrl,
   settingsUrl,
   operationalState,
+  onPlaybackFps,
 }: {
   id: string;
   name: string;
@@ -42,6 +43,7 @@ export function CameraLiveVideo({
   settingsUrl?: string;
   operationalState?: string;
   runId?: string | null;
+  onPlaybackFps?: (fps: number | null) => void;
 }) {
   const player = useRef<HTMLElement>(null);
   const frame = useRef<HTMLDivElement>(null);
@@ -142,6 +144,7 @@ export function CameraLiveVideo({
             showStats={showStats && (variant !== "preview" || fullscreen)}
             compact={variant === "preview" && !fullscreen}
             operationalState={operationalState}
+            onPlaybackFps={onPlaybackFps}
             metricUnit={metricUnit}
             onMetricUnit={(unit) => setPreference("unit", unit)}
           />
@@ -243,6 +246,7 @@ function LiveStream({
   operationalState,
   metricUnit,
   onMetricUnit,
+  onPlaybackFps,
 }: {
   id: string;
   name: string;
@@ -258,6 +262,7 @@ function LiveStream({
   operationalState?: string;
   metricUnit: "m" | "cm";
   onMetricUnit: (unit: "m" | "cm") => void;
+  onPlaybackFps?: (fps: number | null) => void;
 }) {
   const media = useRef<HTMLVideoElement>(null);
   const playButton = useRef<HTMLButtonElement>(null);
@@ -470,6 +475,10 @@ function LiveStream({
   }, [id, pauseButton, sourceClock]);
 
   const playing = status === "playing";
+  useEffect(() => {
+    onPlaybackFps?.(playing ? fps ?? null : null);
+  }, [fps, onPlaybackFps, playing]);
+  useEffect(() => () => onPlaybackFps?.(null), [onPlaybackFps]);
   const frameVisible = playing || status === "buffering";
   const frameRate = playing ? cameraNumber(fps, " FPS visibles") : null;
   const edge = playing ? cameraNumber(edgeDistance, " s") : null;

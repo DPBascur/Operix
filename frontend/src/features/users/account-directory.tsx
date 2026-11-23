@@ -223,7 +223,7 @@ function AccountEditor({
   return (
     <dialog
       ref={panel}
-      className={styles.drawer}
+      className={`operix-drawer ${styles.drawer}`}
       aria-labelledby="directory-editor-title"
       aria-describedby={retiring ? "retirement-consequences" : undefined}
       onKeyDown={(event) => {

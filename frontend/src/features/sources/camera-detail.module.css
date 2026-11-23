@@ -1,0 +1,37 @@
+.workspace {
+  display: grid;
+  align-items: start;
+  gap: 1rem;
+  min-inline-size: 0;
+}
+
+@media (min-width: 1050px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr) clamp(17rem, 25vw, 23rem);
+  }
+}
+
+.workspace :global(.analysis-summary strong) { font-variant-numeric: tabular-nums; }
+
+.drawer { --operix-drawer-width: 46rem; }
+
+.drawerHeading {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 2;
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: 1rem clamp(1rem, 3vw, 1.6rem);
+  border-block-end: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.drawerHeading h2 { font-size: 1.25rem; font-weight: 700; }
+
+.drawerBody {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem clamp(1rem, 3vw, 1.6rem) 1.5rem;
+}
