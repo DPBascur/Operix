@@ -95,7 +95,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   return (
     <SessionContext.Provider value={{ user, setUser, expired }}>
-      {login || (user && !failed && canOpen(path, user.role)) ? (
+      {login || (user && canOpen(path, user.role)) ? (
         children
       ) : (
         <main className="page-wrap" aria-live="polite">
