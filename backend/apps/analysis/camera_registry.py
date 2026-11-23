@@ -87,7 +87,7 @@ def inventory():
             # Only publicly safe provenance, never path/credentials supplied by the user.
             media[camera_id] = {field: item[field] for field in (
                 "filename", "title", "author", "license", "license_url", "source_url",
-                "scenario", "real", "sha256", "duration_s", "fps", "width", "height",
+                "scenario", "footage", "real", "sha256", "duration_s", "fps", "width", "height",
             ) if field in item}
             media[camera_id].update({
                 "filename": filename, "sha256": source_hash.lower(),
@@ -95,7 +95,7 @@ def inventory():
                 "license": source.get("license"), "license_url": source.get("license_url"),
                 "source_url": item.get("source_file_url", source.get("original_publication_url")),
                 "duration_s": item.get("duration_seconds"), "fps": item.get("average_fps"),
-                "real": item.get("footage") == "real industrial CCTV",
+                "real": item.get("footage") in ("real industrial CCTV", "real recorded logistics trial"),
             })
     result = {}
     for number in (1, 2):

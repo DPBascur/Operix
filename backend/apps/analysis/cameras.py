@@ -130,7 +130,7 @@ def camera_json(request, camera):
     return {
         "id": camera.id, "name": camera.name, "description": camera.description,
         "kind": "lab", "automatic": camera_registry.automatic(camera),
-        "provenance": camera.provenance, "profile": camera.profile,
+        "provenance": run.provenance if active_snapshot else camera.provenance, "profile": camera.profile,
         "expected_fps": camera.expected_fps, "width": camera.width, "height": camera.height,
         "status": state, "metrics": metrics, "configuration": document, "revision": revision,
         "calibration_requires_reconfirmation": bool(calibration_issue(camera, document, run, metrics)),

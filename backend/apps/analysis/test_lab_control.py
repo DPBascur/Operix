@@ -80,10 +80,19 @@ class ManagedLabTests(APITestCase):
         with self.assertRaisesRegex(ValueError, "inventario"):
             lab_control.approved_media(camera)
 
+    def test_lab_trial_provenance_keeps_its_distinction_from_industrial_cctv(self):
+        path = self.root / "manifest.json"
+        document = json.loads(path.read_text())
+        document["clips"][0]["footage"] = "real recorded logistics trial"
+        path.write_text(json.dumps(document))
+        camera = inventory()["lab-cam-01"]
+        self.assertEqual(camera.provenance["footage"], "real recorded logistics trial")
+        self.assertEqual(lab_control.approved_media(camera)[0], "sample.mp4")
+
     def test_live_camera_reports_the_run_snapshot_to_any_authorized_reviewer(self):
         rules = [{"rule_id": "effective-rule", "version": 2, "enabled": True}]
         policy = {"rule_set": {"name": "Assigned when started", "version": 2}}
-        run = SimpleNamespace(pk=self.owner.pk, active=True, snapshot=SimpleNamespace(
+        run = SimpleNamespace(pk=self.owner.pk, active=True, provenance={"filename": "started.mp4"}, snapshot=SimpleNamespace(
             configuration={"rules": rules}, policy=policy,
         ))
         with (patch("apps.analysis.cameras.last_run", return_value=run),
@@ -93,4 +102,33 @@ class ManagedLabTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["effective_rules"], rules)
         self.assertEqual(response.data["policy"], policy)
+        self.assertEqual(response.data["provenance"]["filename"], "started.mp4")
         self.assertIsNone(response.data["preview_url"])
+
+    def test_source_replacement_revokes_old_publisher_before_new_start(self):
+        CameraLabControl.objects.create(pk=1, enabled=True, cameras={"lab-cam-02": False}, updated_by=self.owner)
+        previous = SimpleNamespace(active=True, managed=True, provenance={"sha256": "0" * 64})
+        lab_control.update_lease("lab-cam-01", ("previous.mp4", "0" * 64))
+        with (patch("apps.analysis.lab_control.scheduler_lock"),
+              patch("apps.analysis.lab_control.last_run", side_effect=lambda id_, **_: previous if id_.endswith("01") else None),
+              patch("apps.analysis.lab_control.status_for", return_value=("stopped", {}, None)),
+              patch("apps.analysis.lab_control.rtsp_ready", return_value=True) as ready,
+              patch("apps.analysis.lab_control.start_camera") as start,
+              patch("apps.analysis.lab_control.stop_camera") as stop):
+            lab_control.reconcile()
+            stop.assert_called_once_with(previous)
+            self.assertFalse(lab_control.marker("lab-cam-01").exists())
+
+            previous.active = False
+            lab_control.reconcile()
+            self.assertFalse(lab_control.marker("lab-cam-01").exists())
+            start.assert_not_called()
+
+            ready.return_value = False
+            lab_control.reconcile()
+            self.assertTrue(lab_control.marker("lab-cam-01").is_file())
+            start.assert_not_called()
+
+            ready.return_value = True
+            lab_control.reconcile()
+            start.assert_called_once()

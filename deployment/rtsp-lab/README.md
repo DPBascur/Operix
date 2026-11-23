@@ -62,6 +62,13 @@ The saved intent survives Backend restarts. Turning the lab off stops its
 publishers and workers while keeping events and evidence. Both publishers loop
 their approved recording independently, with an RTSP discontinuity at EOF.
 
+To use the longer SPARL logistics recordings locally, set
+`OPERIX_CAMERA_LAB_MEDIA_HOST` to `D:/Operix-Lab/media/sparl-rtsp`.
+That directory contains the two prepared MP4 files and
+`sparl-catalog.v1.json` installed as `manifest.json`. The catalog records each
+original and derivative hash, the encoding recipe, and the required attribution.
+The recordings show physical logistics trials filmed in a research facility.
+
 PyTorch FP32 is the default. To opt in to ONNX CUDA, first build the base Backend
 image, set `OPERIX_RTSP_LAB_ONNX_HOST` to the approved export directory, then
 append `-f compose.rtsp-lab.onnx.yaml` and run `up -d --build --wait`. To revert,

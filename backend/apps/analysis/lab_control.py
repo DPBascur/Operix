@@ -107,6 +107,13 @@ def update_lease(id_, media):
     scratch.replace(lease)
 
 
+def issued_lease(id_, media):
+    try:
+        return marker(id_).read_text(encoding="ascii").split() == list(media)
+    except (OSError, UnicodeError):
+        return False
+
+
 @transaction.atomic
 def reconcile():
     scheduler_lock()
@@ -131,11 +138,19 @@ def reconcile():
             if run and run.managed:
                 stop_camera(run)
             continue
-        update_lease(id_, media)
         if run and run.active:
             if run.provenance.get("sha256") != media[1]:
+                update_lease(id_, None)
                 stop_camera(run)
+            else:
+                update_lease(id_, media)
             continue
+        if run and run.provenance.get("sha256") != media[1] and not issued_lease(id_, media):
+            # Wait for the old publisher to release the slot before authorizing
+            # a different file. A new worker must not see it under the new hash.
+            update_lease(id_, None if rtsp_ready(id_) else media)
+            continue
+        update_lease(id_, media)
         if run and state == "error" and (now() - (run.ended_at or run.started_at)).total_seconds() < RETRY_SECONDS:
             continue
         if rtsp_ready(id_):
