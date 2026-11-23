@@ -901,7 +901,7 @@ test(
       })()`);
       await control({ managedCamera: patternPreview });
       await go("/sources");
-      await wait("document.querySelector('#laboratorio-camaras img')?.naturalWidth === 640");
+      await wait("!!document.querySelector('#laboratorio-camaras [data-camera-player=preview] video')");
       assert.equal(
         await evaluate("!!(document.querySelector('#camera-source-title').compareDocumentPosition(document.querySelector('#demo-sources-title')) & Node.DOCUMENT_POSITION_FOLLOWING)"),
         true,
@@ -909,6 +909,8 @@ test(
       await go("/sources/cameras/lab-cam-01");
       await wait(text("Conexión · Analizando"));
       await wait("!!document.querySelector('main .operix-live-player video')");
+      await evaluate("[...document.querySelectorAll('main summary')].find(s => s.textContent.trim() === 'Última observación anotada').click()");
+      await wait("document.querySelector('main details[open] img')?.naturalWidth === 640");
       assert.equal(
         await evaluate("Array.from(document.querySelectorAll('button')).some(b => /^(Iniciar|Detener) monitoreo$/.test(b.textContent.trim()))"),
         false,

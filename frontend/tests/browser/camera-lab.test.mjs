@@ -510,7 +510,7 @@ test(
   },
 );
 
-test("catalog separates previews from monitoring and renders a three-camera fixture", {
+test("catalog previews and monitoring share the live player without polling JPEG", {
   skip: !base || !api ? "Set the two private camera lab fixture URLs" : false,
   timeout: 95_000,
 }, async (t) => {
@@ -535,7 +535,14 @@ test("catalog separates previews from monitoring and renders a three-camera fixt
   await call("Emulation.setDeviceMetricsOverride", { width: 1440, height: 950, deviceScaleFactor: 1, mobile: false });
   await call("Page.navigate", { url: `${base}/sources` });
   await waitFor(() => evaluate(`${count} === 3`), "three catalog cards");
-  assert.equal(await evaluate(`${catalog}.querySelectorAll('video,[role=switch]').length`), 0);
+  assert.equal(await evaluate(`${catalog}.querySelectorAll('[data-camera-player=preview]').length`), 3);
+  await waitFor(() => evaluate(`!!${catalog}.querySelector('video')`), "visible preview player");
+  await waitFor(() => evaluate(`performance.getEntriesByType('resource').some(e => e.name.includes('/live/index.m3u8'))`), "HLS connection");
+  assert.equal(await evaluate(`${catalog}.querySelectorAll('img').length`), 0);
+  assert.equal(await evaluate(`performance.getEntriesByType('resource').some(e => /cameras\\/[^/]+\\/preview/.test(e.name))`), false);
+  assert.equal(await evaluate(`!!${catalog}.querySelector('[data-camera-loading]')`), true);
+  await evaluate("window.scrollTo(0, document.documentElement.scrollHeight)");
+  await waitFor(() => evaluate(`!${catalog}.querySelector('li:first-child video')`), "offscreen preview suspension");
   await call("Page.navigate", { url: `${base}/monitoring` });
   await waitFor(() => evaluate(`${count} === 3`), "three monitoring cards");
   const grid = `${catalog}.querySelector('ul[data-count]')`;

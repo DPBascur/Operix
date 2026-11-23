@@ -13,27 +13,20 @@ import { CameraLiveOverlay, overlayLabels, type OverlayStats } from "./camera-li
 import { calibrationLabels, distanceLabel } from "./camera-frame-match";
 import { useCameraViewPreferences } from "./camera-view-preferences";
 import { usePageVisible } from "./camera-visibility";
+import { CameraLoadingState, type CameraLoadingPhase } from "./camera-loading-state";
 
 const hlsMime = "application/vnd.apple.mpegurl";
 const progressTimeout = 5_000;
 const initialRetryDelay = 500;
 const maxRetryDelay = 8_000;
-const statusLabels = {
-  connecting: "Conectando video…",
-  playing: "Reproduciendo",
-  buffering: "Esperando video…",
-  reconnecting: "Sin señal de video. Reconectando…",
-  blocked: "Reproducción automática bloqueada.",
-  unsupported: "Este navegador no admite la transmisión.",
-  denied: "El acceso al video fue rechazado.",
-};
-type PlaybackStatus = keyof typeof statusLabels;
+type PlaybackStatus = Exclude<CameraLoadingPhase, "preparing"> | "playing";
+type CameraPlayerVariant = "preview" | "monitoring" | "detail";
 
 export function CameraLiveVideo({
   id,
   name,
   runId,
-  compact = false,
+  variant = "detail",
   enabled = true,
   viewOnly = false,
   cameraUrl,
@@ -42,7 +35,7 @@ export function CameraLiveVideo({
 }: {
   id: string;
   name: string;
-  compact?: boolean;
+  variant?: CameraPlayerVariant;
   enabled?: boolean;
   viewOnly?: boolean;
   cameraUrl?: string;
@@ -75,14 +68,17 @@ export function CameraLiveVideo({
       return () => clearTimeout(timer);
     }
     const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) {
-        setInView(true);
-        observer.disconnect();
-      }
-    });
+      clearTimeout(suspend);
+      if (entry.isIntersecting) setInView(true);
+      else if (variant === "preview") suspend = setTimeout(() => setInView(false), 1200);
+    }, { rootMargin: variant === "preview" ? "84px" : "0px" });
+    let suspend: ReturnType<typeof setTimeout>;
     observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
+    return () => {
+      observer.disconnect();
+      clearTimeout(suspend);
+    };
+  }, [variant]);
 
   useEffect(() => {
     const update = () => {
@@ -121,6 +117,7 @@ export function CameraLiveVideo({
     <figure
       ref={player}
       className="operix-live-player"
+      data-camera-player={fullscreen ? "fullscreen" : variant}
       onKeyDown={(event) => {
         if (event.key === "Escape" && layers && !fullscreen) {
           event.stopPropagation();
@@ -142,14 +139,15 @@ export function CameraLiveVideo({
             showIds={showIds}
             showZones={showZones}
             showDistances={showDistances}
-            showStats={showStats}
+            showStats={showStats && (variant !== "preview" || fullscreen)}
+            compact={variant === "preview" && !fullscreen}
             operationalState={operationalState}
             metricUnit={metricUnit}
             onMetricUnit={(unit) => setPreference("unit", unit)}
           />
-        ) : (
+        ) : enabled && !paused ? <CameraLoadingState phase="preparing" /> : (
           <div className="grid size-full place-items-center text-sm text-white/75">
-            {!enabled ? "Cámara detenida" : paused ? "Video pausado" : "Preparando reproductor…"}
+            {!enabled ? "Cámara detenida" : "Video pausado"}
           </div>
         )}
         {fullscreenError && <p className="operix-player-notice" role="status">Pantalla completa no disponible.</p>}
@@ -157,7 +155,7 @@ export function CameraLiveVideo({
       <div role="group" aria-label="Controles de video" className="operix-player-bar">
         <span className="flex min-w-0 items-center gap-2">
           <span className="truncate text-sm font-semibold">
-            {cameraUrl ? <Link href={cameraUrl} title="Abrir cámara">{name}</Link> : name}
+            {cameraUrl ? <Link href={cameraUrl} title={name} aria-label={`Abrir cámara ${name}`}>{name}</Link> : name}
           </span>
           {viewOnly && <span className="shrink-0 rounded-full border border-white/25 px-2 py-0.5 text-xs">Solo video</span>}
         </span>
@@ -176,13 +174,13 @@ export function CameraLiveVideo({
             title="Capas y diagnóstico" onClick={() => setLayers(!layers)}>
             <SlidersHorizontal aria-hidden="true" size={17} />
           </button>}
-          {settingsUrl && <Link href={settingsUrl} aria-label="Ajustes de cámara" title="Ajustes de cámara" onClick={() => {
+          {settingsUrl && variant !== "preview" && <Link href={settingsUrl} aria-label="Ajustes de cámara" title="Ajustes de cámara" onClick={() => {
             if (settingsUrl.startsWith("#")) {
               const panel = document.getElementById(settingsUrl.slice(1));
               if (panel instanceof HTMLDetailsElement) panel.open = true;
             }
           }}><Settings2 size={17} /></Link>}
-          {compact && cameraUrl && <Link href={cameraUrl} aria-label={`Abrir cámara ${name}`} title="Abrir cámara"><ArrowUpRight size={17} /></Link>}
+          {cameraUrl && variant !== "preview" && <Link href={cameraUrl} aria-label={`Ir a la vista individual de ${name}`} title="Abrir cámara"><ArrowUpRight size={17} /></Link>}
           <button
             ref={fullscreenButton}
             type="button"
@@ -207,9 +205,9 @@ export function CameraLiveVideo({
           <VideoToggle pressed={showDistances} disabled={!overlay} onClick={() => setPreference("distances", !showDistances)}>Distancias</VideoToggle>
           <VideoToggle pressed={showZones} disabled={!overlay} onClick={() => setPreference("zones", !showZones)}>Zonas</VideoToggle>
           <VideoToggle pressed={showIds} disabled={!overlay} onClick={() => setPreference("identifiers", !showIds)}>Identificadores</VideoToggle>
-          <div className="border-t border-border pt-1">
+          {(variant !== "preview" || fullscreen) && <div className="border-t border-border pt-1">
             <VideoToggle pressed={showStats} onClick={() => setPreference("diagnostics", !showStats)}>Diagnóstico</VideoToggle>
-          </div>
+          </div>}
           <p className="text-xs text-text-secondary">Estos ajustes solo cambian lo que ves. Las cajas discontinuas indican posiciones estimadas.</p>
         </section>
       )}
@@ -241,6 +239,7 @@ function LiveStream({
   showZones,
   showDistances,
   showStats,
+  compact,
   operationalState,
   metricUnit,
   onMetricUnit,
@@ -255,6 +254,7 @@ function LiveStream({
   showZones: boolean;
   showDistances: boolean;
   showStats: boolean;
+  compact: boolean;
   operationalState?: string;
   metricUnit: "m" | "cm";
   onMetricUnit: (unit: "m" | "cm") => void;
@@ -282,7 +282,7 @@ function LiveStream({
 
     async function connect() {
       if (disposed) return;
-      setStatus("connecting");
+      setStatus((phase) => phase === "reconnecting" ? phase : "connecting");
       setOverlayStatus("searching");
       let hls: Hls | undefined;
       let stopped = false;
@@ -299,7 +299,10 @@ function LiveStream({
       function onFrame(now: number, frame: VideoFrameCallbackMetadata) {
         lastProgress = now;
         retryDelay = initialRetryDelay;
-        if (!previousFrame) previousFrame = frame;
+        if (!previousFrame) {
+          previousFrame = frame;
+          setStatus("playing");
+        }
         const elapsed = frame.presentationTime - previousFrame.presentationTime;
         if (elapsed >= 1000) {
           const frames = frame.presentedFrames - previousFrame.presentedFrames;
@@ -321,7 +324,7 @@ function LiveStream({
         lastProgress = performance.now();
         if (document.activeElement === playButton.current)
           pauseButton.current?.focus({ preventScroll: true });
-        setStatus("playing");
+        if (!canMeasureFrames) setStatus("playing");
       }
 
       function reconnect() {
@@ -415,6 +418,7 @@ function LiveStream({
         frameCallback = video.requestVideoFrameCallback(onFrame);
 
       if (tryNative) {
+        video.addEventListener("loadedmetadata", () => setStatus("awaitingFrame"), { ...options, once: true });
         video.src = source;
         return;
       }
@@ -434,6 +438,9 @@ function LiveStream({
           return;
         }
         hls = new HlsPlayer({ backBufferLength: 10 });
+        hls.on(HlsPlayer.Events.MANIFEST_PARSED, () => {
+          if (!stopped) setStatus("awaitingFrame");
+        });
         hls.on(HlsPlayer.Events.FRAG_PARSING_USERDATA, (_, data) => {
           if (!stopped) sourceClock.ingest(data.samples);
         });
@@ -497,29 +504,23 @@ function LiveStream({
           onStats={setOverlayStats}
           onStatus={setOverlayStatus}
         />
-        <p
-          role="status"
-          className={
-            playing ? "sr-only" : "relative rounded-md bg-black/85 px-3 py-2 text-center text-sm text-white"
-          }
-        >
-          <span className="sr-only">{name}. </span>
-          {statusLabels[status]}
-        </p>
-        {status === "blocked" && (
-          <Button
-            ref={playButton}
-            className="min-h-11"
-            onClick={() => void media.current?.play().catch(() => undefined)}
-          >
-            Reproducir video
-          </Button>
+        {playing ? <p role="status" className="sr-only">Video disponible</p> : (
+          <CameraLoadingState phase={status}>
+            {status === "blocked" && (
+              <Button
+                ref={playButton}
+                onClick={() => void media.current?.play().catch(() => undefined)}
+              >
+                Reproducir video
+              </Button>
+            )}
+          </CameraLoadingState>
         )}
       </div>
       {playing && overlay && (
         <div className="operix-player-status">
-          <p>{operationalState && operationalState !== "Analizando" ? operationalState : overlayLabels[overlayStatus]}</p>
-          {showDistances && (
+          <p>{operationalState && operationalState !== "Analizando" ? operationalState : overlayStatus === "searching" ? "Sincronizando análisis…" : overlayLabels[overlayStatus]}</p>
+          {showDistances && !compact && (
             <>
               <p>{calibration && overlayStatus === "clocked" ? calibrationLabels[calibration] : "Distancias a la espera de un fotograma verificado"}</p>
               {pairs.length > 0 && (

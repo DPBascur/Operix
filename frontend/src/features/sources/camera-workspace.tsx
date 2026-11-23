@@ -9,6 +9,7 @@ import { canOpen, useSession } from "@/features/auth/session-provider";
 import { cameraLabService, type LabCamera } from "@/services/camera-lab.service";
 import { cameraFrameIsRecent, cameraObservationPaused } from "./camera-diagnostics";
 import { CameraLiveVideo } from "./camera-live-video";
+import { CameraLoadingState } from "./camera-loading-state";
 import { CameraPreview, LoadError, statusLabel, useCameraData } from "./camera-overview";
 import styles from "./camera-workspace.module.css";
 
@@ -22,9 +23,10 @@ export function cameraHref(id: string) {
   return `/sources/cameras/${encodeURIComponent(id)}`;
 }
 
-function CameraTile({ camera, live, enabled, preview, canEdit, stale }: {
+function CameraTile({ camera, live, monitor, enabled, preview, canEdit, stale }: {
   camera: LabCamera;
   live: boolean;
+  monitor: boolean;
   enabled: boolean;
   preview: boolean;
   canEdit: boolean;
@@ -39,7 +41,7 @@ function CameraTile({ camera, live, enabled, preview, canEdit, stale }: {
 
   if (live) {
     return <CameraLiveVideo id={camera.id} name={camera.name} runId={camera.run_id} operationalState={state} enabled={enabled} viewOnly={camera.view_only}
-      cameraUrl={href} settingsUrl={settingsHref} compact />;
+      cameraUrl={href} settingsUrl={settingsHref} variant={monitor ? "monitoring" : "preview"} />;
   }
 
   async function expand() {
@@ -125,7 +127,7 @@ export function CameraWorkspace({ monitor = false }: { monitor?: boolean }) {
           <p role="status" className="sr-only">Cargando cámaras…</p>
           {[1, 2].map((index) => (
             <div key={index} className={styles.tile} aria-hidden="true">
-              <div className={styles.preview}><div className={styles.noFrame}><Camera size={23} /></div></div>
+              <div className={styles.preview}><CameraLoadingState phase="preparing" /></div>
               <div className={styles.bar}><span className={styles.placeholder} /></div>
             </div>
           ))}
@@ -158,7 +160,7 @@ export function CameraWorkspace({ monitor = false }: { monitor?: boolean }) {
           {cameras.map((camera) => (
             <li key={camera.id} data-primary={focused && selected?.id === camera.id}>
               <CameraTile camera={camera} canEdit={data?.can_edit === true && !error} stale={!!error}
-                live={monitor && Boolean(camera.automatic ?? data?.managed)}
+                live={Boolean(camera.automatic ?? data?.managed)} monitor={monitor}
                 enabled={running.has(camera.status)}
                 preview={!monitor && !cameraObservationPaused(camera.status, !!error) &&
                   cameraFrameIsRecent(camera.last_frame_at, camera.metrics, receivedAt)} />
