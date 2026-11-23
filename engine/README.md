@@ -591,3 +591,41 @@ El responsable de seguridad puede configurar y ejecutar sus propios análisis;
 la administración de cuentas sigue reservada al administrador. El piloto RTSP
 rechaza calibraciones vinculadas a archivos: su asociación métrica a una cámara
 real continúa pendiente de validación.
+## Evaluación operacional independiente
+
+`scripts/evaluate_operational_holdout.py` mantiene los videos, exportaciones y
+resultados fuera del repositorio. `prepare <raíz> <sources.json>` verifica los
+SHA-256 de origen y crea un ZIP de imágenes sin predicciones por toma, las
+etiquetas CVAT, el manifiesto y los snapshots de reglas. Las tomas de una misma
+grabación conservan la misma familia. El muestreo uniforme y las ventanas
+contiguas se fijan antes de inferir. Los timestamps de este protocolo son
+relativos al origen CFR y no corresponden a fechas de captura.
+
+Importar cada ZIP en una tarea de imágenes CVAT con `cvat-labels.json`. Marcar
+la caja visible de cada PERSON y FORKLIFT, incluyendo personas que conducen.
+Mantener IDs anónimos de actor durante cada ventana contigua, incluso tras una
+oclusión si la identidad puede comprobarse. Marcar `SMALL` si la caja visible
+tiene menos de 32 px de alto y `PARTIAL` si el objeto está ocluido o recortado.
+Distinguir peatón, operador visible y `UNKNOWN`. En equipos, juzgar el
+desplazamiento del vehículo respecto del fondo fijo, no el alzado de las horquillas.
+Revisar también fotogramas sin objetos. Registrar escenarios y distractores
+observados en `checked_frames` y exportar **CVAT for images 1.1**.
+
+En una copia de `review-template.json`, completar la revisión ciega y declarar
+cada ventana revisada como `[fuente, ventana]`, incluso si no tiene condiciones
+satisfechas. Cada episodio lleva `source`, `rule`, `version`, `zone`, `actors`
+(por ejemplo `person/p1`, `forklift/f1`), `from_frame` (primera observación
+que sustenta la condición) y `to_frame` (primer frame elegible según la regla).
+Comparar con los parámetros del snapshot y anotar el tramo desde el video.
+Las distancias del piloto se expresan en coordenadas normalizadas de imagen.
+Un caso indeterminado requiere adjudicación antes de confirmar la revisión.
+
+`freeze <raíz> <revisión.json> <exports.xml> ...` valida la cobertura y devuelve
+el hash del conjunto. `infer <raíz> <hash> <predicciones.json>` requiere los
+dos checkpoints congelados (`--person-weights`, `--forklift-weights`). Para
+ONNX CUDA, añadir `--onnx-report` con un recibo del benchmark FP32 rectangular
+de 384 × 640 y sus dos artefactos verificados. `score <raíz> <predicciones.json>
+<hash> <resultado.json>` calcula tasas a los umbrales operacionales y AP50 sobre
+los scores exportados. La evaluación temporal separa los episodios que tienen
+observaciones continuas de los que cruzan descartes o cambios de época. La
+hipótesis `POSSIBLE_OCCUPANT` se registra sin excluir personas de las reglas.
