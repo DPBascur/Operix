@@ -35,9 +35,14 @@ authInternalUsers:
         path: lab-cam-01
       - action: read
         path: lab-cam-02
+      - action: publish
+        path: lab-cam-03
+      - action: read
+        path: lab-cam-03
 
 pathDefaults:
   overridePublisher: false
 paths:
   lab-cam-01: {}
   lab-cam-02: {}
+  lab-cam-03: {}

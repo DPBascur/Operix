@@ -1,4 +1,4 @@
-"""Persistent intent and bounded reconciliation for the two private RTSP publishers."""
+"""Persistent intent and bounded reconciliation for the private RTSP publishers."""
 
 from dataclasses import replace
 from functools import lru_cache
@@ -36,7 +36,7 @@ MAX_RETRY_SECONDS = 30
 MAX_RETRY_ATTEMPTS = 6
 STABLE_PLAYBACK_SECONDS = 30
 RECONCILE_SECONDS = .5
-SLOTS = ("lab-cam-01", "lab-cam-02")
+SLOTS = camera_registry.SLOTS
 MAX_MEDIA_BYTES = 100 * 1024**3
 MAX_PLAYLIST_ITEMS = 64
 LEASE_SECONDS = 12
@@ -64,7 +64,7 @@ def candidates(inventory=None):
 def intent(control, inventory):
     if not control:
         return {}
-    return {id_: control.cameras.get(id_, True) for id_ in inventory}
+    return {id_: control.cameras.get(id_, id_ != camera_registry.THIRD_SLOT) for id_ in inventory}
 
 
 def marker(id_):
@@ -266,6 +266,10 @@ def reconcile_slot(id_, camera, playlist, catalog, progress, run, owner):
                 seal_playback(run, state, runtime)
         return {}
 
+    view_only = camera_registry.view_only(camera)
+    if view_only and run and run.active:
+        drain(run, breadcrumb("expected", "view_only", run.playback))
+        return progress
     signature = playlist_signature(playlist, catalog)
     changed = progress.get("signature") != signature
     if run and run.active and (changed or run.playback.get("token") != progress.get("token")):
@@ -293,7 +297,19 @@ def reconcile_slot(id_, camera, playlist, catalog, progress, run, owner):
                 "position": position, "cycle": progress["cycle"]}
     ack = publisher_ack(id_, token)
     failures = progress.get("failures", 0)
-    if run and run.playback.get("token") == token:
+    if view_only and progress.get("view_started"):
+        if ack == "eof":
+            transition = breadcrumb("expected", "media_eof", playback)
+            upcoming = next_item(playlist, position, progress["cycle"])
+            if upcoming is not None:
+                return release_to_attempt(id_, signature, *upcoming, transition)
+            update_lease(id_, None)
+            return {**progress, "phase": "finished", "last_transition": transition}
+        if ack != "playing":
+            transition = breadcrumb("interrupted", "publisher_interrupted", playback)
+            return release_to_attempt(id_, signature, position, progress["cycle"], transition,
+                                      failures=min(failures + 1, MAX_RETRY_ATTEMPTS))
+    if not view_only and run and run.playback.get("token") == token:
         if run.active:
             if run.playback.get("stop_requested"):
                 if pending := progress.get("pending"):
@@ -356,6 +372,10 @@ def reconcile_slot(id_, camera, playlist, catalog, progress, run, owner):
         failure = "media_unavailable"
     if ack in {"eof", "failed", "expired"}:
         failure = "publisher_ended_before_worker"
+    if not failure and view_only and ack == "playing":
+        update_lease(id_, (token, "play", *media))
+        return {**progress, "view_started": True,
+                "failures": 0 if time() - progress["launch_at"] >= STABLE_PLAYBACK_SECONDS else failures}
     if not failure and ack == "playing" and rtsp_ready(id_):
         try:
             start_camera(selected, owner, managed=True, playback=playback)
@@ -385,7 +405,7 @@ def reconcile():
     playlists = configured_playlists(control, inventory, defaults)
     progress = control.playback if control else {}
     updated = {}
-    for id_ in SLOTS:
+    for id_ in (SLOTS if camera_registry.third_slot_enabled() or camera_registry.THIRD_SLOT in progress else SLOTS[:2]):
         slot = reconcile_slot(id_, inventory.get(id_), playlists[id_] if desired.get(id_) else None,
                               catalog, progress.get(id_, {}), last_run(id_, lock=True),
                               control.updated_by if authorized else None)
@@ -428,7 +448,7 @@ def describe(request):
     for id_, camera in inventory.items():
         row = camera_json(request, camera)
         live = rtsp and rtsp_ready(id_)
-        slot_enabled = desired.get(id_, True)
+        slot_enabled = desired.get(id_, id_ != camera_registry.THIRD_SLOT)
         publishers[id_] = "publishing" if live else "idle"
         detail = None
         playlist = playlists[id_]
@@ -459,8 +479,8 @@ def describe(request):
                      "last_transition": max(transitions, key=lambda item: item.get("at", ""), default=None)})
     selected = [row for row in rows if row["enabled"] and playlists[row["id"]]["media_ids"]]
     pending = [row for row in selected if not row["playlist_finished"]]
-    active = [row for row in pending if row["status"] == "analyzing" and publishers[row["id"]] == "publishing"
-              and recent_frame(row)]
+    active = [row for row in pending if (row["status"] == "analyzing" or (row.get("view_only") and row["status"] == "transmitting")) and publishers[row["id"]] == "publishing"
+              and (row.get("view_only") or recent_frame(row))]
     if not enabled:
         running = CameraRun.objects.filter(active=True, managed=True).exists() or "publishing" in publishers.values()
         state = "stopping" if running else "disabled"
@@ -474,7 +494,7 @@ def describe(request):
     else:
         state = "starting"
     return {"available": available, "enabled": enabled, "status": state,
-            "capacity": min(2, camera_registry.capacity()), "cameras": rows,
+            "capacity": min(3 if camera_registry.third_slot_enabled() else 2, camera_registry.capacity()), "cameras": rows,
             "publisher": publishers, "mediamtx": "ready" if rtsp else "unavailable",
             "catalog": [{"id": media_id, **{key: source[key] for key in
                          ("filename", "title", "duration_s", "fps", "scenario", "footage", "license", "sha256")}}

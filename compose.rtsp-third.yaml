@@ -1,0 +1,53 @@
+# Optional managed virtual slot. Apply after compose.rtsp-clock.yaml.
+services:
+  backend:
+    environment:
+      OPERIX_CAMERA_LAB_THIRD_SLOT: "1"
+      OPERIX_LAB_CAM03_WIDTH: ${OPERIX_CAMERA_LAB_WIDTH:-960}
+      OPERIX_LAB_CAM03_HEIGHT: ${OPERIX_CAMERA_LAB_HEIGHT:-540}
+      OPERIX_LAB_CAM03_FPS: ${OPERIX_CAMERA_LAB_FPS:-12}
+      OPERIX_LAB_CAM03_SOURCE_FPS: ${OPERIX_CAMERA_LAB_SOURCE_FPS:-${OPERIX_CAMERA_LAB_FPS:-12}}
+    volumes:
+      - lab_ack_03:/var/lib/operix/lab-ack/lab-cam-03
+
+  lab-publisher-03:
+    image: operix-rtsp-clock-publisher:local
+    init: true
+    entrypoint: ["/bin/sh", "/lab/supervise-publisher.sh"]
+    networks: [rtsp-lab]
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+      mediamtx:
+        condition: service_healthy
+    environment:
+      CAMERA_PATH: lab-cam-03
+      VIDEO_WIDTH: ${OPERIX_CAMERA_LAB_WIDTH:-960}
+      VIDEO_HEIGHT: ${OPERIX_CAMERA_LAB_HEIGHT:-540}
+      VIDEO_FPS: ${OPERIX_CAMERA_LAB_SOURCE_FPS:-${OPERIX_CAMERA_LAB_FPS:-12}}
+      LOOP_GAP_SECONDS: ${OPERIX_CAMERA_LAB_LOOP_GAP_SECONDS:-2}
+      OPERIX_CAMERA_LAB_FRAME_CLOCK: "1"
+    volumes:
+      - lab_control:/lab-control:ro
+      - lab_ack_03:/lab-ack
+      - ./deployment/rtsp-lab/supervise-publisher.sh:/lab/supervise-publisher.sh:ro
+      - ./deployment/rtsp-lab/publish.sh:/lab/publish.sh:ro
+      - type: bind
+        source: ${OPERIX_CAMERA_LAB_MEDIA_HOST:?Set the approved camera lab media directory}
+        target: /data/rtsp-lab
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: [CMD, /bin/sh, -c, "test -r /lab/supervise-publisher.sh && test -d /lab-control && test -w /lab-ack"]
+      interval: 5s
+      timeout: 5s
+      retries: 4
+
+volumes:
+  lab_ack_03:

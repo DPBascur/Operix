@@ -412,3 +412,14 @@ Cambiar de fuente o dimensiones también requiere revisar la calibración.
 Los videos de archivo conservan su asistente de rectángulo medido y los
 controles manuales. Las pruebas con patrones generados se pueden repetir con
 `python -m unittest discover -s engine/tests -p 'test_calibration_patterns.py'`.
+
+### Tercera plaza virtual (opcional)
+
+Añade `-f compose.rtsp-third.yaml` después de `compose.rtsp-clock.yaml` en el
+despliegue administrado. En **Control de cámaras → Incorporar cámara** asigna
+una grabación del manifiesto autorizado a Cámara 03, guarda la lista y
+habilítala. La cámara permanece deshabilitada hasta esa acción.
+
+Con capacidad de análisis de dos cámaras, la plaza 03 publica LL-HLS en
+modo **Solo video**. Una capacidad de tres requiere una prueba sostenida de
+ONNX CUDA en el entorno de destino antes de habilitarla.

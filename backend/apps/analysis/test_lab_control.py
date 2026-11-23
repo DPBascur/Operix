@@ -76,6 +76,47 @@ class ManagedLabTests(APITestCase):
         self.assertEqual(CameraLabControl.objects.get().playlists["lab-cam-01"], selected)
         self.assertEqual(json.loads(LogEntry.objects.get().change_message)["playlists"]["lab-cam-01"], selected)
 
+    def test_opt_in_third_slot_uses_catalog_and_is_disabled_by_default(self):
+        camera_id = "lab-cam-03"
+        self.assertNotIn(camera_id, inventory())
+        self.assertEqual(self.admin.patch(self.endpoint, {"cameras": {camera_id: True}}, format="json").status_code, 400)
+        with patch.dict(os.environ, {"OPERIX_CAMERA_LAB_THIRD_SLOT": "1", "OPERIX_CAMERA_LAB_CAPACITY": "2"}), \
+                patch.object(lab_control, "rtsp_ready", return_value=False):
+            result = self.admin.get(self.endpoint)
+            third = next(row for row in result.data["cameras"] if row["id"] == camera_id)
+            self.assertFalse(third["enabled"])
+            self.assertTrue(third["view_only"])
+            self.assertEqual(result.data["capacity"], 2)
+            self.assertEqual(result.data["playlists"][camera_id]["media_ids"], [])
+            selected = {"media_ids": ["second"], "repeat": False}
+            response = self.admin.patch(self.endpoint, {"cameras": {camera_id: True}, "playlists": {camera_id: selected}}, format="json")
+            self.assertEqual(response.status_code, 202)
+            self.assertEqual(response.data["playlists"][camera_id], selected)
+            forged = {"media_ids": ["rtsp://example.invalid/source"], "repeat": True}
+            self.assertEqual(self.admin.patch(self.endpoint, {"playlists": {camera_id: forged}}, format="json").status_code, 400)
+            self.assertEqual(self.client.get("/api/v1/analysis/cameras/lab-cam-03/live/index.m3u8").status_code, 401)
+
+    def test_third_slot_video_only_reconciles_eof_without_a_worker(self):
+        with patch.dict(os.environ, {"OPERIX_CAMERA_LAB_THIRD_SLOT": "1", "OPERIX_CAMERA_LAB_CAPACITY": "2"}):
+            camera_id = "lab-cam-03"
+            camera = inventory()[camera_id]
+            catalog, _ = media_registry()
+            playlist = {"media_ids": ["second", "lab-cam-01"], "repeat": False}
+            signature = lab_control.playlist_signature(playlist, catalog)
+            progress = {**lab_control.new_attempt(signature), "phase": "play", "launch_at": time()}
+            with patch.object(lab_control, "publisher_ack", return_value="playing") as ack, \
+                    patch.object(lab_control, "start_camera", side_effect=AssertionError("video-only starts no worker")):
+                playing = lab_control.reconcile_slot(camera_id, camera, playlist, catalog, progress, None, self.owner)
+                self.assertTrue(playing["view_started"])
+                ack.return_value = "eof"
+                following = lab_control.reconcile_slot(camera_id, camera, playlist, catalog, playing, None, self.owner)
+                self.assertEqual(following["position"], 1)
+                self.assertEqual(following["last_transition"]["reason"], "media_eof")
+                self.assertNotEqual(following["token"], playing["token"])
+                stopped = lab_control.reconcile_slot(camera_id, camera, None, catalog, following, None, self.owner)
+                self.assertEqual(stopped, {})
+                self.assertFalse(lab_control.marker(camera_id).exists())
+            self.assertFalse(CameraRun.objects.filter(camera_id=camera_id).exists())
     def test_patch_verifier_rejects_wrong_digest(self):
         camera = inventory()["lab-cam-01"]
         (self.root / "sample.mp4").write_bytes(b"wrong digest")

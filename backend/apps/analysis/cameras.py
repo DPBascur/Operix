@@ -166,13 +166,35 @@ def camera_json(request, camera):
     preview = run_dir(run.pk) / "preview.jpg" if run else None
     if camera_registry.automatic(camera) and (state != "analyzing" or not recent_frame(runtime)):
         preview = None
+    view_only = camera_registry.view_only(camera)
+    if view_only:
+        from .lab_control import CONTROL_ID, publisher_ack
+        from .models import CameraLabControl
+
+        control = CameraLabControl.objects.filter(pk=CONTROL_ID).first()
+        playback = control.playback.get(camera.id, {}) if control else {}
+        playlist = control.playlists.get(camera.id) if control else None
+        assigned = bool(playlist.get("media_ids")) if playlist is not None else camera.provenance is not None
+        if not control or not control.enabled or not control.cameras.get(camera.id, False):
+            state = "stopped"
+        elif not assigned:
+            state = "available"
+        elif playback.get("phase") == "finished":
+            state = "stopped"
+        elif playback.get("blocked"):
+            state = "error"
+        elif publisher_ack(camera.id, playback.get("token")) == "playing":
+            state = "transmitting"
+        else:
+            state = "connecting"
+        preview = None
     return {
         "id": camera.id, "name": camera.name, "description": camera.description,
-        "kind": "lab", "automatic": camera_registry.automatic(camera),
+        "kind": "lab", "automatic": camera_registry.automatic(camera), "view_only": view_only,
         "provenance": camera_registry.public_provenance(run.provenance if active_snapshot else camera.provenance),
         "profile": camera.profile,
         "expected_fps": camera.expected_fps, "width": camera.width, "height": camera.height,
-        "configured_analysis_fps": camera.expected_fps, "configured_source_fps": camera.capture_fps,
+        "configured_analysis_fps": None if view_only else camera.expected_fps, "configured_source_fps": camera.capture_fps,
         "status": state, "metrics": metrics, "configuration": document, "revision": revision,
         "calibration_requires_reconfirmation": bool(calibration_issue(capture_camera, document, run, metrics)),
         "policy": active_snapshot.policy if active_snapshot else policy,

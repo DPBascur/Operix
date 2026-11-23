@@ -11,6 +11,9 @@ from urllib.parse import unquote, urlsplit, urlunsplit
 import ipaddress
 
 
+THIRD_SLOT = "lab-cam-03"
+SLOTS = ("lab-cam-01", "lab-cam-02", THIRD_SLOT)
+
 MEDIA_FILENAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,126}\.mp4")
 MEDIA_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 SHA256 = re.compile(r"[a-fA-F0-9]{64}")
@@ -113,6 +116,14 @@ def capacity():
     return int(raw) if raw in {"1", "2", "3"} else 1
 
 
+def third_slot_enabled():
+    return managed() and os.environ.get("OPERIX_CAMERA_LAB_THIRD_SLOT") == "1"
+
+
+def view_only(camera):
+    return camera.id == THIRD_SLOT and automatic(camera) and capacity() < 3
+
+
 def approved_destination(camera_id):
     # IP cameras are an explicit server configuration, with IP literals pinned per slot.
     key = camera_id.replace("-", "_").upper()
@@ -179,7 +190,7 @@ def media_registry():
             provenance[field] = item.get(alias, item.get(field))
         media[media_id] = public_provenance(provenance)
         slot = item.get("camera_id", media_id)
-        if slot in ("lab-cam-01", "lab-cam-02"):
+        if slot in SLOTS:
             if slot in defaults:
                 repeated_slots.add(slot)
             defaults[slot] = media_id
@@ -192,7 +203,7 @@ def inventory(registry=None):
         return {}
     media, defaults = media_registry() if registry is None else registry
     result = {}
-    for number in (1, 2):
+    for number in range(1, 4 if third_slot_enabled() else 3):
         id_ = f"lab-cam-{number:02}"
         suffix = f"CAM{number:02}"
         try:
@@ -202,7 +213,7 @@ def inventory(registry=None):
             height = int(os.environ.get(f"OPERIX_LAB_{suffix}_HEIGHT", "540"))
             if not (1 <= fps <= source_fps <= 30 and 16 <= width <= 1920 and 16 <= height <= 1080):
                 raise ValueError("Perfil de captura inválido")
-            url = approved_destination(id_)
+            url = f"rtsp://mediamtx:8554/{id_}" if id_ == THIRD_SLOT else approved_destination(id_)
         except ValueError:
             continue
         result[id_] = Camera(id_, f"Cámara de laboratorio {number:02}", "Reproducción continua de un video autorizado.",

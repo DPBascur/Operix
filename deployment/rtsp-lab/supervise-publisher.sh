@@ -1,7 +1,7 @@
 #!/bin/sh
 # The backend owns commands. This publisher can acknowledge only its own slot.
 set -eu
-case "$CAMERA_PATH" in lab-cam-01|lab-cam-02) ;; *) exit 1;; esac
+case "$CAMERA_PATH" in lab-cam-01|lab-cam-02|lab-cam-03) ;; *) exit 1;; esac
 lease="/lab-control/$CAMERA_PATH.lease"
 ack=/lab-ack/status
 progress=/lab-ack/progress
