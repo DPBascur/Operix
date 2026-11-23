@@ -4,7 +4,6 @@ import {
   useEffect,
   useEffectEvent,
   useRef,
-  useState,
   type RefObject,
 } from "react";
 import {
@@ -24,7 +23,7 @@ import {
 import { interpolateObservedBoxes } from "./camera-estimated-boxes";
 import { CameraSourceClock, ClockedObservations } from "./camera-source-clock";
 
-const overlayLabels = {
+export const overlayLabels = {
   searching: "Buscando fotogramas verificables",
   matched: "Se encontraron fotogramas verificables",
   clocked: "Sincronizado por marca de origen",
@@ -110,7 +109,7 @@ function draw(
   if (estimated) context.setLineDash([6 * dpr, 4 * dpr]);
   if (showZones) {
     context.strokeStyle = "#ffd775";
-    context.fillStyle = "rgba(255, 215, 117, 0.14)";
+    context.lineWidth = dpr;
     for (const { polygon } of observation.zones) {
       context.beginPath();
       polygon.forEach(([px, py], index) => {
@@ -118,9 +117,9 @@ function draw(
         else context.lineTo(x(px), y(py));
       });
       context.closePath();
-      context.fill();
       context.stroke();
     }
+    context.lineWidth = 2 * dpr;
   }
   context.font = `600 ${13 * dpr}px system-ui`;
   context.textBaseline = "top";
@@ -172,6 +171,7 @@ export function CameraLiveOverlay({
   showIds,
   showZones,
   onStats,
+  onStatus,
 }: {
   id: string;
   runId?: string | null;
@@ -182,9 +182,9 @@ export function CameraLiveOverlay({
   showIds: boolean;
   showZones: boolean;
   onStats: (stats: OverlayStats) => void;
+  onStatus: (status: keyof typeof overlayLabels) => void;
 }) {
   const layer = useRef<HTMLCanvasElement>(null);
-  const [status, setStatus] = useState<keyof typeof overlayLabels>("searching");
   const paint = useEffectEvent(
     (
       context: CanvasRenderingContext2D,
@@ -227,11 +227,13 @@ export function CameraLiveOverlay({
     let previousCallbackTime = -Infinity;
     let lastMatch = -Infinity;
     let readable = true;
+    let displayed: { stream: string; ordinal: number; item: LiveObservation; estimated: boolean } | undefined;
     matcher.invalidate();
     matcher.resetTimeline();
 
     function clear() {
       clearTimeout(clearTimer);
+      displayed = undefined;
       if (output)
         output.clearRect(0, 0, output.canvas.width, output.canvas.height);
     }
@@ -252,7 +254,7 @@ export function CameraLiveOverlay({
       typeof video.requestVideoFrameCallback !== "function"
     ) {
       queueMicrotask(() => {
-        if (!controller.signal.aborted) setStatus("unsupported");
+        if (!controller.signal.aborted) onStatus("unsupported");
       });
       return () => controller.abort();
     }
@@ -267,7 +269,6 @@ export function CameraLiveOverlay({
       callbackTime: number,
       metadata: VideoFrameCallbackMetadata,
     ) {
-      clear();
       if (!readable) return;
       frameCallback = source.requestVideoFrameCallback(onFrame);
       if (
@@ -276,8 +277,10 @@ export function CameraLiveOverlay({
         source.seeking ||
         !source.videoWidth ||
         !source.videoHeight
-      )
+      ) {
+        clear();
         return;
+      }
       if (
         metadata.mediaTime < previousMediaTime ||
         callbackTime - previousCallbackTime > 250
@@ -286,6 +289,7 @@ export function CameraLiveOverlay({
       previousCallbackTime = callbackTime;
       if (metadata.mediaTime === previousMediaTime) return;
       previousMediaTime = metadata.mediaTime;
+      clear();
       try {
         const started = performance.now();
         const now = Date.now();
@@ -298,12 +302,16 @@ export function CameraLiveOverlay({
           if (observed && observationLifetime(observed, now)) {
             stats.clockFrames++;
             stats.clockErrorMs = Math.max(stats.clockErrorMs, mark.errorMs);
-            drawObserved(observed, false, now);
+            if (drawObserved(observed, false, now)) {
+              displayed = { stream: clocked.stream, ordinal: mark.ordinal, item: observed, estimated: false };
+            }
           } else {
             const bounds = clocked.bracket(mark.ordinal);
             if (bounds && now - bounds.before.receivedMs <= 3000 &&
                 observationLifetime(bounds.before, now) && observationLifetime(bounds.after, now)) {
-              drawEstimate(bounds.before, bounds.after, 0.5, started);
+              if (drawEstimate(bounds.before, bounds.after, 0.5, started)) {
+                displayed = { stream: clocked.stream, ordinal: mark.ordinal, item: bounds.before, estimated: true };
+              }
             }
           }
           return;
@@ -324,7 +332,7 @@ export function CameraLiveOverlay({
       } catch {
         clear();
         readable = false;
-        setStatus("unsupported");
+        onStatus("unsupported");
       }
     }
 
@@ -332,9 +340,11 @@ export function CameraLiveOverlay({
       stats.matched++;
       stats.presentedAgeMs = Math.max(0, now - observation.receivedMs);
       if (continuity) stats.continuity++;
-      if (paint(context, source, observation, continuity)) stats.drawn++;
+      const painted = paint(context, source, observation, continuity);
+      if (painted) stats.drawn++;
       lastMatch = performance.now();
-      clearTimer = setTimeout(clear, Math.min(200, observationLifetime(observation, now)));
+      if (painted) clearTimer = setTimeout(clear, Math.min(200, observationLifetime(observation, now)));
+      return painted;
     }
 
     function drawEstimate(before: LiveObservation, after: LiveObservation, fraction: number, started: number) {
@@ -343,7 +353,9 @@ export function CameraLiveOverlay({
         stats.estimated++;
         stats.estimateMs += performance.now() - started;
         clearTimer = setTimeout(clear, 55);
+        return true;
       }
+      return false;
     }
 
     async function poll() {
@@ -356,14 +368,16 @@ export function CameraLiveOverlay({
           if (batch.stream_id) matcher.invalidate();
           else matcher.update(batch, Date.now());
           stats.observations = batch.items.length;
-          setStatus(
+          onStatus(
             performance.now() - lastMatch < 1500 ? (clocked.stream ? "clocked" : "matched") : "searching",
           );
         } else {
           unavailable();
         }
-        // New metadata may have introduced an ambiguity or closed an epoch.
-        clear();
+        // Refreshing metadata must not blank a frame with an unchanged match.
+        if (!displayed || !clocked.retains(displayed.stream, displayed.ordinal, displayed.item, displayed.estimated)) {
+          clear();
+        }
       } catch (error) {
         if (controller.signal.aborted || !readable) return;
         unavailable();
@@ -382,7 +396,7 @@ export function CameraLiveOverlay({
       reset();
       stats.observations = 0;
       stats.presentedAgeMs = null;
-      setStatus("unavailable");
+      onStatus("unavailable");
       onStats({ ...stats });
     }
 
@@ -404,20 +418,13 @@ export function CameraLiveOverlay({
       matcher.invalidate();
       clear();
     };
-  }, [active, id, matcher, media, onStats, runId, sourceClock]);
+  }, [active, id, matcher, media, onStats, onStatus, runId, sourceClock]);
 
   return (
-    <>
-      <canvas
-        ref={layer}
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 size-full"
-      />
-      {active && (
-        <span className="pointer-events-none absolute top-2 left-2 max-w-[calc(100%-1rem)] rounded bg-black/85 px-2 py-1 text-xs text-white">
-          {overlayLabels[status]}
-        </span>
-      )}
-    </>
+    <canvas
+      ref={layer}
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 size-full"
+    />
   );
 }

@@ -1,12 +1,13 @@
 "use client";
 
 import type Hls from "hls.js";
+import { ChevronDown, Maximize, Minimize, Pause, Play, SlidersHorizontal } from "lucide-react";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { cameraNumber } from "./camera-diagnostics";
 import { CameraFrameMatcher } from "./camera-frame-match";
 import { CameraSourceClock } from "./camera-source-clock";
-import { CameraLiveOverlay, type OverlayStats } from "./camera-live-overlay";
+import { CameraLiveOverlay, overlayLabels, type OverlayStats } from "./camera-live-overlay";
 import { usePageVisible } from "./camera-visibility";
 
 const hlsMime = "application/vnd.apple.mpegurl";
@@ -82,12 +83,12 @@ export function CameraLiveVideo({
   return (
     <figure
       ref={player}
-      className="flex min-w-0 flex-col gap-2 fullscreen:bg-surface fullscreen:p-3"
+      className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-surface fullscreen:p-3"
     >
-      <figcaption className="text-sm font-semibold">Video en vivo</figcaption>
+      <figcaption className="sr-only">Video en vivo de {name}</figcaption>
       <div
         ref={frame}
-        className={`grid min-h-0 gap-2 ${fullscreen ? "flex-1 grid-rows-[minmax(0,1fr)_auto]" : ""}`}
+        className={`grid min-h-0 ${fullscreen ? "flex-1 grid-rows-[minmax(0,1fr)_auto_auto]" : ""}`}
       >
         {visible && inView && !paused ? (
           <LiveStream
@@ -103,9 +104,9 @@ export function CameraLiveVideo({
             fullscreen={fullscreen}
           />
         ) : (
-          <div className="grid aspect-video place-items-center rounded-md bg-surface-muted">
+          <div className="grid aspect-video place-items-center bg-black">
             {paused && (
-              <p className="p-3 text-center text-sm text-text-secondary">
+              <p className="p-3 text-center text-sm text-white">
                 Video pausado
               </p>
             )}
@@ -115,7 +116,7 @@ export function CameraLiveVideo({
       <div
         role="group"
         aria-label="Controles de video"
-        className="flex flex-wrap gap-2"
+        className="flex flex-wrap items-center gap-2 border-t border-border p-2"
       >
         <Button
           ref={pauseButton}
@@ -124,37 +125,20 @@ export function CameraLiveVideo({
           aria-label={`${paused ? "Reanudar" : "Pausar"} video en vivo de ${name}`}
           onClick={() => setPaused((value) => !value)}
         >
-          {paused ? "Reanudar video" : "Pausar video"}
+          {paused ? <Play aria-hidden="true" size={16} /> : <Pause aria-hidden="true" size={16} />}
+          {paused ? "Reanudar" : "Pausar"}
         </Button>
         <VideoToggle pressed={overlay} onClick={() => setOverlay(!overlay)}>
           Superposición
         </VideoToggle>
-        <VideoToggle
-          pressed={showIds}
-          disabled={!overlay}
-          onClick={() => setShowIds(!showIds)}
-        >
-          ID
-        </VideoToggle>
-        <VideoToggle
-          pressed={showZones}
-          disabled={!overlay}
-          onClick={() => setShowZones(!showZones)}
-        >
-          Zonas
-        </VideoToggle>
-        <VideoToggle
-          pressed={showStats}
-          onClick={() => setShowStats(!showStats)}
-        >
-          Estadísticas
-        </VideoToggle>
         <Button
           variant="outline"
-          className="min-h-11"
+          className="ms-auto min-h-11 min-w-11 px-2"
+          aria-label={fullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
+          title={fullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
           onClick={() => void toggleFullscreen()}
         >
-          {fullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
+          {fullscreen ? <Minimize aria-hidden="true" size={16} /> : <Maximize aria-hidden="true" size={16} />}
         </Button>
       </div>
       {fullscreenError && (
@@ -162,11 +146,28 @@ export function CameraLiveVideo({
           Pantalla completa no disponible.
         </p>
       )}
-      {overlay && (
-        <p className="text-sm text-text-secondary">
-          Las cajas discontinuas indican posiciones estimadas entre observaciones.
-        </p>
-      )}
+      <details className="group border-t border-border px-3">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+          <SlidersHorizontal aria-hidden="true" size={16} /> Capas y diagnóstico
+          <ChevronDown aria-hidden="true" size={16} className="ms-auto transition-transform group-open:rotate-180 motion-reduce:transition-none" />
+        </summary>
+        <div className="grid gap-2 pb-3">
+          <div className="flex flex-wrap gap-2">
+            <VideoToggle pressed={showIds} disabled={!overlay} onClick={() => setShowIds(!showIds)}>
+              ID
+            </VideoToggle>
+            <VideoToggle pressed={showZones} disabled={!overlay} onClick={() => setShowZones(!showZones)}>
+              Zonas
+            </VideoToggle>
+            <VideoToggle pressed={showStats} onClick={() => setShowStats(!showStats)}>
+              Estadísticas
+            </VideoToggle>
+          </div>
+          <p className="text-sm text-text-secondary">
+            Las cajas discontinuas indican posiciones estimadas. FORKLIFT es la clase detectada; el tipo de equipo puede quedar sin confirmar.
+          </p>
+        </div>
+      </details>
     </figure>
   );
 }
@@ -225,6 +226,7 @@ function LiveStream({
   const [fps, setFps] = useState<number>();
   const [edgeDistance, setEdgeDistance] = useState<number>();
   const [overlayStats, setOverlayStats] = useState<OverlayStats>();
+  const [overlayStatus, setOverlayStatus] = useState<keyof typeof overlayLabels>("searching");
 
   useEffect(() => {
     if (!media.current) return;
@@ -241,6 +243,7 @@ function LiveStream({
     async function connect() {
       if (disposed) return;
       setStatus("connecting");
+      setOverlayStatus("searching");
       let hls: Hls | undefined;
       let stopped = false;
       let blocked = false;
@@ -420,18 +423,19 @@ function LiveStream({
   }, [id, pauseButton, runId, sourceClock]);
 
   const playing = status === "playing";
+  const frameVisible = playing || status === "buffering";
   const frameRate = playing ? cameraNumber(fps, " FPS visibles") : null;
   const edge = playing ? cameraNumber(edgeDistance, " s") : null;
   return (
     <>
       <div
-        className={`relative flex flex-col items-center justify-center gap-2 overflow-hidden rounded-md bg-surface-muted p-3 ${fullscreen ? "min-h-0" : "aspect-video"}`}
+        className={`relative flex flex-col items-center justify-center gap-2 overflow-hidden bg-black p-3 ${fullscreen ? "min-h-0" : "aspect-video"}`}
       >
         <video
           ref={media}
           aria-label={`Video original en vivo de ${name} (${id})`}
-          aria-hidden={!playing}
-          className={`absolute inset-0 size-full object-contain ${playing ? "" : "invisible"}`}
+          aria-hidden={!frameVisible}
+          className={`absolute inset-0 size-full object-contain ${frameVisible ? "" : "invisible"}`}
           muted
           playsInline
           disablePictureInPicture
@@ -447,11 +451,12 @@ function LiveStream({
           showIds={showIds}
           showZones={showZones}
           onStats={setOverlayStats}
+          onStatus={setOverlayStatus}
         />
         <p
           role="status"
           className={
-            playing ? "sr-only" : "text-center text-sm text-text-secondary"
+            playing ? "sr-only" : "relative rounded-md bg-black/85 px-3 py-2 text-center text-sm text-white"
           }
         >
           <span className="sr-only">{name}. </span>
@@ -467,8 +472,13 @@ function LiveStream({
           </Button>
         )}
       </div>
+      {playing && overlay && (
+        <p className="border-t border-border px-3 py-1.5 text-xs text-text-secondary">
+          {overlayLabels[overlayStatus]}
+        </p>
+      )}
       {showStats && (
-        <div className="flex flex-wrap gap-x-3 text-sm text-text-secondary tabular-nums">
+        <div role="group" aria-label="Estadísticas de reproducción" className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border px-3 py-2 text-sm text-text-secondary tabular-nums">
           {frameRate && <span>{frameRate}</span>}
           {edge && (
             <span>Distancia estimada al borde reproducible · {edge}</span>

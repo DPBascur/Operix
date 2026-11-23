@@ -37,3 +37,19 @@ test("exact observations survive queue epochs but interpolation cannot span them
   observations.update(null);
   assert.equal(observations.observed(43), undefined);
 });
+
+test("a metadata refresh keeps a valid presented layer and revokes it across resets", () => {
+  const observations = new ClockedObservations();
+  const before = { source_ordinal: 41, index: 12, epoch: 1, receivedMs: 1000 };
+  const after = { source_ordinal: 43, index: 13, epoch: 1, receivedMs: 1100 };
+  const update = (items, emission = stream) => observations.update({ run_id: "run", stream_id: emission, items });
+  update([{ ...before }, { ...after }]);
+  assert.equal(observations.retains(stream, 41, before, false), true);
+  assert.equal(observations.retains(stream, 42, before, true), true);
+  update([before, { ...after, epoch: 2 }]);
+  assert.equal(observations.retains(stream, 42, before, true), false);
+  update([before, before]);
+  assert.equal(observations.retains(stream, 41, before, false), false);
+  update([before], nextStream);
+  assert.equal(observations.retains(stream, 41, before, false), false);
+});

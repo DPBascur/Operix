@@ -69,6 +69,13 @@ export class ClockedObservations {
     return this.observations.get(ordinal);
   }
 
+  retains(stream: string, ordinal: number, item: LiveObservation, estimated: boolean) {
+    if (stream !== this.stream) return false;
+    const current = estimated ? this.bracket(ordinal)?.before : this.observed(ordinal);
+    return current?.index === item.index && current.epoch === item.epoch &&
+      current.receivedMs === item.receivedMs;
+  }
+
   bracket(ordinal: number) {
     if (this.observations.has(ordinal)) return;
     const before = this.observed(ordinal - 1);
