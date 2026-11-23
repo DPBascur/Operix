@@ -32,7 +32,10 @@ from .models import CameraLabControl, CameraRun
 
 logger = logging.getLogger(__name__)
 CONTROL_ID = 1
-RETRY_SECONDS = 30
+MAX_RETRY_SECONDS = 30
+MAX_RETRY_ATTEMPTS = 6
+STABLE_PLAYBACK_SECONDS = 30
+RECONCILE_SECONDS = .5
 SLOTS = ("lab-cam-01", "lab-cam-02")
 MAX_MEDIA_BYTES = 100 * 1024**3
 MAX_PLAYLIST_ITEMS = 64
@@ -198,15 +201,25 @@ def playlist_signature(playlist, catalog):
     return hashlib.sha256(json.dumps([sources, playlist["repeat"]], sort_keys=True).encode()).hexdigest()
 
 
-def new_attempt(signature, position=0, cycle=0, last=None, *, retry=False):
+def new_attempt(signature, position=0, cycle=0, last=None, *, failures=0):
+    delay = min(MAX_RETRY_SECONDS, 2 ** (failures - 1)) if failures else 0
     return {"signature": signature, "position": position, "cycle": cycle, "last_transition": last,
-            "phase": "idle", "token": uuid4().hex, "retry_at": time() + RETRY_SECONDS if retry else 0}
+            "phase": "idle", "token": uuid4().hex, "retry_at": time() + delay if delay else 0,
+            "failures": failures}
 
 
-def release_to_attempt(id_, signature, position=0, cycle=0, last=None):
-    attempt = new_attempt(signature, position, cycle, last)
+def release_to_attempt(id_, signature, position=0, cycle=0, last=None, *, failures=0):
+    attempt = new_attempt(signature, position, cycle, last, failures=failures)
     update_lease(id_, (attempt["token"], "idle"))
     return attempt
+
+
+def next_item(playlist, position, cycle):
+    if position + 1 < len(playlist["media_ids"]):
+        return position + 1, cycle
+    if playlist["repeat"]:
+        return 0, cycle + 1
+    return None
 
 
 def breadcrumb(outcome, reason, playback=None):
@@ -279,12 +292,22 @@ def reconcile_slot(id_, camera, playlist, catalog, progress, run, owner):
     playback = {"token": token, "media_id": media_id, "source_sha256": source.get("sha256"),
                 "position": position, "cycle": progress["cycle"]}
     ack = publisher_ack(id_, token)
+    failures = progress.get("failures", 0)
     if run and run.playback.get("token") == token:
         if run.active:
             if run.playback.get("stop_requested"):
+                if pending := progress.get("pending"):
+                    update_lease(id_, (pending["token"], "idle"))
                 stop_camera(run)
             elif ack == "eof" and (metrics.get("frames_processed") or 0) > 0:
-                drain(run, breadcrumb("expected", "media_eof", playback))
+                eof = breadcrumb("expected", "media_eof", playback)
+                drain(run, eof)
+                upcoming = next_item(playlist, position, progress["cycle"])
+                if upcoming is not None:
+                    # EOF closed the old publisher. Acknowledge the next lease while
+                    # the old worker drains, but do not publish until it has exited.
+                    pending = release_to_attempt(id_, signature, *upcoming, eof)
+                    progress = {**progress, "pending": pending}
             elif ack != "playing":
                 reason = "no_frames_analyzed" if ack == "eof" else "publisher_interrupted"
                 drain(run, breadcrumb("interrupted", reason, playback))
@@ -296,21 +319,22 @@ def reconcile_slot(id_, camera, playlist, catalog, progress, run, owner):
                     drain(run, breadcrumb("interrupted", "media_unavailable", playback))
                 else:
                     update_lease(id_, (token, "play", path.name, digest))
+                    if failures and (metrics.get("frames_processed") or 0) >= camera.expected_fps * STABLE_PLAYBACK_SECONDS:
+                        progress = {**progress, "failures": 0}
             return progress
 
         if transition["reason"] == "media_eof" and transition["outcome"] == "expected":
-            next_position = position + 1
-            if next_position < len(playlist["media_ids"]):
-                return release_to_attempt(id_, signature, next_position, progress["cycle"], transition)
-            if playlist["repeat"]:
-                return release_to_attempt(id_, signature, 0, progress["cycle"] + 1, transition)
+            upcoming = next_item(playlist, position, progress["cycle"])
+            if upcoming is not None:
+                return progress.get("pending") or release_to_attempt(id_, signature, *upcoming, transition)
             update_lease(id_, None)
             return {**progress, "phase": "finished", "last_transition": transition}
         if transition["reason"] == "duration_exceeded":
             update_lease(id_, None)
             return {**progress, "phase": "duration_blocked", "blocked": DURATION_EXCEEDED,
                     "last_transition": transition}
-        return new_attempt(signature, position, progress["cycle"], transition, retry=True)
+        return release_to_attempt(id_, signature, position, progress["cycle"], transition,
+                                  failures=min(failures + 1, MAX_RETRY_ATTEMPTS))
 
     if media_eligible(source, selected.capture_fps) and not supported_duration(source):
         update_lease(id_, None)
@@ -343,7 +367,8 @@ def reconcile_slot(id_, camera, playlist, catalog, progress, run, owner):
     if failure or time() - progress["launch_at"] >= START_SECONDS:
         update_lease(id_, None)
         transition = breadcrumb("interrupted", failure or "startup_timeout", playback)
-        return new_attempt(signature, position, progress["cycle"], transition, retry=True)
+        return release_to_attempt(id_, signature, position, progress["cycle"], transition,
+                                  failures=min(failures + 1, MAX_RETRY_ATTEMPTS))
     update_lease(id_, (token, "play", *media))
     return progress
 
@@ -384,7 +409,7 @@ def start_reconciler():
                 logger.exception("No se pudo reconciliar el laboratorio virtual")
             finally:
                 close_old_connections()
-            sleep(2.0)
+            sleep(RECONCILE_SECONDS)
 
     Thread(target=loop, daemon=True, name="operix-camera-lab").start()
 

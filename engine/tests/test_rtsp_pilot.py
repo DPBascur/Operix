@@ -90,6 +90,39 @@ class EpochTests(unittest.TestCase):
 
 
 class CaptureTests(unittest.TestCase):
+    def test_marked_reader_converts_only_the_frames_selected_for_analysis(self):
+        release = threading.Event()
+        converted = []
+
+        class Reader:
+            source_ordinal = -1
+
+            def read(self):
+                raise AssertionError("A sampled reader should use its native frames")
+
+            def read_native(self):
+                self.source_ordinal += 1
+                if self.source_ordinal == 4:
+                    release.wait(2)
+                    raise OSError("EOF")
+                return self.source_ordinal, self.source_ordinal / 30
+
+            def to_image(self, ordinal):
+                converted.append(ordinal)
+                return ordinal
+
+            def close(self):
+                pass
+
+        with Capture(Reader, fps=15, source_fps=30) as capture:
+            try:
+                frames = [capture.next(timeout=2), capture.next(timeout=2)]
+                self.assertEqual([frame.source_ordinal for frame in frames], [0, 2])
+                self.assertEqual(converted, [0, 2])
+            finally:
+                capture.stop.set()
+                release.set()
+
     def test_eof_counts_every_queued_tail_frame_before_the_reconnect_epoch(self):
         tail_ready = threading.Event()
         eof = threading.Event()

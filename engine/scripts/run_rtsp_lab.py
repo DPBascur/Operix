@@ -775,6 +775,12 @@ def run(args, status, stop_reason):
                     status.last_frame_received = frame.received
                     last_frame = now
                     failures_at_frame = failures
+                    with capture.ready:
+                        disconnected = capture.counts["open_failure"] + capture.counts["read_failure"] > failures
+                    if disconnected:
+                        overlay.clear()
+                    else:
+                        overlay.publish(completed)
                     preview_due = now - last_preview >= preview_interval or epoch_reason is not None
                     keep_context = publisher.has_quota
                     publisher.submit(candidates, context, received_at, processed_at, frame, epoch, annotated)
@@ -798,8 +804,6 @@ def run(args, status, stop_reason):
                         disconnected = capture.counts["open_failure"] + capture.counts["read_failure"] > failures
                     if disconnected:
                         overlay.clear()
-                    else:
-                        overlay.publish(monotonic())
                     status.write("processing")
         finally:
             overlay.clear()

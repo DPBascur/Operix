@@ -101,5 +101,5 @@ EOF
     elif [ -n "$desired" ] && [ "$state" = idle ]; then
         report idle
     fi
-    sleep 1
+    sleep 0.25
 done

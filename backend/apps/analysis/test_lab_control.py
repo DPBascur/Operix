@@ -315,9 +315,13 @@ class ManagedLabTests(APITestCase):
             self.ack(first.playback["token"], "eof")
             lab_control.reconcile()
             stop.assert_called_once()
+            pending = self.progress()["pending"]["token"]
+            self.assertNotEqual(pending, first.playback["token"])
+            self.ack(pending, "idle")
             lab_control.reconcile()
             self.assertEqual(self.progress()["position"], 0)
-            self.assertEqual(self.lease()[0], first.playback["token"])
+            self.assertEqual(self.lease(), [pending, "idle"])
+            self.assertEqual(start.call_count, 1)
             first.active = False
             first.save(update_fields=["active"])
             lab_control.reconcile()
@@ -325,9 +329,17 @@ class ManagedLabTests(APITestCase):
             self.assertEqual(first.playback["transition"]["reason"], "media_eof")
             self.assertEqual(first.playback["transition"]["outcome"], "expected")
             self.assertEqual(self.progress()["position"], 1)
-            self.assertEqual(self.lease(), [self.progress()["token"], "idle"])
+            self.assertEqual(self.lease(), [pending, "idle"])
+            self.assertEqual(self.progress()["token"], pending)
             self.assertNotEqual(self.lease()[0], first.playback["token"])
-            next_run = self.launch_clip(ready)
+            ready.return_value = False
+            lab_control.reconcile()
+            self.assertEqual(self.lease()[:2], [pending, "play"])
+            self.assertFalse(CameraRun.objects.filter(active=True).exists())
+            ready.return_value = True
+            self.ack(pending, "playing")
+            lab_control.reconcile()
+            next_run = CameraRun.objects.get(active=True)
             self.assertEqual(next_run.provenance["filename"], "second.mp4")
             self.assertNotEqual(next_run.snapshot.source_sha256, first.snapshot.source_sha256)
             self.ack(next_run.playback["token"], "eof")
@@ -387,8 +399,16 @@ class ManagedLabTests(APITestCase):
             self.assertEqual(progress["position"], 0)
             self.assertNotEqual(progress["token"], run.playback["token"])
             self.assertGreater(progress["retry_at"], time())
+            self.assertEqual(progress["failures"], 1)
             self.assertEqual(progress["last_transition"]["reason"], "publisher_interrupted")
             self.assertEqual(progress["last_transition"]["outcome"], "interrupted")
+
+    @patch("apps.analysis.lab_control.time", return_value=1000.)
+    def test_retry_delay_grows_only_after_repeated_failure(self, clock):
+        delays = [lab_control.new_attempt("signature", failures=i)["retry_at"] - clock.return_value
+                  for i in range(1, lab_control.MAX_RETRY_ATTEMPTS + 1)]
+        self.assertEqual(delays, [1, 2, 4, 8, 16, 30])
+        self.assertEqual(lab_control.new_attempt("signature")["retry_at"], 0)
 
     def test_repeat_wraps_to_first_position_after_last_clip(self):
         control = self.configure(repeat=True)

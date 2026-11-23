@@ -10,8 +10,9 @@ import { CameraLiveOverlay, type OverlayStats } from "./camera-live-overlay";
 import { usePageVisible } from "./camera-visibility";
 
 const hlsMime = "application/vnd.apple.mpegurl";
-const progressTimeout = 15_000;
-const maxRetryDelay = 20_000;
+const progressTimeout = 5_000;
+const initialRetryDelay = 500;
+const maxRetryDelay = 8_000;
 const statusLabels = {
   connecting: "Conectando video…",
   playing: "Reproduciendo",
@@ -233,12 +234,13 @@ function LiveStream({
     const nativeSupported = Boolean(video.canPlayType(hlsMime));
     let tryNative = false;
     let allowMseFallback = true;
-    let retryDelay = 2000;
+    let retryDelay = initialRetryDelay;
     let retryTimer: ReturnType<typeof setTimeout>;
     let disconnect: (() => void) | undefined;
 
     async function connect() {
       if (disposed) return;
+      setStatus("connecting");
       let hls: Hls | undefined;
       let stopped = false;
       let blocked = false;
@@ -253,7 +255,7 @@ function LiveStream({
 
       function onFrame(now: number, frame: VideoFrameCallbackMetadata) {
         lastProgress = now;
-        retryDelay = 2000;
+        retryDelay = initialRetryDelay;
         if (!previousFrame) previousFrame = frame;
         const elapsed = frame.presentationTime - previousFrame.presentationTime;
         if (elapsed >= 1000) {
@@ -352,7 +354,7 @@ function LiveStream({
           const now = performance.now();
           if (!canMeasureFrames) {
             lastProgress = now;
-            retryDelay = 2000;
+            retryDelay = initialRetryDelay;
           }
           if (now - lastEdgeSample < 1000) return;
           lastEdgeSample = now;
@@ -415,7 +417,7 @@ function LiveStream({
       clearTimeout(retryTimer);
       disconnect?.();
     };
-  }, [id, pauseButton, sourceClock]);
+  }, [id, pauseButton, runId, sourceClock]);
 
   const playing = status === "playing";
   const frameRate = playing ? cameraNumber(fps, " FPS visibles") : null;

@@ -88,6 +88,11 @@ whether to repeat the playlist. Each segment has a new worker and run snapshot,
 with its own source hash, time base, tracking and rule state. The controller
 records expected ends of media separately from interrupted streams. A change
 of viewpoint that conflicts with saved spatial settings requires confirmation.
+At EOF, the next lease can be acknowledged while the old worker drains. The
+next emission waits for that worker to exit and for the old RTSP path to close.
+Interrupted playback retries the same playlist item with a fresh lease and
+delays of 1, 2, 4, 8, 16 and up to 30 seconds. Healthy analyzed playback resets
+the failure count.
 Managed playlists accept verified clips of up to 29 minutes, leaving startup
 and shutdown time within the worker's 30-minute limit.
 

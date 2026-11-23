@@ -51,6 +51,14 @@ class ClockedReader:
             raise OSError("Apertura RTSP sincronizada fallida") from None
 
     def read(self):
+        frame, pts = self.read_native()
+        return self.to_image(frame), pts
+
+    @staticmethod
+    def to_image(frame):
+        return frame.to_ndarray(format="bgr24")
+
+    def read_native(self):
         try:
             frame = next(self.frames)
             if (frame.width, frame.height) != self.dimensions:
@@ -67,7 +75,7 @@ class ClockedReader:
                     raise OSError("PTS RTSP incompatible con la cadencia de origen")
             self.source_ordinal = ordinal
             self.last_pts = pts
-            return frame.to_ndarray(format="bgr24"), pts
+            return frame, pts
         except (StopIteration, self.av.FFmpegError):
             raise OSError("Decodificación RTSP sincronizada fallida") from None
 

@@ -83,6 +83,9 @@ class Capture:
                 start_source_index = source_index
                 prior_ordinal = None
                 sampler = TemporalSampler(self.source_fps, self.fps) if self.source_fps > self.fps else None
+                read = getattr(reader, "read_native", reader.read) if sampler else reader.read
+                # Validate every picture and its timestamp, but convert only selected ones to BGR.
+                convert = getattr(reader, "to_image", None) if sampler else None
                 while not self.stop.is_set():
                     # Dejar que el consumidor vacíe la ráfaga del sondeo inicial.
                     # Tras el plazo, volver a priorizar frescura con la política normal.
@@ -98,7 +101,7 @@ class Capture:
                         if self.stop.is_set():
                             break
                     reading = monotonic()
-                    image, pts = reader.read()
+                    image, pts = read()
                     received = monotonic()
                     ordinal = getattr(reader, "source_ordinal", None)
                     ordinal_gap = prior_ordinal is not None and ordinal != prior_ordinal + 1
@@ -121,6 +124,8 @@ class Capture:
                             continue
                         if len(self.queue) == self.capacity:
                             self._discard("queue_drop")
+                        if convert:
+                            image = convert(image)
                         self.queue.append(Frame(index, self.connection, received, pts, image,
                                                 len(self.queue) + 1, source_gap, source_index - 1, ordinal))
                         index += 1
