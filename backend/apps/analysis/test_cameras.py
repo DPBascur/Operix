@@ -1,3 +1,4 @@
+from datetime import timedelta
 import json
 import os
 from pathlib import Path
@@ -6,7 +7,9 @@ from unittest.mock import Mock, patch
 from uuid import uuid4
 
 from django.contrib.auth import get_user_model
+from django.utils.timezone import now
 from rest_framework.test import APIClient, APITestCase
+from apps.events.models import Event
 
 from .camera_registry import approved_destination
 from .cameras import default_document, reap_run, run_dir, status_for
@@ -47,6 +50,41 @@ class CameraLabTests(APITestCase):
                                     "OPERIX_LAB_CAM_01_ALLOWED_IP": "10.10.2.8"}):
             with self.assertRaises(ValueError):
                 approved_destination("lab-cam-01")
+
+    def test_last_event_matches_camera_history_after_run_rollover(self):
+        camera = inventory()["lab-cam-01"]
+        at = now()
+
+        def new_run():
+            snapshot = AnalysisRunSnapshot.objects.create(
+                pk=uuid4(), source_sha256=camera.spatial_key, profile=camera.profile,
+                configuration=default_document(camera), config_sha256="a" * 64,
+            )
+            return CameraRun.objects.create(snapshot=snapshot, camera_id=camera.id, active=False)
+
+        former = new_run()
+
+        def event_at(occurred_at, source):
+            return Event.objects.create(
+                analysis_run_id=former.pk, view_id=camera.id, occurred_at=occurred_at,
+                video_timestamp_s=0, frame_index=0, event_type="zone_dwell",
+                rule_id=uuid4().hex, rule_version=1, rule_parameters={}, zone_id="frame",
+                source=source,
+            )
+
+        source = {"kind": "lab", "camera_id": camera.id}
+        latest = event_at(at, source)
+        event_at(at - timedelta(seconds=1), source)
+        event_at(at + timedelta(seconds=1), {"kind": "lab", "camera_id": "lab-cam-02"})
+        event_at(at + timedelta(seconds=2), {"kind": "upload", "camera_id": camera.id})
+        current = new_run()
+
+        response = self.admin.get(self.camera)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["run_id"], str(current.pk))
+        self.assertIsNotNone(response.data["last_event"])
+        self.assertEqual(response.data["last_event"]["id"], latest.pk)
 
     def test_shared_broker_unavailable_leaves_no_camera_run(self):
         with (self.settings(EVENT_POST_ENABLED=True),

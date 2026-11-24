@@ -169,6 +169,7 @@ class PatternCalibrationTests(APITestCase):
         )
         CameraRun.objects.create(snapshot=suspended, camera_id="lab-cam-01", active=False,
                                  terminal_state="stopped")
+        self.assertTrue(self.admin.get(self.camera).data["calibration_requires_reconfirmation"])
         with (patch("apps.analysis.cameras.camera_worker_destination", return_value=("10.0.0.2", "rtsp://10.0.0.2/live")),
               patch("apps.analysis.cameras.subprocess") as worker):
             refused = self.admin.post(self.camera + "start/", {}, format="json")

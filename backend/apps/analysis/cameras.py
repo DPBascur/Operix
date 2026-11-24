@@ -159,10 +159,18 @@ def camera_json(request, camera):
     run = last_run(camera.id)
     state, metrics, runtime = status_for(run)
     document, revision = document_for(camera)
-    event = Event.objects.filter(analysis_run_id=run.pk).order_by("-created_at").first() if run else None
+    event = Event.objects.filter(source__kind="lab", source__camera_id=camera.id).only(
+        "id", "event_type", "occurred_at",
+    ).first()
     _, policy = effective(camera, document, request.user.pk)
     active_snapshot = run.snapshot if run and run.active else None
     capture_camera = replace(camera, provenance=run.provenance) if active_snapshot else camera
+    calibration_hash = (document.get("calibration") or {}).get("sha256")
+    calibration_run, calibration_metrics = run, metrics
+    if run and calibration_hash and (run.snapshot.configuration.get("calibration") or {}).get("sha256") != calibration_hash:
+        # A newer uncalibrated run does not clear an invalidation of this revision.
+        calibration_run = last_run(camera.id, calibration_sha256=calibration_hash)
+        _, calibration_metrics, _ = status_for(calibration_run)
     preview = run_dir(run.pk) / "preview.jpg" if run else None
     if camera_registry.automatic(camera) and (state != "analyzing" or not recent_frame(runtime)):
         preview = None
@@ -196,7 +204,7 @@ def camera_json(request, camera):
         "expected_fps": camera.expected_fps, "width": camera.width, "height": camera.height,
         "configured_analysis_fps": None if view_only else camera.expected_fps, "configured_source_fps": camera.capture_fps,
         "status": state, "metrics": metrics, "configuration": document, "revision": revision,
-        "calibration_requires_reconfirmation": bool(calibration_issue(capture_camera, document, run, metrics)),
+        "calibration_requires_reconfirmation": bool(calibration_issue(capture_camera, document, calibration_run, calibration_metrics)),
         "policy": active_snapshot.policy if active_snapshot else policy,
         "effective_rules": active_snapshot.configuration.get("rules", []) if active_snapshot else None,
         "run_id": str(run.pk) if run else None,

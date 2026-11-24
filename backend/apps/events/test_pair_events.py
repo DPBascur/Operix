@@ -82,6 +82,14 @@ class PairEventApiTests(APITestCase):
         included = self.post(payload)
         self.assertEqual(included.status_code, 201, included.data)
 
+    def test_non_string_distance_unit_is_400_without_persistence(self):
+        for unit in ([], {}):
+            with self.subTest(unit=unit):
+                payload = deepcopy(self.payload)
+                payload["rule_parameters"]["distance_unit"] = unit
+                self.assertEqual(self.post(payload).status_code, 400)
+        self.assertFalse(Event.objects.exists())
+
     def test_extreme_pair_parameters_are_400_without_persistence(self):
         for name in ("max_distance", "minimum_duration_seconds"):
             for value in (10**1000, math.nan, math.inf, -math.inf, "9" * 5000, "bad", True, None, [], -1):

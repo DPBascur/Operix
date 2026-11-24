@@ -98,12 +98,20 @@ class CalibrationPatternTests(unittest.TestCase):
 
     def test_partial_visibility_can_pass_with_temporal_and_spatial_support(self):
         pattern = layout()
-        frames = [render(pattern, 0, occluded=1), render(pattern, 1, missing=(3,)), render(pattern, 2)]
+        frames = [render(pattern, 0, occluded=1), render(pattern, 1, missing=(3,)), render(pattern, 2), render(pattern, 3)]
         result = propose_calibration(frames, pattern)
         self.assertEqual(result["status"], "candidate", result)
-        self.assertEqual(result["quality"]["observations_by_marker"]["1"], 2)
-        self.assertEqual(result["preview_frame_index"], 2)
+        self.assertEqual(result["quality"]["observations_by_marker"]["1"], 3)
+        self.assertIn(result["preview_frame_index"], (2, 3))
         self.assertTrue(result["reference_marker_corners"].keys() <= result["marker_corners"].keys())
+
+    def test_alternating_occlusions_cannot_confirm_a_never_visible_pattern(self):
+        pattern = layout(count=4)
+        frames = [render(pattern, i, missing=(2 + i % 2,)) for i in range(4)]
+        result = propose_calibration(frames, pattern)
+        self.assertEqual(result["status"], "requires_review")
+        self.assertIn("insufficient_temporal_support", result["reasons"])
+        self.assertEqual(result["quality"]["supporting_frames"], 0)
 
     def test_both_dictionaries_on_same_dimmed_and_blurred_perspective(self):
         endpoints = (image_points([[1, 1], [3, 2]]) / [WIDTH, HEIGHT]).tolist()

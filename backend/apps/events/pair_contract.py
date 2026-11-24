@@ -46,13 +46,14 @@ def validate_pair_parameters(parameters):
         raise ValidationError("La exclusión experimental es booleana y solo se admite para proximidad")
     number(parameters["max_distance"], "max_distance")
     # hypot(dx/width, dy/height): ambos ejes en [0,1], diagonal máxima sqrt(2).
-    if parameters.get("distance_unit","normalized") not in {"normalized","m"}:
+    unit = parameters.get("distance_unit", "normalized")
+    if not isinstance(unit, str) or unit not in {"normalized", "m"}:
         raise ValidationError("Unidad no soportada")
-    if parameters.get("distance_unit","normalized") == "normalized" and parameters["max_distance"] > math.sqrt(2):
+    if unit == "normalized" and parameters["max_distance"] > math.sqrt(2):
         raise ValidationError({"max_distance": "Debe estar entre 0 y sqrt(2) normalizado en imagen."})
     number(parameters["minimum_duration_seconds"], "minimum_duration_seconds")
     if parameters["kind"] == "zone_coexistence" and (
-        parameters.get("distance_unit","normalized") != "normalized"
+        unit != "normalized"
         or abs(parameters["max_distance"]-math.sqrt(2)) > 1e-12
     ):
         raise ValidationError("Coexistencia requiere presencia conjunta, sin umbral métrico")

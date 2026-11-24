@@ -355,7 +355,10 @@ def propose_calibration(frames, pattern, control_distances=()):
                   for marker in ids if marker in markers}
         max_error = max((float(error.max()) for error in errors.values()), default=None)
         frame_errors.append(max_error)
-        good_frames += sum(error.max() <= MAX_ERROR_PX for error in errors.values()) >= MIN_DISTRIBUTED_MARKERS
+        # The runtime guard checks the saved reference set together in one frame.
+        good_frames += selected_set <= errors.keys() and all(
+            errors[marker].max() <= MAX_ERROR_PX for marker in selected_set
+        )
     max_pixel_error = max(error for error in frame_errors if error is not None)
     metric_errors = np.concatenate([
         np.linalg.norm(_transform(np.asarray(observations[marker]) / dimensions, matrix) - ground[marker], axis=2).ravel()

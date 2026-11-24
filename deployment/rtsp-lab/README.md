@@ -396,7 +396,8 @@ Usa esa posición como origen del cuadrado y el giro desde sus ejes locales.
 Registra cómo obtuviste las medidas. Las referencias deben estar en el plano
 que se va a medir.
 
-Detén la cámara y captura una propuesta. Revisa las etiquetas, el área de
+En **Fuentes → cámara → Calibrar distancias**, captura la imagen de la
+emisión actual y revisa los marcadores detectados. Revisa el área de
 cobertura y las zonas. Luego marca los dos extremos de un segmento distinto
 de las referencias y compruébalo con una distancia medida en el suelo y su
 tolerancia. La cuadrícula queda limitada a la envolvente de las referencias.
@@ -423,3 +424,21 @@ habilítala. La cámara permanece deshabilitada hasta esa acción.
 Con capacidad de análisis de dos cámaras, la plaza 03 publica LL-HLS en
 modo **Solo video**. Una capacidad de tres requiere una prueba sostenida de
 ONNX CUDA en el entorno de destino antes de habilitarla.
+
+### Recorrido de demostración
+
+1. En [Operix local](http://127.0.0.1:13000), abre **Gestión → Control de
+   cámaras** con una cuenta autorizada. Asigna una grabación de laboratorio
+   autorizada a cada una de las dos plazas y habilita el laboratorio.
+2. En **Fuentes**, abre el monitoreo de ambas cámaras. En el detalle de una
+   cámara, activa las capas de detección, seguimiento y distancias. Comprueba
+   los identificadores sobre el video y revisa la regla activa en sus ajustes.
+   Con grabaciones sin escala física confirmada, utiliza la distancia `norm.`.
+3. Para mostrar el expediente, elige una grabación que contenga una permanencia
+   continua en una zona configurada. Espera el registro y abre **Eventos**,
+   filtrando por cámara y procedencia de laboratorio. Revisa el fotograma,
+   el clip y la versión de la regla. El evento registra una condición
+   configurada satisfecha y requiere revisión humana.
+4. Al finalizar, devuelve el laboratorio y las listas de reproducción al
+   estado previo. Si ensayas reconexiones o cambias una calibración, utiliza
+   una instancia QA aislada.
