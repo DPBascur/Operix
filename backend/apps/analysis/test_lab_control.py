@@ -96,6 +96,28 @@ class ManagedLabTests(APITestCase):
             self.assertEqual(self.admin.patch(self.endpoint, {"playlists": {camera_id: forged}}, format="json").status_code, 400)
             self.assertEqual(self.client.get("/api/v1/analysis/cameras/lab-cam-03/live/index.m3u8").status_code, 401)
 
+    def test_invalid_playback_position_is_ignored_and_restarted(self):
+        camera_id = "lab-cam-01"
+        camera = inventory()[camera_id]
+        catalog, _ = media_registry()
+        playlist = {"media_ids": [camera_id], "repeat": True}
+        signature = lab_control.playlist_signature(playlist, catalog)
+        for position in (1, -1, "0", True, None):
+            with self.subTest(position=position), patch.object(lab_control, "rtsp_ready", return_value=False):
+                progress = lab_control.new_attempt(signature, position)
+                CameraLabControl.objects.update_or_create(pk=lab_control.CONTROL_ID, defaults={
+                    "enabled": True, "playlists": {camera_id: playlist}, "playback": {camera_id: progress},
+                })
+                response = self.admin.get(self.endpoint)
+                self.assertEqual(response.status_code, 200)
+                row = next(row for row in response.data["cameras"] if row["id"] == camera_id)
+                self.assertEqual(row["playlist_position"], 0)
+                self.assertEqual(CameraLabControl.objects.get().playback[camera_id], progress)
+
+                restarted = lab_control.reconcile_slot(camera_id, camera, playlist, catalog, progress, None, self.owner)
+                self.assertEqual(restarted["position"], 0)
+                self.assertNotEqual(restarted["token"], progress["token"])
+
     def test_third_slot_video_only_reconciles_eof_without_a_worker(self):
         with patch.dict(os.environ, {"OPERIX_CAMERA_LAB_THIRD_SLOT": "1", "OPERIX_CAMERA_LAB_CAPACITY": "2"}):
             camera_id = "lab-cam-03"

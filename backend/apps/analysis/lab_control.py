@@ -201,6 +201,11 @@ def playlist_signature(playlist, catalog):
     return hashlib.sha256(json.dumps([sources, playlist["repeat"]], sort_keys=True).encode()).hexdigest()
 
 
+def valid_playlist_position(progress, playlist):
+    position = progress.get("position")
+    return type(position) is int and 0 <= position < len(playlist["media_ids"])
+
+
 def new_attempt(signature, position=0, cycle=0, last=None, *, failures=0):
     delay = min(MAX_RETRY_SECONDS, 2 ** (failures - 1)) if failures else 0
     return {"signature": signature, "position": position, "cycle": cycle, "last_transition": last,
@@ -271,8 +276,8 @@ def reconcile_slot(id_, camera, playlist, catalog, progress, run, owner):
         drain(run, breadcrumb("expected", "view_only", run.playback))
         return progress
     signature = playlist_signature(playlist, catalog)
-    changed = progress.get("signature") != signature
-    if run and run.active and (changed or run.playback.get("token") != progress.get("token")):
+    stale = progress.get("signature") != signature or not valid_playlist_position(progress, playlist)
+    if run and run.active and (stale or run.playback.get("token") != progress.get("token")):
         # Keep the prior publisher unchanged during the drain, if its lease still exists.
         try:
             previous = marker(id_).read_text(encoding="ascii").split()
@@ -285,7 +290,7 @@ def reconcile_slot(id_, camera, playlist, catalog, progress, run, owner):
         return progress
 
     transition = seal_playback(run, state, runtime) if run and run.managed and not run.active else None
-    if changed:
+    if stale:
         return release_to_attempt(id_, signature, last=transition or progress.get("last_transition"))
     if progress["phase"] in {"finished", "duration_blocked"}:
         return progress
@@ -453,7 +458,7 @@ def describe(request):
         detail = None
         playlist = playlists[id_]
         progress = (control.playback.get(id_, {}) if control else {})
-        if progress.get("signature") != playlist_signature(playlist, catalog):
+        if progress.get("signature") != playlist_signature(playlist, catalog) or not valid_playlist_position(progress, playlist):
             progress = {}
         position = progress.get("position", 0)
         media_ids = playlist["media_ids"]

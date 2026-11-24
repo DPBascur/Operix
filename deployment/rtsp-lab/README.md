@@ -37,11 +37,28 @@ cameras.
 | `OPERIX_CAMERA_LAB_FPS` | 12 | Integer, 1–30 |
 | `OPERIX_CAMERA_LAB_LOOP_GAP_SECONDS` | 2 | Positive integer |
 
+For mixed rates, set `OPERIX_LAB_CAM01_FPS`, `OPERIX_LAB_CAM02_FPS`, or
+`OPERIX_LAB_CAM03_FPS` in the Compose environment. Use the matching
+`OPERIX_LAB_CAMxx_SOURCE_FPS` to set that publisher's cadence. The analysis
+rate must be at most the source rate. Without a slot override, Compose uses
+the global configuration. Operix reports the configured rates separately,
+and deliberate sampling is accounted for separately from overload drops.
+Apply a profile during a maintenance window so each new run can establish
+its own cadence and tracking epoch.
+
 The backend stays on the product's default network and also joins
 `rtsp-lab`, named `operix_rtsp-lab` for the default project. MediaMTX and
 the publishers join only that internal network. MediaMTX serves RTSP there
 and binds its Control API to loopback inside its container.
 The lab publishes zero host ports.
+
+For a benchmark that recreates the QA Backend, check the direct Django
+control endpoint and the browser-facing proxy separately before activating
+cameras. `benchmark_readiness.py` provides this check for an authenticated
+harness. A proxy read reset can surface as HTTP 500 while direct Django
+is healthy. The check permits three proxy reads and fails on authorization
+errors, Django failures, or an active laboratory. Use authenticated control
+writes on the QA Backend loopback and exercise playback through the frontend.
 
 ## Control from Operix
 

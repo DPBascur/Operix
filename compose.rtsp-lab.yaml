@@ -47,7 +47,6 @@ x-lab-publisher: &lab-publisher
 x-publisher-settings: &publisher-settings
   VIDEO_WIDTH: &lab-width ${OPERIX_CAMERA_LAB_WIDTH:-960}
   VIDEO_HEIGHT: &lab-height ${OPERIX_CAMERA_LAB_HEIGHT:-540}
-  VIDEO_FPS: &lab-source-fps ${OPERIX_CAMERA_LAB_SOURCE_FPS:-${OPERIX_CAMERA_LAB_FPS:-12}}
   LOOP_GAP_SECONDS: ${OPERIX_CAMERA_LAB_LOOP_GAP_SECONDS:-2}
 
 services:
@@ -58,12 +57,12 @@ services:
       OPERIX_CAMERA_LAB_MANIFEST: /data/rtsp-lab/${OPERIX_CAMERA_LAB_MANIFEST_FILE:-manifest.json}
       OPERIX_LAB_CAM01_WIDTH: *lab-width
       OPERIX_LAB_CAM01_HEIGHT: *lab-height
-      OPERIX_LAB_CAM01_FPS: &lab-fps ${OPERIX_CAMERA_LAB_FPS:-12}
-      OPERIX_LAB_CAM01_SOURCE_FPS: *lab-source-fps
+      OPERIX_LAB_CAM01_FPS: ${OPERIX_LAB_CAM01_FPS:-${OPERIX_CAMERA_LAB_FPS:-12}}
+      OPERIX_LAB_CAM01_SOURCE_FPS: &lab-source-fps-01 ${OPERIX_LAB_CAM01_SOURCE_FPS:-${OPERIX_CAMERA_LAB_SOURCE_FPS:-${OPERIX_LAB_CAM01_FPS:-${OPERIX_CAMERA_LAB_FPS:-12}}}}
       OPERIX_LAB_CAM02_WIDTH: *lab-width
       OPERIX_LAB_CAM02_HEIGHT: *lab-height
-      OPERIX_LAB_CAM02_FPS: *lab-fps
-      OPERIX_LAB_CAM02_SOURCE_FPS: *lab-source-fps
+      OPERIX_LAB_CAM02_FPS: ${OPERIX_LAB_CAM02_FPS:-${OPERIX_CAMERA_LAB_FPS:-12}}
+      OPERIX_LAB_CAM02_SOURCE_FPS: &lab-source-fps-02 ${OPERIX_LAB_CAM02_SOURCE_FPS:-${OPERIX_CAMERA_LAB_SOURCE_FPS:-${OPERIX_LAB_CAM02_FPS:-${OPERIX_CAMERA_LAB_FPS:-12}}}}
     networks: [default, rtsp-lab]
     volumes:
       - *lab-media
@@ -89,6 +88,7 @@ services:
     environment:
       <<: *publisher-settings
       CAMERA_PATH: lab-cam-01
+      VIDEO_FPS: *lab-source-fps-01
       VIDEO_FILE: ${OPERIX_CAMERA_LAB_VIDEO_01:-lab-cam-01.mp4}
       VIDEO_SHA256: ${OPERIX_CAMERA_LAB_SHA256_01:-e1625075af049a642505e815cbf3243499fcdc136422c2ecf5725cab5c4bc9eb}
 
@@ -97,6 +97,7 @@ services:
     environment:
       <<: *publisher-settings
       CAMERA_PATH: lab-cam-02
+      VIDEO_FPS: *lab-source-fps-02
       VIDEO_FILE: ${OPERIX_CAMERA_LAB_VIDEO_02:-lab-cam-02.mp4}
       VIDEO_SHA256: ${OPERIX_CAMERA_LAB_SHA256_02:-47deef759545ae785cf9e9c028f89b91bc665abf095c512e9a369ba51cf54696}
 
