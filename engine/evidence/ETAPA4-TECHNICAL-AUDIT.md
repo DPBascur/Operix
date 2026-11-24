@@ -1532,3 +1532,78 @@ acotado a la sonda. Las ventanas posteriores excedieron el control de
 GPU ociosa con actividad gráfica ajena a Operix. QA volvió a su
 configuración anterior. La capacidad sostenida de tres y cuatro
 cámaras sigue pendiente.
+
+### Ensayo sostenido con tres grabaciones SPARL
+
+La prueba usó tres grabaciones distintas del [dataset SPARL v2](https://zenodo.org/records/13318882)
+a 960×540, workers ONNX Runtime CUDA dedicados y el mosaico LL-HLS de Edge.
+El preflight del ensayo anterior registró `ECONNRESET` en el proxy Next
+al consultar Django. Un contenedor de prueba reprodujo la secuencia
+HTTP 200 directo y 500→200 por el proxy ante un cierre transitorio del
+upstream. La sonda valida ambos recorridos y acota los reintentos a
+lecturas del proxy. Una regresión separada cubre posiciones de playlist
+persistidas fuera de rango.
+
+Con tres entradas de 15 FPS, Edge presentó 14,01, 14,77 y 13,24 FPS
+durante 1.801,64 s. El Motor decodificó cerca de 15 FPS y analizó
+14,44, 14,33 y 14,44 FPS en intervalos consecutivos del mismo run en
+estado de análisis. Al incluir las ventanas de inicio de los runs,
+el promedio fue 13,31, 14,11 y 12,11 FPS. Los contadores de intervalos
+muestreados registraron 939, 1.199 y 934 descartes. En esos totales,
+84, 18 y 143 correspondieron a desconexiones, respectivamente, y el
+contador de descartes de inferencia fue cero. El p95 local, desde la
+recepción del frame decodificado hasta la preparación del overlay,
+fue 433, 443 y 433 ms. PostgreSQL registró 109 eventos con cámara,
+fuente, configuración y reloj de captura compatibles. Los 109 tenían
+PNG y clip. El perfil de 15 FPS con tres cámaras no pasó el criterio
+de cobertura y descartes para promoción. Los contadores WDDM registraron
+actividad gráfica de Brave, Chrome y ChatGPT en algunas muestras, por
+lo que el ensayo tampoco establece la capacidad de una GPU aislada.
+
+La repetición con tres entradas a 12 FPS duró 1.800,91 s. Edge
+presentó 11,23, 11,81 y 10,69 FPS. Los intervalos estables registraron
+12,01, 12,00 y 11,98 FPS decodificados y 11,99, 11,98 y 11,95 FPS
+analizados. Incluidos los arranques, el promedio analizado fue 11,18,
+11,81 y 10,44 FPS. Se contabilizaron 98, 57 y 144 descartes, incluidos
+59, 17 y 98 en desconexiones. El p95 local fue 57, 60 y 58 ms. Se
+comprobaron 128 eventos con PNG, clip y trazabilidad de captura. La
+tercera grabación, de 66,47 s, vuelve a abrir el decodificador y el
+worker al terminar cada ciclo. Su cadencia con transiciones quedó bajo
+el criterio del 90 % del objetivo. El perfil de dos cámaras a 15 FPS
+sigue siendo la referencia aprobada para el laboratorio. La prueba
+con tres fuentes no demuestra un límite de hardware en régimen continuo.
+
+### Ajuste fino industrial con evaluación separada por instalación
+
+La preparación de [LOCO (CC0 1.0)](https://github.com/tum-fml/loco)
+separó 3.127 imágenes de entrenamiento, 1.060 de validación y 864 de
+prueba por instalación. Reservó las 45 imágenes de la evaluación
+anterior y excluyó duplicados exactos o perceptuales entre conjuntos.
+La evaluación se hizo con cajas humanas para `FORKLIFT` y `PALLET_JACK`.
+El conjunto no etiqueta personas, motorización, apiladores ni
+montacargas de mástil retráctil como clases separadas.
+
+Se probaron dos ajustes de YOLO11n para estas dos clases. Primero se
+usaron 240 imágenes durante tres épocas en CPU. El entrenamiento
+completo usó cinco épocas en CUDA FP32. El candidato completo y
+FORKLIFT v2 congelado se evaluaron en la misma instalación reservada,
+con entrada 384×640 y los mismos criterios de correspondencia.
+
+| Modelo / clase | TP / FP / FN a 0,45 e IoU ≥ 0,50 | AP50 | AP50–95 |
+| --- | --- | ---: | ---: |
+| Congelado / FORKLIFT | 20 / 240 / 165 | 0,0616 | 0,0327 |
+| Candidato completo / FORKLIFT | 0 / 0 / 185 | 0 | 0 |
+| Candidato completo / PALLET_JACK | 1 / 26 / 298 | 0,0182 | 0,0046 |
+
+La mediana del coste por imagen, con lotes de ocho en CUDA FP32,
+fue 15,20 ms para el congelado y 15,66 ms para el candidato. El pico
+de asignación de PyTorch fue 154 y 164 MiB, respectivamente. Esos
+valores describen el comparador de imágenes, fuera del flujo RTSP.
+La mejora observada en validación del ajuste fino no se sostuvo en
+la instalación reservada. Se mantuvieron los pesos congelados y
+`UNKNOWN` donde falta respaldo para la categoría operacional.
+
+Una prueba sintética de 72 pares de contactos con el suelo confirmó
+que duplicar la escala de la escena y la altura de la cámara conserva
+la proyección de los píxeles. Se mantiene la calibración por referencias
+físicas y la distancia normalizada cuando no hay escala comprobada.
