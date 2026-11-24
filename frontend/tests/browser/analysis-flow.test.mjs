@@ -952,15 +952,25 @@ test(
       await evaluate(`(() => {
         const inputs = ${calibrationPanel}.querySelectorAll('input');
         const values = ['1','0','0','0,2','0','2','3','0','0,2','0','3','0','3','0,2','0','Plano medido fixture'];
+        inputs[15].focus();
         inputs.forEach((input,i) => {
           Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input, values[i]);
           input.dispatchEvent(new Event('input',{bubbles:true}));
         });
       })()`);
+      const references = `${calibrationPanel}.querySelector('details')`;
+      assert.ok(await evaluate(`${references}.open && document.activeElement === ${references}.querySelectorAll('input')[15]`));
+      await control({ discoveryMarkerIds: [2, 3, 4] });
+      await click("Volver a capturar imagen");
+      await wait(text("Marcadores detectados · 2, 3, 4"));
+      assert.deepEqual(
+        await evaluate(`Array.from(${references}.querySelectorAll('input'), ({ value }) => value)`),
+        ["1", "0", "0", "0,2", "0", "2", "3", "0", "0,2", "0", "3", "0", "3", "0,2", "0", "Plano medido fixture"],
+      );
       await click("Capturar propuesta");
       await wait(text("Distribuye los marcadores por una parte más amplia del suelo."));
       assert.equal(await evaluate(`!!${calibrationPanel}.querySelector('button[aria-label^="Marcar punto"]')`), false);
-      assert.equal((await control()).calibrationRequests.length, 2);
+      assert.equal((await control()).calibrationRequests.length, 3);
       await control({ calibrationCandidate: true });
       await click("Capturar nueva propuesta");
       await wait(`!!${calibrationPanel}.querySelector('button[aria-label^="Marcar punto"]')`);
@@ -995,8 +1005,10 @@ test(
       assert.equal(await evaluate(`[...document.querySelectorAll('button')].find(b=>b.innerText==='Iniciar monitoreo').disabled`), false);
       const { calibrationRequests } = await control();
       assert.deepEqual(calibrationRequests[0].body, { revision: 4 });
-      assert.equal(calibrationRequests[1].body.layout.provenance, "Plano medido fixture");
-      assert.equal(calibrationRequests[1].body.discovery_id, "fixture-discovery");
+      assert.deepEqual(calibrationRequests[1].body, { revision: 4 });
+      assert.equal(calibrationRequests[2].body.layout.provenance, "Plano medido fixture");
+      assert.deepEqual(calibrationRequests[2].body.layout.markers.map(({ id }) => id), [1, 2, 3]);
+      assert.equal(calibrationRequests[2].body.discovery_id, "fixture-discovery");
       assert.deepEqual(calibrationRequests.at(-1).body, {
         proposal_id: "fixture-signed-proposal", revision: 4, ground_confirmed: true, zones_reviewed: true,
         control: { image_points: [[0.5, 0.5], [0.51, 0.5]], distance_m: 2, tolerance_m: 0.02, provenance: "Cinta métrica fixture" },

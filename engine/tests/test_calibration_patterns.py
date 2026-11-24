@@ -21,8 +21,8 @@ VIEW = np.array([[128., 7., 130.], [5., 110., 75.], [.025, .035, 1.]])
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "propose_calibration.py"
 
 
-def image_points(ground):
-    return cv2.perspectiveTransform(np.asarray([ground], dtype=float), VIEW)[0]
+def image_points(ground, view=VIEW):
+    return cv2.perspectiveTransform(np.asarray([ground], dtype=float), view)[0]
 
 
 def layout(dictionary="DICT_4X4_50", count=5):
@@ -34,7 +34,7 @@ def layout(dictionary="DICT_4X4_50", count=5):
     ]}
 
 
-def render(pattern, sample=0, *, missing=(), shift=(0, 0), misplaced=None, occluded=None):
+def render(pattern, sample=0, *, missing=(), shift=(0, 0), misplaced=None, occluded=None, view=VIEW):
     aruco = cv2.aruco
     dictionary = aruco.getPredefinedDictionary(getattr(aruco, pattern["dictionary"]))
     frame = np.full((HEIGHT, WIDTH), 255, dtype=np.uint8)
@@ -43,7 +43,7 @@ def render(pattern, sample=0, *, missing=(), shift=(0, 0), misplaced=None, occlu
         marker_id = marker["id"]
         if marker_id in missing:
             continue
-        target = image_points(marker["corners_m"]) + shift
+        target = image_points(marker["corners_m"], view) + shift
         if marker_id == misplaced:
             target += [45, -32]
         tag = aruco.generateImageMarker(dictionary, marker_id, 120)
@@ -66,6 +66,49 @@ def cli(request, env=None):
 
 
 class CalibrationPatternTests(unittest.TestCase):
+    def test_synthetic_ground_grid(self):
+        pattern = layout()
+        oblique = np.array([[145., 10., 145.], [5., 130., 120.], [.105, .055, 1.]])
+        segments = {
+            "short": ((.65, .7), (1.4, .7)),
+            "interior": ((2., 1.), (3.7, 1.7)),
+            "far_row": ((1.1, 3.), (3.9, 3.)),
+            "near_side_boundary": ((4.7, 1.6), (4.7, 2.8)),
+            "long_diagonal": ((.6, .35), (4.6, 3.13)),
+        }
+        for name, view in (("mild", VIEW), ("oblique", oblique)):
+            for occlusion in (False, True):
+                with self.subTest(view=name, occlusion=occlusion):
+                    frames = [render(pattern, i, view=view,
+                                     occluded=1 if occlusion and i == 0 else None)
+                              for i in range(4)]
+                    proposal = propose_calibration(frames, pattern)
+                    self.assertEqual(proposal["status"], "candidate", proposal)
+                    self.assertEqual(proposal["quality"]["observations_by_marker"]["1"], 3 if occlusion else 4)
+                    self.assertTrue(proposal["grid"])
+                    controls = [
+                        {"image_points": (image_points(pair, view) / [WIDTH, HEIGHT]).tolist(),
+                         "distance_m": float(np.linalg.norm(np.subtract(*pair))),
+                         "tolerance_m": .03}
+                        for pair in segments.values()
+                    ]
+                    outside = dict(controls[0], image_points=[[0., 0.], controls[0]["image_points"][1]])
+                    checks = evaluate_control_distances(
+                        canonical(proposal), [*controls, outside], dimensions=(WIDTH, HEIGHT))
+                    self.assertEqual(checks[-1]["status"], "outside_footprint")
+                    self.assertTrue(all(check["status"] == "pass" for check in checks[:-1]), checks)
+                    errors = [check["absolute_error_m"] for check in checks[:-1]]
+                    relative = [check["relative_error"] for check in checks[:-1]]
+                    print(json.dumps(dict(
+                        view=name, partial_occlusion=occlusion, image_coverage=proposal["coverage"],
+                        absolute_error_m=dict(zip(segments, errors)),
+                        relative_error=dict(zip(segments, relative)),
+                        mean_absolute_error_m=float(np.mean(errors)),
+                        max_absolute_error_m=max(errors),
+                        p50_absolute_error_m=float(np.percentile(errors, 50)),
+                        p95_absolute_error_m=float(np.percentile(errors, 95)),
+                    )))
+
     def test_aruco_and_apriltag_recover_metric_scale_with_canonical_fit(self):
         for dictionary in ("DICT_4X4_50", "DICT_APRILTAG_36h11"):
             with self.subTest(dictionary=dictionary):

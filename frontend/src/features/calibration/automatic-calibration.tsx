@@ -224,11 +224,13 @@ export function AutomaticCalibration<T>({
         if (!controller.signal.aborted) {
           setDiscovery(next);
           const ids = next.references.slice(0, maxMarkers).map(({ id }) => String(id));
-          if (ids.length >= minMarkers) {
-            setMarkers((rows) => ids.map((id, key) => ({
-              key,
-              draft: rows.find(({ draft }) => draft.id === id)?.draft ?? { ...emptyMarker, id },
-            })));
+          if (
+            ids.length >= minMarkers &&
+            markers.every(({ draft }) =>
+              Object.values(draft).every((value) => !value.trim()),
+            )
+          ) {
+            setMarkers(ids.map((id, key) => ({ key, draft: { ...emptyMarker, id } })));
             markerId.current = ids.length;
           }
         }
@@ -399,7 +401,7 @@ export function AutomaticCalibration<T>({
             )}
           </section>
         )}
-        {showMeasurements && <details open={!isCamera || !layout}>
+        {showMeasurements && <details open={!isCamera || !proposal}>
         <summary>Referencias del suelo{layout ? " · Medidas disponibles" : ""}</summary>
         <fieldset disabled={disabled} className={styles.group}>
           <legend>Medidas físicas de las referencias</legend>

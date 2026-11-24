@@ -74,6 +74,7 @@ export async function startFixtureApi(port = 8000) {
   let labControl;
   let heldLabPreview;
   let calibrationPreview;
+  let discoveryMarkerIds = [1, 2, 3];
   let candidateAvailable;
   let calibrationRequests = [];
   const csrf = "TEST_ONLY_CSRF";
@@ -221,6 +222,7 @@ export async function startFixtureApi(port = 8000) {
             },
           };
           calibrationPreview = body.calibrationCamera;
+          discoveryMarkerIds = [1, 2, 3];
           candidateAvailable = false;
         }
         if (body.managedCamera) {
@@ -248,6 +250,8 @@ export async function startFixtureApi(port = 8000) {
         if (labControl && body.holdLabPreview) labControl.holdPreview = true;
         if (body.releaseLabPreview) heldLabPreview?.();
         if (body.calibrationCandidate) candidateAvailable = true;
+        if (Array.isArray(body.discoveryMarkerIds))
+          discoveryMarkerIds = body.discoveryMarkerIds;
         if (Number.isSafeInteger(body.historyCount)) historyCount = body.historyCount;
         if (Array.isArray(body.evidenceSteps)) {
           evidenceSteps = body.evidenceSteps;
@@ -537,7 +541,7 @@ export async function startFixtureApi(port = 8000) {
             return send({
               status: "requires_review", proposal_id: null, discovery_id: "fixture-discovery",
               preview_url: calibrationPreview, usable_polygon: [], grid: [], quality: {},
-              references: [1, 2, 3].map((id) => ({ id, corners: [] })),
+              references: discoveryMarkerIds.map((id) => ({ id, corners: [] })),
             });
           return send({
             status: candidateAvailable ? "candidate" : "requires_review",
