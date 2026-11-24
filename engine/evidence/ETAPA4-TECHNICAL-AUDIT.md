@@ -1341,3 +1341,194 @@ elimina el sondeo observado en la ruta web validada; el defecto binario upstream
 permanece como limitación ante otras rutas de error. No se garantiza ausencia
 universal de accesos inválidos. Trazas, scripts y medios del ensayo quedan locales,
 fuera de Git; no se utilizaron conjuntos protegidos.
+
+## Calibración de distancias en dev — 24 de noviembre de 2026
+
+La captura inicial de cámara detecta IDs ArUco en un fotograma nativo. La
+propuesta vuelve a capturar varios fotogramas para comprobar orientación,
+distribución y estabilidad, y muestra cobertura, reproyección y sensibilidad.
+El primer fotograma sirve para identificar referencias. La segunda captura
+comprueba que el plano medido sigue siendo aplicable a la señal y revisión
+vigentes. La sesión de video usa directamente las referencias medidas.
+
+El cuello de botella observado estaba en el ingreso manual. Cada recaptura
+podía reemplazar filas medidas por los IDs visibles, incluso si un marcador
+estaba oculto temporalmente. El asistente ahora autocompleta IDs cuando el
+borrador está vacío y conserva las filas y la procedencia en las recapturas.
+El panel de medidas sigue abierto al completar un campo y pasa a la revisión
+cuando llega una propuesta. Si faltan referencias, se puede mejorar la
+visibilidad de los marcadores y capturar otra vez con el mismo borrador.
+
+La confirmación exige una distancia independiente dentro del área evaluada,
+su tolerancia, un suelo coplanar con cámara fija y la revisión de zonas. La
+calibración guardada queda asociada a la fuente y revisión. En cámaras, una
+ejecución activa conserva su revisión y el nuevo ajuste se aplica en una
+ejecución compatible posterior. Las distancias físicas aproximadas se obtienen
+proyectando ambos bordes inferiores de las cajas sobre el suelo. Si falta una
+calibración aplicable, cambia el encuadre o algún extremo queda fuera del área
+respaldada, la observación puede seguir en unidades normalizadas y las reglas
+con umbrales en metros quedan sin distancia métrica aplicable. Centímetros es
+un formato de visualización de los mismos metros.
+
+### Alternativas evaluadas
+
+| Método | Aplicación a Operix |
+| --- | --- |
+| Patrón o referencias coplanares conocidas | Es la ruta más directa para fijar escala. Una cuadrícula de suelo levantada con cinta puede servir como referencia geométrica cuando sus puntos estén medidos y sean identificables en imagen. El patrón ArUco automatiza esa identificación y aporta controles temporales. |
+| Puntos de fuga y geometría del suelo | Pueden aportar orientación y relaciones geométricas. Para una escala física todavía se necesita una longitud de referencia en la escena. [Single View Metrology](https://ora.ox.ac.uk/objects/uuid%3A9b99df78-df75-49a9-a1b8-1b38e1b173a8) |
+| Intrínsecos y pose | Son útiles para corregir distorsión y proyectar rayos al suelo si se conocen los intrínsecos, la pose y la altura o un plano métrico medido. Exigen caracterizar cada instalación y reconfirmar tras cambios de lente, zoom, montaje o recorte. [OpenCV](https://docs.opencv.org/4.5.1/d9/dab/tutorial_homography.html) |
+| Profundidad monocular | La variante relativa carece de escala métrica propia. Incluso una variante métrica estima profundidad de escena y requeriría verificar pose, proyección al plano y contactos en el dominio industrial. Los errores de oclusión o de contacto afectarían directamente la separación horizontal. [Depth Anything V2](https://arxiv.org/abs/2406.09414) |
+
+El coste y la evidencia actuales favorecen el flujo ArUco con control
+independiente. Para comprobar generalización hacen falta capturas con
+geometría y separaciones levantadas en el lugar. Las escenas públicas de
+detección sin esas referencias aportan ejemplos visuales, pero no permiten
+calcular el error de distancia en este protocolo.
+
+### Cuadrícula sintética reproducible
+
+Desde `engine/`, con las dependencias de prueba instaladas, ejecutar:
+
+```powershell
+$env:PYTHONPATH = "src"
+.venv/Scripts/python.exe -B -m unittest discover -s tests -p test_calibration_patterns.py -k synthetic_ground_grid
+```
+
+La prueba renderiza cinco ArUco en un plano conocido a 960 × 600. Para cada
+perspectiva combina cuatro fotogramas con y sin oclusión parcial en uno de
+ellos. Evalúa cinco tramos independientes entre 0,75 y 4,87 m, incluida una
+diagonal y un tramo cerca del límite. Verifica el rechazo de un punto exterior.
+El JSON por ejecución contiene cobertura de imagen (área del polígono
+respaldado / área de imagen), error absoluto y relativo por tramo, media,
+máximo y percentiles 50 y 95 del error absoluto.
+
+| Perspectiva | Cobertura | Media absoluta | p95 absoluto | Máximo |
+| --- | ---: | ---: | ---: | ---: |
+| Suave | 30,30 % | 0,40 mm | 0,86 mm | 0,90 mm |
+| Oblicua | 21,49 % | 0,91 mm | 1,68 mm | 1,86 mm |
+
+Resultados con OpenCV 5.0.0 en CPU. En cada perspectiva ambas condiciones
+produjeron la misma solución y los cinco tramos pasaron el límite sintético
+de 30 mm. El máximo relativo fue 0,156 %. Las pruebas adyacentes ejercitan
+marcadores desplazados, fotogramas repetidos, pérdida de soporte y cambios de
+encuadre. Las coordenadas de control sintéticas son proyecciones exactas.
+Quedan por medir distorsión real, error de marcado manual y error de contacto.
+
+### Protocolo físico independiente
+
+1. Usar cámara fija, cinta métrica o distanciómetro con resolución conocida,
+   marcadores ArUco `DICT_4X4_50` y cinta de piso para los puntos de control.
+   Registrar fuente, revisión, resolución, altura de cámara, lente o zoom,
+   fecha, condiciones de luz, instrumento e incertidumbre. Disponer 4–6
+   marcadores planos y repartidos en el área útil. Medir el lado negro y su
+   esquina de origen en un mismo sistema XY. Registrar el giro desde +X hacia +Y.
+2. Antes del ajuste, marcar pares independientes de las esquinas ArUco.
+   Separar un par para confirmar en el asistente y reservar al menos seis para
+   evaluación. Cubrir tramos cortos y largos, ambos ejes y diagonal, primer
+   plano, fondo y justo dentro del borde. Medir cada separación dos veces,
+   registrar ambas lecturas y definir el límite de error en metros conforme al
+   uso y a la resolución del instrumento antes de ver el resultado. Marcar
+   además un par con un extremo justo fuera del polígono.
+3. Capturar, introducir las medidas y revisar calidad, área y zonas. Marcar
+   el par de confirmación en el fotograma de la propuesta y guardar solo si
+   pasa. Registrar versión y cobertura. Para medir los pares reservados,
+   usar las salidas de `scripts/propose_calibration.py` sobre fotogramas
+   nativos de esa misma cámara fija, o evaluar el ajuste canónico exportado
+   con `evaluate_control_distances`. El script admite un JSON por stdin con
+   `frame_paths`, `layout` (diccionario, `ground_plane_confirmed: true` y
+   marcadores `{id, corners_m}` con esquinas medidas en orden de detección)
+   y `control_distances` (filas con `image_points` normalizados por ancho y
+   alto nativos, `distance_m` y `tolerance_m`). Ejecutar primero sin controles
+   para comprobar que el ajuste geométrico es candidato y luego con los pares
+   reservados. Desde `engine/`, usar `Get-Content -Raw .\control.json | .venv/Scripts/python.exe -B scripts/propose_calibration.py propose`
+   con el mismo `PYTHONPATH` de la prueba sintética. Registrar aparte el control exterior esperado como
+   `outside_footprint`. Conservar el JSON y los fotogramas fuera de Git.
+4. Repetir tres capturas por condición con cámara fija y después repetir el
+   ajuste en una segunda perspectiva. Ensayar oclusión temporal de un marcador,
+   oclusión persistente que impida el ajuste y movimiento de cámara con
+   monitoreo activo en una fuente de prueba. Registrar detección o rechazo,
+   momento de suspensión de metros y reglas métricas, continuidad de
+   observaciones normalizadas y recuperación mediante revisión de zonas y
+   nueva confirmación. Para separar error de proyección y de detección,
+   comparar primero puntos marcados a mano y luego separaciones de tramos en
+   los que sean visibles los contactos reales de los objetos.
+5. Guardar una fila por repetición y par con cámara/revisión, perspectiva,
+   condición, par, distancia de cinta, estimación, cobertura, unidad y estado.
+   Calcular `|estimada − cinta|` y `100 × |estimada − cinta| / cinta`. Resumir
+   media, máximo, p50/p95 y número de pares dentro del límite por condición.
+   Reportar la proporción de pruebas interiores con estimación junto con la
+   cobertura de imagen, y contar las abstenciones y rechazos fuera del área
+   por separado. La aceptación requiere que los controles reservados cumplan
+   el límite definido previamente y que las pruebas negativas suspendan el
+   uso de metros cuando corresponda.
+
+Se ensayó la ruta por stdin del protocolo con cuatro PNG sintéticos. El
+ajuste geométrico fue candidato, los seis pares reservados pasaron y el
+control exterior produjo `outside_footprint` y `requires_review`.
+Pendiente de ejecución con cámara física y suelo medido.
+
+### Generalización del detector de equipos
+
+Se incorporó al catálogo de QA `S2_Record11_Camera2.avi` de
+[SPARL v2](https://zenodo.org/records/13318882), CC BY 4.0. El miembro ZIP
+verificado por CRC se preparó a 960 × 540 y 15 FPS, con 997 fotogramas.
+Los CSV oficiales anotan actividades y equipos de manipulación. Una
+etiqueta de actividad puede corresponder a un equipo fuera de la vista.
+
+En 12 fotogramas de esa secuencia, revisados sobre el original antes de
+inferir, seis contienen un apilador claramente visible, cinco son negativos
+visuales y uno se dejó como ambiguo. La exportación congelada FORKLIFT
+localizó el apilador en dos de seis casos con solapamiento IoU de al menos
+0,50 respecto de cajas dibujadas aproximadamente. Cuatro recortes fijos
+solapados elevaron el resultado a cuatro de seis. Los cinco cuadros sin
+equipo quedaron sin detecciones con ambos métodos en esta escena.
+Los fotogramas de una misma grabación son dependientes. El resultado
+describe este encuadre y el coste de los recortes se midió únicamente en CPU.
+
+La comparación se repitió sobre 45 imágenes de [LOCO](https://github.com/tum-fml/loco),
+CC0, con cajas humanas de cinco entornos. Se seleccionaron tres imágenes
+por estrato de entorno y etiqueta (montacargas, transpaleta o fondo).
+Se usaron las anotaciones COCO de la revisión
+`b460ab8c37f09162f0613c7546948c496e1b1628` e IoU mínimo de 0,50.
+La vista completa localizó **1 de 17 montacargas** y **2 de 46
+transpaletas**, con **7 cajas sin correspondencia**. Al combinar la vista
+completa con cuatro recortes y suprimir cajas duplicadas, se localizaron
+**2 de 17** y **4 de 46**, con **29 cajas sin correspondencia**.
+La mediana fue 70,9 ms en CPU para la vista completa y 434,3 ms adicionales
+para los recortes. Este muestreo estratificado sirve para comparar ambas
+estrategias y detectar fallos de generalización. La precisión de campo y
+la distinción manual/eléctrica requieren referencias específicas.
+
+En cuatro vistas de SPARL, CLIP identificó la familia del
+apilador en tres recortes revisados y SigLIP2 en cuatro. Ambos omitieron la
+familia en esos fotogramas completos. Grounding DINO produjo una caja sobre
+el equipo y su carga en una vista. En las demás señaló partes o la carga.
+También dio positivos en las dos vistas vacías, con mediana de 10,49 s por
+fotograma en un hilo de CPU. El sondeo
+incluyó además un clip público de otra procedencia. La clasificación sobre
+recortes puede verificar propuestas existentes. Para recuperar omisiones
+hace falta localizar candidatos adicionales y medir falsas alarmas y
+coste sobre fuentes independientes. Se mantiene el detector congelado,
+la categoría `UNKNOWN` y la política operacional vigente.
+
+En 15 de las 45 imágenes LOCO, una por estrato, Grounding DINO localizó
+4 de 6 montacargas y 1 de 9 transpaletas con IoU mínimo de 0,50. Se
+contaron 30 cajas sin correspondencia y una mediana de 9,95 s por
+imagen en CPU. En esas mismas imágenes, FORKLIFT localizó 1 de 6
+montacargas y registró 2 cajas sin correspondencia. La ganancia de
+localización por vocabulario se acompaña de un coste y una frecuencia
+de propuestas sin respaldo incompatibles con una incorporación directa.
+
+### Capacidad de cámaras y alcance
+
+La referencia operativa sigue siendo el ensayo de dos cámaras a 540p
+y 15 FPS de entrada durante 30 min. La prueba previa de tres cámaras
+usó una grabación en dos emisiones distintas y duró tres minutos.
+Para la prueba sostenida se prepararon tres grabaciones diferentes,
+incluido el clip SPARL de 66,47 s descrito arriba. Un primer arranque
+interrumpió la sonda por HTTP 500 antes de activar las cámaras. La
+lectura directa del catálogo funcionó después y se añadió reintento
+acotado a la sonda. Las ventanas posteriores excedieron el control de
+GPU ociosa con actividad gráfica ajena a Operix. QA volvió a su
+configuración anterior. La capacidad sostenida de tres y cuatro
+cámaras sigue pendiente.

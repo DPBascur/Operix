@@ -15,6 +15,44 @@ El runtime Linux completo queda fijado en `requirements.linux-cu130.lock.txt`,
 sin reemplazar ni modificar el lock nativo Windows/CUDA.
 No instalar un driver NVIDIA Linux dentro de la imagen.
 
+### Preparar un host Linux con NVIDIA
+
+Instala Docker Engine, el complemento Compose, un driver NVIDIA compatible
+con CUDA 13 y NVIDIA Container Toolkit en el host. Para Docker con
+privilegios, configura el runtime con `sudo nvidia-ctk runtime configure
+--runtime=docker` y reinicia el daemon en una ventana de mantenimiento.
+Para Docker rootless, sigue el procedimiento separado de NVIDIA.
+Consulta la [guía oficial de NVIDIA](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+
+Usa rutas absolutas del host en `.env` para los pesos, los videos autorizados
+y los modelos ONNX. Conserva sus montajes de solo lectura. Comprueba el acceso
+de los usuarios efectivos del Backend (UID 10001) y de los emisores (UID 65534).
+En hosts con SELinux, verifica también las etiquetas de los montajes
+compartidos. Concede acceso solamente a los archivos necesarios.
+
+Desde la raíz del repositorio, usa un proyecto aislado y un `.env` propio
+para la primera comprobación.
+
+```bash
+test -f .env || cp .env.docker.example .env
+# Completar secretos propios y rutas absolutas en .env antes de continuar.
+gpu=(docker compose --env-file .env -p operix-linux-check -f compose.yaml -f compose.gpu.yaml)
+"${gpu[@]}" config --quiet
+docker run --rm --gpus all nvidia/cuda:13.0.2-base-ubuntu24.04 nvidia-smi
+"${gpu[@]}" up -d --build --wait
+"${gpu[@]}" exec -T backend python -m pip check
+"${gpu[@]}" exec -T backend python /app/deployment/docker/codec_smoke.py
+"${gpu[@]}" exec -T backend python /app/engine/scripts/check_environment.py --require-cuda
+```
+
+Para RTSP, aplica los archivos Compose en el orden indicado en la
+[guía del laboratorio](../rtsp-lab/README.md). Además de la prueba CUDA,
+ejecuta una inferencia real con el perfil ONNX CUDA estricto y comprueba
+en el navegador el recorrido desde LL-HLS hasta el expediente y sus
+evidencias. Registra versiones, latencia y descartes en ese host. La
+validación existente de contenedores Linux sobre WSL2 no cubre esta
+comprobación en Linux nativo.
+
 ## Inicio de infraestructura, sin reservar GPU
 
 Desde la raíz del repositorio:
