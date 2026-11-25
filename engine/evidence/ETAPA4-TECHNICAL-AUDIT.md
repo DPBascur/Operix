@@ -1998,3 +1998,112 @@ El ONNX FP32 tiene SHA-256
 Los JSON `validation-locked`, `taltech-sealed` y `cuda-probe` guardan los
 parámetros, hashes por archivo, conteos, tolerancias y latencias para
 repetir el análisis con `evaluate_v2.py` y `onnx_probe.py`.
+
+### Detector unificado V3 y estabilidad de la capa en vivo
+
+El ensayo de replay parte del V2 refinado. Compara dos brazos con el
+mismo presupuesto de 420 segundos, tamaño 512, lote 10, LR 0,00004,
+FP32, semilla 20261125 y las mismas diez capas iniciales congeladas.
+Se solicitaron cinco épocas, pero Ultralytics 8.4.146 recalculó el
+calendario al activar el límite de tiempo. El control vuelve a ajustar
+el conjunto V2. El segundo brazo conserva las etiquetas verificadas y
+añade pseudoetiquetas PERSON en imágenes LOCO de entrenamiento y en
+TOMIE, cuya proyección se descartó como verdad de referencia. Se exige
+confianza 0,72 en ambas orientaciones e IoU de acuerdo ≥ 0,80. Se
+rechaza una pseudoetiqueta que solape una etiqueta verificada con
+IoU ≥ 0,25. Solo los candidatos positivos de PERSON reciben pérdida de
+clasificación, ponderada a 0,35. Las cajas aceptadas participan en la
+regresión de YOLO. Las áreas sin pseudoetiqueta permanecen sin pérdida
+de clasificación para PERSON. FORKLIFT v2 se compara con las cajas
+publicadas para auditar sus desacuerdos. Sus predicciones no sustituyen
+etiquetas y TOMIE no se usa como conjunto de negativos de FORKLIFT.
+Se retuvieron 46 cajas PERSON en 34 imágenes (15 cajas LOCO y 31
+TOMIE). En 72 imágenes LOCO de entrenamiento, el profesor FORKLIFT
+emitió 12 propuestas ≥ 0,65, con dos coincidencias IoU ≥ 0,50 contra
+las cajas anotadas. Ese acuerdo escaso motivó mantener el profesor
+FORKLIFT como diagnóstico y exigir evidencia mejor para transferirlo.
+
+Se mantienen los criterios externos de V2. TalTech ya fue consultado y
+solo sirve para diagnosticar el cambio de dominio. Los seis clips CC BY
+4.0 del [dataset de Önal y Dandıl](https://data.mendeley.com/datasets/xjmtb22pff/1)
+se usan para diagnóstico de desarrollo. Sus categorías corresponden
+a comportamientos por clip y no constituyen cajas de referencia. En
+los puntos medios de los seis clips, se verificaron dos confusiones
+de V2 con puestos de trabajo fijos (confianza 0,60 y 0,77). En dos
+fotogramas había un montacargas visible. V2 etiquetó uno como
+`PALLET_JACK` con confianza 0,79 y omitió el otro a los umbrales
+fijados en V2. Se prepararon cinco recortes verificados de dos vistas
+de esa instalación. En esos recortes solo se supervisa la ausencia de
+FORKLIFT. El resto de las clases sigue enmascarado. Se usa un ajuste
+desde V2 separado del replay, para comprobar si los negativos ayudan
+en el desarrollo sin degradar el recall en validación.
+
+Los brazos de replay y control completaron diez épocas (~423 s
+cada uno). El ajuste con recortes terminó por paciencia tras ocho
+épocas (413 s). El modelo, la semilla, el LR y el presupuesto fueron
+los mismos. Las métricas siguientes fijan la inferencia de V2
+(384 × 640, NMS 0,45 y umbrales 0,25 / 0,20 / 0,10).
+
+| Validación de 503 imágenes | V2 | Replay PERSON | Control | Recortes |
+| --- | ---: | ---: | ---: | ---: |
+| PERSON F1 / falsos positivos | 0,947 / 27 | 0,947 / 20 | 0,954 / 20 | 0,950 / 24 |
+| FORKLIFT F1 / falsos positivos | 0,719 / 21 | 0,731 / 31 | 0,724 / 31 | 0,711 / 36 |
+| FORKLIFT AP50–95 | 0,454 | 0,479 | 0,456 | 0,445 |
+| FORKLIFT pequeños detectados | 20/51 | 25/51 | 21/51 | 24/51 |
+| FORKLIFT errores de localización / duplicados | 8 / 0 | 7 / 1 | 8 / 0 | 7 / 0 |
+
+Al seleccionar umbrales en validación a 384 × 640 y NMS 0,45,
+el control obtuvo FORKLIFT F1 0,744 con 19 FP y el replay 0,742
+con 22 FP. El replay mejoró AP50–95 y montacargas pequeños a
+umbral fijo, mientras el control tuvo mejor F1 de PERSON. En
+TalTech, diagnóstico sintético ya consultado, el replay bajó PERSON
+FP de 33 a 22, y los FN subieron de 10 a 14. FORKLIFT quedó en
+27 aciertos y 19 FP frente a 27 y 18 de V2. Los cuatro checkpoints
+omitieron las 17 transpaletas de esa muestra a los umbrales fijos.
+
+En los fotogramas reales de desarrollo, las dos falsas detecciones
+de maquinaria siguieron por encima de 0,20 en los tres ajustes.
+Los recortes bajaron uno de los scores de 0,77 a 0,38, pero el
+control sin recortes lo bajó a 0,25. Los dos montacargas visibles
+siguieron sin detección FORKLIFT en los tres ajustes. La muestra
+acredita el tipo de error, pero su tamaño y la reutilización
+de las dos vistas en el entrenamiento impiden extrapolar el cambio.
+Con los datos actuales, ni el replay ni los recortes justifican
+promover V3 o V4. La aprobación requiere una reserva real separada
+con cajas revisadas, montacargas pequeños y casos negativos comparables.
+LEGACY_DUAL sigue como perfil de 13000. Se pospone el A/B de 30 minutos
+del detector y la reexportación ONNX de estos candidatos.
+
+Los pesos, checkpoints periódicos, curvas, manifiestos y resultados
+quedaron fuera de Git, en
+`D:/Operix-Lab/reports/continuous-unified-detector-20261125`.
+La comparación fija está en `fixed-v2-threshold-comparison.json`.
+
+En QA, Edge reprodujo tres flujos 960 × 540 en dos ventanas de 30 s
+con emisión a 15 FPS y análisis a 12 FPS. La referencia fue la imagen
+previa de Frontend de 13000. Se observó en el Canvas de Cámara 02 que
+54 de 90 estimaciones se borraban en el mismo fotograma (desde 55 ms).
+En la versión nueva ocurrió una vez de 90. En las tres cámaras la
+cuenta fue 94 de 170 antes y 2 de 169 después. La instrumentación
+cuenta cualquier borrado durante el mismo fotograma, incluidas
+invalidaciones; no clasifica los dos restantes como errores.
+El p95 entre presentaciones fue aproximadamente 75 ms antes y
+70 ms después. Las sesiones de navegador no se usaron como
+benchmark de capacidad de GPU.
+Los bordes conservan color y grosor en ambos estados. El marcador
+`≈` identifica una estimación en la misma etiqueta. La expiración
+respeta la cadencia del video, el siguiente fotograma reemplaza o
+retira la capa y se revalida contra ambos extremos si llegan metadatos.
+La zona solo permanece visible en una estimación cuando coincide en
+ambas observaciones. Las distancias siguen asociadas a observaciones.
+Se reconstruyó y actualizó solo el Frontend de 13000. Edge comprobó
+Fuentes, Monitoreo y las tres cámaras con el laboratorio desactivado.
+El historial conservó 313 eventos. Backend, PostgreSQL, MediaMTX y los
+tres emisores conservaron sus IDs de contenedor y tiempos de arranque.
+En otra corrida de QA se cambió la playlist y se reinició el emisor
+de Cámara 01. Se registró una ejecución distinta al recuperar el
+análisis. Cámara 02 mantuvo 14,98 FPS visibles y la misma ejecución.
+Cámara 03 cambió de ejecución por fin natural del video. Edge verificó
+la capa de distancias, pantalla completa y el ancho móvil en ambos
+temas. Dos WebM de Cámara 02 (6,97 s cada uno) documentan el antes y
+después, junto con las métricas, ordinales de origen y capturas archivadas.
