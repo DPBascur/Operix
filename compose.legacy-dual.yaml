@@ -1,0 +1,6 @@
+# Last override for a deployment whose Backend already supports both profiles.
+# Keep its media volumes, legacy weights and ONNX/PyTorch configuration.
+services:
+  backend:
+    environment:
+      OPERIX_DETECTOR_PROFILE: legacy-dual

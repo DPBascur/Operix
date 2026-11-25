@@ -2559,11 +2559,71 @@ Las tres cámaras principales reprodujeron 14,85 FPS durante una
 comprobación de 18,66 s con UNIFIED V7; el laboratorio volvió a
 quedar inactivo y el total siguió en 314 expedientes.
 
-Para volver a LEGACY_DUAL, detener los análisis y ejecutar
-Deploy-V7.ps1 en modo Rollback desde el directorio local
-tmp/unified-v7-promotion. El script recupera la configuración
-Compose anterior y recrea solo el Backend, sobre los mismos
-volúmenes. Conservar juntos el script, el respaldo verificado, la
-imagen anterior y los pesos aprobados. En otras instalaciones
-Compose, retirar la sobrecapa compose.unified-v7.yaml o seleccionar
-legacy-dual y recrear el Backend con las rutas de pesos existentes.
+El [procedimiento de recuperación de LEGACY_DUAL](../../deployment/rtsp-lab/README.md#recuperar-legacy_dual)
+usa la sobrecapa Compose versionada. Se cambia el perfil del Backend
+sobre los mismos volúmenes y con los pesos aprobados de ambos perfiles.
+
+### Cierre del catálogo y sensibilidad espacial de UNIFIED V7
+
+La bitácora de PostgreSQL registró tres ediciones autenticadas de
+Cámara 02 el 25 de noviembre de 2026 entre las 16:43:10 y 16:43:26
+de Chile. La última dejó solo SPARL v3 Exp. 1. Se conservó esa
+asignación. De 28 clips CCTV de Önal y Dandıl se eligieron tres,
+revisando tres fotogramas por clip. `onal-7-tr21` muestra tránsito
+de personas y transporte de carga, `onal-3-tr19` incluye oclusión
+por carga y `onal-4-tr33` permite revisar confusiones con maquinaria
+fija. Los tres se verificaron como emisiones independientes a
+960 × 540 y 15 FPS, con análisis configurado a 12 FPS. En la prueba
+simultánea se observaron 113, 83 y 95 fotogramas analizados,
+respectivamente. El último quedó disponible en el catálogo para
+revisión manual. Una toma sirve para explorar falsos positivos sin
+equivaler a un conjunto de referencia anotado.
+
+Se comparó el arranque anticipado de LL-HLS con el remultiplexado
+bajo demanda para las mismas listas y cadencias de QA. El mayor
+intervalo entre fotogramas de Edge en el relevo de Cámara 01 fue
+5,51 s con arranque anticipado y 5,13 s bajo demanda. Son
+mediciones puntuales de laboratorio. Se mantuvo el modo bajo
+demanda. El tiempo visible depende del cierre de la emisión
+anterior, el arranque RTSP y la recuperación del reproductor.
+La vuelta del análisis tiene además el coste del arranque del
+worker. En la comprobación de 13000, Edge observó un intervalo
+máximo de 3,57 s en Cámara 01 frente a 7,60 s en la comprobación
+anterior. En el servidor transcurrieron 4,67 s desde el cierre
+del muxer anterior hasta el nuevo publicador RTSP y 0,35 s hasta
+la primera lectura HLS. La API observó la nueva ejecución en
+análisis 14,67 s después de reportarla en conexión. Los tiempos
+usan puntos de partida distintos y el navegador puede consumir
+video ya almacenado en su búfer. Falta demostrar que la menor
+pausa se repita en múltiples relevos.
+
+En QA, los dos clips asignados a las playlists generaron seis
+eventos con PNG y clip, y el clip reservado para el catálogo
+generó tres, con dos expedientes completos y uno marcado como
+fallido. Se verificó la asociación entre evento, fuente, cámara,
+snapshot y reloj. Tras recrear el Backend QA y volver a V7, el
+reintento de un evento existente devolvió HTTP 200, el mismo ID
+y el estado de evidencia completa. Un proceso interrumpido
+puede perder los fotogramas aún en memoria. El estado de
+evidencia comunica esa pérdida y el expediente persiste.
+
+En la ablación de Cámara 03, sobre seis muestras de cada tramo,
+la mediana de confianza cruda PALLET_JACK fue 0,041 y 0,015.
+Desplazar cinco píxeles el encuadre elevó esas medianas a 0,830 y
+0,885. El mismo cambio redujo las medianas de Cámara 02 de
+0,161 y 0,135 a 0,019 y 0,009. Esto revela sensibilidad en las
+muestras evaluadas. Los umbrales y el preprocesamiento desplegado
+se conservaron.
+
+Para futuros entrenamientos, separar por instalación, cámara y
+grabación antes de generar transformaciones. Conservar referencias
+humanas de PERSON, FORKLIFT y PALLET_JACK y negativos como
+maquinaria fija. Medir los mismos fotogramas con traslaciones
+pareadas de ±1/2/4/8 píxeles en la entrada de inferencia, cambios
+de iluminación y gammas fijados de antemano, y perspectivas
+auténticas de instalaciones reservadas. Transformar también las
+cajas de referencia cuando corresponda. Comparar confianza,
+precision, recall, localización, falsos positivos y cambios de ID
+por condición con el mismo NMS y los mismos umbrales. Cotejar
+eventos, latencia y coste en clips completos antes de cambiar
+un perfil desplegado.

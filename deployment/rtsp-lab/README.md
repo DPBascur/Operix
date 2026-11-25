@@ -459,3 +459,57 @@ ONNX CUDA en el entorno de destino antes de habilitarla.
 4. Al finalizar, devuelve el laboratorio y las listas de reproducción al
    estado previo. Si ensayas reconexiones o cambias una calibración, utiliza
    una instancia QA aislada.
+
+### Arquitectura y renovación de playlists
+
+El control de cámaras guarda los identificadores ordenados y la repetición
+en PostgreSQL. El reconciliador abre una emisión FFmpeg desde un MP4
+autorizado por el manifiesto y su SHA-256. MediaMTX distribuye el video
+por LL-HLS y cada cámara analizada tiene un worker dedicado. Una transición
+abre otra emisión y ejecución con su propio reloj, snapshot, tracking y
+contexto de reglas y clips. El reproductor asocia las observaciones con
+las marcas compartidas de emisión. Las posiciones estimadas se usan solo
+para dibujar. Los eventos y sus evidencias se consultan con autorización
+a través de Operix.
+
+UNIFIED V7 usa ONNX Runtime CUDA con clases PERSON, FORKLIFT y PALLET_JACK.
+PALLET_JACK se puede mostrar y rastrear como categoría experimental.
+La elegibilidad operacional se determina con la observación y la regla
+configurada. La etiqueta visual estabilizada queda fuera de esa decisión.
+Consulta [el perfil versionado](../../engine/config/unified-v7.json) antes
+de modificar un despliegue.
+
+Los clips autorizados de [Önal y Dandıl (CC BY 4.0)](https://data.mendeley.com/datasets/xjmtb22pff/1)
+se preparan a 960 × 540 y 15 FPS para el laboratorio. El inventario local
+`D:/Operix-Lab/manifests/cctv-selection-v7.json` conserva los hashes del
+original y del derivado. Al renovar un catálogo, conserva los
+identificadores de las asignaciones existentes y verifica la configuración
+guardada después de volver a iniciar el Backend.
+
+### Recuperar LEGACY_DUAL
+
+1. Registra la configuración efectiva de Compose del Backend, las
+   asignaciones y el estado de las cámaras. Haz un respaldo restaurable
+   de PostgreSQL y evidencias. Conserva los pesos aprobados de ambos
+   perfiles y sus montajes de solo lectura.
+2. Cierra de forma controlada las ejecuciones administradas y espera a que
+   terminen las publicaciones de evidencia. Comprueba también que los
+   análisis de archivo hayan finalizado.
+3. Ejecuta Compose con el mismo proyecto, archivo de entorno y lista
+   ordenada de configuraciones de la instancia. Puedes consultar la lista
+   en la etiqueta `com.docker.compose.project.config_files` del contenedor
+   Backend. Agrega `-f compose.legacy-dual.yaml` **al final** de esa lista.
+   Tras validar con `config --quiet`, ejecuta
+   `up -d --no-deps --no-build --wait backend` con esas opciones.
+4. Comprueba la salud de la API y PostgreSQL, el detector activo con
+   `active_perception()` desde Django, las asignaciones guardadas y los
+   hashes de las evidencias históricas. Comprueba reproducción y permisos
+   antes de reanudar el monitoreo.
+5. Para volver a V7, repite el procedimiento con la configuración que
+   usabas originalmente, omitiendo únicamente la última sobrecapa de
+   LEGACY_DUAL. PostgreSQL y los volúmenes de evidencia se mantienen
+   durante ambos cambios de perfil.
+
+Para la presentación académica se conserva
+[el expediente de Embonor](http://127.0.0.1:13000/events/21b68882-e49a-40cf-81c2-f2a0295ff393).
+Su video, regla y unidad de medida pertenecen a la ejecución registrada.
