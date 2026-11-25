@@ -1,24 +1,76 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
+import json
 from pathlib import Path
 import sys
+from tempfile import TemporaryDirectory
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import torch
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "industrial_detector"))
 from evaluate import calculate_ap, eligibility, operating_point
 from evaluate_v2 import forklift_diagnostics, quality
-from prepare import normalize_box
+from prepare import digest, normalize_box
 from prepare_v2 import crop_labels
+from prepare_v3 import mirrored_consensus
+from prepare_verified_crops import prepare as prepare_verified_crops
 from rtsp_probe_worker import SinglePerception
-from train import freeze_person_outputs, mask_class_loss
+from train import freeze_person_outputs, mask_class_loss, mask_pseudo_class_loss
 
 from operix_engine.person_metrics import Prediction
 
 
 class IndustrialDetectorResearchTest(unittest.TestCase):
+    def test_teacher_supervises_only_positive_assignments(self):
+        logits = torch.zeros((1, 2, 3), requires_grad=True)
+        labels = torch.tensor([[[1., 0., 0.], [0., 0., 0.]]])
+        bce = torch.nn.functional.binary_cross_entropy_with_logits(logits, labels, reduction="none")
+        trusted = torch.tensor([[[False, True, False]]])
+        pseudo = torch.tensor([[[True, False, False]]])
+        mask_pseudo_class_loss(bce, labels, trusted, pseudo).sum().backward()
+        torch.testing.assert_close(logits.grad, torch.tensor([[[-.175, .5, 0.], [0., .5, 0.]]]))
+
+    def test_teacher_mirror_check_favors_verified_labels_and_deduplicates(self):
+        a = (.25, .25, .5, .75)
+        b = (.75, .25, .875, .75)
+        mirrored = [((.5, .25, .75, .75), .9), ((.125, .25, .25, .75), .8)]
+        self.assertEqual(mirrored_consensus([(a, .99), (a, .9), (b, .9)], mirrored, [(1, b)]),
+                         [(a, .9)])
+
+    def test_reviewed_machine_crop_only_supervises_forklift(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            base = root / "base"
+            base.mkdir()
+            image = base / "images/train/base.jpg"
+            image.parent.mkdir(parents=True)
+            Image.new("RGB", (100, 80)).save(image)
+            label = base / "labels/train/base.txt"
+            label.parent.mkdir(parents=True)
+            label.touch()
+            manifest = base / "manifest.json"
+            manifest.write_text(json.dumps([{"image": "images/train/base.jpg", "split": "train",
+                                             "source_sha256": digest(image)}]))
+            (base / "dataset.yaml").write_text(f'path: "{base.as_posix()}"\n')
+            source = root / "station.jpg"
+            Image.new("RGB", (100, 80), "white").save(source)
+            reviews = root / "reviews.json"
+            reviews.write_text(json.dumps({"parent_manifest_sha256": digest(manifest), "crops": [
+                {"file": source.name, "sha256": digest(source), "member": "reviewed.jpg",
+                 "window": [.25, .25, .75, .75], "source": "camera", "capture_group": "01",
+                 "review": "Fixed press inside crop", "split": "development"},
+            ]}))
+            output = root / "output"
+            prepare_verified_crops(base, reviews, output)
+            row = json.loads((output / "manifest.json").read_text())[-1]
+            self.assertEqual((row["supervised"], row["boxes"]), ([1], []))
+            with Image.open(output / row["image"]) as crop:
+                self.assertEqual(crop.size, (50, 40))
+            self.assertEqual(len(json.loads(manifest.read_text())), 1)
+
     def test_unsupervised_class_has_zero_gradient(self):
         logits = torch.zeros((2, 1, 3), requires_grad=True)
         bce = torch.nn.functional.binary_cross_entropy_with_logits(

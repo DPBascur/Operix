@@ -24,6 +24,11 @@ def mask_class_loss(values, mask):
     return values * mask
 
 
+def mask_pseudo_class_loss(values, labels, trusted, pseudo):
+    # Teacher boxes do not certify that the rest of the image is negative.
+    return mask_class_loss(values, trusted) + values * ((labels > 0) & pseudo) * .35
+
+
 def check_local_amp(model):
     """Compare the actual model in FP32 and AMP without downloading a probe model."""
     device = next(model.parameters()).device
@@ -65,15 +70,23 @@ def freeze_person_outputs(model):
 class PartialClassLoss(v8DetectionLoss):
     """Zero only the classification gradients of unannotated classes."""
 
-    def __init__(self, model, coverage):
+    def __init__(self, model, coverage, pseudo_coverage):
         super().__init__(model)
         self.coverage = coverage
+        self.pseudo_coverage = pseudo_coverage
 
     def get_assigned_targets_and_loss(self, preds, batch):
-        rows = [self.coverage[Path(file).name] for file in batch["im_file"]]
+        names = [Path(file).name for file in batch["im_file"]]
+        rows = [self.coverage[name] for name in names]
         mask = torch.tensor(rows, device=self.device, dtype=torch.bool).unsqueeze(1)
         criterion = self.bce
-        self.bce = lambda logits, labels: mask_class_loss(criterion(logits, labels), mask)
+        if self.pseudo_coverage:
+            empty = [False] * len(CLASSES)
+            rows = [self.pseudo_coverage.get(name, empty) for name in names]
+            pseudo = torch.tensor(rows, device=self.device, dtype=torch.bool).unsqueeze(1)
+            self.bce = lambda logits, labels: mask_pseudo_class_loss(criterion(logits, labels), labels, mask, pseudo)
+        else:
+            self.bce = lambda logits, labels: mask_class_loss(criterion(logits, labels), mask)
         try:
             return super().get_assigned_targets_and_loss(preds, batch)
         finally:
@@ -104,23 +117,29 @@ def main():
     manifest_path = args.dataset / "manifest.json"
     manifest = json.loads(manifest_path.read_bytes())
     coverage = {}
+    pseudo_coverage = {}
     for row in manifest:
         if row["split"] not in ("train", "val"):
             continue
         declared = set(row["supervised"])
-        if not declared or any(cls not in declared for cls, _ in row["boxes"]):
+        pseudo = set(row.get("pseudo_positive_only", []))
+        targets = {cls for cls, _ in row["boxes"]}
+        if (not declared and not pseudo or declared & pseudo or pseudo - targets
+                or targets - (declared | pseudo) or pseudo and row["split"] != "train"):
             raise ValueError(f"Label outside source supervision: {row['image']}")
         image = args.dataset / row["image"]
         labels = args.dataset / "labels" / image.relative_to(args.dataset / "images").with_suffix(".txt")
         if digest(image) != row["sha256"] or digest(labels) != row["label_sha256"]:
             raise ValueError(f"Dataset content changed: {row['image']}")
         coverage[image.name] = [cls in declared for cls in range(len(CLASSES))]
+        if pseudo:
+            pseudo_coverage[image.name] = [cls in pseudo for cls in range(len(CLASSES))]
 
     norms = ()
 
     def install_loss(trainer):
         nonlocal norms
-        trainer.model.criterion = PartialClassLoss(trainer.model, coverage)
+        trainer.model.criterion = PartialClassLoss(trainer.model, coverage, pseudo_coverage)
         if args.freeze_person:
             if any(group["weight_decay"] != 0 for group in trainer.optimizer.param_groups):
                 raise ValueError("Frozen classifier rows require zero weight decay")
@@ -149,6 +168,7 @@ def main():
         "amp_requested": args.device == "0" and not args.fp32,
         "person_frozen": args.freeze_person,
         "backbone_layers_frozen": args.freeze_backbone,
+        "pseudo_positive_only_examples": len(pseudo_coverage),
     }, indent=2), encoding="utf-8")
     opts = dict(data=str(args.dataset / "dataset.yaml"), project=str(args.output), name="fit",
                 imgsz=args.size, epochs=args.epochs, batch=args.batch, nbs=args.batch,
