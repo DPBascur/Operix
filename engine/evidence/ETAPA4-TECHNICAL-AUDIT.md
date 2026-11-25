@@ -1607,3 +1607,139 @@ Una prueba sintética de 72 pares de contactos con el suelo confirmó
 que duplicar la escala de la escena y la altura de la cámara conserva
 la proyección de los píxeles. Se mantiene la calibración por referencias
 físicas y la distancia normalizada cuando no hay escala comprobada.
+
+### Tres cámaras con cadencia de video y análisis independientes
+
+Se sustituyó la grabación de 66,47 s de Cámara 03 por
+`SPARL-S1-Record2-Camera2.mp4`, de 437,40 s, preparada a 960×540 con
+15 FPS desde otra sesión del [dataset SPARL v2](https://zenodo.org/records/13318882).
+El ensayo mantuvo 15 FPS de emisión y 12 FPS de análisis por cámara.
+La selección del Motor omite fotogramas explícitamente y conserva la
+marca original. Edge distingue las posiciones interpoladas y limita
+las distancias a observaciones verificadas.
+
+Durante 1.801,08 s, Edge presentó 13,81, 14,76 y 14,73 FPS. El Motor
+procesó 11,99, 12,01 y 12,00 FPS en intervalos estables. Al incluir
+arranques, los promedios fueron 11,07, 11,81 y 11,75 FPS. Los descartes
+fueron 64, 20 y 22, incluidos 63, 15 y 18 en desconexiones. El p95
+local fue 78,58, 88,22 y 85,10 ms. GPU, VRAM, CPU y RAM tuvieron p95 de
+71 %, 3.975 MiB, 4,46 núcleos equivalentes y 5.023 MiB. Se comprobaron
+32 eventos con PNG, clip y trazabilidad, incluidos 20 de Cámara 03.
+En Cámara 03, el muestreo del navegador contabilizó 20.699 dibujos de
+observaciones y 1.795 de interpolaciones, con 26.522 cuadros de video
+presentados. La latencia local parte de la recepción del fotograma
+decodificado y termina cuando el resultado queda listo para el overlay.
+
+En Cámara 03 se observaron cuatro fines de medio, frente a 26 con la
+grabación corta del ensayo anterior. En una transición registrada, el
+fin del medio precedió 4,10 s al arranque del emisor, 5,84 s a la nueva
+conversión LL-HLS y 16,93 s a la lectura RTSP del nuevo worker. El ciclo
+abre otra emisión y reinicia la continuidad temporal en cada
+reproducción. La grabación larga reduce la frecuencia de los cortes.
+
+El primer intento de promoción reveló que la imagen instalada de
+Backend carecía del directorio de acuses de la tercera plaza. Se
+revirtió el intento, se alineó la imagen con el Dockerfile del proyecto
+y se corrigió el volumen nuevo y vacío. El segundo despliegue confirmó
+Fuentes, Control de cámaras, Monitoreo, overlays y distancias en 13000.
+PostgreSQL, sus volúmenes y los hashes de los 313 eventos históricos,
+313 PNG y 313 clips pasaron la verificación posterior al respaldo.
+
+Las pruebas aisladas de capacidad usaron 960 × 540, clips fijados
+por hash y los mismos modelos ONNX FP32. Se midieron 90 s después de
+15 s de calentamiento continuo de todos los workers.
+
+| Perfil | FPS procesados totales | Descartes de cola | Profundidad máxima muestreada | p95 local al cierre, por cámara |
+| --- | ---: | ---: | ---: | --- |
+| 4 × 12 FPS | 47,14 | 181 | 6 | 461 / 541 / 523 / 539 ms |
+| 4 × 10 FPS | 40,00 | 0 | 1 | 60 / 66 / 63 / 66 ms |
+| 12 + 10 + 10 + 10 FPS | 42,00 | 1 | 4 | 85 / 106 / 82 / 123 ms |
+| 5 × 8 FPS | 39,97 | 0 | 2 | 77 / 78 / 65 / 73 / 76 ms |
+
+A 12 FPS la inferencia tuvo p95 de 69 a 74 ms y la antigüedad acumulada
+en cola dominó la latencia. Hubo 44 reinicios de tracking. A 10 FPS no
+se registraron reinicios y el p95 de antigüedad en cola fue de 4 a 6 ms.
+El perfil mixto tampoco reinició tracks, pero perdió un fotograma de
+la fuente a 12 FPS. Solo 4 × 10 pasó el criterio de descarte cero para
+cuatro cámaras. Su promoción queda pendiente de un ensayo prolongado
+que incluya video, transiciones y evidencia real.
+La prueba de cinco emisores reutilizó una grabación en una quinta
+conexión independiente. Conservó el total de 40 FPS nominales a menor
+cadencia por fuente. Este control midió el coste de un worker adicional
+y dejó pendiente la cobertura de eventos breves a 8 FPS.
+En 14 muestras de recursos por corrida, el p95 de GPU y VRAM del host
+fue 76 % y 4.439 MiB a 12 FPS, frente a 57 % y 4.215 MiB a 10 FPS.
+El contenedor de workers pasó de 5,81 a 3,94 núcleos equivalentes de
+CPU en p95, con 5,95 y 6,19 GiB de RAM respectivamente. Cinco workers
+tuvieron p95 de 66 % de GPU, 4.830 MiB de VRAM, 4,74 núcleos de CPU y
+7,31 GiB de RAM. El perfil mixto coincidió con un pico gráfico externo
+aislado de 25 % en un motor 3D. La telemetría no permite atribuirle su
+descarte.
+El banco usa RTSP y salida a un receptor de prueba para aislar el coste
+del Motor. La cobertura en Edge, la persistencia y la recuperación por
+playlist se comprobaron en el ensayo integral de tres cámaras.
+
+Cada worker conserva dos sesiones ORT dedicadas, buffers y estados de
+tracking y reglas independientes. El camino CUDA ya emplea I/O Binding
+con forma fija. La comparación previa de inferencia PyTorch compartida
+obtuvo menos throughput que los workers dedicados y no permite inferir
+el rendimiento de un futuro planificador ONNX compartido. Se conserva
+el perfil dedicado y PyTorch FP32 como respaldo.
+
+### Diagnóstico de recuperación del detector industrial
+
+Las cajas YOLO de entrenamiento y validación reconstruyeron las cajas
+de referencia con menos de 0,000001 píxeles de error. El entrenamiento
+original tenía 2.257 cajas de transpaleta y 262 de montacargas. En una
+muestra estratificada de 126 imágenes de validación, la máxima confianza
+de una caja de montacargas con IoU ≥ 0,50 fue 0,030 en el primer
+checkpoint y 0,0021 en el último. Cambiar a entrada cuadrada tampoco
+recuperó la clase. El mejor F1 del ajuste anterior fue 0,051 a un
+umbral de 0,01, frente a 0,250 del congelado en la misma muestra.
+
+La comparación CPU de PyTorch y ONNX sobre 12 imágenes de validación
+dio un error máximo de caja de 0,00073 píxeles y de confianza de
+0,00000051, con las mismas decisiones a 0,45. El fallo se observa en
+los checkpoints anteriores a la exportación. Las mediciones son
+compatibles con un entrenamiento desequilibrado que no convergió.
+
+Un sobreajuste de control reutilizó 20 imágenes de entrenamiento como
+validación deliberadamente. Con inicialización del detector industrial
+congelado, lotes más pequeños y más actualizaciones, ambas clases
+llegaron a AP50 de 0,995 en esas mismas imágenes. Esto comprueba que
+la canalización aprende las clases y las cajas entregadas.
+
+El ajuste equilibrado entrenó YOLO11n desde el congelado con
+[LOCO](https://github.com/tum-fml/loco). Completó 13 de 14 épocas por
+parada temprana, con semilla 20261124, AdamW y lotes de ocho a 384 px.
+El muestreo, aplicado solo al entrenamiento, construyó 885
+entradas con 786 cajas de montacargas, 1.541 de transpaleta y 90 entradas
+negativas de pallets y estructuras de almacenamiento. El mejor checkpoint
+por validación obtuvo AP50 de 0,192 y 0,037 para ambas clases en ese orden.
+La comparación mantuvo 384 × 640, NMS IoU 0,55 e IoU de evaluación 0,50.
+Se seleccionó el F1 máximo por clase en 1.060 imágenes de validación y
+se aplicaron esos umbrales, fijados por hash, a 864 imágenes de otra
+instalación. El SHA-256 del checkpoint evaluado fue
+`c96c91a987f1a42683cb6cb64026f2d8f1bc9f9765bdc012b6c0f12ec8234352`.
+La tabla muestra únicamente resultados de la instalación reservada.
+
+| Modelo y clase | Umbral | VP | FP | FN | Precisión | Recall | F1 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Congelado / montacargas | 0,75 | 10 | 20 | 175 | 33,33 % | 5,41 % | 0,093 |
+| Equilibrado / montacargas | 0,18 | 29 | 225 | 156 | 11,42 % | 15,68 % | 0,132 |
+| Equilibrado / transpaleta | 0,11 | 11 | 491 | 288 | 2,19 % | 3,68 % | 0,027 |
+| Congelado / montacargas | 0,45 | 20 | 240 | 165 | 7,69 % | 10,81 % | 0,090 |
+| Equilibrado / montacargas | 0,45 | 13 | 20 | 172 | 39,39 % | 7,03 % | 0,119 |
+| Equilibrado / transpaleta | 0,45 | 1 | 22 | 298 | 4,35 % | 0,33 % | 0,006 |
+
+El candidato reduce falsos positivos a 0,45, con menor cobertura de
+montacargas. Al aplicar el umbral elegido en validación, sus 225 falsos
+positivos y cinco de cada seis montacargas omitidos impiden promoverlo.
+La transpaleta sigue sin cobertura suficiente. Los pesos congelados
+y la categoría operacional `UNKNOWN` permanecen vigentes.
+
+La reconstrucción del suelo a partir de puntos de fuga, intrínsecos
+y altura conocida se verificó sobre un escenario sintético. Con
+perturbaciones de 8 px en los puntos de fuga y 4 px en contactos, el
+p95 del error fue 0,17 m cerca, 0,69 m a media distancia y 2,79 m lejos.
+Las estimaciones permanecen fuera de las reglas métricas.
