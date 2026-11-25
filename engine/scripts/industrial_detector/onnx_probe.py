@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Static ONNX FP32 export, CUDA parity and isolated inference comparison."""
+"""Static ONNX export, CUDA parity and isolated inference comparison."""
 import argparse
 import ast
 import json
@@ -44,7 +44,8 @@ def new_session(path, *, profile=False, prefix=None):
 
 def binding(session, data):
     handle = session.io_binding()
-    handle.bind_input(session.get_inputs()[0].name, "cuda", 0, np.float32,
+    dtype = np.float16 if data.dtype == torch.float16 else np.float32
+    handle.bind_input(session.get_inputs()[0].name, "cuda", 0, dtype,
                       tuple(data.shape), data.data_ptr())
     for output in session.get_outputs():
         handle.bind_output(output.name, "cuda", 0)
@@ -56,16 +57,23 @@ def run(session, bound):
     return bound.copy_outputs_to_cpu()[0]
 
 
-def final_boxes(raw, thresholds):
-    boxes = non_max_suppression(torch.from_numpy(raw.copy()), conf_thres=float(thresholds.min()),
-                                iou_thres=.60, nc=len(CLASSES), max_det=150)[0].numpy()
+def final_boxes(raw, thresholds, iou):
+    boxes = non_max_suppression(torch.tensor(raw, dtype=torch.float32), conf_thres=float(thresholds.min()),
+                                iou_thres=iou, nc=len(CLASSES), max_det=150)[0].numpy()
     return boxes[boxes[:, 4] >= thresholds[0, boxes[:, 5].astype(int), 0]]
+
+
+def letterbox_cuda(original, shape):
+    prepared = LetterBox(shape, auto=False)(image=original)
+    data = np.ascontiguousarray(prepared[:, :, ::-1].transpose(2, 0, 1)[None], dtype=np.float32) / 255.
+    return torch.from_numpy(data).to("cuda")
 
 
 def process():
     p = argparse.ArgumentParser(description=__doc__)
     for key in ("checkpoint", "samples", "person", "forklift", "preset", "output"):
         p.add_argument(f"--{key}", type=Path, required=True)
+    p.add_argument("--fp16", action="store_true", help="Probe FP16 separately against PyTorch FP32")
     args = p.parse_args()
     if args.output.exists():
         raise FileExistsError(args.output)
@@ -81,8 +89,11 @@ def process():
     preset = json.loads(args.preset.read_bytes())
     if preset["split"] != "validation" or preset["settings"]["detector_sha256"]["candidate"] != digest(checkpoint):
         raise ValueError("Candidate provenance differs from the validation preset")
+    shape = tuple(preset["settings"].get("candidate_input", INPUT))
+    iou = preset["settings"].get("candidate_nms", .60)
     thresholds = np.array([preset["candidate"][k]["threshold"] for k in CLASSES], dtype=np.float32)[None, :, None]
-    exported = Path(YOLO(str(checkpoint)).export(format="onnx", imgsz=INPUT, batch=1, device="cpu", opset=17, quantize=32,
+    exported = Path(YOLO(str(checkpoint)).export(format="onnx", imgsz=shape, batch=1,
+                    device=0 if args.fp16 else "cpu", opset=17, quantize=16 if args.fp16 else 32,
                     simplify=False, dynamic=False, nms=False))
     graph = onnx.load(exported, load_external_data=False)
     onnx.checker.check_model(graph)
@@ -93,27 +104,28 @@ def process():
     names = ast.literal_eval(candidate.get_modelmeta().custom_metadata_map["names"])
     if tuple(names[i] for i in range(len(names))) != CLASSES:
         raise ValueError(f"unexpected export class order: {names}")
-    samples, comparisons = [], []
+    # FP16 rounds pixel coordinates. These are numerical probe limits, not quality gates.
+    box_atol, score_atol = (1., .01) if args.fp16 else (.05, .0002)
+    samples, legacy_samples, comparisons = [], [], []
     for path in sorted(args.samples.glob("*.jpg"))[:24]:
         original = cv2.imread(str(path))
         if original is None:
             raise ValueError(f"Unreadable sample: {path}")
-        prepared = LetterBox(INPUT, auto=False)(image=original)
-        data = np.ascontiguousarray(prepared[:,:,::-1].transpose(2,0,1)[None], dtype=np.float32) / 255.
-        x = torch.from_numpy(data).to("cuda")
+        x = letterbox_cuda(original, shape)
+        legacy_samples.append(x if shape == INPUT else letterbox_cuda(original, INPUT))
         torch.cuda.synchronize()
-        samples.append(x)
+        samples.append(x.half() if args.fp16 else x)
         with torch.inference_mode():
             reference = pt(x)[0].cpu().numpy()
-        actual = run(candidate, binding(candidate,x))
+        actual = run(candidate, binding(candidate, samples[-1]))
         if reference.shape != actual.shape or actual.shape[1] != 4+len(CLASSES):
             raise ValueError("ONNX and PyTorch output shapes differ")
         delta = np.abs(reference-actual)
-        pt_boxes, ort_boxes = (final_boxes(raw, thresholds) for raw in (reference, actual))
+        pt_boxes, ort_boxes = (final_boxes(raw, thresholds, iou) for raw in (reference, actual))
         nms_passed = (pt_boxes.shape == ort_boxes.shape
                       and np.array_equal(pt_boxes[:, 5], ort_boxes[:, 5])
-                      and np.allclose(pt_boxes[:, :4], ort_boxes[:, :4], atol=.05, rtol=0)
-                      and np.allclose(pt_boxes[:, 4], ort_boxes[:, 4], atol=.0002, rtol=0))
+                      and np.allclose(pt_boxes[:, :4], ort_boxes[:, :4], atol=box_atol, rtol=0)
+                      and np.allclose(pt_boxes[:, 4], ort_boxes[:, 4], atol=score_atol, rtol=0))
         comparisons.append({"file": path.name, "sha256": digest(path),
                             "max_box_px": float(delta[:,:4].max()), "max_conf_error": float(delta[:,4:].max()),
                             "nms_detection_count": len(pt_boxes), "nms_passed": bool(nms_passed),
@@ -132,7 +144,8 @@ def process():
     candidate = new_session(exported)
     legacy = [new_session(path) for path in (args.person,args.forklift)]
     routes = {"unified": [candidate], "legacy_dual": legacy}
-    handles = {k:[[binding(s,x) for s in sessions] for x in samples] for k,sessions in routes.items()}
+    inputs = {"unified": samples, "legacy_dual": legacy_samples}
+    handles = {key: [[binding(s, x) for s in sessions] for x in inputs[key]] for key, sessions in routes.items()}
     for name, sessions in routes.items():
         for item in handles[name]:
             for session, bound in zip(sessions,item,strict=True):
@@ -148,10 +161,13 @@ def process():
                 times[key].append((time.perf_counter()-start)*1000)
     summary = {"onnx_sha256": digest(exported), "checkpoint_sha256": digest(checkpoint),
                "legacy_onnx": {"person": digest(args.person), "forklift": digest(args.forklift)},
-               "names": names, "input": list(INPUT), "operator_provider_calls": operators,
+               "names": names, "input": list(shape), "legacy_input": list(INPUT), "candidate_nms": iou,
+               "operator_provider_calls": operators,
                "parity": comparisons, "runtime": ort.__version__, "gpu": torch.cuda.get_device_name(0),
-               "passed": all(c["max_box_px"] < .05 and c["max_conf_error"] < .0002 and
-                             c["nms_passed"] for c in comparisons),
+               "precision": "fp16" if args.fp16 else "fp32",
+               "post_nms_tolerance": {"box_px": box_atol, "score": score_atol},
+               "passed": all(c["nms_passed"] and (args.fp16 or
+                             c["max_box_px"] < box_atol and c["max_conf_error"] < score_atol) for c in comparisons),
                "inference_plus_copy_ms": {key: {"p50": statistics.median(v), "p95": float(np.percentile(v,95))}
                                            for key,v in times.items()}}
     (args.output / "cuda-probe.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")

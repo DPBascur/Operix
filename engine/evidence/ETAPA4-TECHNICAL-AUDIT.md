@@ -1930,3 +1930,71 @@ sintéticos y las pruebas con clases sin anotar se mantienen separados de
 la decisión de despliegue. Umbrales, checkpoint y NMS se fijan únicamente
 mediante la validación PPE y LOCO de V1 (503 imágenes). Se comparan
 NMS 0,45/0,55/0,60 a 384 × 640 y 0,55 a 480 × 800.
+
+Se completaron 16 épocas en la primera fase, con AMP, y siete en la
+segunda, en FP32 porque el control local de AMP rechazó esa configuración.
+En la validación interna de 503 imágenes se eligió el segundo checkpoint
+con 384 × 640, NMS 0,45 y umbrales PERSON 0,25, FORKLIFT 0,20 y
+PALLET_JACK 0,10. El primer checkpoint alcanzó un F1 de montacargas de
+0,734, con un duplicado. El segundo obtuvo 0,719 y cero duplicados, como
+LEGACY_DUAL. A 480 × 800, el segundo recuperó 26/51 objetos pequeños
+frente a 20/51, pero añadió dos duplicados y la mediana de inferencia en
+lotes de ocho pasó de 5,95 a 9,26 ms por imagen.
+
+| Validación de 503 imágenes | LEGACY_DUAL | V1 | V2 refinado |
+| --- | ---: | ---: | ---: |
+| PERSON F1 / FP | 0,932 / 36 | 0,944 / 15 | 0,947 / 27 |
+| FORKLIFT F1 / FP | 0,406 / 80 | 0,440 / 45 | 0,719 / 21 |
+| FORKLIFT AP50–95 | 0,171 | 0,209 | 0,454 |
+| FORKLIFT pequeños detectados | 3/51 | 6/51 | 20/51 |
+| FORKLIFT FP por localización / duplicados | 13 / 0 | 13 / 6 | 8 / 0 |
+| PALLET_JACK F1 / AP50 | — | 0,143 / 0,068 | 0,401 / 0,236 |
+
+En V1 los seis duplicados tuvieron un IoU contra la caja aceptada de
+0,421 a 0,581 y confianza de 0,206 a 0,415. Bajar el NMS de 0,60 a 0,45
+eliminó cinco sin perder detecciones correctas en esa partición. A
+confianza común de 0,175, V1 a NMS 0,45 obtuvo 71 aciertos y 37 FP,
+y V2 129 y 24, respectivamente. Las cajas de V2 con IoU entre 0,10 y
+0,50 tendían a ser más angostas (mediana 0,785 del ancho de referencia),
+con altura mediana de 1,025. La validación carece de pares de montacargas
+con IoU anotado ≥ 0,25. TalTech aporta un par y V2 detectó uno de los dos.
+
+| Reserva sintética TalTech, 48 imágenes | LEGACY_DUAL | V1 | V2 refinado |
+| --- | ---: | ---: | ---: |
+| PERSON precisión / recall / F1 | 0,818 / 0,703 / 0,756 | 0,977 / 0,656 / 0,785 | 0,621 / 0,844 / 0,715 |
+| PERSON FP | 10 | 1 | 33 |
+| FORKLIFT precisión / recall / F1 | 0,714 / 0,128 / 0,217 | 0,680 / 0,436 / 0,531 | 0,600 / 0,692 / 0,643 |
+| FORKLIFT pequeños detectados | 1/32 | 12/32 | 21/32 |
+| FORKLIFT FP | 2 | 8 | 18 |
+| PALLET_JACK correctos / FP | — | 2/17 / 59 | 0/17 / 8 |
+
+Se preservó la selección previa a TalTech. El resultado incumplió los
+límites de precisión y AP50 de PERSON y de FP de FORKLIFT. Las escenas
+sintéticas tampoco cubren el requisito de validación real. PALLET_JACK
+sigue experimental. Se conservó LEGACY_DUAL en 13000, con 313 eventos
+y servicios saludables al comprobar el estado. La prueba integral de
+tres cámaras durante 30 minutos queda condicionada a superar la
+aceptación de reconocimiento en una reserva industrial independiente.
+
+La prueba aislada con RTX 3070, Docker y ONNX Runtime 1.27.0 usó los
+mismos 24 JPG de validación por ruta, entrada 384 × 640 y lote 1. Se
+alternó el orden de las rutas durante diez repeticiones. FP32 conservó
+las cajas pos-NMS en 24/24, con error bruto máximo de 0,00235 px y cero
+cruces de confianza. Con I/O Binding, inferencia y copia a CPU dieron
+p50/p95 de 11,58/15,03 ms frente a 18,02/24,21 ms del doble en esa corrida.
+La medición excluye decodificación, preparación, NMS, tracking y red.
+FP16 dio 9,36/14,97 ms en una corrida separada, con 23/24 en paridad
+pos-NMS, un cruce de confianza y avisos de planificación de cuDNN.
+Se conserva solo como experimental. TensorRT figuró como proveedor,
+pero `libnvinfer.so.10` no estaba disponible en la imagen aislada.
+Quedaron pendientes sus tiempos y la medición sostenida de VRAM y FPS.
+
+Los dos checkpoints, sus curvas, los manifiestos y los resultados se
+archivaron fuera de Git en `D:/Operix-Lab/reports/unified-industrial-v2-20261125`.
+El checkpoint seleccionado tiene SHA-256
+`c8470bc52ef8d5532aaed2cb39c819dc1b6bd6c9d6d1c37cd3c23e3f063c5820`.
+El ONNX FP32 tiene SHA-256
+`14e2b8ab1ab0a9f328c8366104499ea3db5da5dfe69371925d69679f69fc1fcb`.
+Los JSON `validation-locked`, `taltech-sealed` y `cuda-probe` guardan los
+parámetros, hashes por archivo, conteos, tolerancias y latencias para
+repetir el análisis con `evaluate_v2.py` y `onnx_probe.py`.
