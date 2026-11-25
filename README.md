@@ -143,6 +143,14 @@ PostgreSQL conserva eventos, configuraciones y snapshots. Los volúmenes conserv
 
 ## Estado y límites
 
+En una prueba de laboratorio con RTX 3070 y Ryzen 5 5500, las tres señales
+de 540p se reprodujeron a 15 FPS por cámara sin descartes en tres ventanas
+de 4 s de Edge a 1920 × 1080. En la corrida separada de aceptación del
+puerto 13000, la mediana del Motor fue 12 FPS por cámara y el p95 local
+de llegada del fotograma a resultado se situó entre 45 y 97 ms en las
+muestras activas. Esta medición local excluye la distribución LL-HLS y la
+presentación en el navegador.
+
 - PERSON y FORKLIFT pueden omitirse o confundirse según el encuadre, el tamaño
   y la oclusión. PALLET_JACK se visualiza como clasificación experimental.
   El seguimiento usa identificadores temporales por ejecución.
