@@ -1,4 +1,4 @@
-from .cameras import CameraDetailView, CameraInventoryView, CameraPreviewView, CameraStartView, CameraStopView
+from .cameras import CameraDetailView, CameraInventoryView, CameraPreviewView, CameraRecordingView, CameraStartView, CameraStopView
 from django.urls import path, re_path
 
 from .calibration_views import CameraCalibrationView, SessionCalibrationView
@@ -24,6 +24,11 @@ urlpatterns = [
     path("analysis/camera-media/<slug:media_id>/video/", LabMediaView.as_view(), name="lab-media-video"),
     path("analysis/camera-media/<slug:media_id>/thumbnail/", LabMediaView.as_view(thumbnail=True), name="lab-media-thumbnail"),
     path("analysis/cameras/<slug:camera_id>/", CameraDetailView.as_view(), name="lab-camera-detail"),
+    path("analysis/cameras/<slug:camera_id>/recordings/<slug:media_id>/", CameraRecordingView.as_view(), name="lab-camera-recording"),
+    path("analysis/cameras/<slug:camera_id>/recordings/<slug:media_id>/calibration/proposal/",
+         CameraCalibrationView.as_view(recording=True), name="lab-recording-calibration-proposal"),
+    path("analysis/cameras/<slug:camera_id>/recordings/<slug:media_id>/calibration/confirm/",
+         CameraCalibrationView.as_view(recording=True, confirm=True), name="lab-recording-calibration-confirm"),
     path("analysis/cameras/<slug:camera_id>/start/", CameraStartView.as_view(), name="lab-camera-start"),
     path("analysis/cameras/<slug:camera_id>/stop/", CameraStopView.as_view(), name="lab-camera-stop"),
     path("analysis/cameras/<slug:camera_id>/preview/", CameraPreviewView.as_view(), name="lab-camera-preview"),

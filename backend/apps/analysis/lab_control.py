@@ -24,10 +24,10 @@ from rest_framework.views import APIView
 from config.access import request_role, user_role
 from . import camera_registry
 from .cameras import (
-    CameraConflict, camera_json, last_run, recent_frame, scheduler_lock,
+    CameraConflict, camera_capture_signature, camera_json, last_run, recent_frame, scheduler_lock,
     start_camera, stop_camera, status_for,
 )
-from .models import CameraLabControl, CameraRun
+from .models import CameraLabControl, CameraRevision, CameraRun
 
 
 logger = logging.getLogger(__name__)
@@ -527,6 +527,22 @@ def describe(request):
                      "playlist_position": position if enabled and slot_enabled and media_ids else None,
                      "last_transition": max(transitions, key=lambda item: item.get("at", ""), default=None)})
     selected = [row for row in rows if row["enabled"] and playlists[row["id"]]["media_ids"]]
+    captures = {(id_, media_id): camera_capture_signature(replace(camera, provenance=source))
+                for id_, camera in inventory.items() for media_id, source in catalog.items()
+                if source.get("real") and supported_duration(source) and media_eligible(source, camera.capture_fps)}
+    revisions = {(row.camera_id, row.capture_signature): row for row in CameraRevision.objects.filter(
+        camera_id__in=inventory, capture_signature__in=set(captures.values()),
+    ).order_by("camera_id", "capture_signature", "-revision").distinct("camera_id", "capture_signature")}
+    recording_configurations = {id_: {} for id_ in inventory}
+    for (id_, media_id), signature in captures.items():
+        saved = revisions.get((id_, signature))
+        if saved and saved.source_sha256 in ("", catalog[media_id]["sha256"]):
+            recording_configurations[id_][media_id] = {
+                "revision": saved.revision, "demonstration": saved.demonstration,
+                "zones": sum(zone.get("enabled", True) for zone in saved.document["zones"]),
+                "rules": [rule["parameters"]["kind"] for rule in saved.document["rules"] if rule["enabled"]],
+                "calibration": (saved.document.get("calibration") or {}).get("status"),
+            }
     pending = [row for row in selected if not row["playlist_finished"]]
     active = [row for row in pending if (row["status"] == "analyzing" or (row.get("view_only") and row["status"] == "transmitting")) and publishers[row["id"]] == "publishing"
               and (row.get("view_only") or recent_frame(row))]
@@ -551,6 +567,7 @@ def describe(request):
                         if supported_duration(source)
                         and any(media_eligible(source, camera.capture_fps) for camera in inventory.values())],
             "playlists": playlists,
+            "recording_configurations": recording_configurations,
             "updated_by": control.updated_by.get_username() if control and control.updated_by_id else None}
 
 

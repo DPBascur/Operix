@@ -130,12 +130,33 @@ def default_document(camera):
 
 
 def latest_revision(camera):
-    return CameraRevision.objects.filter(camera_id=camera.id).order_by("-revision").first()
+    revisions = CameraRevision.objects.filter(camera_id=camera.id)
+    if camera_registry.automatic(camera):
+        sha256 = (camera.provenance or {}).get("sha256")
+        if not sha256:
+            return None
+        return revisions.filter(capture_signature=camera_capture_signature(camera),
+                                source_sha256__in=("", sha256)).order_by("-revision").first()
+    return revisions.filter(source_sha256="").order_by("-revision").first()
 
 
 def document_for(camera):
     revision = latest_revision(camera)
-    return (revision.document, revision.revision) if revision else (default_document(camera), 0)
+    if revision:
+        return revision.document, revision.revision
+    document = default_document(camera)
+    if camera_registry.automatic(camera):
+        document["rules"] = []
+    return document, 0
+
+
+def recording_review(camera, revision):
+    return {
+        "source_sha256": (camera.provenance or {}).get("sha256"),
+        "state": "reviewed" if revision else "unreviewed",
+        "revision": revision.revision if revision else 0,
+        "demonstration": bool(revision and revision.demonstration),
+    }
 
 
 def spatial_capture_issue(camera, document, revision):
@@ -147,7 +168,9 @@ def spatial_capture_issue(camera, document, revision):
     return None
 
 
-def effective(camera, document, owner_id):
+def effective(camera, document, owner_id, *, saved=None):
+    if camera_registry.automatic(camera) and (saved is None or saved.source_sha256):
+        return document, None
     rules, policy = resolve_policy(load_catalog(owner_id), profile=None, demo_source_id=None,
                                    source_sha256=None, camera_id=camera.id)
     if rules is not None:
@@ -158,13 +181,14 @@ def effective(camera, document, owner_id):
 def camera_json(request, camera):
     run = last_run(camera.id)
     state, metrics, runtime = status_for(run)
-    document, revision = document_for(camera)
+    active_snapshot = run.snapshot if run and run.active else None
+    capture_camera = replace(camera, provenance=run.provenance) if active_snapshot else camera
+    saved = latest_revision(capture_camera)
+    document, revision = (saved.document, saved.revision) if saved else document_for(capture_camera)
     event = Event.objects.filter(source__kind="lab", source__camera_id=camera.id).only(
         "id", "event_type", "occurred_at",
     ).first()
-    _, policy = effective(camera, document, request.user.pk)
-    active_snapshot = run.snapshot if run and run.active else None
-    capture_camera = replace(camera, provenance=run.provenance) if active_snapshot else camera
+    _, policy = effective(capture_camera, document, request.user.pk, saved=saved)
     calibration_hash = (document.get("calibration") or {}).get("sha256")
     calibration_run, calibration_metrics = run, metrics
     if run and calibration_hash and (run.snapshot.configuration.get("calibration") or {}).get("sha256") != calibration_hash:
@@ -204,6 +228,7 @@ def camera_json(request, camera):
         "expected_fps": camera.expected_fps, "width": camera.width, "height": camera.height,
         "configured_analysis_fps": None if view_only else camera.expected_fps, "configured_source_fps": camera.capture_fps,
         "status": state, "metrics": metrics, "configuration": document, "revision": revision,
+        "recording_review": recording_review(capture_camera, saved) if camera_registry.automatic(camera) else None,
         "calibration_requires_reconfirmation": bool(calibration_issue(capture_camera, document, calibration_run, calibration_metrics)),
         "policy": active_snapshot.policy if active_snapshot else policy,
         "effective_rules": active_snapshot.configuration.get("rules", []) if active_snapshot else None,
@@ -281,6 +306,26 @@ def checked_document(camera, document):
     return checked
 
 
+def recording_camera(camera, media_id):
+    from .lab_control import media_eligible, supported_duration
+
+    source = camera_registry.media_registry()[0].get(media_id, {})
+    if (not camera_registry.automatic(camera) or source.get("real") is not True
+            or not media_eligible(source, camera.capture_fps) or not supported_duration(source)):
+        raise Http404
+    return replace(camera, provenance={**source, "media_id": media_id})
+
+
+def recording_configuration(camera, saved):
+    document = saved.document if saved else document_for(camera)[0]
+    return {
+        "id": camera.id, "name": camera.name, "width": camera.width, "height": camera.height,
+        "provenance": camera_registry.public_provenance(camera.provenance),
+        "configuration": document, "revision": saved.revision if saved else 0,
+        "recording_review": recording_review(camera, saved),
+    }
+
+
 class CameraInventoryView(APIView):
     permission_classes = [CanAnalyze]
 
@@ -316,16 +361,23 @@ class CameraDetailView(CameraView):
         scheduler_lock()
         return self.save(request, camera_at_playlist_start(self.camera(camera_id)), request.data)
 
-    def save(self, request, camera, body, *, pattern_confirmed=False, confirm_capture=None):
+    def save(self, request, camera, body, *, pattern_confirmed=False, confirm_capture=None, recording=False):
         camera_id = camera.id
-        if not isinstance(body, dict) or set(body) != {"revision", "document"} or type(body["revision"]) is not int:
+        required = {"revision", "document"}
+        if recording and not pattern_confirmed:
+            required |= {"demonstration", "source_sha256"}
+        if not isinstance(body, dict) or set(body) != required or type(body["revision"]) is not int:
             raise ValidationError("Indique documento y revisión.")
+        if recording and not pattern_confirmed and (
+                type(body["demonstration"]) is not bool or body["source_sha256"] != camera.provenance["sha256"]):
+            raise CameraConflict("La grabación cambió. Recupere su configuración vigente.")
         document = checked_document(camera, body["document"])
         scheduler_lock()
         run = last_run(camera_id, lock=True)
         status_for(run)
-        if run is not None and run.active and confirm_capture is None:
-            raise CameraConflict("Detenga el monitoreo antes de editar.")
+        if run is not None and run.active and confirm_capture is None and not recording:
+            raise CameraConflict("Detenga esta grabación antes de editar su configuración.")
+        saved = latest_revision(camera)
         previous, revision = document_for(camera)
         if body["revision"] != revision:
             raise CameraConflict("Recupere la revisión vigente.")
@@ -339,7 +391,9 @@ class CameraDetailView(CameraView):
             raise ValidationError("Confirme una nueva propuesta de patrón para cambiar la calibración.")
         previous_rules = {rule["rule_id"]: rule for rule in previous["rules"]}
         versions = {}
-        for item in CameraRevision.objects.filter(camera_id=camera_id).values_list("document", flat=True).iterator():
+        revisions = CameraRevision.objects.filter(camera_id=camera_id)
+        last_revision = revisions.order_by("-revision").values_list("revision", flat=True).first() or 0
+        for item in revisions.values_list("document", flat=True).iterator():
             for rule in item["rules"]:
                 versions[rule["rule_id"]] = max(rule["version"], versions.get(rule["rule_id"], 0))
         for rule in document["rules"]:
@@ -351,10 +405,32 @@ class CameraDetailView(CameraView):
             rule["version"] = version + 1 if changed else old["version"]
         if confirm_capture is not None:
             confirm_capture()
-        CameraRevision.objects.create(camera_id=camera_id, revision=revision + 1,
+        new = CameraRevision.objects.create(camera_id=camera_id, revision=last_revision + 1,
                                       document=document, updated_by=request.user,
+                                      source_sha256=(camera.provenance or {}).get("sha256", "")
+                                      if camera_registry.automatic(camera) else "",
+                                      demonstration=body.get("demonstration", bool(saved and saved.demonstration)),
                                       capture_signature=camera_capture_signature(camera) if camera.provenance else "")
+        if recording:
+            return Response(recording_configuration(camera, new))
         return Response(camera_json(request, camera))
+
+
+class CameraRecordingView(CameraDetailView):
+    def get(self, request, camera_id, media_id):
+        camera = recording_camera(self.camera(camera_id), media_id)
+        return Response(recording_configuration(camera, latest_revision(camera)))
+
+    @transaction.atomic
+    def put(self, request, camera_id, media_id):
+        from .lab_control import approved_media
+
+        camera = recording_camera(self.camera(camera_id), media_id)
+        try:
+            approved_media(camera)
+        except (OSError, ValueError, KeyError) as error:
+            raise CameraConflict("No se pudo verificar la grabación autorizada.") from error
+        return self.save(request, camera, request.data, recording=True)
 
 
 class CameraStartView(CameraView):
@@ -408,9 +484,9 @@ def start_camera(camera, owner, *, managed=False, playback=None):
     if active >= camera_registry.capacity():
         raise CameraConflict()
     saved = latest_revision(camera)
-    document = saved.document if saved else default_document(camera)
+    document = saved.document if saved else document_for(camera)[0]
     revision = saved.revision if saved else 0
-    document, policy = effective(camera, document, owner.pk)
+    document, policy = effective(camera, document, owner.pk, saved=saved)
     issue = spatial_capture_issue(camera, document, saved)
     if issue:
         # Keep the saved revision and policy for traceability. Freeze only safe geometry in this run.
@@ -419,6 +495,11 @@ def start_camera(camera, owner, *, managed=False, playback=None):
         document["rules"] = []
         if playback:
             playback = {**playback, "spatial_suspension_reason": issue}
+    elif managed and saved is None:
+        document["zones"][0]["enabled"] = False
+        playback = {**playback, "spatial_suspension_reason": "Esta grabación aún no tiene una configuración revisada."}
+    if managed:
+        playback = {**playback, "recording_revision": revision, "demonstration": bool(saved and saved.demonstration)}
     checked_document(camera, document)
     if calibration := document.get("calibration"):
         # A run with suspended spatial rules must not clear a prior framing invalidation.

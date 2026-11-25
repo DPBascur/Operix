@@ -80,10 +80,14 @@ class CameraRevision(models.Model):
     revision = models.PositiveIntegerField()
     document = models.JSONField()
     capture_signature = models.CharField(max_length=64, blank=True)
+    source_sha256 = models.CharField(max_length=64, blank=True, default="", db_default="")
+    demonstration = models.BooleanField(default=False, db_default=False)
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        indexes = [models.Index(fields=("camera_id", "capture_signature", "-revision"),
+                                name="camera_capture_revision_idx")]
         constraints = [models.UniqueConstraint(fields=("camera_id", "revision"),
                                                 name="unique_lab_camera_revision")]
 

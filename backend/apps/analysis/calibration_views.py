@@ -22,7 +22,7 @@ from rest_framework.response import Response
 from . import camera_registry
 from .cameras import (CameraConflict, CameraDetailView, CameraView, camera_capture_signature,
                       camera_worker_destination, document_for, last_run, playback_clock_id,
-                      recent_frame, scheduler_lock, status_for)
+                      recent_frame, recording_camera, scheduler_lock, status_for)
 from .models import CameraLabControl, CameraRevision
 from .sessions import RESTARTABLE, ROOT
 from .sources import latest_spatial
@@ -233,27 +233,41 @@ def _camera_binding(camera):
 
 class CameraCalibrationView(CameraView):
     confirm = False
+    recording = False
 
-    def post(self, request, camera_id):
-        camera = self.camera(camera_id)
-        original = camera
+    def post(self, request, camera_id, media_id=None):
+        original = self.camera(camera_id)
+
+        def current_binding():
+            if not self.recording:
+                return _camera_binding(original)
+            from .lab_control import approved_media, registered_media_file
+
+            selected = recording_camera(original, media_id)
+            try:
+                approved_media(selected)
+                path, digest, _ = registered_media_file(selected.provenance)
+            except (OSError, ValueError, KeyError) as error:
+                raise CameraConflict("No se pudo verificar la grabación autorizada.") from error
+            return selected, ["recording", selected.id, digest, camera_capture_signature(selected)], path
+
         if self.confirm:
             with transaction.atomic():
                 scheduler_lock()
-                camera, binding, _ = _camera_binding(camera)
+                camera, binding, _ = current_binding()
                 document, revision = document_for(camera)
                 previous = CameraRevision.objects.filter(camera_id=camera.id).values_list("document", flat=True)
                 version = max(((doc.get("calibration") or {}).get("version", 0) for doc in previous), default=0) + 1
                 calibration = _confirm(request, binding, revision, version, camera.spatial_key)
 
                 def confirm_capture():
-                    if _camera_binding(original)[1] != binding:
+                    if current_binding()[1] != binding:
                         raise CameraConflict("Cambió la emisión o la época mientras se validaba. Vuelve a capturar.")
 
                 return CameraDetailView().save(request, camera, {
                     "document": {**document, "calibration": calibration}, "revision": revision,
-                }, pattern_confirmed=True, confirm_capture=confirm_capture)
-        camera, binding, clock = _camera_binding(original)
+                }, pattern_confirmed=True, confirm_capture=confirm_capture, recording=self.recording)
+        camera, binding, capture = current_binding()
         _, revision = document_for(camera)
         discover = isinstance(request.data, dict) and set(request.data) == {"revision"}
         if discover:
@@ -273,10 +287,13 @@ class CameraCalibrationView(CameraView):
         if type(requested) is not int or requested != revision:
             raise CameraConflict("Recupere la revisión vigente antes de capturar.")
         options = {"width": camera.width, "height": camera.height, "discover": discover}
-        if clock:
-            options["clock"] = clock
-        report = _detect(layout, options, _live_source(camera))
-        if _camera_binding(original)[1] != binding or document_for(camera)[1] != revision:
+        if self.recording:
+            options["video_path"] = str(capture)
+        elif capture:
+            options["clock"] = capture
+        report = _detect(layout, options, None if self.recording else _live_source(camera))
+        bound_camera, current, _ = current_binding()
+        if current != binding or document_for(bound_camera)[1] != revision:
             raise CameraConflict("Cambió la emisión, la época o la revisión durante la captura. Vuelve a capturar.")
         return _reply(request, binding, revision, layout, provenance, report)
 

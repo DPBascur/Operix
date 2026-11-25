@@ -95,6 +95,43 @@ class ManagedLabTests(APITestCase):
             camera_capture_signature(replace(camera, provenance=catalog["second"])),
         )
 
+    def test_recording_revisions_remain_bound_across_playlist_switches(self):
+        camera = inventory()["lab-cam-01"]
+        catalog, _ = media_registry()
+        docs = {}
+        for media_id in (camera.id, "second"):
+            url = f"/api/v1/analysis/cameras/{camera.id}/recordings/{media_id}/"
+            row = self.admin.get(url).data
+            self.assertEqual(row["recording_review"]["state"], "unreviewed")
+            document = default_document(camera)
+            document["zones"][0]["name"] = media_id
+            payload = {"revision": row["revision"], "source_sha256": catalog[media_id]["sha256"],
+                       "document": document, "demonstration": True}
+            self.assertEqual(self.admin.put(url, {**payload, "source_sha256": "a" * 64}, format="json").status_code, 409)
+            saved = self.admin.put(url, payload, format="json")
+            self.assertEqual(saved.status_code, 200, saved.data)
+            self.assertEqual(self.admin.put(url, payload, format="json").status_code, 409)
+            docs[media_id] = saved.data
+        with (self.settings(EVENT_POST_ENABLED=True, MEDIA_ROOT=self.root),
+              patch.dict(os.environ, {"OPERIX_PERSON_WEIGHTS": "person", "OPERIX_FORKLIFT_WEIGHTS": "forklift",
+                                      "OPERIX_RTSP_INFERENCE_SOCKET": ""}),
+              patch("apps.analysis.cameras.camera_worker_destination", return_value=("10.0.0.2", "rtsp://10.0.0.2/live")),
+              patch("apps.analysis.cameras.subprocess") as worker,
+              patch("apps.analysis.cameras.Thread"),
+              patch("apps.analysis.cameras._processes", {})):
+            worker.Popen.return_value.poll.return_value = None
+            for media_id in (camera.id, "second", camera.id):
+                selected = replace(camera, provenance=catalog[media_id])
+                run_id = start_camera(selected, self.owner, managed=True,
+                    playback={"token": uuid4().hex, "media_id": media_id})
+                run = CameraRun.objects.get(pk=run_id)
+                self.assertEqual(run.snapshot.spatial_revision, docs[media_id]["revision"])
+                self.assertEqual(run.snapshot.configuration, docs[media_id]["configuration"])
+                self.assertTrue(run.playback["demonstration"])
+                self.assertNotIn("spatial_suspension_reason", run.playback)
+                CameraRun.objects.filter(pk=run_id).update(active=False, terminal_state="stopped")
+            self.assertEqual(CameraRun.objects.count(), 3)
+
     def test_opt_in_third_slot_uses_catalog_and_is_disabled_by_default(self):
         camera_id = "lab-cam-03"
         self.assertNotIn(camera_id, inventory())
@@ -278,8 +315,8 @@ class ManagedLabTests(APITestCase):
         self.assertEqual(context["source"]["video_sha256"], source["sha256"])
         self.assertEqual(context["source"]["filename"], "second.mp4")
         self.assertEqual(context["source"]["spatial_configuration"], run.snapshot.configuration)
-        self.assertEqual(run.snapshot.configuration, default_document(camera))
-        self.assertNotIn("spatial_suspension_reason", run.playback)
+        self.assertEqual(run.snapshot.configuration["rules"], [])
+        self.assertIn("spatial_suspension_reason", run.playback)
 
     def test_spawn_uses_custom_geometry_only_with_a_matching_signature(self):
         camera = inventory()["lab-cam-01"]
@@ -301,7 +338,7 @@ class ManagedLabTests(APITestCase):
                     run_id = start_camera(camera, self.owner, managed=True, playback=playback)
                 worker.Popen.assert_called_once()
                 run = CameraRun.objects.get(pk=run_id)
-                self.assertEqual(run.snapshot.spatial_revision, revision)
+                self.assertEqual(run.snapshot.spatial_revision, revision if capture_signature else None)
                 if capture_signature:
                     self.assertEqual(run.snapshot.configuration, document)
                     self.assertNotIn("spatial_suspension_reason", run.playback)
@@ -554,7 +591,8 @@ class ManagedLabTests(APITestCase):
         self.assertFalse(row["playlist_blocked"])
         self.assertIn("spatial_suspension_reason", row["playback"])
         self.assertEqual(row["effective_rules"], [])
-        self.assertEqual(row["configuration"], document)
+        self.assertEqual(row["recording_review"]["state"], "unreviewed")
+        self.assertNotEqual(row["configuration"]["zones"], document["zones"])
         self.assertEqual(worker_config, run.snapshot.configuration)
         self.assertEqual(worker_config["rules"], [])
         self.assertFalse(worker_config["zones"][0]["enabled"])
