@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { usePathname } from "next/navigation";
 import { CircleHelp } from "lucide-react";
 import { useSession } from "@/features/auth/session-provider";
 import { useState } from "react";
@@ -13,7 +14,8 @@ const ExperienceGuide = dynamic(
 
 export function GuideLauncher() {
   const { user } = useSession();
-  return user ? <UserGuide key={user.username} user={user} /> : null;
+  const pathname = usePathname();
+  return user && pathname !== "/monitoring/display" ? <UserGuide key={user.username} user={user} /> : null;
 }
 
 function UserGuide({ user }: { user: OperixUser }) {

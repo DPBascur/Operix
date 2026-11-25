@@ -49,7 +49,7 @@ function CameraTile({ camera, live, monitor, enabled, handoff, preview, canEdit,
       {monitor && !stale && (
         <div className="grid gap-1 px-1 py-2 text-xs text-text-secondary" aria-live="polite">
           {!!camera.playback?.recording_revision && (
-            <p>{camera.playback.demonstration ? "Escenario experimental" : "Configuración de grabación"} · revisión {camera.playback.recording_revision}</p>
+            <p>{camera.playback.demonstration ? "Demostración revisada" : "Configuración de grabación"} · revisión {camera.playback.recording_revision}</p>
           )}
           {running.has(camera.status) && !camera.view_only && (rulesPaused || noActiveRules) && (
             <p>{rulesPaused ? `Reglas espaciales suspendidas. ${rulesPaused}` : "Sin reglas activas para esta ejecución."}</p>
@@ -107,20 +107,25 @@ function CameraTile({ camera, live, monitor, enabled, handoff, preview, canEdit,
   );
 }
 
-export function CameraWorkspace({ monitor = false }: { monitor?: boolean }) {
+export function CameraWorkspace({ monitor = false, surveillance = false }: { monitor?: boolean; surveillance?: boolean }) {
   const { data, error, receivedAt, retry } = useCameraData(cameraLabService.list, 5000);
   const { user } = useSession();
   const canControl = !!user && canOpen("/admin/camera-lab", user.role);
   const [layout, setLayout] = useState<"grid" | "focus">("grid");
   const [primaryId, setPrimaryId] = useState<string>();
-  const cameras = data?.enabled ? data.cameras : [];
+  const isHandoff = (camera: LabCamera) => camera.automatic === true && !camera.view_only && !error &&
+    cameraPlaylistHandoff(camera.status, camera.playback?.transition, receivedAt);
+  const cameras = data?.enabled
+    ? data.cameras.filter((camera) => !monitor || running.has(camera.status) || isHandoff(camera))
+    : [];
   const selected = cameras.find(({ id }) => id === primaryId) ?? cameras[0];
   const focused = monitor && layout === "focus" && cameras.length > 1;
   const active = cameras.filter(({ status }) => status === "analyzing").length;
   const saturated = cameras.some(({ status }) => status === "overloaded");
 
   return (
-    <section id="laboratorio-camaras" className={styles.workspace} aria-labelledby="camera-source-title">
+    <section id="laboratorio-camaras" className={styles.workspace} data-surveillance={surveillance || undefined}
+      aria-labelledby="camera-source-title">
       <div className={styles.heading}>
         <div>
           <h2 id="camera-source-title" className={monitor ? "sr-only" : undefined}>Cámaras</h2>
@@ -134,7 +139,12 @@ export function CameraWorkspace({ monitor = false }: { monitor?: boolean }) {
               <Button variant={layout === "focus" ? "secondary" : "ghost"} aria-pressed={layout === "focus"} onClick={() => setLayout("focus")}><RectangleHorizontal size={16} /> Principal</Button>
             </div>
           )}
-          {monitor && canControl && (
+          {monitor && !surveillance && (
+            <Link className="button button-outline" href="/monitoring/display" target="_blank" rel="noopener">
+              <Maximize size={17} aria-hidden="true" /> Abrir pantalla de vigilancia
+            </Link>
+          )}
+          {monitor && !surveillance && canControl && (
             <Link className="button button-outline" href="/admin/camera-lab#incorporar-camara">
               <Plus size={17} aria-hidden="true" /> Incorporar cámara
             </Link>
@@ -157,14 +167,16 @@ export function CameraWorkspace({ monitor = false }: { monitor?: boolean }) {
         <p className="inline-message" role="status">
           Capacidad de análisis simultáneo configurada: {data.capacity}.
           {saturated && " Hay una cámara con inferencia saturada."}{" "}
-          {canControl && <Link className="underline" href="/admin/camera-lab">Revisar cámaras activas</Link>}
+          {!surveillance && canControl && <Link className="underline" href="/admin/camera-lab">Revisar cámaras activas</Link>}
         </p>
       )}
       {data && !cameras.length && (
         <div className={styles.empty}>
           <Camera size={24} aria-hidden="true" />
-          <p>{data.enabled ? "Aún no hay cámaras configuradas." : "El laboratorio está deshabilitado."}</p>
-          {canControl && <Link href="/admin/camera-lab" className="button button-outline">Ir a Control de cámaras</Link>}
+          <p>{monitor && data.cameras.length
+            ? "No hay cámaras activas."
+            : data.enabled ? "Aún no hay cámaras configuradas." : "El laboratorio está deshabilitado."}</p>
+          {!surveillance && canControl && <Link href="/admin/camera-lab" className="button button-outline">Ir a Control de cámaras</Link>}
         </div>
       )}
       {focused && (
@@ -179,13 +191,17 @@ export function CameraWorkspace({ monitor = false }: { monitor?: boolean }) {
         <ul className={styles.grid} data-focused={focused} data-count={cameras.length}>
           {cameras.map((camera) => (
             <li key={camera.id} data-primary={focused && selected?.id === camera.id}>
-              <CameraTile camera={camera} canEdit={data?.can_edit === true && !error} stale={!!error}
-                live={Boolean(camera.automatic ?? data?.managed)} monitor={monitor}
+              <CameraTile camera={camera} canEdit={!surveillance && data?.can_edit === true && !error} stale={!!error}
+                live={monitor && Boolean(camera.automatic ?? data?.managed)} monitor={monitor}
                 enabled={running.has(camera.status)}
-                handoff={monitor && camera.automatic === true && !camera.view_only && !error &&
-                  cameraPlaylistHandoff(camera.status, camera.playback?.transition, receivedAt)}
+                handoff={monitor && isHandoff(camera)}
                 preview={!monitor && !cameraObservationPaused(camera.status, !!error) &&
                   cameraFrameIsRecent(camera.last_frame_at, camera.metrics, receivedAt)} />
+              {!monitor && <p className="px-1 py-2 text-xs text-text-secondary">
+                {camera.automatic ? "Grabación de laboratorio" : "Fuente RTSP"}
+                {camera.recording_review?.revision ? ` · revisión ${camera.recording_review.revision}` : ""}
+                {" · "}<Link className="underline" href="/monitoring">Abrir monitoreo</Link>
+              </p>}
             </li>
           ))}
         </ul>

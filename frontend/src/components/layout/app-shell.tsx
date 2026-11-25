@@ -266,6 +266,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const reduceMotion = useReducedMotion();
   const compact = useSyncExternalStore(subscribeToSidebarPreference, getSidebarPreference, () => null);
   if (pathname === "/login") return children;
+  if (pathname === "/monitoring/display") return <main id="main-content">{children}</main>;
   const activePath =
     pathname === "/dashboard"
       ? "/"

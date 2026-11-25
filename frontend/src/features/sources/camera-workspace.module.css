@@ -32,6 +32,11 @@
   .grid[data-count="1"] { grid-template-columns: minmax(0, 70rem); }
   .grid[data-focused=true] li[data-primary=true] { grid-column: 1 / -1; grid-row: 1; }
 }
+@media (min-width: 1280px) {
+  .workspace[data-surveillance=true] .grid[data-count="3"][data-focused=false] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
 @media (prefers-reduced-motion: reduce) { .controls :is(a, button) { transition: none; } }
 
 .workspace .segment button[aria-pressed=true] { background: var(--primary); color: white; }

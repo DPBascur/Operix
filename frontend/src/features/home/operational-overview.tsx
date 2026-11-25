@@ -28,11 +28,13 @@ import {
 } from "@/features/dashboard/history-model";
 import { evidenceHref } from "@/features/events/event-detail-model";
 import { EventThumbnail } from "@/features/events/event-preview";
+import { useCameraData } from "@/features/sources/camera-overview";
 import {
   analysisService,
   type AnalysisProfileDefinition,
 } from "@/services/analysis.service";
 import { apiFetch } from "@/services/browser-session";
+import { cameraLabService } from "@/services/camera-lab.service";
 import { eventTypeName, isOperationalEvent } from "@/services/event-contract";
 import styles from "./operational-overview.module.css";
 
@@ -57,6 +59,7 @@ const eventTypes = [
 type HistoryResult = {
   key: string;
   summary?: ReturnType<typeof summarizeHistory>;
+  cameraCounts?: [string, number][];
   previousCount?: number;
   error?: string;
 };
@@ -85,6 +88,7 @@ async function fetchHistory(
 }
 
 function SourceList({ revision }: { revision: number }) {
+  const { data: cameras, error: cameraError } = useCameraData(cameraLabService.list, 15000);
   const [catalog, setCatalog] = useState<{
     revision: number;
     demos?: AnalysisProfileDefinition[];
@@ -116,6 +120,12 @@ function SourceList({ revision }: { revision: number }) {
           Abrir Fuentes <ArrowRight size={15} aria-hidden="true" />
         </Link>
       </header>
+      {cameras?.enabled && !cameraError && (
+        <p className={styles.panelNote}>
+          {cameras.cameras.filter(({ status }) => status === "analyzing").length}
+          {" de "}{cameras.cameras.length} cámaras con análisis activo
+        </p>
+      )}
       {catalog?.revision !== revision ? (
         <p className={styles.panelNote} role="status">
           Consultando catálogo…
@@ -184,16 +194,21 @@ export function OperationalOverview() {
 
   useEffect(() => {
     const controller = new AbortController();
-    const signal = AbortSignal.any([
-      controller.signal,
-      AbortSignal.timeout(15000),
-    ]);
-    async function load() {
+    let timer: ReturnType<typeof setTimeout>;
+    async function load(background = false) {
+      const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]);
       try {
+        if (background && document.visibilityState !== "visible") return;
         const records = parseHistory(await fetchHistory("", filters, signal));
         const summary = summarizeHistory(records, month);
+        const cameras = new Map<string, number>();
+        for (const { source } of records) {
+          if (source?.kind === "lab" && typeof source.camera_id === "string")
+            cameras.set(source.camera_id, (cameras.get(source.camera_id) ?? 0) + 1);
+        }
+        const snapshot = { key, summary, cameraCounts: [...cameras].sort(([a], [b]) => a.localeCompare(b)) };
         if (controller.signal.aborted) return;
-        setResult({ key, summary });
+        setResult(snapshot);
 
         // Compare complete UTC months with the same operational filters.
         if (month === currentMonth) return;
@@ -209,7 +224,7 @@ export function OperationalOverview() {
           !controller.signal.aborted &&
           frequency.by_period.every(({ date }) => date.startsWith(priorMonth))
         ) {
-          setResult({ key, summary, previousCount: frequency.total });
+          setResult({ ...snapshot, previousCount: frequency.total });
         }
       } catch (cause) {
         if (controller.signal.aborted) return;
@@ -223,10 +238,16 @@ export function OperationalOverview() {
                   : historyError(cause),
               },
         );
+      } finally {
+        if (!controller.signal.aborted && month === currentMonth)
+          timer = setTimeout(() => void load(true), 20000);
       }
     }
     void load();
-    return () => controller.abort();
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [currentMonth, filters, key, month]);
 
   const summary = current?.summary;
@@ -290,7 +311,7 @@ export function OperationalOverview() {
             value={source}
             onChange={(event) => setSource(event.target.value)}
           >
-            <option value="">Todas las procedencias</option>
+            <option value="">Fuentes, salvo laboratorio</option>
             {Object.entries(sourceNames).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
@@ -332,6 +353,17 @@ export function OperationalOverview() {
             </dd>
           </div>
         </dl>
+        {!!current?.cameraCounts?.length && (
+          <ul className="flex flex-wrap gap-x-5 gap-y-2 px-4 pb-4 text-sm" aria-label="Eventos por cámara de laboratorio">
+            {current.cameraCounts.map(([cameraId, count]) => (
+              <li key={cameraId}>
+                <Link className={styles.textLink} href={historyHref(filters, { camera_id: cameraId })}>
+                  {cameraId.replace(/^lab-cam-/, "Cámara ")} · {countFormat.format(count)}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <div className={styles.grid}>
