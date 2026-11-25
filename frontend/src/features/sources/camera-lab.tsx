@@ -14,6 +14,8 @@ import { OperixScanLoader } from "@/components/ui/operix-scan-loader";
 import { MetricSummary } from "@/components/ui/metric-summary";
 import { PageTitle } from "@/components/layout/page-title";
 import { operationalError } from "@/features/operations/operation-request";
+import { Parameters } from "@/features/operations/policy-editor";
+import { newParameters, type PolicyParameters } from "@/features/operations/policy-model";
 import { eventTypeName } from "@/services/event-contract";
 import {
   cameraLabService,
@@ -68,9 +70,9 @@ function ActionFeedback({ message }: { message?: Feedback }) {
   );
 }
 
-type CameraDraft = { revision: number; document: CameraDocument };
+export type CameraDraft = { revision: number; document: CameraDocument };
 
-function Configuration({
+export function Configuration({
   camera,
   canEdit,
   canConfigure,
@@ -80,8 +82,10 @@ function Configuration({
   message,
   onSave,
   setDraft,
+  title = "Configuración de la cámara",
+  editableRules = false,
 }: {
-  camera: LabCamera;
+  camera: Pick<LabCamera, "configuration" | "revision" | "policy">;
   canEdit: boolean;
   canConfigure: boolean;
   busy: boolean;
@@ -90,6 +94,8 @@ function Configuration({
   message?: Feedback;
   onSave: (revision: number, document: CameraDocument) => Promise<boolean>;
   setDraft: (draft: CameraDraft | undefined) => void;
+  title?: string;
+  editableRules?: boolean;
 }) {
   const document = draft?.document ?? camera.configuration;
   const outdated = Boolean(draft && draft.revision !== camera.revision);
@@ -106,7 +112,7 @@ function Configuration({
     >
       <div>
         <h2 id="camera-config" className="font-semibold">
-          Configuración de la cámara
+          {title}
         </h2>
         <p className="text-sm text-text-secondary">
           Revisión {camera.revision}
@@ -287,8 +293,8 @@ function Configuration({
             {document.rules.map((rule, index) => {
               const label = `${eventTypeName(String(rule.parameters.kind ?? ""))} · ${rule.rule_id}`;
               return canEdit ? (
+                <div key={rule.rule_id} className={editableRules ? "grid gap-2 rounded-md border border-border p-3" : undefined}>
                 <label
-                  key={rule.rule_id}
                   className="flex min-h-11 items-center gap-2 break-words text-sm"
                 >
                   <input
@@ -308,6 +314,22 @@ function Configuration({
                     {label} · v{rule.version}
                   </span>
                 </label>
+                {editableRules && (
+                  <details className="text-sm">
+                    <summary className="cursor-pointer">Editar condición y parámetros</summary>
+                    <div className="mt-2 grid gap-2">
+                      <Parameters value={rule.parameters as PolicyParameters} zones={document.zones}
+                        metricAvailable={metricAvailable}
+                        onChange={(parameters) => edit({ ...document, rules: document.rules.map((item, i) =>
+                          i === index ? { ...item, parameters } : item) })} />
+                      <Button type="button" variant="ghost" className="w-fit"
+                        onClick={() => edit({ ...document, rules: document.rules.filter((_, i) => i !== index) })}>
+                        Quitar regla
+                      </Button>
+                    </div>
+                  </details>
+                )}
+                </div>
               ) : (
                 <p key={rule.rule_id} className="break-words text-sm">
                   {label} · v{rule.version} ·{" "}
@@ -317,6 +339,15 @@ function Configuration({
             })}
             {!document.rules.length && (
               <p className="text-sm">Sin reglas declaradas.</p>
+            )}
+            {canEdit && editableRules && document.zones.length > 0 && (
+              <Button type="button" variant="outline" className="mt-2 w-fit"
+                onClick={() => edit({ ...document, rules: [...document.rules, {
+                  rule_id: "recording-" + crypto.randomUUID().slice(0, 8),
+                  version: 1, enabled: false, parameters: newParameters("zone_dwell", document.zones[0].zone_id),
+                }] })}>
+                Añadir regla
+              </Button>
             )}
           </fieldset>
           <fieldset disabled={!canEdit || locked}>

@@ -534,8 +534,41 @@ fotogramas de la grabación histórica y usa otros metadatos MP4 para
 tener su propia identidad como fuente del perfil. La escala es
 normalizada hasta que un usuario confirme referencias físicas.
 
-Para ajustar una cámara del laboratorio, detén su monitoreo y confirma
-la primera grabación asignada antes de guardar las zonas. Las zonas
-personalizadas se vinculan a esa grabación. Ante una transición a otro
-encuadre, Monitoreo muestra la suspensión de reglas espaciales y puede
-seguir mostrando detecciones y el enlace al último expediente.
+### Configuración por grabación
+
+En **Control de cámaras**, elige **Configurar grabación** en la lista o
+en el selector de videos. La vista previa funciona aunque ese video no
+se esté emitiendo. Guarda las zonas y reglas como una revisión de esa
+cámara y del SHA-256 del video. Los cambios se aplican al abrir la
+siguiente ejecución. Para confirmar una calibración física desde la
+grabación, las dimensiones capturadas deben coincidir con la emisión
+y las referencias del suelo deben estar medidas y verificadas.
+Las reglas guardadas en una revisión específica son las efectivas
+para esa grabación. Las asignaciones generales de cámara se conservan
+para las configuraciones históricas compatibles y las cámaras físicas.
+
+Monitoreo indica la revisión activa. Las grabaciones pendientes de
+revisión conservan video, detecciones y seguimiento. Las condiciones
+configuradas dependen de zonas compatibles, por lo que se suspenden
+hasta que se revise la grabación. Una revisión histórica solo se
+recupera si coincide su firma de captura. Las cámaras físicas conservan
+su configuración por cámara y su comprobación de encuadre.
+
+Las [configuraciones experimentales](recording-scenarios.json) fijan la
+huella, geometría y regla de cada demostración. Para reproducir la
+prueba usa esta selección temporal:
+
+| Cámara | Orden de grabaciones y regla |
+|---|---|
+| 01 | `onal-7-tr21` con proximidad, luego `nvidia-w026-c00` con permanencia y repetición activada. |
+| 02 | `onal-7-tr21` con ingreso observado. |
+| 03 | `nvidia-w027-c06` con proximidad. Este escenario negativo contiene peatones y robots móviles. |
+
+Marca las revisiones como demostración experimental. Los valores son
+parámetros de ensayo y las distancias son normalizadas. En el perfil A
+de Análisis, el evento a 0,40 s incluye una detección falsa de maquinaria
+fija. A 2,04 s el PNG muestra el montacargas real y el peatón asociado.
+El perfil B registra el ingreso observado del peatón a 6,93 s. El
+perfil C conserva las detecciones visibles y empieza sin reglas de
+evento. Cada repetición de video abre otra ejecución y puede almacenar
+otra observación de la misma condición.

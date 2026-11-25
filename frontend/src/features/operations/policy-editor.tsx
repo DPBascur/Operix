@@ -62,12 +62,16 @@ function defaultDocument(kind: PolicyKind): PolicyDocument {
   return { ...common, rule_set_id: "", target_type: "profile", target_id: "" };
 }
 
-function Parameters({
+export function Parameters({
   value,
   onChange,
+  zones,
+  metricAvailable = true,
 }: {
   value: PolicyParameters;
   onChange: (value: PolicyParameters) => void;
+  zones?: { zone_id: string; name: string; enabled?: boolean }[];
+  metricAvailable?: boolean;
 }) {
   const proximity = value.kind === "person_forklift_proximity";
   const pair = proximity || value.kind === "zone_coexistence";
@@ -93,7 +97,15 @@ function Parameters({
             ))}
           </select>
         </label>
-        <label>
+        {zones ? <label>
+          Zona
+          <select className="input" required value={value.zone_id}
+            onChange={(event) => onChange({ ...value, zone_id: event.target.value })}>
+            {zones.map((zone) => <option key={zone.zone_id} value={zone.zone_id}>
+              {zone.name}{zone.enabled === false ? " (deshabilitada)" : ""}
+            </option>)}
+          </select>
+        </label> : <label>
           Identificador de zona
           <input
             className="input"
@@ -104,7 +116,7 @@ function Parameters({
               onChange({ ...value, zone_id: event.target.value })
             }
           />
-        </label>
+        </label>}
       </div>
       {value.kind !== "zone_entry" && (
         <label>
@@ -165,7 +177,7 @@ function Parameters({
               }
             >
               <option value="normalized">Distancia normalizada</option>
-              <option value="m">Metros (requiere calibración)</option>
+              <option value="m" disabled={!metricAvailable}>Metros (requiere calibración)</option>
             </select>
           </label>
           <label>

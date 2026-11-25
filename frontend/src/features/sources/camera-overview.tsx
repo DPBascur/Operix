@@ -66,7 +66,7 @@ export function useCameraData<T>(
         }
         setError(new Error(operationalError(cause)));
       }
-      timer = setTimeout(refresh, interval);
+      if (interval > 0) timer = setTimeout(refresh, interval);
     }
     void refresh();
     return () => {

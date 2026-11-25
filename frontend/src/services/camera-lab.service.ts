@@ -38,6 +38,8 @@ export type LabCamera = {
     media_id?: string;
     position?: number;
     spatial_suspension_reason?: string;
+    recording_revision?: number;
+    demonstration?: boolean;
     transition?: { outcome?: string; reason?: string; at?: string };
   } | null;
   description: string;
@@ -67,6 +69,7 @@ export type LabCamera = {
   calibration_requires_reconfirmation?: boolean;
   policy?: { rule_set: { name: string; version: number } } | null;
   revision: number;
+  recording_review?: RecordingReview | null;
   run_id: string | null;
   last_frame_at?: string | null;
   last_error?: string | null;
@@ -113,6 +116,26 @@ export type CameraMedia = {
 
 export type CameraPlaylist = { media_ids: string[]; repeat: boolean };
 
+export type RecordingReview = {
+  source_sha256: string;
+  state: "reviewed" | "unreviewed";
+  revision: number;
+  demonstration: boolean;
+};
+
+export type RecordingConfiguration = Pick<LabCamera, "id" | "name" | "width" | "height" | "configuration" | "revision"> & {
+  provenance: CameraMedia & { sha256: string; media_id: string };
+  recording_review: RecordingReview;
+};
+
+export type RecordingSummary = {
+  revision: number;
+  demonstration: boolean;
+  zones: number;
+  rules: string[];
+  calibration: string | null;
+};
+
 export type CameraLabControl = {
   available: boolean;
   enabled: boolean;
@@ -124,6 +147,7 @@ export type CameraLabControl = {
   mediamtx: "ready" | "unavailable";
   updated_by: string | null;
   catalog?: CameraMedia[];
+  recording_configurations?: Record<string, Record<string, RecordingSummary>>;
   playlists?: Record<string, CameraPlaylist>;
 };
 
@@ -137,6 +161,7 @@ const base = (environment.apiBaseUrl ?? "/api/v1").replace(/\/$/, "");
 const collection = `${base}/analysis/cameras/`;
 const controlPath = `${collection}control/`;
 const cameraPath = (id: string) => `${collection}${encodeURIComponent(id)}/`;
+const recordingPath = (id: string, media: string) => `${cameraPath(id)}recordings/${encodeURIComponent(media)}/`;
 
 export class CameraRequestError extends Error {
   readonly status: number;
@@ -212,6 +237,15 @@ export const cameraLabService = {
   },
   detail: (id: string, signal: AbortSignal) =>
     readCameraData<LabCamera>(cameraPath(id), signal),
+  recording: (id: string, media: string, signal: AbortSignal) =>
+    readCameraData<RecordingConfiguration>(recordingPath(id, media), signal),
+  async saveRecording(id: string, media: string, source: RecordingReview, document: CameraDocument, demonstration: boolean) {
+    const { revision, source_sha256 } = source;
+    return cameraJson<RecordingConfiguration>(await cameraRequest(recordingPath(id, media), {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ revision, source_sha256, document, demonstration }),
+    }));
+  },
   async monitor(id: string, action: "start" | "stop") {
     return cameraJson<LabCamera>(
       await cameraRequest(`${cameraPath(id)}${action}/`, { method: "POST" }),

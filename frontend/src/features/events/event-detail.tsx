@@ -420,6 +420,9 @@ function EventContent(props: EvidenceProps) {
           Condición configurada satisfecha; requiere revisión humana, no
           confirma un incidente.
         </p>
+        {source.kind === "lab" && (
+          <p className={styles.semantic}>Una grabación repetida puede volver a registrar la misma condición en otra ejecución.</p>
+        )}
       </motion.header>
       <motion.section
         aria-labelledby="summary-title"

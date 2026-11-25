@@ -10,6 +10,7 @@ export type CalibrationSource = {
   kind: "cameras" | "sessions";
   id: string;
   revision: number;
+  recording?: string;
 };
 
 type PatternLayout = NonNullable<ReturnType<typeof readLayout>>;
@@ -45,8 +46,9 @@ export type PatternProposal = {
 };
 
 const base = (environment.apiBaseUrl ?? "/api/v1").replace(/\/$/, "");
-function calibrationUrl({ kind, id }: CalibrationSource) {
-  return `${base}/analysis/${kind}/${encodeURIComponent(id)}/calibration/`;
+function calibrationUrl({ kind, id, recording }: CalibrationSource) {
+  const media = kind === "cameras" && recording ? `recordings/${encodeURIComponent(recording)}/` : "";
+  return `${base}/analysis/${kind}/${encodeURIComponent(id)}/${media}calibration/`;
 }
 
 const errors: Record<number, string> = {

@@ -1,0 +1,26 @@
+{
+  "proximity": {
+    "media_id": "onal-7-tr21",
+    "source_sha256": "a373103474bde192774aefeb89142226b5ec4c829a34034620c343fb2422c79d",
+    "zone": {"zone_id": "frame", "name": "Encuadre de la demostración", "purpose": "observation", "polygon": [[0,0],[1,0],[1,1],[0,1]]},
+    "rule": {"rule_id": "recording_demo_proximity", "enabled": true, "version": 1, "parameters": {"kind": "person_forklift_proximity", "zone_id": "frame", "max_distance": 0.22, "minimum_duration_seconds": 0.6, "distance_unit": "normalized"}}
+  },
+  "entry": {
+    "media_id": "onal-7-tr21",
+    "source_sha256": "a373103474bde192774aefeb89142226b5ec4c829a34034620c343fb2422c79d",
+    "zone": {"zone_id": "sector_paso", "name": "Sector de paso · demostración", "purpose": "restricted", "polygon": [[0.45,0.5],[0.98,0.56],[0.98,0.92],[0.45,0.92]]},
+    "rule": {"rule_id": "recording_demo_entry", "enabled": true, "version": 1, "parameters": {"kind": "zone_entry", "zone_id": "sector_paso", "class_name": "person", "min_duration_s": 0}}
+  },
+  "dwell": {
+    "media_id": "nvidia-w026-c00",
+    "source_sha256": "9c0c7da989a9c651a4c52288dfc4ac5389cce41d69ff4b5fb9d3dc5dc923bca6",
+    "zone": {"zone_id": "frame", "name": "Encuadre de observación", "purpose": "observation", "polygon": [[0,0],[1,0],[1,1],[0,1]]},
+    "rule": {"rule_id": "recording_demo_dwell", "enabled": true, "version": 1, "parameters": {"kind": "zone_dwell", "zone_id": "frame", "class_name": "person", "min_duration_s": 2}}
+  },
+  "negative": {
+    "media_id": "nvidia-w027-c06",
+    "source_sha256": "e90ec39e10aa2593126274ddff6b2e8785cd368e34328bf9f0b14de36dcd9a7e",
+    "zone": {"zone_id": "frame", "name": "Encuadre de observación", "purpose": "observation", "polygon": [[0,0],[1,0],[1,1],[0,1]]},
+    "rule": {"rule_id": "recording_demo_negative", "enabled": true, "version": 1, "parameters": {"kind": "person_forklift_proximity", "zone_id": "frame", "max_distance": 0.22, "minimum_duration_seconds": 0.4, "distance_unit": "normalized"}}
+  }
+}

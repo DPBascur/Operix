@@ -48,6 +48,9 @@ function CameraTile({ camera, live, monitor, enabled, handoff, preview, canEdit,
         cameraUrl={href} settingsUrl={settingsHref} variant={monitor ? "monitoring" : "preview"} />
       {monitor && !stale && (
         <div className="grid gap-1 px-1 py-2 text-xs text-text-secondary" aria-live="polite">
+          {!!camera.playback?.recording_revision && (
+            <p>{camera.playback.demonstration ? "Escenario experimental" : "Configuración de grabación"} · revisión {camera.playback.recording_revision}</p>
+          )}
           {running.has(camera.status) && !camera.view_only && (rulesPaused || noActiveRules) && (
             <p>{rulesPaused ? `Reglas espaciales suspendidas. ${rulesPaused}` : "Sin reglas activas para esta ejecución."}</p>
           )}

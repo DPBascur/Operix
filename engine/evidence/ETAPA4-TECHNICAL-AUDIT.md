@@ -2659,3 +2659,42 @@ no se registró proximidad. Al pasar Cámara 01 a otro video, la
 nueva ejecución analizó 90 cuadros con la zona anterior suspendida
 y sin eventos. Edge abrió un expediente nuevo desde Monitoreo
 y reprodujo el clip de un ingreso observado.
+
+### Configuración por grabación y comparación ampliada
+
+Se añadieron cinco vistas a la comparación, hasta 190 fotogramas
+idénticos para V7, V3 y LEGACY_DUAL. En Warehouse 027 C04, alrededor
+de 48 s, LEGACY_DUAL siguió a una persona parcialmente oculta por
+cajas durante el tramo de diez fotogramas. V3 y V7 omitieron PERSON
+en el tramo. En W027 C03, a 32 s, LEGACY_DUAL marcó un gabinete como
+montacargas en 10/10 cuadros. V3 y V7 mantuvieron cero cajas de
+montacargas en esa muestra. En W026 C01, a 49 s, V3 y V7 detectaron
+un montacargas en 10/10 cuadros con un ID estable durante el tramo.
+LEGACY_DUAL no emitió cajas de montacargas.
+
+Se ensayó un segundo pase de V7 con reflejo horizontal en 60
+fotogramas. Recuperó una caja experimental de diez en el primer tramo
+de Cámara 03 y ninguna en el segundo. Añadió aproximadamente el
+mismo tiempo de inferencia CPU que el pase original. Se mantuvo V7
+sin ese pase, con los umbrales y el seguimiento existentes. El
+ensayo es exploratorio y carece de una referencia exhaustiva para
+validar un nuevo entrenamiento o un cambio de umbrales.
+
+En QA, Cámara 01 aplicó una revisión de proximidad al primer video
+y una revisión de permanencia al siguiente. Recuperó la primera en
+el ciclo 1, con otro ID de ejecución. Cámara 02 usó el mismo CCTV
+que Cámara 01 con una revisión independiente de ingreso observado.
+La muestra negativa de Cámara 03 procesó 582 cuadros con
+proximidad habilitada y cero eventos. Los positivos se cotejaron
+con el SHA-256 de la fuente, la revisión, el PNG y el clip. Estas
+reproducciones registran condiciones de laboratorio que pueden
+corresponder al mismo hecho repetido.
+
+En 13000, Cámara 01 recuperó las revisiones 2 → 3 → 2 con tres
+ejecuciones distintas. Se registraron dos observaciones de
+proximidad, cinco permanencias y dos ingresos de Cámara 02. El
+negativo de Cámara 03 completó 582 cuadros con cero eventos.
+Edge abrió el expediente desde Monitoreo y reprodujo un clip
+nuevo de proximidad. Se devolvieron las playlists al estado anterior
+al ensayo. Los umbrales corresponden a la demostración y las
+distancias de esos recorridos permanecen normalizadas.

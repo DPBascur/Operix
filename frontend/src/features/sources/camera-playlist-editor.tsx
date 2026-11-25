@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowDown, ArrowUp, X } from "lucide-react";
+import Link from "next/link";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
@@ -9,7 +10,10 @@ import type {
   CameraControlUpdate,
   CameraMedia,
   CameraPlaylist,
+  RecordingSummary,
+  CameraDocument,
 } from "@/services/camera-lab.service";
+import { eventTypeName } from "@/services/event-contract";
 import { cameraNumber } from "./camera-diagnostics";
 import {
   movePlaylistMedia,
@@ -39,12 +43,26 @@ function MediaThumbnail({ media }: { media: CameraMedia }) {
   );
 }
 
-function MediaPreview({ media }: { media: CameraMedia }) {
+export function MediaPreview({ media, zones, aspect = "16 / 9" }: {
+  media: CameraMedia; zones?: CameraDocument["zones"]; aspect?: string;
+}) {
   const video = useRef<HTMLVideoElement>(null);
   return (
     <div className="relative mx-auto w-full max-w-xl overflow-hidden rounded-lg bg-black">
       <video ref={video} src={mediaUrl(media.id, "video")} poster={mediaUrl(media.id, "thumbnail")}
-        className="aspect-video w-full object-contain" preload="metadata" playsInline aria-label={mediaLabel(media)} />
+        className="w-full object-contain" style={{ aspectRatio: aspect }}
+        preload="metadata" playsInline aria-label={mediaLabel(media)} />
+      {zones?.length ? <div className="pointer-events-none absolute inset-x-0 top-0" style={{ aspectRatio: aspect }}>
+        <svg className="absolute inset-0 size-full" aria-hidden="true"
+          viewBox="0 0 100 100" preserveAspectRatio="none">
+          {zones.filter((zone) => zone.enabled !== false).map((zone) => (
+            <polygon key={zone.zone_id} points={zone.polygon.map(([x, y]) => `${x * 100},${y * 100}`).join(" ")}
+              fill="rgba(48,116,255,.16)" stroke="#81b5ff" vectorEffect="non-scaling-stroke" strokeWidth={2}>
+              <title>{zone.name}</title>
+            </polygon>
+          ))}
+        </svg>
+      </div> : null}
       <VideoControls videoRef={video} />
     </div>
   );
@@ -58,6 +76,7 @@ export function CameraPlaylistEditor({
   locked,
   save,
   feedback,
+  configurations,
 }: {
   cameraId: string;
   cameraName: string;
@@ -66,6 +85,7 @@ export function CameraPlaylistEditor({
   locked: boolean;
   save: (change: CameraControlUpdate) => Promise<boolean>;
   feedback?: { text: string; error?: boolean };
+  configurations?: Record<string, RecordingSummary>;
 }) {
   const [selected, setSelected] = useState("");
   const [preview, setPreview] = useState("");
@@ -81,6 +101,9 @@ export function CameraPlaylistEditor({
   const selection = byId.has(selected) ? selected : "";
   const atLimit = playlist.media_ids.length >= maxCameraPlaylistItems;
   const occurrences = new Map<string, number>();
+  function configurationLink(media: CameraMedia) {
+    return `/sources/cameras/${encodeURIComponent(cameraId)}?recording=${encodeURIComponent(media.id)}`;
+  }
 
   function editPlaylist(next: CameraPlaylist) {
     setEdit(
@@ -110,6 +133,7 @@ export function CameraPlaylistEditor({
         <ol className="divide-y divide-border">
           {playlist.media_ids.map((id, index) => {
             const media = byId.get(id);
+            const reviewed = configurations?.[id];
             const filename = media ? mediaFilename(media) : "";
             const title = media ? mediaLabel(media) : "Video ya no permitido";
             const duration = cameraNumber(media?.duration_s, " s");
@@ -136,6 +160,17 @@ export function CameraPlaylistEditor({
                     {media?.scenario && media.scenario !== title && (
                       <p className="text-xs text-text-secondary">{media.scenario}</p>
                     )}
+                    {media && <>
+                      <p className="text-xs text-text-secondary">
+                        {reviewed
+                          ? `${reviewed.demonstration ? "Demostración" : "Revisada"} · v${reviewed.revision} · ${reviewed.zones} zonas · ${reviewed.calibration === "valid" ? "Calibración guardada" : "Sin calibración válida"}`
+                          : "Sin revisión espacial"}
+                      </p>
+                      {reviewed && <p className="text-xs text-text-secondary">
+                        {reviewed.rules.length ? reviewed.rules.map(eventTypeName).join(" · ") : "Sin reglas activas"}
+                      </p>}
+                      <Link href={configurationLink(media)} className="text-sm underline">Configurar grabación</Link>
+                    </>}
                   </div>
                 </div>
                 <div className="flex gap-1">
@@ -245,6 +280,7 @@ export function CameraPlaylistEditor({
       )}
       {selection && (
         <div className="grid gap-2">
+          <Link href={configurationLink(byId.get(selection)!)} className="w-fit text-sm underline">Configurar grabación seleccionada</Link>
           <Button variant="ghost" className="w-fit" aria-expanded={preview === selection}
             onClick={() => setPreview(preview === selection ? "" : selection)}>
             {preview === selection ? "Cerrar vista previa" : "Ver vista previa"}

@@ -285,6 +285,7 @@ export function CameraLabAdmin() {
                             camera.expected_fps,
                           )}
                           saved={playlist}
+                          configurations={data.recording_configurations?.[camera.id]}
                           locked={locked}
                           save={(change) => update(change, camera.id)}
                           feedback={
