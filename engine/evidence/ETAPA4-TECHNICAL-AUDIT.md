@@ -2250,3 +2250,67 @@ el mínimo, complementar con una instalación independiente y obtener
 cajas humanas revisadas antes de puntuar. Ni los datos de entrenamiento
 adicionales ni los seis casos CCTV cumplen ese criterio. No se exportó
 un candidato nuevo a ONNX ni se cambió el detector activo en 13000.
+
+### Recuperación de datos industriales y demostración CCTV
+
+Se recuperaron las 33 imágenes RGB reales de la publicación de
+[Vidal et al.](https://www.ijcte.org/vol18/IJCTE-V18N1-1387.pdf) desde su
+[repositorio](https://github.com/vidaldani/3D_object_detection/tree/a53f79e2a4cef3242a4c211298d3ff4857cdf08b/rd_test_dataset).
+El importador `prepare_vidal_external.py` verifica los 66 blobs, el
+inventario fijado y los conteos publicados. La partición contiene 14
+imágenes Kinect y 19 ZED2, con 14 cajas FORKLIFT y 18 PALLET_JACK.
+PERSON queda sin supervisión y no hay montacargas pequeños según el
+umbral de área 0,025. El chequeo frente a 2.535 imágenes de manifiestos
+históricos no encontró coincidencias exactas ni candidatos con dHash ≤ 4.
+La partición se conserva fuera de entrenamiento y ajuste de umbrales.
+
+| Modelo a 640 × 640 | FORKLIFT VP/FP/FN | F1 FORKLIFT | AP50–95 FORKLIFT |
+| --- | ---: | ---: | ---: |
+| LEGACY_DUAL, rama FORKLIFT | 9/13/5 | 0,500 | 0,199 |
+| V3 con replay | 11/3/3 | 0,786 | 0,576 |
+| V7 | 10/1/4 | 0,800 | 0,559 |
+| [FreightLens YOLO11n ONNX](https://huggingface.co/AllanDai/freightlens-yolo11n-loco) | 8/5/6 | 0,593 | 0,280 |
+
+Se usaron los umbrales previos (0,45 LEGACY y 0,20 unificados y
+FreightLens). Se evaluó calidad en CPU con PyTorch para los checkpoints
+locales y OpenCV DNN para FreightLens. Este último publica sus pesos bajo
+AGPL-3.0, fue entrenado en LOCO y carece de PERSON. En validación interna
+recuperó 33/51 montacargas pequeños frente a 25/51 de V3 con replay,
+con 58 falsos positivos totales frente a 31. Esa comparación interna
+empleó la resolución nativa 640 × 640 de FreightLens y 384 × 640 para
+V3. En la partición Vidal, los tres modelos con PALLET_JACK recuperaron
+solo 4/18 ejemplares cada uno a confianza 0,10. V7 redujo falsos
+positivos en FORKLIFT, y V3 retuvo más verdaderos y mejor localización.
+El alcance de esta evidencia es equipo grande de un entorno, por debajo
+de los mínimos de promoción.
+
+El enlace oficial de exportación COCO de Warehouse Safety devolvió
+HTTP 403 sin credenciales. Se respetó esa respuesta. Para una
+reserva más amplia, [Addverb](https://universe.roboflow.com/addverb-technologies/warehouse-ijyxt)
+publica PERSON, FORKLIFT y PALLET_JACK bajo CC BY 4.0. La
+[revisión del editor de la plataforma](https://roboflow.com/blog/physical-ai-training-data)
+señala cajas faltantes y posibles duplicados. Arvist separa Forklift y
+[Pallet Stacker](https://universe.roboflow.com/arvist/warehouse-2-dtbqi),
+pero faltan la procedencia por secuencia y la comprobación de cobertura.
+HITSZ usa `cart` para el equipo y quedó fuera por ambigüedad de clase.
+Vidal también publica RT-DETR y variantes YOLO sobre LOCO, sin PERSON.
+Esas alternativas quedaron como fuentes de investigación.
+
+En cuatro clips de desarrollo de Önal y Dandıl se evaluó la coincidencia
+espacial entre el especialista y V7 con validación temporal. Hubo dos
+coincidencias en 153 fotogramas muestreados y ninguna mantuvo tres
+observaciones consecutivas. Se conservaron ejemplos revisados y se
+excluyeron objetos cortados de categoría dudosa. Los errores incluyen
+prensas con formas rectangulares que se confunden con vehículos y
+montacargas frontales cuyas horquillas quedan tapadas por la carga.
+Ninguna pseudoetiqueta se incorporó al entrenamiento o a la reserva.
+
+La demostración usa `7_te6.mp4` de [Önal y Dandıl](https://data.mendeley.com/datasets/xjmtb22pff/1),
+CC BY 4.0, con los bytes originales y un nombre que identifica la
+demostración. LEGACY_DUAL completó 301 fotogramas en 13000. La regla
+exclusiva del pasillo usa máx. 0,22 norm. y persistencia de 0,40 s.
+El ensayo de 0,60 s terminó sin eventos por interrupciones de observación.
+El segundo conservó un evento P1–F1 en el cuadro 38 (1,52 s), con 0,1502
+norm. Se comprobó PNG, clip anotado de 6,56 s, hashes fuente/configuración,
+reproducción en Edge y denegación anónima. La escena muestra una condición
+configurada que requiere revisión humana.

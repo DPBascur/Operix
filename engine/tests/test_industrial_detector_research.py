@@ -17,6 +17,8 @@ from evaluate_v2 import forklift_diagnostics, quality
 from prepare import digest, normalize_box
 from prepare_v2 import crop_labels
 from prepare_v3 import mirrored_consensus
+from prepare_vidal_external import annotations as vidal_annotations
+from prepare_vidal_external import prepare as prepare_vidal
 from prepare_verified_crops import prepare as prepare_verified_crops
 from rtsp_probe_worker import SinglePerception
 from train import freeze_person_outputs, mask_class_loss, mask_pseudo_class_loss
@@ -26,6 +28,19 @@ from operix_engine.person_metrics import Prediction
 
 
 class IndustrialDetectorResearchTest(unittest.TestCase):
+    def test_vidal_labels_map_equipment_and_keep_pallets_outside_target_classes(self):
+        counts, boxes = vidal_annotations(
+            b"0 .5 .5 .5 .5\n1 .5 .5 .5 .5\n2 .5 .5 .5 .5\n", 1920, 1080,
+        )
+        self.assertEqual(counts, {0: 1, 1: 1, 2: 1})
+        self.assertEqual(boxes, [(1, (.25, .25, .75, .75)), (2, (.25, .25, .75, .75))])
+        with self.assertRaisesRegex(ValueError, "Out-of-frame annotation"):
+            vidal_annotations(b"0 0 .5 .5 .5", 1920, 1080)
+
+    def test_vidal_import_rejects_an_unpinned_inventory(self):
+        with self.assertRaisesRegex(ValueError, "pinned repository tree"):
+            prepare_vidal(Path("."), {"sha": "unexpected", "tree": []})
+
     def test_distillation_rejects_far_ambiguous_and_duplicate_teacher_boxes(self):
         truth = torch.tensor([[0., 0., 10., 10.], [2., 0., 12., 10.], [30., 30., 40., 40.]])
         proposals = torch.tensor([[1., 0., 11., 10., .99], [50., 50., 60., 60., .99],
