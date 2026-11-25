@@ -2627,3 +2627,35 @@ precision, recall, localización, falsos positivos y cambios de ID
 por condición con el mismo NMS y los mismos umbrales. Cotejar
 eventos, latencia y coste en clips completos antes de cambiar
 un perfil desplegado.
+
+### Recuperación funcional sobre CCTV real
+
+Se compararon LEGACY_DUAL, V3 y V7 con los mismos 140 fotogramas
+decodificados de CCTV de Önal y Dandıl, SPARL y las escenas físicas
+de NVIDIA. Cada tramo consta de diez fotogramas consecutivos con
+SHA-256 idénticos entre perfiles. La comparación usó ONNX Runtime
+CPU y los umbrales y NMS de cada perfil. Los recorridos en Operix
+usaron V7 CUDA.
+
+En Cámara 02, a 3 y 65 s, V7 conservó `PALLET_JACK` en 10/10
+fotogramas de cada tramo. En los dos tramos equivalentes de Cámara
+03, su mediana de confianza cruda para esa clase fue 0,0297 y 0,0075,
+y el equipo no tuvo caja utilizable. V3 lo marcó en 10/10 en el
+primer tramo y en 0/10 en el segundo. LEGACY_DUAL lo marcó en
+ambos, con cajas demasiado amplias en la revisión visual. En
+NVIDIA W027-C00, a 24 s, LEGACY_DUAL etiquetó como montacargas
+objetos fijos de la escena. En Önal–Dandıl 3_tr19, a 4 s, V7
+omitió el montacargas parcialmente cubierto por carga. Estas
+muestras no forman un conjunto con verdad de referencia exhaustiva.
+Se conservaron V7, sus umbrales y la exclusión de las categorías
+experimentales de las reglas de proximidad con montacargas.
+
+En QA, tres emisiones reales reproducidas simultáneamente
+registraron seis permanencias en Cámara 01 y dos ingresos
+observados en Cámara 02, con PNG y clips asociados a la fuente
+y ejecución correctas. En Cámara 03, con la regla de proximidad
+activa y la vista negativa W027-C06, se analizaron 546 cuadros y
+no se registró proximidad. Al pasar Cámara 01 a otro video, la
+nueva ejecución analizó 90 cuadros con la zona anterior suspendida
+y sin eventos. Edge abrió un expediente nuevo desde Monitoreo
+y reprodujo el clip de un ingreso observado.

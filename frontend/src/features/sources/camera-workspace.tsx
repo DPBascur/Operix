@@ -39,10 +39,26 @@ function CameraTile({ camera, live, monitor, enabled, handoff, preview, canEdit,
   const href = cameraHref(camera.id);
   const state = stale ? "Estado sin actualizar" : handoff ? "Cambiando grabación" : statusLabel(camera.status);
   const settingsHref = canEdit ? `${href}#camera-settings` : undefined;
+  const rulesPaused = camera.playback?.spatial_suspension_reason;
+  const noActiveRules = camera.effective_rules && !camera.effective_rules.some((rule) => rule.enabled);
 
   if (live) {
-    return <CameraLiveVideo id={camera.id} name={camera.name} runId={camera.run_id} operationalState={state} enabled={enabled || handoff} viewOnly={camera.view_only}
-      cameraUrl={href} settingsUrl={settingsHref} variant={monitor ? "monitoring" : "preview"} />;
+    return <>
+      <CameraLiveVideo id={camera.id} name={camera.name} runId={camera.run_id} operationalState={state} enabled={enabled || handoff} viewOnly={camera.view_only}
+        cameraUrl={href} settingsUrl={settingsHref} variant={monitor ? "monitoring" : "preview"} />
+      {monitor && !stale && (
+        <div className="grid gap-1 px-1 py-2 text-xs text-text-secondary" aria-live="polite">
+          {running.has(camera.status) && !camera.view_only && (rulesPaused || noActiveRules) && (
+            <p>{rulesPaused ? `Reglas espaciales suspendidas. ${rulesPaused}` : "Sin reglas activas para esta ejecución."}</p>
+          )}
+          {camera.last_event && (
+            <p><Link className="underline" href={`/events/${camera.last_event.id}`}>Último evento registrado</Link>
+              {" · "}{new Intl.DateTimeFormat("es-CL", { timeStyle: "short", dateStyle: "short", timeZone: "America/Santiago" }).format(new Date(camera.last_event.occurred_at))}
+            </p>
+          )}
+        </div>
+      )}
+    </>;
   }
 
   async function expand() {

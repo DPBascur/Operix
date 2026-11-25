@@ -305,11 +305,16 @@ class CameraView(APIView):
 
 class CameraDetailView(CameraView):
     def get(self, request, camera_id):
-        return Response(camera_json(request, self.camera(camera_id)))
+        from .lab_control import camera_at_playlist_start
+
+        return Response(camera_json(request, camera_at_playlist_start(self.camera(camera_id))))
 
     @transaction.atomic
     def put(self, request, camera_id):
-        return self.save(request, self.camera(camera_id), request.data)
+        from .lab_control import camera_at_playlist_start
+
+        scheduler_lock()
+        return self.save(request, camera_at_playlist_start(self.camera(camera_id)), request.data)
 
     def save(self, request, camera, body, *, pattern_confirmed=False, confirm_capture=None):
         camera_id = camera.id

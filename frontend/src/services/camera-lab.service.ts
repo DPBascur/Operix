@@ -37,6 +37,7 @@ export type LabCamera = {
   playback?: {
     media_id?: string;
     position?: number;
+    spatial_suspension_reason?: string;
     transition?: { outcome?: string; reason?: string; at?: string };
   } | null;
   description: string;
@@ -106,6 +107,8 @@ export type CameraMedia = {
   scenario?: string | null;
   duration_s?: number | null;
   fps?: number | null;
+  author?: string | null;
+  license?: string | null;
 };
 
 export type CameraPlaylist = { media_ids: string[]; repeat: boolean };

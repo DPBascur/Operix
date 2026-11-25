@@ -1,9 +1,10 @@
 "use client";
 
 import { ArrowDown, ArrowUp, X } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
+import { VideoControls } from "@/features/analysis/video-controls";
 import type {
   CameraControlUpdate,
   CameraMedia,
@@ -22,7 +23,31 @@ function mediaFilename(media: CameraMedia) {
 }
 
 function mediaLabel(media: CameraMedia) {
-  return media.scenario?.trim() || mediaFilename(media);
+  return media.title?.trim() || media.scenario?.trim() || mediaFilename(media);
+}
+
+function mediaUrl(id: string, asset: "video" | "thumbnail") {
+  return `/api/v1/analysis/camera-media/${encodeURIComponent(id)}/${asset}/`;
+}
+
+function MediaThumbnail({ media }: { media: CameraMedia }) {
+  return (
+    // The source is same-origin and needs the user's session cookie.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={mediaUrl(media.id, "thumbnail")} alt="" loading="lazy"
+      width={320} height={180} className="aspect-video w-24 shrink-0 rounded-md bg-surface-muted object-cover sm:w-28" />
+  );
+}
+
+function MediaPreview({ media }: { media: CameraMedia }) {
+  const video = useRef<HTMLVideoElement>(null);
+  return (
+    <div className="relative mx-auto w-full max-w-xl overflow-hidden rounded-lg bg-black">
+      <video ref={video} src={mediaUrl(media.id, "video")} poster={mediaUrl(media.id, "thumbnail")}
+        className="aspect-video w-full object-contain" preload="metadata" playsInline aria-label={mediaLabel(media)} />
+      <VideoControls videoRef={video} />
+    </div>
+  );
 }
 
 export function CameraPlaylistEditor({
@@ -43,6 +68,7 @@ export function CameraPlaylistEditor({
   feedback?: { text: string; error?: boolean };
 }) {
   const [selected, setSelected] = useState("");
+  const [preview, setPreview] = useState("");
   const [edit, setEdit] = useState<{
     base: CameraPlaylist;
     playlist: CameraPlaylist;
@@ -89,7 +115,7 @@ export function CameraPlaylistEditor({
             const duration = cameraNumber(media?.duration_s, " s");
             const occurrence = occurrences.get(id) ?? 0;
             occurrences.set(id, occurrence + 1);
-            const metadata = [filename !== title ? filename : null, duration]
+            const metadata = [media?.author, media?.license, duration, !media?.author ? filename : null]
               .filter(Boolean)
               .join(" · ");
             return (
@@ -97,14 +123,18 @@ export function CameraPlaylistEditor({
                 key={`${id}:${occurrence}`}
                 className="flex flex-wrap items-center justify-between gap-2 py-2"
               >
-                <div className="flex min-w-0 flex-1 items-baseline gap-2">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
                   <span className="text-sm tabular-nums text-text-secondary">
                     {index + 1}.
                   </span>
+                  {media && <MediaThumbnail media={media} />}
                   <div className="min-w-0 wrap-anywhere">
                     <p className="text-sm font-medium">{title}</p>
                     {metadata && (
                       <p className="text-sm text-text-secondary">{metadata}</p>
+                    )}
+                    {media?.scenario && media.scenario !== title && (
+                      <p className="text-xs text-text-secondary">{media.scenario}</p>
                     )}
                   </div>
                 </div>
@@ -181,7 +211,7 @@ export function CameraPlaylistEditor({
               className="input w-full min-w-0"
               disabled={locked || conflict}
               value={selection}
-              onChange={(event) => setSelected(event.target.value)}
+              onChange={(event) => { setSelected(event.target.value); setPreview(""); }}
             >
               <option value="">Selecciona un video</option>
               {catalog.map((media) => (
@@ -200,6 +230,7 @@ export function CameraPlaylistEditor({
                 media_ids: [...playlist.media_ids, selection],
               });
               setSelected("");
+              setPreview("");
             }}
           >
             Añadir
@@ -211,6 +242,15 @@ export function CameraPlaylistEditor({
             ? `La lista admite hasta ${maxCameraPlaylistItems} videos.`
             : "El catálogo no tiene videos permitidos para esta cámara."}
         </p>
+      )}
+      {selection && (
+        <div className="grid gap-2">
+          <Button variant="ghost" className="w-fit" aria-expanded={preview === selection}
+            onClick={() => setPreview(preview === selection ? "" : selection)}>
+            {preview === selection ? "Cerrar vista previa" : "Ver vista previa"}
+          </Button>
+          {preview === selection && <MediaPreview key={selection} media={byId.get(selection)!} />}
+        </div>
       )}
       <label className="flex w-fit items-center gap-2 text-sm">
         <Toggle

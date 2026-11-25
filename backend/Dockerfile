@@ -15,7 +15,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
     YOLO_AUTOINSTALL=false YOLO_CONFIG_DIR=/var/lib/operix/cache \
     TMPDIR=/var/lib/operix/sessions
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 libglib2.0-0 libgomp1 libavcodec59 libavformat59 libavutil57 libswscale6 \
+    libgl1 libglib2.0-0 libgomp1 ffmpeg libavcodec59 libavformat59 libavutil57 libswscale6 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=opencv-wheel /wheels /wheels

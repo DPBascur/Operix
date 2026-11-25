@@ -513,3 +513,29 @@ guardada después de volver a iniciar el Backend.
 Para la presentación académica se conserva
 [el expediente de Embonor](http://127.0.0.1:13000/events/21b68882-e49a-40cf-81c2-f2a0295ff393).
 Su video, regla y unidad de medida pertenecen a la ejecución registrada.
+
+### Perfiles de análisis con grabaciones reales
+
+Agrega `compose.industrial-demos.yaml` después de las sobrecapas del
+laboratorio para habilitar estos perfiles. Los tres archivos deben estar
+en la raíz del catálogo de solo lectura. El Backend coteja sus SHA-256
+antes de ofrecerlos y mantiene las revisiones y expedientes históricos.
+
+| Perfil | Grabación autorizada | Resultado esperado con la configuración inicial |
+|---|---|---|
+| A · Proximidad | `Onal-Dandil-7_te6-operix.mp4`, copia sin recodificación de la grabación de Embonor | Personas y montacargas, distancia normalizada, evento si se satisface 0,22 norm. durante al menos 0,4 s en el sector definido. |
+| B · Ingreso observado | `Onal-Dandil-7_tr21.mp4` a 540p/15 FPS | La regla exige observar al peatón fuera antes de observarlo dentro del sector configurado. |
+| C · Observación | `NVIDIA-W026-C00-540p15.mp4`, cámara 0000 del almacén físico 026 | Detecciones y seguimiento durante 60 s. Este perfil comienza sin reglas de evento. |
+
+Los clips A y B se atribuyen a [Önal y Dandıl](https://data.mendeley.com/datasets/xjmtb22pff/1).
+El C se atribuye a [NVIDIA PhysicalAI SmartSpaces](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces).
+Ambos conjuntos tienen licencia CC BY 4.0. El archivo A mantiene los
+fotogramas de la grabación histórica y usa otros metadatos MP4 para
+tener su propia identidad como fuente del perfil. La escala es
+normalizada hasta que un usuario confirme referencias físicas.
+
+Para ajustar una cámara del laboratorio, detén su monitoreo y confirma
+la primera grabación asignada antes de guardar las zonas. Las zonas
+personalizadas se vinculan a esa grabación. Ante una transición a otro
+encuadre, Monitoreo muestra la suspensión de reglas espaciales y puede
+seguir mostrando detecciones y el enlace al último expediente.

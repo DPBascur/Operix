@@ -76,6 +76,25 @@ class ManagedLabTests(APITestCase):
         self.assertEqual(CameraLabControl.objects.get().playlists["lab-cam-01"], selected)
         self.assertEqual(json.loads(LogEntry.objects.get().change_message)["playlists"]["lab-cam-01"], selected)
 
+    def test_stopped_camera_configuration_matches_first_assigned_recording(self):
+        camera = inventory()["lab-cam-01"]
+        catalog, _ = media_registry()
+        CameraLabControl.objects.create(
+            pk=1, enabled=False, updated_by=self.owner,
+            playlists={camera.id: {"media_ids": ["second", camera.id], "repeat": True}},
+        )
+        url = f"/api/v1/analysis/cameras/{camera.id}/"
+        result = self.admin.get(url)
+        self.assertEqual(result.data["provenance"]["sha256"], catalog["second"]["sha256"])
+        document = default_document(camera)
+        document["zones"][0]["polygon"] = [[0, 0], [.5, 0], [.5, .5], [0, .5]]
+        saved = self.admin.put(url, {"revision": 0, "document": document}, format="json")
+        self.assertEqual(saved.status_code, 200, saved.data)
+        self.assertEqual(
+            CameraRevision.objects.get(camera_id=camera.id).capture_signature,
+            camera_capture_signature(replace(camera, provenance=catalog["second"])),
+        )
+
     def test_opt_in_third_slot_uses_catalog_and_is_disabled_by_default(self):
         camera_id = "lab-cam-03"
         self.assertNotIn(camera_id, inventory())

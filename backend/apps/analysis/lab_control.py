@@ -133,6 +133,10 @@ def media_file(camera):
         raise MediaRejected("El archivo carece de procedencia autorizada o su FPS es inferior al de captura configurado.")
     if not supported_duration(source):
         raise MediaRejected(DURATION_LIMIT)
+    return registered_media_file(source)
+
+
+def registered_media_file(source):
     name, digest = source["filename"], source["sha256"]
     root = Path(os.environ["OPERIX_CAMERA_LAB_MANIFEST"]).resolve().parent
     path = root / name
@@ -140,6 +144,18 @@ def media_file(camera):
     if not stat.S_ISREG(details.st_mode) or not 0 < details.st_size <= MAX_MEDIA_BYTES:
         raise MediaRejected("El archivo autorizado no está disponible.")
     return path, digest, file_identity(details)
+
+
+def camera_at_playlist_start(camera):
+    """A stopped managed camera starts from its first assigned recording."""
+    if not camera_registry.automatic(camera):
+        return camera
+    control = CameraLabControl.objects.filter(pk=CONTROL_ID).first()
+    catalog, defaults = camera_registry.media_registry()
+    playlists = configured_playlists(control, {camera.id: camera}, defaults)
+    ids = playlists[camera.id]["media_ids"]
+    source = catalog.get(ids[0]) if ids else None
+    return replace(camera, provenance={**source, "media_id": ids[0]} if source else None)
 
 
 def approved_media(camera):
@@ -530,7 +546,7 @@ def describe(request):
             "capacity": min(3 if camera_registry.third_slot_enabled() else 2, camera_registry.capacity()), "cameras": rows,
             "publisher": publishers, "mediamtx": "ready" if rtsp else "unavailable",
             "catalog": [{"id": media_id, **{key: source[key] for key in
-                         ("filename", "title", "duration_s", "fps", "scenario", "footage", "license", "sha256")}}
+                         ("filename", "title", "duration_s", "fps", "scenario", "footage", "author", "license", "sha256")}}
                         for media_id, source in catalog.items()
                         if supported_duration(source)
                         and any(media_eligible(source, camera.capture_fps) for camera in inventory.values())],

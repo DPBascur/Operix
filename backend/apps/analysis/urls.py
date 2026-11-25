@@ -4,6 +4,7 @@ from django.urls import path, re_path
 from .calibration_views import CameraCalibrationView, SessionCalibrationView
 from .catalog_views import CatalogEntryView, CatalogHistoryView, CatalogListView, RunSnapshotView
 from .lab_control import CameraLabControlView
+from .lab_media import LabMediaView
 from .live_observations import CameraLiveObservationsView
 from .live_video import CameraLiveVideoView
 from .models import RuleCatalogEntry
@@ -20,6 +21,8 @@ from .views import (
 urlpatterns = [
     path("analysis/cameras/", CameraInventoryView.as_view(), name="lab-camera-list"),
     path("analysis/cameras/control/", CameraLabControlView.as_view(), name="lab-camera-control"),
+    path("analysis/camera-media/<slug:media_id>/video/", LabMediaView.as_view(), name="lab-media-video"),
+    path("analysis/camera-media/<slug:media_id>/thumbnail/", LabMediaView.as_view(thumbnail=True), name="lab-media-thumbnail"),
     path("analysis/cameras/<slug:camera_id>/", CameraDetailView.as_view(), name="lab-camera-detail"),
     path("analysis/cameras/<slug:camera_id>/start/", CameraStartView.as_view(), name="lab-camera-start"),
     path("analysis/cameras/<slug:camera_id>/stop/", CameraStopView.as_view(), name="lab-camera-stop"),
