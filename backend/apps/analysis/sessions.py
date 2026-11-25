@@ -65,6 +65,26 @@ def frozen_perception():
         "forklift": {"model_id": FORKLIFT_MODEL_ID, "weights_sha256": FORKLIFT_SHA256,
                      "class_filter": "forklift", "imgsz": 640, "confidence": .45, "nms_iou": .55},
     }
+
+
+def active_perception():
+    profile = os.environ.get("OPERIX_DETECTOR_PROFILE", "legacy-dual")
+    if profile == "legacy-dual":
+        return frozen_perception()
+    if profile != "unified-v7":
+        raise ValueError("Perfil de detector desconocido")
+    directory = os.environ.get("OPERIX_UNIFIED_V7_DIR")
+    if not directory or not (Path(directory) / "industrial-unified.onnx").is_file():
+        raise ValueError("Falta el artefacto UNIFIED V7 aprobado")
+    config = json.loads((ROOT / "engine/config/unified-v7.json").read_bytes())
+    return {
+        role: {"model_id": config["model_id"], "weights_sha256": config["sha256"],
+               "class_filter": role, "imgsz": config["input"][1],
+               "confidence": config["confidence"][role], "nms_iou": config["nms_iou"]}
+        for role in ("person", "forklift")
+    }
+
+
 def local_event_api_url():
     value = settings.OPERIX_EVENT_API_BASE_URL
     parsed = urlparse(value)
@@ -609,6 +629,7 @@ def _start_session(session: AnalysisSession) -> None:
         forklift = Path(settings.OPERIX_FORKLIFT_WEIGHTS) if settings.OPERIX_FORKLIFT_WEIGHTS else None
         if not python.is_file() or person is None or not person.is_file() or forklift is None or not forklift.is_file():
             raise RuntimeError("Configure OPERIX_ENGINE_PYTHON y los pesos person/forklift fuera de Git")
+        perception = active_perception()
         base = session.operational_config()
         actual, policy = session.policy_configuration(base)
         if (actual.get("calibration") or {}).get("status") == "invalid":
@@ -643,9 +664,9 @@ def _start_session(session: AnalysisSession) -> None:
             "zone": json.loads(json.dumps(session.zone)),
             "source_video": session.filename,
             "source_sha256": session.source_sha256,
-            "person_model_sha256": PERSON_SHA256,
-            "forklift_model_sha256": FORKLIFT_SHA256,
-            **frozen_perception(),
+            "person_model_sha256": perception["person"]["weights_sha256"],
+            "forklift_model_sha256": perception["forklift"]["weights_sha256"],
+            **perception,
             "tracker": "ByteTrack independiente por clase",
             "run": session.run,
             "analysis_run_id": run_id,
@@ -677,7 +698,8 @@ def _start_session(session: AnalysisSession) -> None:
             source = {"filename": session.filename, "kind": session.source_kind,
                       "video_sha256": session.source_sha256,
                       "config_sha256": session.active_config["config_sha256"],
-                      "person_weights_sha256": PERSON_SHA256, "forklift_weights_sha256": FORKLIFT_SHA256,
+                      "person_weights_sha256": perception["person"]["weights_sha256"],
+                      "forklift_weights_sha256": perception["forklift"]["weights_sha256"],
                       "perception": {name: dict(session.active_config[name]) for name in ("person", "forklift")},
                       "timestamp_basis": "ANALYSIS_START_PROXY_NOT_RECORDING_TIME",
                       "session_id": str(session.id), "session_run": session.run}

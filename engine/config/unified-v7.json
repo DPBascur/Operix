@@ -1,0 +1,7 @@
+{
+  "model_id": "UNIFIED_V7_ONNX_CUDA",
+  "sha256": "138b522d09ac3c6a4e8b14ecf2b94f16dcb963ccc5b657c06d49533e908511fc",
+  "input": [384, 640],
+  "nms_iou": 0.45,
+  "confidence": {"person": 0.25, "forklift": 0.20, "pallet_jack": 0.10}
+}

@@ -19,6 +19,7 @@ from dataclasses import asdict, replace
 from pathlib import Path
 
 import cv2
+import numpy as np
 import torch
 
 from operix_engine.byte_tracker import ByteTrackConfig, ByteTracker
@@ -174,9 +175,14 @@ def _release_analysis_resources(frames, writer) -> None:
 
 def process(args: argparse.Namespace) -> None:
     from run_dual_perception import checked_file, model_identity
+    from rtsp_lab_onnx import load_unified_perception, unified_selected
 
-    checked_file(args.person_weights, args.person_sha256, "person_weights")
-    checked_file(args.forklift_weights, args.forklift_sha256, "forklift_weights")
+    unified = unified_selected(os.environ)
+    if unified and args.batch_size != 1:
+        raise ValueError("UNIFIED V7 requiere inferencia de un fotograma por llamada")
+    if not unified:
+        checked_file(args.person_weights, args.person_sha256, "person_weights")
+        checked_file(args.forklift_weights, args.forklift_sha256, "forklift_weights")
     _status(args.session_dir, state="preparing", frame=0, total=None, percent=None,
             detail="Verificando integridad y cadencia del video")
     inspection = inspect_recorded_video(args.video)
@@ -204,7 +210,7 @@ def process(args: argparse.Namespace) -> None:
     histories = {name: TrajectoryAccumulator(visual) for name in ("person", "forklift")}
 
     def channel(name: str, weights: Path, confidence: float, iou: float):
-        detector = YoloDetector(YoloDetectorConfig(
+        detector = None if unified else YoloDetector(YoloDetectorConfig(
             weights, confidence_threshold=confidence, device="cuda",
             image_size=640, iou_threshold=iou,
         ))
@@ -214,6 +220,14 @@ def process(args: argparse.Namespace) -> None:
         person=channel("person", args.person_weights, 0.10, 0.70),
         forklift=channel("forklift", args.forklift_weights, 0.45, 0.55),
     )
+    identities = {"person": model_identity(args.person_sha256),
+                  "forklift": model_identity(args.forklift_sha256)}
+    if unified:
+        perception, model_id = load_unified_perception(
+            Path(os.environ["OPERIX_UNIFIED_V7_DIR"]), perception,
+            np.zeros((384, 640, 3), dtype=np.uint8), torch.cuda.synchronize,
+        )
+        identities = dict.fromkeys(("person", "forklift"), model_id)
     with RecordedVideoSource(args.video) as source:
         metadata = source.metadata()
         if metadata != inspection.metadata:
@@ -271,7 +285,7 @@ def process(args: argparse.Namespace) -> None:
                 frame_index, frame, observed, timing, decode_ms = entry
                 if frame_index != processed or frame_index >= total:
                     raise VideoContractError("INVALID_METADATA", "La segunda lectura no coincide con la verificación")
-                if frame_index == 0:
+                if frame_index == 0 and not unified:
                     devices = (
                         perception.person.detector.model_device,
                         perception.forklift.detector.model_device,
@@ -444,8 +458,7 @@ def process(args: argparse.Namespace) -> None:
                           "width": encoded_width, "height": encoded_height},
             timing_ms={name: round(value / measured, 3) for name, value in totals_ms.items()}
             if measured else None,
-            model_identities={"person": model_identity(args.person_sha256),
-                              "forklift": model_identity(args.forklift_sha256)},
+            model_identities=identities,
             **({"occupant_context": {"excluded_pair_rule_observations": excluded_observations,
                                     "last_exclusion": last_occupant_exclusion}}
                if config.observe_occupants else {}),

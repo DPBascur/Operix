@@ -1,0 +1,12 @@
+services:
+  backend:
+    environment:
+      OPERIX_DETECTOR_PROFILE: unified-v7
+      OPERIX_UNIFIED_V7_DIR: /data/unified-v7
+    volumes:
+      - type: bind
+        source: ${OPERIX_UNIFIED_V7_HOST:?Set the approved V7 ONNX artifact directory}
+        target: /data/unified-v7
+        read_only: true
+        bind:
+          create_host_path: false

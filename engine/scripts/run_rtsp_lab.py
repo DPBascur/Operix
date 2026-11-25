@@ -44,7 +44,7 @@ from operix_engine.spatiotemporal import SpatiotemporalAnalyzer
 from operix_engine.video_event_pipeline import _visible_tracks
 from operix_engine.visualization import OpenCvRenderer, TrajectoryAccumulator, VisualizationConfig
 from run_rtsp_pilot import FORKLIFT_SHA, PERSON_SHA, Reader, checked_file, detector
-from rtsp_lab_onnx import cuda_detectors
+from rtsp_lab_onnx import cuda_detectors, load_unified_perception, unified_selected
 from stream_dual_perception import _write_atomic
 
 
@@ -56,6 +56,7 @@ POST_LIMIT = 2 * 1024 * 1024
 INFERENCE_STALL_SECONDS = 5
 PYTORCH_PROFILE = "pytorch-fp32"
 ONNX_PROFILE = "onnx-cuda"
+UNIFIED_PROFILE = "unified-v7"
 DETECTOR_THRESHOLDS = {"person": (.10, .70), "forklift": (.45, .55)}
 
 
@@ -68,6 +69,14 @@ class OnnxStartupError(RuntimeError):
 
 
 def inference_profile(env, args):
+    try:
+        unified = unified_selected(env)
+    except ValueError as error:
+        raise InvalidInferenceProfile(str(error)) from error
+    if unified:
+        if env.get("OPERIX_RTSP_INFERENCE_SOCKET"):
+            raise InvalidInferenceProfile("UNIFIED V7 requiere un worker dedicado")
+        return UNIFIED_PROFILE
     profile = env.get("OPERIX_RTSP_LAB_INFERENCE_PROFILE", PYTORCH_PROFILE)
     if profile not in (PYTORCH_PROFILE, ONNX_PROFILE):
         raise InvalidInferenceProfile("Perfil de inferencia RTSP lab inválido")
@@ -276,7 +285,7 @@ class WorkerStatus:
 
 
 class LabPipeline:
-    def __init__(self, config, args, *, infer_remotely=False, onnx_directory=None):
+    def __init__(self, config, args, *, infer_remotely=False, onnx_directory=None, unified_directory=None):
         self.dimensions = args.width, args.height
         calibration = config.calibration
         self.framing = None
@@ -286,7 +295,7 @@ class LabPipeline:
             self.framing = PatternFramingGuard(
                 calibration["pattern_evidence"], dimensions=self.dimensions, operator_invalidated=invalidated,
             )
-        if infer_remotely:
+        if infer_remotely or unified_directory is not None:
             detectors = nullcontext((None, None))
         else:
             checked_file(args.person_weights, PERSON_SHA, "PERSON")
@@ -311,7 +320,12 @@ class LabPipeline:
                 person=ClassPerceptionChannel("person", person, ByteTracker(ByteTrackConfig())),
                 forklift=ClassPerceptionChannel("forklift", forklift, ByteTracker(ByteTrackConfig())),
             )
-            if not infer_remotely:
+            if unified_directory is not None:
+                self.perception, _ = load_unified_perception(
+                    unified_directory, self.perception,
+                    np.zeros((args.height, args.width, 3), dtype=np.uint8), torch.cuda.synchronize,
+                )
+            elif not infer_remotely:
                 self.perception.process(np.zeros((args.height, args.width, 3), dtype=np.uint8),
                                         synchronize=torch.cuda.synchronize)
         self.analyzer = SpatiotemporalAnalyzer(
@@ -633,9 +647,12 @@ def run(args, status, stop_reason):
     if inference_socket:
         inference = InferenceClient(inference_socket, camera_id=context.source["camera_id"], run_id=status.run_id)
         status.inference_mode = "shared"
-    if profile == ONNX_PROFILE:
+    if profile in (ONNX_PROFILE, UNIFIED_PROFILE):
         try:
-            pipeline = LabPipeline(config, args, onnx_directory=Path(os.environ["OPERIX_RTSP_LAB_ONNX_DIR"]))
+            if profile == UNIFIED_PROFILE:
+                pipeline = LabPipeline(config, args, unified_directory=Path(os.environ["OPERIX_UNIFIED_V7_DIR"]))
+            else:
+                pipeline = LabPipeline(config, args, onnx_directory=Path(os.environ["OPERIX_RTSP_LAB_ONNX_DIR"]))
         except Exception as error:
             raise OnnxStartupError("No se pudo iniciar el perfil ONNX CUDA") from error
     else:

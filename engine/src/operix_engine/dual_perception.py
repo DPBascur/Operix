@@ -175,3 +175,32 @@ class DualPerception:
                 PerceptionTiming(*inference_times, *tracking_times),
             ))
         return tuple(results)
+
+
+class SinglePerception(DualPerception):
+    """Keep independent legacy tracking channels after one shared detector call."""
+
+    def __init__(self, channels, detector, thresholds):
+        super().__init__(person=channels.person, forklift=channels.forklift)
+        self.detector = detector
+        self.thresholds = thresholds
+
+    def process(self, frame, *, synchronize=None, clock=time.perf_counter):
+        if synchronize is not None:
+            synchronize()
+        before = clock()
+        observations = self.detector.detect(frame)
+        if synchronize is not None:
+            synchronize()
+        elapsed = clock() - before
+        groups = {"person": [], "forklift": []}
+        for entry in observations:
+            if entry.class_name in groups and entry.confidence >= self.thresholds[entry.class_name]:
+                groups[entry.class_name].append(entry)
+        people, forklifts = (tuple(groups[role]) for role in ("person", "forklift"))
+        before = clock()
+        people_tracks = self.person.track(people)
+        middle = clock()
+        forklift_tracks = self.forklift.track(forklifts)
+        return (PerceptionFrame(people, forklifts, people_tracks, forklift_tracks),
+                PerceptionTiming(elapsed, 0., middle - before, clock() - middle))

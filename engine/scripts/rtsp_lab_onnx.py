@@ -24,8 +24,7 @@ def verified_exports(directory):
 
 
 @contextmanager
-def cuda_detectors(directory, specs):
-    paths = verified_exports(directory)
+def verified_cuda_runtime():
     if version("onnxruntime-gpu") != ORT_VERSION:
         raise RuntimeError(f"RTSP lab requiere onnxruntime-gpu=={ORT_VERSION}")
     try:
@@ -43,5 +42,43 @@ def cuda_detectors(directory, specs):
     finally:
         sys.path.pop(0)
     with strict_ort_sessions():
+        yield make_detectors
+
+
+@contextmanager
+def cuda_detectors(directory, specs):
+    paths = verified_exports(directory)
+    with verified_cuda_runtime() as make_detectors:
         models = make_detectors(specs, paths, INPUT_SHAPE, rect=False)
         yield models["person"][0], models["forklift"][0]
+
+
+def unified_selected(env):
+    profile = env.get("OPERIX_DETECTOR_PROFILE", "legacy-dual")
+    if profile not in ("legacy-dual", "unified-v7"):
+        raise ValueError("Perfil de detector desconocido")
+    if profile == "unified-v7" and not env.get("OPERIX_UNIFIED_V7_DIR"):
+        raise ValueError("Falta el directorio aprobado para UNIFIED V7")
+    return profile == "unified-v7"
+
+
+def load_unified_perception(directory, channels, frame, synchronize):
+    import json
+
+    from operix_engine.dual_perception import SinglePerception
+
+    config = json.loads((Path(__file__).resolve().parents[1] / "config/unified-v7.json").read_bytes())
+    model = directory / "industrial-unified.onnx"
+    checked_file(model, config["sha256"], "UNIFIED V7 ONNX")
+    thresholds = config["confidence"]
+    spec = {"confidence": min(thresholds.values()), "nms_iou": config["nms_iou"], "class_filter": None}
+    with verified_cuda_runtime() as make_detectors:
+        detector = make_detectors({"unified": spec}, {"unified": model}, tuple(config["input"]), False)["unified"][0]
+        perception = SinglePerception(channels, detector, thresholds)
+        perception.process(frame, synchronize=synchronize)
+    if detector.class_names != {0: "person", 1: "forklift", 2: "pallet_jack"}:
+        raise ValueError("Índices de clase incompatibles con UNIFIED V7")
+    if not detector.model_device.startswith("cuda"):
+        raise RuntimeError("UNIFIED V7 no quedó en CUDA")
+    perception.reset()
+    return perception, config["model_id"]

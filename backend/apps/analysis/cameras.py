@@ -30,7 +30,7 @@ from . import camera_registry
 from .catalog import load_catalog, resolve_policy
 from .models import AnalysisRunSnapshot, CameraRevision, CameraRun
 from .sessions import (
-    FORKLIFT_SHA256, PERSON_SHA256, ROOT, config_bytes, frozen_perception, local_event_api_url, rule_snapshot,
+    ROOT, active_perception, config_bytes, local_event_api_url, rule_snapshot,
 )
 from .validation import validate_spatial
 
@@ -371,12 +371,18 @@ def playback_clock_id(token):
 
 @transaction.atomic
 def start_camera(camera, owner, *, managed=False, playback=None):
+    try:
+        perception = active_perception()
+    except ValueError as error:
+        raise CameraConflict(str(error)) from None
     camera_id = camera.id
     worker = ROOT / "engine/scripts/run_rtsp_lab.py"
     if not (camera.provenance and worker.is_file() and settings.EVENT_POST_ENABLED):
         raise CameraConflict("La fuente, su procedencia o el Motor aún no están habilitados.")
     inference_socket = os.environ.get("OPERIX_RTSP_INFERENCE_SOCKET")
     if inference_socket:
+        if os.environ.get("OPERIX_DETECTOR_PROFILE") == "unified-v7":
+            raise CameraConflict("UNIFIED V7 requiere un worker dedicado")
         try:
             if not hasattr(socket, "AF_UNIX"):
                 raise OSError("AF_UNIX no está disponible")
@@ -434,8 +440,9 @@ def start_camera(camera, owner, *, managed=False, playback=None):
         "kind": "lab", "camera_id": camera_id, "filename": filename,
         "video_sha256": camera.provenance["sha256"], "config_sha256": stored.config_sha256,
         "spatial_configuration": document, "timestamp_basis": "LAB_RECEPTION_UTC",
-        "person_weights_sha256": PERSON_SHA256, "forklift_weights_sha256": FORKLIFT_SHA256,
-        "perception": frozen_perception(),
+        "person_weights_sha256": perception["person"]["weights_sha256"],
+        "forklift_weights_sha256": perception["forklift"]["weights_sha256"],
+        "perception": perception,
         "session_id": str(run_id), "session_run": 1,
         **({"spatial_revision": revision} if revision else {}),
     }

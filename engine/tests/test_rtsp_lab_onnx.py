@@ -59,6 +59,21 @@ class OnnxLabTests(TestCase):
                             onnx.verified_exports(directory)
                         path.write_bytes(role.encode())
 
+    def test_v7_requires_dedicated_worker_and_pinned_artifact(self):
+        with TemporaryDirectory() as temp:
+            directory = Path(temp)
+            env = {"OPERIX_DETECTOR_PROFILE": "unified-v7", "OPERIX_UNIFIED_V7_DIR": temp}
+            self.assertEqual(lab.inference_profile(env, self.args), "unified-v7")
+            for overrides in ({"OPERIX_UNIFIED_V7_DIR": ""},
+                              {"OPERIX_RTSP_INFERENCE_SOCKET": "/tmp/shared.sock"}):
+                with self.assertRaises(lab.InvalidInferenceProfile):
+                    lab.inference_profile({**env, **overrides}, self.args)
+            (directory / "industrial-unified.onnx").write_bytes(b"changed")
+            with (mock.patch.object(onnx, "verified_cuda_runtime") as runtime,
+                  self.assertRaises(ValueError)):
+                onnx.load_unified_perception(directory, None, None, None)
+            runtime.assert_not_called()
+
     def test_worker_checks_both_original_checkpoints_before_loading_onnx(self):
         self.args.person_weights = Path("original-person.pt")
         self.args.forklift_weights = Path("original-forklift.pt")
