@@ -2427,3 +2427,73 @@ análisis, seleccione la copia local autorizada
 Análisis, perfil C, y confirme la regla del pasillo (0,22 norm. y
 0,40 s) antes de iniciarlo. El expediente de demostración ya existente
 permite mostrar las evidencias sin generar un registro duplicado.
+
+### Estabilización del reconocimiento y del monitor
+
+La calificación de V7 se archivó localmente con los checkpoints,
+ONNX, configuraciones del ensayo y huellas SHA-256. LEGACY_DUAL
+continúa como perfil de la instancia principal.
+
+La comparación diagnóstica volvió a las 33 capturas de Vidal ya
+consultadas y conservó los puntos de operación, entrada 384 × 640 e
+IoU de asociación 0,50. PERSON y STACKER no están anotados en esta
+partición. El grupo padre evaluado cubre solo las 14 cajas de
+montacargas y las 18 de transpaleta anotadas. Se suprimieron
+predicciones solapadas del padre con IoU de 0,70.
+
+| Detector | Padre TP / FP / FN | F1 del padre | Transpaleta TP / FP / FN |
+| --- | ---: | ---: | ---: |
+| LEGACY_DUAL | 12 / 10 / 20 | 0,444 | — |
+| V3 | 16 / 32 / 16 | 0,400 | 4 / 35 / 14 |
+| V7 | 15 / 19 / 17 | 0,455 | 4 / 22 / 14 |
+
+La unión de las dos clases sigue produciendo falsos positivos. Un
+diseño a evaluar con datos nuevos compartiría backbone, cuello y
+cajas, y añadiría un logit de vehículo y una distribución condicional
+de subtipos. PERSON se supervisaría independientemente. El subtipo se
+enmascararía si la fuente solo certifica el padre. UNKNOWN expresaría
+abstención de subtipo; la motorización conservaría su estado propio.
+Solo FORKLIFT confirmado alimentaría reglas específicas de esa clase.
+La cabeza especializada previa y esta proyección no justifican V8
+con el mismo material.
+
+El trabajo de [Franke et al.](https://proc.logistics-journal.de/article/view/1114)
+distingue equipos de baja y alta elevación y montacargas en etiquetas
+de actividad. SPARL puede apoyar la revisión por tramo, pero la
+etiqueta temporal no proporciona cajas ni negativos exhaustivos.
+[LOCO](https://mediatum.ub.tum.de/doc/1578845/ndh526owvo3yhfqcaw2qypl5g.201007-loco-ieee-compressed.pdf)
+apoya el agrupamiento de montacargas y transpaletas; sus instalaciones
+ya se usaron durante desarrollo. El conjunto [LiDAR industrial](https://github.com/anavsgmbh/lidar-warehouse-dataset)
+publica cajas 3D de montacargas y otros objetos; no es una referencia
+directa para la cámara RGB de Operix. Para un nuevo ajuste se requieren
+cajas por equipo, ejemplos de maquinaria fija y personas, y una
+reserva por instalación. Los accesos 403 anteriores permanecieron intactos.
+
+En la corrida sostenida, los tres HTTP 500 de la sonda correspondieron
+a ECONNRESET en el proxy Next hacia Django. Hubo resets tanto durante
+actividad estable como cerca de una transición, sin reinicio del
+contenedor. El origen exacto del cierre de cada socket no quedó
+demostrado. Una inyección TCP reprodujo el 500 de la imagen anterior.
+La ruta GET de observaciones conecta con socket dedicado y reintenta
+una vez un reset anterior a cabeceras, dentro de 2.500 ms. Devuelve
+502 cuando se agota el reintento y 504 al vencer el plazo. Conserva
+los códigos de Django y la autenticación de sesión, incluidos 204,
+401, 403 y 500. Las respuestas permanecen privadas y sin caché.
+
+El A/B de 155 s por variante en QA usó V7 y las mismas tres fuentes.
+En el EOF de cámara 01, el tiempo desde el cierre del muxer previo
+hasta publicar el siguiente RTSP fue de 3,55 s antes y 3,12 s después.
+Desde publicar RTSP hasta crear el muxer siguiente bajó de 5,10 a
+0,60 s. Edge registró una pausa de 9,63 s antes y 3,17 s después, y el
+número de elementos de video para esa cámara pasó de dos a uno.
+Las otras dos cámaras siguieron presentando aproximadamente 15 FPS.
+La observación de un EOF por variante describe el ensayo, no una cota
+de recuperación para todas las playlists.
+
+El monitor conserva el elemento de video al recibir una transición
+esperada reciente. El plazo se aplica a EOF y cambio de playlist;
+el apagado, el fin antiguo y los fallos mantienen su tratamiento.
+Las marcas de emisión y la validación del run siguen determinando qué
+overlays se pueden dibujar. La sonda observó dos runs de cámara 01,
+sin muestras de marcas ambiguas. Los 13 eventos de la corrida candidata
+conservaron fuente, configuración, timestamp, PNG y clip compatibles.
