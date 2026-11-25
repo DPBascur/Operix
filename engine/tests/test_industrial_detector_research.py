@@ -2,12 +2,15 @@
 from pathlib import Path
 import sys
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "industrial_detector"))
 from evaluate import calculate_ap, eligibility, operating_point
 from prepare import normalize_box
+from rtsp_probe_worker import SinglePerception
 from train import freeze_person_outputs, mask_class_loss
 
 from operix_engine.person_metrics import Prediction
@@ -64,3 +67,22 @@ class IndustrialDetectorResearchTest(unittest.TestCase):
                          (2, (.1, .15, .8, .5)))
         with self.assertRaises(ValueError):
             normalize_box(1, (100, 20, 90, 40), 150, 150)
+
+    def test_one_inference_routes_only_supported_operational_roles(self):
+        person = SimpleNamespace(class_name="person", confidence=.9)
+        low_forklift = SimpleNamespace(class_name="forklift", confidence=.2)
+        forklift = SimpleNamespace(class_name="forklift", confidence=.8)
+        pallet = SimpleNamespace(class_name="pallet_jack", confidence=1.)
+        channels = SimpleNamespace(person=Mock(class_name="person"), forklift=Mock(class_name="forklift"))
+        channels.person.track.return_value = ()
+        channels.forklift.track.return_value = ()
+        detector = Mock()
+        detector.detect.return_value = (person, low_forklift, forklift, pallet)
+        perception = SinglePerception(channels, detector, {"person": .1, "forklift": .45, "pallet_jack": .5})
+        frame = object()
+        result, _ = perception.process(frame)
+        detector.detect.assert_called_once_with(frame)
+        channels.person.track.assert_called_once_with((person,))
+        channels.forklift.track.assert_called_once_with((forklift,))
+        self.assertEqual(result.person_detections, (person,))
+        self.assertEqual(result.forklift_detections, (forklift,))

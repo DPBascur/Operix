@@ -1743,3 +1743,135 @@ y altura conocida se verificó sobre un escenario sintético. Con
 perturbaciones de 8 px en los puntos de fuga y 4 px en contactos, el
 p95 del error fue 0,17 m cerca, 0,69 m a media distancia y 2,79 m lejos.
 Las estimaciones permanecen fuera de las reglas métricas.
+
+### Detector industrial unificado V1
+
+El experimento usa transferencia desde YOLO11 preentrenado. Su salida
+experimental tiene tres clases, `person`, `forklift` y `pallet_jack`.
+Las taxonomías disponibles no permiten separar apiladores o retráctiles
+en todas las fuentes. Tampoco respaldan una etiqueta de motorización.
+
+| Fuente | Licencia y alcance | Partición | Imágenes | Cajas PERSON / FORKLIFT / PALLET_JACK |
+| --- | --- | --- | ---: | ---: |
+| [Construction-PPE](https://docs.ultralytics.com/datasets/detect/construction-ppe/) | CC BY 4.0 para imágenes y etiquetas; mezcla de captura y generación, con anotación humana y asistida | entrenamiento / validación del editor | 800 / 200 | 1.962 / 275 / — · 481 / 73 / — |
+| [LOCO](https://github.com/tum-fml/loco) | CC0, logística real anotada | entrenamiento / validación por instalación del manifiesto anterior | 699 / 303 | — / 262 / 1.047 · — / 134 / 225 |
+| [Forklift v1, Mohamed Traore](https://universe.roboflow.com/mohamed-traore-2ekkp/forklift-dsitv/dataset/1) | CC BY 4.0 en la fuente y en las anotaciones COCO | reserva completa de un segundo proveedor, revisión `2c0f4e8e9085f3079b80137e780aab0e54936cfc` | 421 | 415 / 458 / — |
+
+LOCO aporta 120 negativos seleccionados por etiquetas de pallet o
+estructura de almacenamiento. Se supervisan las clases de equipo en
+LOCO y se anula la pérdida de clasificación de PERSON en esas
+imágenes. Construction-PPE anota PERSON y FORKLIFT, por lo que la pérdida
+de PALLET_JACK se anula allí. Se desactivaron los aumentos que combinan
+imágenes de fuentes con coberturas distintas. En la inspección de
+muestras LOCO había personas visibles sin caja PERSON. No se generaron
+pseudoetiquetas con Operix. NVIDIA SmartSpaces y TalTech se consideraron
+como fuentes sintéticas. TOMIE no incluye todas las clases objetivo.
+No se usaron en este ajuste ni como prueba independiente de transpaleta.
+
+El manifiesto `877449d66ce7ab28b54e3adab765d0951c2cb6cdff0ecaea156e89b76d523cf0`
+registra procedencia y hashes por imagen y etiqueta. La preparación
+validó decodificación, cajas y dimensiones, y buscó coincidencias por
+hash de píxeles y dos hashes perceptuales. No encontró duplicados con
+ese criterio. Construction-PPE conserva el split publicado, sin IDs de
+escena en el material usado. La reserva separa por proveedor, con
+limitaciones de trazabilidad de escena y de preentrenamiento externo.
+La instalación de prueba de LOCO consultada en la campaña anterior
+quedó fuera de esta evaluación.
+
+Los scripts están en `engine/scripts/industrial_detector`. Se fijaron
+umbrales en validación con NMS por clase e IoU de evaluación 0,50. La
+puerta de promoción permite hasta tres puntos porcentuales de pérdida
+en precisión, recall y AP50 de PERSON. Para FORKLIFT exige precisión de
+al menos 60 %, recall de al menos 55 % y hasta tres puntos bajo el
+baseline, mejora de 0,08 en F1 y hasta 0,02 FP por imagen adicional.
+La comparación usa YOLO11m PERSON y FORKLIFT v2 congelado. PALLET_JACK
+solo tiene validación de desarrollo y necesita una reserva externa
+propia antes de entrar en reglas o categorías de uso operacional.
+
+El piloto YOLO11s completó cuatro épocas a 448 px con semilla 20261125,
+AdamW, lote 12 y pesos [Ultralytics AGPL-3.0](https://www.ultralytics.com/license).
+El mAP50–95 de validación PPE pasó de 0,246 a 0,517, con AP50 final
+0,876 para PERSON y 0,702 para FORKLIFT en esa validación. El ajuste
+extendido partió del checkpoint piloto a 512 px, LR 0,00038 y AMP
+verificada contra FP32 con el modelo real. Imágenes y pesos permanecen
+fuera de Git.
+
+El ajuste completó 24 épocas adicionales. Su mejor checkpoint obtuvo
+mAP50–95 de 0,642 en PPE, con AP50 de 0,917 para PERSON y 0,802 para
+FORKLIFT. En la validación conjunta a 384 × 640, el F1 de montacargas
+subió de 0,406 del baseline a 0,560. La precisión de PERSON cayó de
+92,61 % a 88,10 %, por encima del margen de pérdida permitido. Los
+ejemplos visuales mostraron cajas espurias de personas en escenas
+densas y errores de transpaleta sobre equipos y estructuras fijas.
+
+El segundo enfoque ajustó YOLO11m durante 12 épocas a 512 px, lote 12,
+LR 0,002 y AMP. Entrenó solo las nuevas filas de las tres convoluciones
+de clasificación. Congeló regresión, convoluciones compartidas,
+estadísticos de normalización y filas PERSON. El checkpoint final
+retuvo exactamente los seis tensores de salida PERSON y los 643
+tensores compartidos del baseline. En la validación conjunta pasó los
+tres criterios PERSON y conservó el mejor perfil de esa clase.
+FORKLIFT quedó en F1 de 0,440 y recall de 34,30 %. PALLET_JACK alcanzó
+F1 de 0,143 en validación LOCO. Su F1 más alto entre los experimentos
+fue 0,308 en el piloto YOLO11s.
+
+La selección determinista se fijó por las puertas en validación y
+priorizó las de PERSON antes del F1 FORKLIFT. El checkpoint YOLO11m
+`1516e689b3f980ab78958a06928032dc635606e6bcfee57786e3912910ae159a`
+fue el único evaluado en la reserva. La evaluación quedó sellada con
+SHA-256 `78b338c62683392dcc1641a8b8d2d6733cc3d119091a5425a539ab1f743fff08`.
+
+| Modelo y clase en 421 imágenes reservadas | Umbral | VP / FP / FN | Precisión | Recall | F1 | AP50 | AP50–95 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Baseline PERSON | 0,10 | 344 / 192 / 71 | 64,18 % | 82,89 % | 0,723 | 0,828 | 0,553 |
+| Unificado PERSON | 0,175 | 336 / 80 / 79 | 80,77 % | 80,96 % | 0,809 | 0,831 | 0,549 |
+| Baseline FORKLIFT | 0,45 | 344 / 66 / 114 | 83,90 % | 75,11 % | 0,793 | 0,793 | 0,438 |
+| Unificado FORKLIFT | 0,175 | 315 / 95 / 143 | 76,83 % | 68,78 % | 0,726 | 0,729 | 0,420 |
+
+En validación, al igualar el umbral PERSON a 0,175, ambos dieron 443 VP
+y 38 FN. El baseline dio 20 FP y el unificado 15. La comparación
+reservada usa los puntos operacionales fijados para cada perfil.
+FORKLIFT pasó el mínimo absoluto de precisión, pero perdió 6,33 puntos
+de recall y subió de 0,157 a 0,226 FP por imagen. Entre sus 95 FP hubo
+29 duplicados, 47 errores de localización, 15 cajas sin correspondencia
+y cuatro con solapamiento de PERSON. El recall de personas pequeñas fue
+61,67 % frente a 65,56 %. Ningún detector localizó los 12 montacargas
+del estrato pequeño. En la revisión visual se observaron omisiones en
+vehículos agrupados, a distancia y parcialmente ocultos. La reserva
+carece de anotaciones de oclusión y de motorización. El unificado quedó
+en laboratorio y `LEGACY_DUAL` permaneció en 13000.
+
+La exportación ONNX FP32 384 × 640, opset 17, mantuvo el orden de las
+tres clases y 71 detecciones pos-NMS en 24 imágenes de validación. En
+Docker aislado con ONNX Runtime GPU 1.27.0 se comprobaron 7.176 llamadas
+a operadores CUDA, diferencia máxima de 0,00362 px en coordenadas y
+0,000042 en confianza. En medición alternada de inferencia y copia de
+salida, el p50/p95 local pasó de 16,86/20,29 ms en el doble a 11,08/12,81
+ms en el candidato. Es una medición del núcleo de inferencia con I/O
+Binding y tensores ya preparados.
+
+El A/B RTSP comparó tres grabaciones de SPARL a 540p, emisión a 15 FPS,
+análisis a 12 FPS, el mismo snapshot de reglas y 75 s por perfil tras
+calentamiento. Antes se descartó una corrida de 90 s que reutilizaba
+emisores entre perfiles. La segunda fase de esa corrida registró
+1.081 y 1.087 reinicios por `source_sampling_gap` en dos fuentes, con
+cero descartes de cola. Se repitió con emisores y red recién creados
+por perfil, rechazando cualquier discontinuidad durante la medición.
+
+| Medición RTSP corta | LEGACY_DUAL | Prototipo UNIFIED |
+| --- | ---: | ---: |
+| FPS procesados agregados | 36,009 | 35,999 |
+| Descartes no planificados / reinicios de época | 0 / 0 | 0 / 0 |
+| p50 local por cámara (ms) | 38,92 / 36,59 / 38,49 | 29,06 / 19,03 / 28,39 |
+| p95 local por cámara (ms) | 62,73 / 63,95 / 66,81 | 36,06 / 23,75 / 34,08 |
+| GPU / VRAM del host en p95 | 56 % / 3.689 MiB | 42 % / 3.286 MiB |
+| CPU / RAM de workers en p95 | 2,11 núcleos / 4,34 GiB | 1,38 núcleos / 4,02 GiB |
+
+Cada worker unificado ejecutó un detector por fotograma y mantuvo
+ByteTrack separado para PERSON y FORKLIFT. El prototipo no entregó
+PALLET_JACK al canal FORKLIFT. Ningún perfil produjo eventos en estas
+ventanas de prueba. El receptor era local y descartable, sin PostgreSQL
+ni LL-HLS, por lo que la comparación mide capacidad del Motor, no
+cobertura en navegador o integridad de evidencias del candidato. La
+paridad se comprobó en FP32. FP16, TensorRT y la validación integral del
+candidato quedaron pendientes tras el rechazo de calidad.
