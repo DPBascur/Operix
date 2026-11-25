@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "indust
 from evaluate import calculate_ap, eligibility, operating_point
 from distill import mean_response_loss, trusted_pairs
 from evaluate_v2 import forklift_diagnostics, quality
+from managed_qa_worker import qualified_artifact, qualified_source
 from prepare import digest, normalize_box
 from prepare_v2 import crop_labels
 from prepare_v3 import mirrored_consensus
@@ -28,6 +29,35 @@ from operix_engine.person_metrics import Prediction
 
 
 class IndustrialDetectorResearchTest(unittest.TestCase):
+    def test_managed_qa_rejects_tampering_and_binds_the_executed_detector(self):
+        thresholds = {"person": .25, "forklift": .20, "pallet_jack": .10}
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            model = root / "industrial-unified.onnx"
+            model.write_bytes(b"onnx candidate")
+            weight_hash = digest(model)
+            checkpoint = "a" * 64
+            preset = {"settings": {"detector_sha256": {"candidate": checkpoint},
+                                   "candidate_nms": .45, "candidate_input": [384, 640]},
+                      "candidate": {role: {"threshold": threshold} for role, threshold in thresholds.items()}}
+            receipt = {"passed": True, "precision": "fp32", "input": [384, 640], "candidate_nms": .45,
+                       "onnx_sha256": weight_hash, "checkpoint_sha256": checkpoint,
+                       "names": {"0": "person", "1": "forklift", "2": "pallet_jack"}}
+            (root / "validation.json").write_text(json.dumps(preset))
+            (root / "cuda-probe.json").write_text(json.dumps(receipt))
+            self.assertEqual(qualified_artifact(root), (model, weight_hash, (384, 640), .45, thresholds))
+            model.write_bytes(b"changed")
+            with self.assertRaisesRegex(ValueError, "receipt"):
+                qualified_artifact(root)
+
+        original = {"camera_id": "lab-cam-02", "config_sha256": "c" * 64, "person_weights_sha256": "b" * 64}
+        metadata = qualified_source(original, "v7", weight_hash, 640, .45, thresholds)
+        self.assertEqual(metadata["config_sha256"], original["config_sha256"])
+        self.assertNotEqual(original["person_weights_sha256"], weight_hash)
+        self.assertEqual(metadata["person_weights_sha256"], metadata["forklift_weights_sha256"])
+        self.assertEqual(metadata["perception"]["forklift"]["model_id"], "UNIFIED_V7_ONNX_CUDA")
+        self.assertEqual(metadata["perception"]["forklift"]["confidence"], .20)
+
     def test_vidal_labels_map_equipment_and_keep_pallets_outside_target_classes(self):
         counts, boxes = vidal_annotations(
             b"0 .5 .5 .5 .5\n1 .5 .5 .5 .5\n2 .5 .5 .5 .5\n", 1920, 1080,

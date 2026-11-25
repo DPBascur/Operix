@@ -2314,3 +2314,116 @@ El segundo conservó un evento P1–F1 en el cuadro 38 (1,52 s), con 0,1502
 norm. Se comprobó PNG, clip anotado de 6,56 s, hashes fuente/configuración,
 reproducción en Edge y denegación anónima. La escena muestra una condición
 configurada que requiere revisión humana.
+
+### Calificación operacional de V3 y V7
+
+Se exportaron los dos checkpoints existentes a ONNX FP32 estático,
+entrada 1 × 3 × 384 × 640, opset 17 y NMS externo a 0,45. El orden
+de salida fue PERSON, FORKLIFT y PALLET_JACK. La paridad tras NMS pasó
+en 24/24 imágenes por peso. El perfilador observó kernels CUDA y el
+ensayo deshabilitó la ejecución alternativa en CPU. Inferencia más copia
+de salida, medida por separado para cada par en la RTX 3070:
+
+| Comparación | Unificado p50 / p95 (ms) | LEGACY_DUAL p50 / p95 (ms) |
+| --- | ---: | ---: |
+| V3 | 14,48 / 18,85 | 20,53 / 25,89 |
+| V7 | 14,33 / 16,64 | 19,95 / 25,16 |
+
+En QA 13072 se ejecutaron las mismas tres fuentes SPARL de laboratorio,
+960 × 540, video LL-HLS a 15 FPS, muestreo del Motor a 12 FPS,
+seguimiento por rol y reglas normalizadas. PostgreSQL, MediaMTX, volúmenes
+y sesión de Edge fueron exclusivos del ensayo. Se verificó que el Motor
+siguiera procesando después de cerrar Edge. Los 90 segundos por variante
+se midieron ya activas las tres cámaras.
+
+| Variante | FPS de análisis por cámara | Descartes del Motor (suma) | p95 local por cámara (ms) | Eventos con PNG y clip |
+| --- | ---: | ---: | ---: | ---: |
+| LEGACY_DUAL ONNX | 11,34–11,57 | 188 | 475,64–510,16 | 8 |
+| V3 ONNX | 11,99–12,00 | 0 | 61,40–67,23 | 7 |
+| V7 ONNX | 12,00 | 0 | 47,66–62,69 | 9 |
+
+La latencia local se mide desde la recepción del cuadro decodificado
+hasta el timestamp del overlay. Edge registró entre 14,78 y 14,98
+callbacks de presentación por segundo. La distancia al borde buscable
+de LL-HLS es otra medida. Ninguna de ellas equivale al tiempo desde la
+emisión física de una cámara hasta la publicación del evento. La prueba
+contabiliza descarte del Motor por separado de la selección deliberada
+15 → 12. Los conteos de eventos reflejan las condiciones realmente
+observadas por cada variante y no constituyen métricas de reconocimiento.
+
+El adaptador `managed_qa_worker.py` conserva el trabajador de RTSP,
+ByteTrack por rol, temporización, reglas y publicación existentes. Solo
+en QA abre un modelo multiclase por trabajador y vincula el hash ejecutado
+con la trazabilidad de ambos roles. PALLET_JACK sigue sin intervenir en
+las reglas. La instancia principal conserva LEGACY_DUAL.
+
+Para ampliar los datos, la exportación anónima oficial de Addverb y
+Arvist respondió 403. La ficha de
+[Addverb v1](https://universe.roboflow.com/addverb-technologies/warehouse-ijyxt/dataset/1)
+declara CC BY 4.0 y 21.564 elementos exportados con aumento en
+entrenamiento. La [revisión de Roboflow](https://roboflow.com/blog/physical-ai-training-data)
+advierte cajas faltantes y posibles duplicados. La auditoría de
+[LOCO 3D](https://github.com/vidaldani/LOCO_3D/tree/8f44656b5f0be65a008df8fc522e295fc1972a0f)
+verificó los blobs de 1.212 anotaciones RGB, 88 cajas FORKLIFT (4
+pequeñas) y 262 PALLET_JACK en dos sensores. No hay clase PERSON.
+La revisión cubre metadatos y cajas, queda pendiente verificar píxeles
+y solapamiento entre instalaciones. La licencia CC BY-NC 4.0 del
+editor limita el uso comercial. El material de Vidal consultado en la
+fase anterior se conserva como diagnóstico y queda excluido del
+entrenamiento V8 de esta campaña.
+
+La corrida V7 de **1.810,70 s** cumplió el criterio operacional en este
+escritorio con actividad gráfica externa registrada (Brave y compositor
+de Windows). La comprobación previa de GPU libre falló. Esta corrida
+caracteriza estabilidad con la carga observada; queda pendiente el ensayo
+con recursos reservados.
+
+| Cámara | FPS decod. / analizados en tramos estables | FPS visibles (ventana completa) | p50 / p95 local (ms) | Cuadros analizados muestreados | Descartes en transición | Fines de playlist |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 01 | 14,99 / 11,99 | 14,11 | 25,32 / 50,58 | 19.227 | 51 | 14 |
+| 02 | 15,01 / 12,01 | 14,84 | 25,76 / 46,55 | 21.235 | 15 | 3 |
+| 03 | 15,00 / 12,00 | 14,74 | 23,67 / 42,05 | 21.062 | 21 | 4 |
+
+Se observaron cero descartes por saturación de inferencia y una mediana
+de cola de cero en todos los bloques de cinco minutos. En 152 muestras,
+GPU del equipo p50/p95 de 41/68 %, VRAM p95 de 3.058 MiB, CPU de los
+seis contenedores instrumentados p50/p95 de 289,79/418,46 % (100 % por
+CPU lógica), RAM p95 de 4.785 MiB. La distancia al borde de LL-HLS
+tuvo p95 de 1,33–1,40 s. El mayor intervalo sin presentación fue
+9,61 s. Hubo tres respuestas 500 del proxy al consultar observaciones
+durante el ensayo; los logs registraron reinicios de conexión hacia
+Django y las consultas posteriores se recuperaron. Edge presentó
+distancias normalizadas en las tres cámaras. Sus callbacks de
+presentación se conservaron como medida de FPS visible; el contador
+bruto de descartes de Edge fue inconsistente en dos reproductores.
+
+En 24 ejecuciones muestreadas, los 162 eventos (128 de proximidad)
+conservaron cámara, fuente, configuración, PTS, PNG y clip compatibles.
+El endpoint autenticado confirmó el hash V7 para ambos roles de cada
+evento de proximidad. Se descargaron muestras de PNG y clip en cada
+variante y se verificó el rechazo anónimo (401). Las capturas muestran
+clasificaciones FORKLIFT sobre equipos de manipulación de la escena
+SPARL; el ensayo no aporta verdad de referencia por cuadro para validar
+la clase ni la política de proximidad sobre esos equipos.
+
+La descarga pública de [Construction-PPE](https://docs.ultralytics.com/datasets/detect/construction-ppe)
+confirmó 1.000 imágenes con sus archivos de anotación, 2.443 cajas
+PERSON y 348 FORKLIFT, de las cuales 69 ocupan menos del 2,5 % de la
+imagen. No existe etiqueta PALLET_JACK ni identificación de
+instalación en el manifiesto. Los hashes de origen identifican las
+mismas 800 imágenes de entrenamiento y 200 de validación que ya
+figuran en los manifiestos de desarrollo de Operix. La revisión visual
+por hash perceptual reencontró las 200 de validación; se descartó el
+conjunto como reserva independiente. No se entrenó V8 ni se promovió
+V7 al puerto 13000. El próximo criterio de reconocimiento requiere
+fuentes independientes con PERSON, montacargas pequeños y distinción
+entre montacargas, apiladores y transpaletas.
+
+En 13000 se conservaron los 313 eventos históricos y el expediente de
+Embonor. Edge abrió el PNG, reprodujo el clip y recuperó la regla
+guardada para la grabación original en perfil C. Para repetir el
+análisis, seleccione la copia local autorizada
+`DEMO-CCTV-industrial-Onal-Dandil-7_te6.mp4` como fuente de archivo en
+Análisis, perfil C, y confirme la regla del pasillo (0,22 norm. y
+0,40 s) antes de iniciarlo. El expediente de demostración ya existente
+permite mostrar las evidencias sin generar un registro duplicado.
