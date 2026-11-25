@@ -341,25 +341,32 @@ class ManagedLabTests(APITestCase):
         return CameraRun.objects.create(snapshot=snapshot, camera_id=camera.id, managed=managed,
                                         provenance=camera.provenance, playback=playback)
 
-    def launch_clip(self, ready):
+    def launch_clip(self, ready, token=None):
         ready.return_value = False
-        lab_control.reconcile()
-        token = self.progress()["token"]
+        if token is None:
+            lab_control.reconcile()
+            token = self.progress()["token"]
         self.assertEqual(self.lease(), [token, "idle"])
         self.ack(token, "idle")
         ready.return_value = True
         lab_control.reconcile()
         self.assertEqual(self.lease(), [token, "idle"])
+        self.assertFalse(CameraRun.objects.filter(active=True).exists())
         ready.return_value = False
         lab_control.reconcile()
+        run = CameraRun.objects.get(active=True)
+        self.assertEqual(self.progress()["phase"], "warming")
+        with patch.object(lab_control, "status_for", return_value=("connecting", {}, {})):
+            lab_control.reconcile()
+            self.assertEqual(self.lease(), [token, "idle"])
+        with patch.object(lab_control, "status_for", return_value=("connecting", {}, {"capture_ready": True})):
+            lab_control.reconcile()
         self.assertEqual(self.lease()[:2], [token, "play"])
-        ready.return_value = True
-        self.ack(uuid4().hex, "playing")
-        lab_control.reconcile()
-        self.assertFalse(CameraRun.objects.filter(active=True).exists())
         self.ack(token, "playing")
+        ready.return_value = True
         lab_control.reconcile()
-        return CameraRun.objects.get(active=True)
+        self.assertEqual(self.progress()["phase"], "play")
+        return run
 
     @patch("apps.analysis.lab_control.stop_camera")
     @patch("apps.analysis.lab_control.rtsp_ready")
@@ -395,14 +402,7 @@ class ManagedLabTests(APITestCase):
             self.assertEqual(self.lease(), [pending, "idle"])
             self.assertEqual(self.progress()["token"], pending)
             self.assertNotEqual(self.lease()[0], first.playback["token"])
-            ready.return_value = False
-            lab_control.reconcile()
-            self.assertEqual(self.lease()[:2], [pending, "play"])
-            self.assertFalse(CameraRun.objects.filter(active=True).exists())
-            ready.return_value = True
-            self.ack(pending, "playing")
-            lab_control.reconcile()
-            next_run = CameraRun.objects.get(active=True)
+            next_run = self.launch_clip(ready, token=pending)
             self.assertEqual(next_run.provenance["filename"], "second.mp4")
             self.assertNotEqual(next_run.snapshot.source_sha256, first.snapshot.source_sha256)
             self.ack(next_run.playback["token"], "eof")

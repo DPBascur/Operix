@@ -136,8 +136,9 @@ function draw(
     track_id,
   } of observation.objects) {
     const equipment = role === "forklift";
-    const name = equipment ? "Equipo · FORKLIFT" : role === "person" ? "Persona" : role;
-    context.strokeStyle = equipment ? "#ffb85c" : "#2fd1c8";
+    const experimental = role === "industrial_equipment";
+    const name = equipment ? "Montacargas" : experimental ? "Equipo · experimental" : role === "person" ? "Persona" : role;
+    context.strokeStyle = equipment ? "#ffb85c" : experimental ? "#bca9ff" : "#2fd1c8";
     context.strokeRect(x(x1), y(y1), x(x2) - x(x1), y(y2) - y(y1));
     const label =
       showIds && track_id !== null ? `${name} · #${track_id}` : name;

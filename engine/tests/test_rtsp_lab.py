@@ -622,21 +622,22 @@ class EventTests(TestCase):
         clips = mock.Mock(save=mock.Mock(return_value="unavailable"))
         publisher = benchmark_publisher(sink, clips, ImmediateExecutor(), ImmediateExecutor(), metrics, fps=2)
         with mock.patch.object(sink, "_request", side_effect=[
-            TimeoutError, response(200, id=self.event_id, created=False),
+            TimeoutError, TimeoutError, response(200, id=self.event_id, created=False),
             URLError("lost response"), response(200), response(204),
         ]) as request, mock.patch("operix_engine.event_publishing.time.sleep"):
             publisher.submit((self.candidate,), self.context, self.received, self.processed,
                              self.frame, self.epoch, self.image)
             publisher.flush()
             publisher.collect(drain=True)
-        first, retry, png_first, png_retry, completed = [call.args[0] for call in request.call_args_list]
+        first, retry, last_retry, png_first, png_retry, completed = [call.args[0] for call in request.call_args_list]
         self.assertEqual(first.data, retry.data)
+        self.assertEqual(first.data, last_retry.data)
         self.assertEqual(png_first.full_url, png_retry.full_url)
         self.assertTrue(png_retry.full_url.endswith(f"/{self.event_id}/evidence/"))
         self.assertTrue(completed.full_url.endswith(f"/{self.event_id}/evidence-status/"))
         self.assertEqual((metrics["events_duplicate"], metrics["registration_attempts"],
                           metrics["evidence_saved"], metrics["png_upload_attempts"],
-                          metrics["clips_unavailable"]), (1, 2, 1, 2, 1))
+                          metrics["clips_unavailable"]), (1, 3, 1, 2, 1))
 
     def test_postroll_limit_retains_trigger_and_finishes_before_oversize_frame(self):
         sink = self.successful_sink()

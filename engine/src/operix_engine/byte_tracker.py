@@ -145,6 +145,7 @@ class ByteTracker:
                     class_id=class_id,
                     class_name=class_name,
                     confidence=float(row[5]),
+                    detection_index=int(row[7]) if len(row) >= 8 else None,
                     bounding_box=BoundingBox(
                         max(0.0, x_min),
                         max(0.0, y_min),

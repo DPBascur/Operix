@@ -18,8 +18,12 @@ function area(box: Box) {
   return (box[2] - box[0]) * (box[3] - box[1]);
 }
 
+function family(object: LiveObject) {
+  return object.observation ? "industrial_equipment" : object.role;
+}
+
 function identity(object: LiveObject) {
-  return JSON.stringify([object.role, object.track_id]);
+  return JSON.stringify([family(object), object.track_id]);
 }
 
 export function interpolateObservedBoxes(
@@ -41,7 +45,7 @@ export function interpolateObservedBoxes(
     const id = identity(object);
     const existing = obstructions.get(id);
     obstructions.set(id, {
-      role: object.role,
+      role: family(object),
       box: existing ? envelope(existing.box, object.box) : object.box,
     });
   }
@@ -55,12 +59,13 @@ export function interpolateObservedBoxes(
 
     const swept = envelope(object.box, end.box);
     for (const [otherId, other] of obstructions) {
-      if (other.role === object.role && otherId !== id && intersection(swept, other.box) > 0) return [];
+      if (other.role === family(object) && otherId !== id && intersection(swept, other.box) > 0) return [];
     }
 
     const [x1, y1, x2, y2] = object.box.map(
       (value, i) => value + fraction * (end.box[i] - value),
     );
-    return [{ ...object, box: [x1, y1, x2, y2] as Box }];
+    const role = object.role === end.role ? object.role : "industrial_equipment";
+    return [{ role, track_id: object.track_id, box: [x1, y1, x2, y2] as Box }];
   });
 }

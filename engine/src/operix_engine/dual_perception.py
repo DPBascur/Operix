@@ -16,11 +16,20 @@ from operix_engine.tracking import Track, Tracker
 
 
 @dataclass(frozen=True, slots=True)
+class DisplayEquipment:
+    observation: Detection
+    track_id: int | None
+    role: str
+    operational_track_id: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class PerceptionFrame:
     person_detections: tuple[Detection, ...]
     forklift_detections: tuple[Detection, ...]
     person_tracks: tuple[Track, ...]
     forklift_tracks: tuple[Track, ...]
+    display_equipment: tuple[DisplayEquipment, ...] | None = None
 
     @property
     def track_identities(self) -> tuple[tuple[str, int], ...]:
@@ -180,10 +189,43 @@ class DualPerception:
 class SinglePerception(DualPerception):
     """Keep independent legacy tracking channels after one shared detector call."""
 
-    def __init__(self, channels, detector, thresholds):
+    def __init__(self, channels, detector, thresholds, *, display_tracker=None):
         super().__init__(person=channels.person, forklift=channels.forklift)
         self.detector = detector
         self.thresholds = thresholds
+        self.display_tracker = display_tracker
+        self._display_ids = {}
+        self._forklift_streaks = {}
+
+    def reset(self):
+        super().reset()
+        if self.display_tracker is not None:
+            self.display_tracker.reset()
+            self._display_ids.clear()
+            self._forklift_streaks.clear()
+
+    def _display(self, equipment, forklifts, forklift_tracks):
+        # Association in this tracker is shared across equipment classes. Rule
+        # tracks still come from the original, independent FORKLIFT tracker.
+        tracks = {track.detection_index: track for track in self.display_tracker.update(equipment)}
+        operational = {id(forklifts[t.detection_index]): t.track_id for t in forklift_tracks
+                       if t.detection_index is not None and 0 <= t.detection_index < len(forklifts)}
+        streaks = {}
+        visible = []
+        for index, observation in enumerate(equipment):
+            track = tracks.get(index)
+            local_id = None
+            streak = 0
+            operational_id = operational.get(id(observation))
+            if track is not None:
+                local_id = self._display_ids.setdefault(track.track_id, len(self._display_ids) + 1)
+                if observation.class_name == "forklift":
+                    streak = self._forklift_streaks.get(local_id, 0) + 1
+                streaks[local_id] = min(3, streak)
+            role = "forklift" if streak >= 3 else "industrial_equipment"
+            visible.append(DisplayEquipment(observation, local_id, role, operational_id))
+        self._forklift_streaks = streaks
+        return tuple(visible)
 
     def process(self, frame, *, synchronize=None, clock=time.perf_counter):
         if synchronize is not None:
@@ -202,5 +244,10 @@ class SinglePerception(DualPerception):
         people_tracks = self.person.track(people)
         middle = clock()
         forklift_tracks = self.forklift.track(forklifts)
-        return (PerceptionFrame(people, forklifts, people_tracks, forklift_tracks),
+        display = None
+        if self.display_tracker is not None:
+            equipment = tuple(entry for entry in observations if entry.class_name in ("forklift", "pallet_jack")
+                              and entry.confidence >= self.thresholds[entry.class_name])
+            display = self._display(equipment, forklifts, forklift_tracks)
+        return (PerceptionFrame(people, forklifts, people_tracks, forklift_tracks, display),
                 PerceptionTiming(elapsed, 0., middle - before, clock() - middle))

@@ -11,6 +11,8 @@ from uuid import uuid4
 import numpy as np
 
 from operix_engine.detection import BoundingBox, Detection
+from operix_engine.byte_tracker import ByteTrackConfig, ByteTracker
+from operix_engine.dual_perception import ClassPerceptionChannel, SinglePerception
 from operix_engine.operational_config import OperationalConfig, Zone
 from operix_engine.rtsp_lab_overlay import MAX_BYTES, MAX_ITEMS, MAX_OBJECTS, OverlayMetadata, frame_fingerprint
 from operix_engine.rtsp_pilot import Frame
@@ -25,6 +27,35 @@ RECEIVED_UTC = datetime(2026, 11, 23, tzinfo=timezone.utc)
 
 
 class OverlayTests(TestCase):
+    def test_experimental_equipment_shares_display_id_only_on_observed_frames(self):
+        fork = Detection(1, "forklift", .8, BoundingBox(19, 5, 24, 20))
+        jack = Detection(2, "pallet_jack", .14, fork.bounding_box)
+        weak = Detection(2, "pallet_jack", .028, fork.bounding_box)
+        detector = mock.Mock()
+        detector.detect.side_effect = [(fork,), (fork,), (fork,), (jack,), (fork,), (jack,), (weak,)]
+        channels = SimpleNamespace(person=ClassPerceptionChannel("person", None, ByteTracker()),
+                                   forklift=ClassPerceptionChannel("forklift", None, ByteTracker()))
+        display = ByteTracker(ByteTrackConfig(track_high_thresh=.1, track_low_thresh=0,
+                                               new_track_thresh=.1, fuse_score=False))
+        perception = SinglePerception(channels, detector, {"person": .25, "forklift": .2, "pallet_jack": .1},
+                                      display_tracker=display)
+        views = [perception.process(self.image)[0] for _ in range(7)]
+        equipment = [view.display_equipment[0] for view in views[:6]]
+        self.assertEqual({item.track_id for item in equipment}, {1})
+        self.assertEqual([item.role for item in equipment],
+                         ["industrial_equipment"] * 2 + ["forklift"] + ["industrial_equipment"] * 3)
+        self.assertIs(equipment[3].observation, jack)
+        self.assertEqual(views[3].forklift_tracks, ())
+        self.assertEqual(views[5].forklift_tracks, ())
+        self.assertEqual(views[6].display_equipment, ())
+        producer = self.producer()
+        producer.observe(Frame(3, 1, 1., 0., self.image), (), epoch=1, received_utc=RECEIVED_UTC,
+                         spatial_allowed=True, display_equipment=views[3].display_equipment)
+        producer.publish(1.)
+        box, = self.read()["items"][0]["objects"]
+        self.assertEqual(box["role"], "industrial_equipment")
+        self.assertEqual(box["observation"], {"class_id": 2, "class_name": "pallet_jack", "confidence": .14})
+
     def test_marked_contacts_use_motor_distance_and_lose_metres_when_framing_changes(self):
         producer = OverlayMetadata(self.output, self.run_id, (), write_atomic=lab._write_atomic, stream_id="a" * 32)
         tracks = (Track(1, 1, "forklift", .9, BoundingBox(19, 5, 24, 20)),
@@ -92,7 +123,8 @@ class OverlayTests(TestCase):
             forklift=(Detection(0, "forklift", .95, BoundingBox(2, 2, 7, 7)),),
         )
 
-        def consume(frame, tracks, *, spatial_allowed, spatial, calibration):
+        def consume(frame, tracks, *, spatial_allowed, spatial, calibration, display_equipment):
+            self.assertIsNone(display_equipment)
             producer.observe(frame, tracks, epoch=1, received_utc=RECEIVED_UTC, spatial_allowed=spatial_allowed)
 
         def render(image, *_args, **_kwargs):

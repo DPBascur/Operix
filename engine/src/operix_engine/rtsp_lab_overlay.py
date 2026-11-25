@@ -103,7 +103,8 @@ class OverlayMetadata:
         self.last_publish = -math.inf
         self.published_empty = False  # Clear any previous file at startup.
 
-    def observe(self, frame, tracks, *, epoch, received_utc, spatial_allowed, spatial=None, calibration=None):
+    def observe(self, frame, tracks, *, epoch, received_utc, spatial_allowed, spatial=None, calibration=None,
+                display_equipment=None):
         zones_usable = bool(self.zones) and spatial_allowed
         if (zones_usable != self.zones_usable or calibration != self.calibration
                 or (epoch != self.epoch and not self.clocked)):
@@ -114,12 +115,30 @@ class OverlayMetadata:
 
         height, width = frame.image.shape[:2]
         objects = []
-        for track in islice(tracks, MAX_OBJECTS):
+        operational_ids = {}
+        shown_tracks = tracks if display_equipment is None else (t for t in tracks if t.class_name != "forklift")
+        for track in islice(shown_tracks, MAX_OBJECTS):
             box = track.bounding_box  # Already clipped by the lab pipeline.
             objects.append({
                 "role": track.class_name, "track_id": track.track_id,
                 "box": [box.x_min / width, box.y_min / height, box.x_max / width, box.y_max / height],
             })
+        if display_equipment is not None:
+            for equipment in islice(display_equipment, MAX_OBJECTS - len(objects)):
+                detection = equipment.observation
+                box = detection.bounding_box
+                left, right = min(box.x_min, width), min(box.x_max, width)
+                top, bottom = min(box.y_min, height), min(box.y_max, height)
+                if left >= right or top >= bottom:
+                    continue
+                if equipment.track_id is not None and equipment.operational_track_id is not None:
+                    operational_ids[equipment.operational_track_id] = equipment.track_id
+                objects.append({
+                    "role": equipment.role, "track_id": equipment.track_id,
+                    "box": [left / width, top / height, right / width, bottom / height],
+                    "observation": {"class_id": detection.class_id, "class_name": detection.class_name,
+                                    "confidence": detection.confidence},
+                })
         item = {
             "index": frame.index, "epoch": epoch,
             "pts_s": frame.pts if frame.pts is not None and math.isfinite(frame.pts) else None,
@@ -136,7 +155,14 @@ class OverlayMetadata:
             item["calibration"] = calibration
             if spatial_allowed and spatial is not None and frame.source_ordinal is not None:
                 visible = {(obj["role"], obj["track_id"]) for obj in objects}
-                item["distances"] = _distances(spatial, visible)
+                if display_equipment is not None:
+                    visible = {(role, id_) for role, id_ in visible if role == "person"}
+                    visible.update(("forklift", id_) for id_ in operational_ids)
+                distances = _distances(spatial, visible)
+                if display_equipment is not None:
+                    for pair in distances:
+                        pair["equipment_id"] = operational_ids[pair["equipment_id"]]
+                item["distances"] = distances
         self.items.append((frame.received, _json(item)))
 
     def expire(self, now):

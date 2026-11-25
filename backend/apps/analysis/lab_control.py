@@ -41,6 +41,9 @@ MAX_MEDIA_BYTES = 100 * 1024**3
 MAX_PLAYLIST_ITEMS = 64
 LEASE_SECONDS = 12
 START_SECONDS = 60
+# Short clips can end while a dedicated model is still loading. Longer
+# recordings retain the low-latency publisher-first handoff.
+PREWARM_CLIP_SECONDS = 30
 # The engine has a hard 1,800-second ceiling. Leave time to detect EOF and drain.
 MAX_CLIP_SECONDS = 1740
 DURATION_LIMIT = f"El medio requiere una duración verificada de hasta {MAX_CLIP_SECONDS} segundos. Retírelo o divídalo en clips autorizados."
@@ -320,6 +323,26 @@ def reconcile_slot(id_, camera, playlist, catalog, progress, run, owner):
                 if pending := progress.get("pending"):
                     update_lease(id_, (pending["token"], "idle"))
                 stop_camera(run)
+            elif progress["phase"] in {"warming", "launching"}:
+                phase = progress["phase"]
+                if time() - progress["launch_at"] >= START_SECONDS or ack in {"failed", "expired", "eof"}:
+                    update_lease(id_, None)
+                    reason = "worker_startup_timeout" if phase == "warming" else "publisher_startup_failed"
+                    drain(run, breadcrumb("interrupted", reason, playback))
+                elif phase == "warming" and (runtime or {}).get("capture_ready") is not True:
+                    update_lease(id_, (token, "idle"))
+                else:
+                    try:
+                        path, digest, _ = media_file(selected)
+                    except (KeyError, OSError, ValueError):
+                        update_lease(id_, None)
+                        drain(run, breadcrumb("interrupted", "media_unavailable", playback))
+                    else:
+                        update_lease(id_, (token, "play", path.name, digest))
+                        if phase == "warming":
+                            progress = {**progress, "phase": "launching", "launch_at": time()}
+                        elif ack == "playing":
+                            progress = {**progress, "phase": "play"}
             elif ack == "eof" and (metrics.get("frames_processed") or 0) > 0:
                 eof = breadcrumb("expected", "media_eof", playback)
                 drain(run, eof)
@@ -377,16 +400,20 @@ def reconcile_slot(id_, camera, playlist, catalog, progress, run, owner):
         failure = "media_unavailable"
     if ack in {"eof", "failed", "expired"}:
         failure = "publisher_ended_before_worker"
+    prewarm = not view_only and supported_duration(source) and source["duration_s"] <= PREWARM_CLIP_SECONDS
     if not failure and view_only and ack == "playing":
         update_lease(id_, (token, "play", *media))
         return {**progress, "view_started": True,
                 "failures": 0 if time() - progress["launch_at"] >= STABLE_PLAYBACK_SECONDS else failures}
-    if not failure and ack == "playing" and rtsp_ready(id_):
+    startup_ready = (ack == "idle" and not rtsp_ready(id_)) if prewarm else (ack == "playing" and rtsp_ready(id_))
+    if not failure and not view_only and startup_ready:
         try:
             start_camera(selected, owner, managed=True, playback=playback)
         except (CameraConflict, ValidationError):
             pass
         else:
+            if prewarm:
+                return {**progress, "phase": "warming", "launch_at": time()}
             update_lease(id_, (token, "play", *media))
             return progress
     if failure or time() - progress["launch_at"] >= START_SECONDS:
@@ -394,7 +421,8 @@ def reconcile_slot(id_, camera, playlist, catalog, progress, run, owner):
         transition = breadcrumb("interrupted", failure or "startup_timeout", playback)
         return release_to_attempt(id_, signature, position, progress["cycle"], transition,
                                   failures=min(failures + 1, MAX_RETRY_ATTEMPTS))
-    update_lease(id_, (token, "play", *media))
+    if not prewarm:
+        update_lease(id_, (token, "play", *media))
     return progress
 
 

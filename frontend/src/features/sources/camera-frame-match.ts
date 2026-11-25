@@ -69,6 +69,7 @@ export type LiveObject = {
   role: string;
   track_id: number | string | null;
   box: [number, number, number, number];
+  observation?: { class_id: number; class_name: "forklift" | "pallet_jack"; confidence: number };
 };
 
 type Epoch = number | string;
@@ -114,7 +115,7 @@ function normalized(values: unknown, length: number): values is number[] {
 
 function readObject(value: unknown): LiveObject | undefined {
   if (!record(value) || typeof value.role !== "string") return;
-  const { box, track_id, role } = value;
+  const { box, track_id, role, observation } = value;
   if (
     !normalized(box, 4) ||
     box[0] >= box[2] ||
@@ -126,7 +127,16 @@ function readObject(value: unknown): LiveObject | undefined {
     )
   )
     return;
-  return { role, track_id, box: [box[0], box[1], box[2], box[3]] };
+  const equipmentObservation: LiveObject["observation"] = record(observation) &&
+    (role === "forklift" || role === "industrial_equipment") &&
+    ((observation.class_id === 1 && observation.class_name === "forklift") ||
+      (observation.class_id === 2 && observation.class_name === "pallet_jack")) &&
+    typeof observation.confidence === "number" && Number.isFinite(observation.confidence) &&
+    observation.confidence >= 0 && observation.confidence <= 1
+    ? { class_id: observation.class_id, class_name: observation.class_name, confidence: observation.confidence }
+    : undefined;
+  return { role, track_id, box: [box[0], box[1], box[2], box[3]],
+    ...(equipmentObservation && { observation: equipmentObservation }) };
 }
 
 function readZones(value: unknown): LiveZone[] {

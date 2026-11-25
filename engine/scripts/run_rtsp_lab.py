@@ -250,6 +250,7 @@ class WorkerStatus:
             "last_frame_at": self.last_frame_at,
             "last_error": error_message,
             "analysis_run_id": self.run_id,
+            "capture_ready": self.capture is not None,
             "metrics": {
                 **self.metrics, **timing_metrics, "elapsed_s": round(elapsed, 3), "received_fps": received_fps,
                 "source_fps": source_fps if math.isfinite(source_fps) else None,
@@ -388,7 +389,8 @@ class LabPipeline:
         rules_ms = (overlay_started - rules_started) * 1000
         if observe_overlay is not None:
             observe_overlay(frame, tracks, spatial_allowed=spatial_allowed, spatial=spatial,
-                            calibration=self.framing.state if self.framing else "UNCALIBRATED")
+                            calibration=self.framing.state if self.framing else "UNCALIBRATED",
+                            display_equipment=observed.display_equipment)
         annotated = frame.image
         occupied = []
         boxes = [track.bounding_box for track in tracks]
@@ -478,7 +480,9 @@ class EventPublisher:
 
     def _register(self, payload, received, accepted):
         started = monotonic()
-        result, attempts = publish_document_with_retries(self.sink, payload, None, max_attempts=2)
+        # A timed-out response may follow a committed event. The identical
+        # retry recovers its ID so the queued PNG and clip can be attached.
+        result, attempts = publish_document_with_retries(self.sink, payload, None)
         finished = monotonic()
         elapsed = (finished - started) * 1000
         timings = {"registration_queue": (started - accepted) * 1000,

@@ -65,6 +65,7 @@ def unified_selected(env):
 def load_unified_perception(directory, channels, frame, synchronize):
     import json
 
+    from operix_engine.byte_tracker import ByteTrackConfig, ByteTracker
     from operix_engine.dual_perception import SinglePerception
 
     config = json.loads((Path(__file__).resolve().parents[1] / "config/unified-v7.json").read_bytes())
@@ -74,7 +75,11 @@ def load_unified_perception(directory, channels, frame, synchronize):
     spec = {"confidence": min(thresholds.values()), "nms_iou": config["nms_iou"], "class_filter": None}
     with verified_cuda_runtime() as make_detectors:
         detector = make_detectors({"unified": spec}, {"unified": model}, tuple(config["input"]), False)["unified"][0]
-        perception = SinglePerception(channels, detector, thresholds)
+        display_tracker = ByteTracker(ByteTrackConfig(
+            track_high_thresh=thresholds["pallet_jack"], track_low_thresh=0,
+            new_track_thresh=thresholds["pallet_jack"], fuse_score=False,
+        ))
+        perception = SinglePerception(channels, detector, thresholds, display_tracker=display_tracker)
         perception.process(frame, synchronize=synchronize)
     if detector.class_names != {0: "person", 1: "forklift", 2: "pallet_jack"}:
         raise ValueError("Índices de clase incompatibles con UNIFIED V7")

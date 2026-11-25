@@ -20,6 +20,7 @@ class Track:
     class_name: str
     confidence: float
     bounding_box: BoundingBox
+    detection_index: int | None = None
 
     def __post_init__(self) -> None:
         if self.track_id <= 0:

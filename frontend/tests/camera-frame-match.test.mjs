@@ -12,6 +12,18 @@ const now = Date.parse("2026-11-23T14:00:00Z");
 const pattern = Array.from({ length: 192 }, (_, i) => 32 + ((i * 37) % 160));
 const shifted = (value) => pattern.map((sample) => sample + value);
 
+test("interpolates an equipment ID across labels without promoting its class or evidence", () => {
+  const forklift = { role: "forklift", track_id: 3, box: [.1, .2, .4, .5],
+    observation: { class_id: 1, class_name: "forklift", confidence: .8 } };
+  const experimental = { ...forklift, role: "industrial_equipment",
+    observation: { class_id: 2, class_name: "pallet_jack", confidence: .14 } };
+  const estimated = interpolateObservedBoxes(observation({ objects: [forklift] }),
+    observation({ objects: [experimental] }), .5);
+  assert.deepEqual(estimated, [{ role: "industrial_equipment", track_id: 3, box: forklift.box }]);
+  assert.deepEqual(interpolateObservedBoxes(observation({ objects: [forklift] }),
+    observation({ epoch: 2, objects: [experimental] }), .5), []);
+});
+
 function observation(fields = {}) {
   return {
     index: 10,
