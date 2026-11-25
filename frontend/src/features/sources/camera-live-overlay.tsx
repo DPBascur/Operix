@@ -23,6 +23,7 @@ import {
 import { interpolateObservedBoxes } from "./camera-estimated-boxes";
 import { CameraSourceClock, ClockedObservations } from "./camera-source-clock";
 import { distanceLabel, type LiveCalibration, type LiveDistance } from "./camera-frame-match";
+import { estimatedFrameHoldMs } from "./camera-overlay-frame";
 
 export const overlayLabels = {
   searching: "Buscando fotogramas verificables",
@@ -100,6 +101,7 @@ function draw(
     return false;
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
+  context.clearRect(0, 0, width, height);
   const scale = Math.min(width / video.videoWidth, height / video.videoHeight);
   const videoWidth = video.videoWidth * scale;
   const videoHeight = video.videoHeight * scale;
@@ -111,7 +113,6 @@ function draw(
   context.rect(x(0), y(0), videoWidth, videoHeight);
   context.clip();
   context.lineWidth = 2 * dpr;
-  if (estimated) context.setLineDash([6 * dpr, 4 * dpr]);
   if (showZones) {
     context.strokeStyle = "#ffd775";
     context.lineWidth = dpr;
@@ -140,7 +141,8 @@ function draw(
     context.strokeRect(x(x1), y(y1), x(x2) - x(x1), y(y2) - y(y1));
     const label =
       showIds && track_id !== null ? `${name} · #${track_id}` : name;
-    const labelWidth = Math.min(context.measureText(label).width + 8 * dpr, videoWidth);
+    const markerWidth = 16 * dpr;
+    const labelWidth = Math.min(context.measureText(label).width + 8 * dpr + markerWidth, videoWidth);
     const textX = Math.min(x(x1), x(1) - labelWidth);
     const textY = Math.max(y(0), y(y1) - 19 * dpr);
     labelAreas.push([textX, textY, labelWidth, 19 * dpr]);
@@ -152,7 +154,11 @@ function draw(
       19 * dpr,
     );
     context.fillStyle = "#fff";
-    context.fillText(label, textX + 4 * dpr, textY + 2 * dpr, Math.max(1, labelWidth - 8 * dpr));
+    context.fillText(label, textX + 4 * dpr, textY + 2 * dpr, Math.max(1, labelWidth - 8 * dpr - markerWidth));
+    if (estimated && labelWidth > markerWidth) {
+      context.fillStyle = "#b8edff";
+      context.fillText("≈", textX + labelWidth - markerWidth, textY + 2 * dpr);
+    }
   }
   context.lineWidth = 1.5 * dpr;
   for (const pair of pairs.slice(0, 3)) {
@@ -184,8 +190,8 @@ function draw(
     context.fillStyle = "#fff";
     context.fillText(caption, cx + 4 * dpr, top + 2 * dpr, Math.max(1, w - 8 * dpr));
   }
-  if (continuity || estimated) {
-    const badge = estimated ? "Posición estimada" : "Imagen + PTS";
+  if (continuity) {
+    const badge = "Imagen + PTS";
     const badgeWidth = context.measureText(badge).width + 12 * dpr;
     const left = x(1) - badgeWidth - 8 * dpr;
     const top = y(1) - 29 * dpr;
@@ -234,7 +240,7 @@ export function CameraLiveOverlay({
       continuity: boolean,
       estimated = false,
       pairs: readonly LiveDistance[] = [],
-    ) => draw(context, video, item, showIds, showZones && !estimated, continuity, estimated, showDistances ? pairs : [], metricUnit),
+    ) => draw(context, video, item, showIds, showZones, continuity, estimated, showDistances ? pairs : [], metricUnit),
   );
 
   useEffect(() => {
@@ -270,7 +276,8 @@ export function CameraLiveOverlay({
     let previousCallbackTime = -Infinity;
     let lastMatch = -Infinity;
     let readable = true;
-    let displayed: { stream: string; ordinal: number; item: LiveObservation; estimated: boolean; hadDistances?: boolean } | undefined;
+    let painted = false;
+    let displayed: { stream?: string; ordinal?: number; item: LiveObservation; after?: LiveObservation; hadDistances?: boolean } | undefined;
     let measuredAt = -Infinity;
     matcher.invalidate();
     matcher.resetTimeline();
@@ -278,8 +285,9 @@ export function CameraLiveOverlay({
     function clear() {
       clearTimeout(clearTimer);
       displayed = undefined;
-      if (output)
+      if (output && painted)
         output.clearRect(0, 0, output.canvas.width, output.canvas.height);
+      painted = false;
     }
 
     function reset() {
@@ -336,8 +344,11 @@ export function CameraLiveOverlay({
         reset();
       previousCallbackTime = callbackTime;
       if (metadata.mediaTime === previousMediaTime) return;
+      const framePeriodMs = (metadata.mediaTime - previousMediaTime) * 1000 / source.playbackRate;
       previousMediaTime = metadata.mediaTime;
-      clear();
+      clearTimeout(clearTimer);
+      displayed = undefined;
+      stats.distances = [];
       try {
         const started = performance.now();
         const now = Date.now();
@@ -345,7 +356,10 @@ export function CameraLiveOverlay({
           const mark = sourceClock.at(metadata.mediaTime, clocked.stream);
           stats.sampled++;
           stats.sampleMs += performance.now() - started;
-          if (!mark) return;
+          if (!mark) {
+            clear();
+            return;
+          }
           const observed = clocked.observed(mark.ordinal);
           if (observed && observationLifetime(observed, now)) {
             stats.clockFrames++;
@@ -354,18 +368,19 @@ export function CameraLiveOverlay({
             stats.distances = pairs ?? [];
             measuredAt = callbackTime;
             if (drawObserved(observed, false, now, pairs)) {
-              displayed = { stream: clocked.stream, ordinal: mark.ordinal, item: observed, estimated: false,
+              displayed = { stream: clocked.stream, ordinal: mark.ordinal, item: observed,
                 hadDistances: !!pairs?.length };
             }
           } else {
             const bounds = clocked.bracket(mark.ordinal);
             if (bounds && now - bounds.before.receivedMs <= 3000 &&
                 observationLifetime(bounds.before, now) && observationLifetime(bounds.after, now)) {
-              if (drawEstimate(bounds.before, bounds.after, 0.5, started)) {
-                displayed = { stream: clocked.stream, ordinal: mark.ordinal, item: bounds.before, estimated: true };
+              if (drawEstimate(bounds.before, bounds.after, 0.5, framePeriodMs, now, started)) {
+                displayed = { stream: clocked.stream, ordinal: mark.ordinal, item: bounds.before, after: bounds.after };
               }
             }
           }
+          if (!displayed) clear();
           return;
         }
         const fingerprint = readFingerprint(source, sampler, nativeCanvas);
@@ -375,12 +390,19 @@ export function CameraLiveOverlay({
         if (!match) {
           const estimateStarted = performance.now();
           const bounds = matcher.interpolationBounds(fingerprint, metadata.mediaTime, now);
-          if (!bounds) return;
+          if (!bounds) {
+            clear();
+            return;
+          }
           const { before, after, fraction } = bounds;
-          drawEstimate(before, after, fraction, estimateStarted);
+          if (drawEstimate(before, after, fraction, framePeriodMs, now, estimateStarted)) {
+            displayed = { item: before, after };
+          }
           return;
         }
-        drawObserved(match.observation, match.method === "continuity", now);
+        if (drawObserved(match.observation, match.method === "continuity", now)) {
+          displayed = { item: match.observation };
+        }
       } catch {
         clear();
         readable = false;
@@ -392,21 +414,32 @@ export function CameraLiveOverlay({
       stats.matched++;
       stats.presentedAgeMs = Math.max(0, now - observation.receivedMs);
       if (continuity) stats.continuity++;
-      const painted = paint(context, source, observation, continuity, false, pairs);
-      if (painted) stats.drawn++;
       lastMatch = performance.now();
-      if (painted) clearTimer = setTimeout(clear, Math.min(200, observationLifetime(observation, now)));
-      return painted;
+      if (!paint(context, source, observation, continuity, false, pairs)) {
+        clear();
+        return false;
+      }
+      painted = true;
+      stats.drawn++;
+      clearTimer = setTimeout(clear, Math.min(200, observationLifetime(observation, now)));
+      return true;
     }
 
-    function drawEstimate(before: LiveObservation, after: LiveObservation, fraction: number, started: number) {
+    function drawEstimate(
+      before: LiveObservation, after: LiveObservation, fraction: number, framePeriodMs: number, now: number, started: number,
+    ) {
       const objects = interpolateObservedBoxes(before, after, fraction);
-      if (objects.length && paint(context, source, { ...before, objects }, false, true)) {
+      const lifetime = estimatedFrameHoldMs(framePeriodMs, observationLifetime(before, now), observationLifetime(after, now));
+      // Keep only identical, observed geometry during the interpolated frame.
+      const zones = JSON.stringify(before.zones) === JSON.stringify(after.zones) ? before.zones : [];
+      if (lifetime && objects.length && paint(context, source, { ...before, objects, zones }, false, true)) {
+        painted = true;
         stats.estimated++;
         stats.estimateMs += performance.now() - started;
-        clearTimer = setTimeout(clear, 55);
+        clearTimer = setTimeout(clear, lifetime);
         return true;
       }
+      clear();
       return false;
     }
 
@@ -433,9 +466,12 @@ export function CameraLiveOverlay({
           unavailable();
         }
         // Refreshing metadata must not blank a frame with an unchanged match.
-        if (!displayed || !clocked.retains(displayed.stream, displayed.ordinal, displayed.item, displayed.estimated) ||
-            (displayed.hadDistances && !clocked.distancesFor(displayed.item))) {
-          clear();
+        if (displayed) {
+          const { stream, ordinal, item, after, hadDistances } = displayed;
+          const retained = stream && ordinal !== undefined
+            ? clocked.retains(stream, ordinal, item, !!after, after) && (!hadDistances || !!clocked.distancesFor(item))
+            : !clocked.stream && matcher.retains(item) && (!after || matcher.retains(after));
+          if (!retained) clear();
         }
       } catch (error) {
         if (controller.signal.aborted || !readable) return;
@@ -460,7 +496,7 @@ export function CameraLiveOverlay({
       onStats({ ...stats });
     }
 
-    for (const event of ["seeking", "emptied", "ended", "waiting", "pause"])
+    for (const event of ["seeking", "emptied", "ended", "waiting", "pause", "ratechange"])
       source.addEventListener(event, reset, options);
     for (const event of ["resize"])
       source.addEventListener(event, clear, options);

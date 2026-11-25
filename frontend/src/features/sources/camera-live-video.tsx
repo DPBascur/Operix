@@ -491,7 +491,7 @@ function LiveStream({
       >
         <video
           ref={media}
-          aria-label={`Video original en vivo de ${name} (${id})`}
+          aria-label={`Video original en vivo de ${name} (${id})${overlay ? ". El símbolo de aproximación identifica posiciones estimadas." : ""}`}
           aria-hidden={!frameVisible}
           className={`absolute inset-0 size-full object-contain ${frameVisible ? "" : "invisible"}`}
           muted
@@ -574,7 +574,7 @@ function LiveStream({
               <span>Coincidencias {overlayStats?.matched ?? 0}</span>
               <span>Dibujados {overlayStats?.drawn ?? 0}</span>
               <span>Por continuidad {overlayStats?.continuity ?? 0}</span>
-              <span>Estimados {overlayStats?.estimated ?? 0}</span>
+              <span>≈ Posiciones estimadas {overlayStats?.estimated ?? 0}</span>
               {!!overlayStats?.clockFrames && (
                 <span>
                   Marca de origen · {overlayStats.clockFrames} · desfase máx. {cameraNumber(overlayStats.clockErrorMs, " ms")}

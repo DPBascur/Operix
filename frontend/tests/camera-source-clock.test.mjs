@@ -2,6 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CameraSourceClock, ClockedObservations } from "../src/features/sources/camera-source-clock.ts";
 import { distanceLabel, readDistances } from "../src/features/sources/camera-frame-match.ts";
+import { estimatedFrameHoldMs } from "../src/features/sources/camera-overlay-frame.ts";
+
+test("an estimate stays visible for one presented frame at 15 FPS and expires with either observation", () => {
+  assert.ok(estimatedFrameHoldMs(1000 / 15, 500, 500) > 1000 / 15);
+  assert.ok(estimatedFrameHoldMs(1000 / 30, 500, 500) < 55);
+  assert.equal(estimatedFrameHoldMs(1000 / 15, 500, 15), 15);
+  assert.equal(estimatedFrameHoldMs(1000 / 15, 0, 500), 0);
+  assert.equal(estimatedFrameHoldMs(5000, 500, 500), 200);
+});
 
 const stream = "a".repeat(32);
 const nextStream = "b".repeat(32);
@@ -89,7 +98,9 @@ test("a metadata refresh keeps a valid presented layer and revokes it across res
   const update = (items, emission = stream) => observations.update({ run_id: "run", stream_id: emission, items });
   update([{ ...before }, { ...after }]);
   assert.equal(observations.retains(stream, 41, before, false), true);
-  assert.equal(observations.retains(stream, 42, before, true), true);
+  assert.equal(observations.retains(stream, 42, before, true, after), true);
+  update([before, { ...after, receivedMs: 1150 }]);
+  assert.equal(observations.retains(stream, 42, before, true, after), false);
   update([before, { ...after, epoch: 2 }]);
   assert.equal(observations.retains(stream, 42, before, true), false);
   update([before, before]);

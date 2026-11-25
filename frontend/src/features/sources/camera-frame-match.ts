@@ -293,6 +293,11 @@ export class CameraFrameMatcher {
     return this.eligible.size > 0;
   }
 
+  retains(item: LiveObservation) {
+    const current = this.eligible.get(JSON.stringify([item.epoch, item.index]));
+    return current?.receivedMs === item.receivedMs && current.epoch === this.latest?.epoch;
+  }
+
   update(batch: LiveObservations, now: number) {
     if (this.run !== batch.run_id) {
       this.run = batch.run_id;

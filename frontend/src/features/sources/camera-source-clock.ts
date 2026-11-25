@@ -76,11 +76,15 @@ export class ClockedObservations {
       ? item.distances : undefined;
   }
 
-  retains(stream: string, ordinal: number, item: LiveObservation, estimated: boolean) {
+  retains(stream: string, ordinal: number, item: LiveObservation, estimated: boolean, after?: LiveObservation) {
     if (stream !== this.stream) return false;
-    const current = estimated ? this.bracket(ordinal)?.before : this.observed(ordinal);
-    return current?.index === item.index && current.epoch === item.epoch &&
-      current.receivedMs === item.receivedMs;
+    const same = (current: LiveObservation | null | undefined, original: LiveObservation) =>
+      current?.index === original.index && current.epoch === original.epoch &&
+      current.receivedMs === original.receivedMs;
+    if (!estimated) return same(this.observed(ordinal), item);
+    const bracket = this.bracket(ordinal);
+    return !!bracket && same(bracket.before, item) &&
+      (!after || same(bracket.after, after));
   }
 
   bracket(ordinal: number) {
