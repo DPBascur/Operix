@@ -14,6 +14,7 @@ export default async function AnalysisPage({
     configure?: string;
     session?: string;
     sha?: string;
+    suite?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -63,6 +64,8 @@ export default async function AnalysisPage({
           </section>
         )}
       <AnalysisWorkspace
+        key={params.suite === "simulation" ? "simulation" : "real"}
+        suite={params.suite === "simulation" ? "simulation" : "real"}
         initialProfile={initialProfile}
         initialManual={initialManual}
         profileRequested={profileRequested}

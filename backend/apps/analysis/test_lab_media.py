@@ -64,3 +64,27 @@ class AuthorizedMediaTests(APITestCase):
                 profile = profile_catalog()[0]
                 self.assertEqual(profile["default_demo_video"]["id"], "cctv_proximidad")
                 self.assertEqual(profile["configuration"]["rules"][0]["parameters"]["distance_unit"], "normalized")
+
+    def test_demo_collections_keep_their_media_and_configuration_separate(self):
+        self.client.force_authenticate(self.admin)
+        video = self.directory / INDUSTRIAL_DEMOS["A"][1]
+        video.write_bytes(b"real recording")
+        industrial = ("cctv_proximidad", video.name, hashlib.sha256(video.read_bytes()).hexdigest())
+        with (
+            patch.dict(os.environ, {"OPERIX_INDUSTRIAL_DEMO_DIR": str(self.directory)}),
+            patch.dict(INDUSTRIAL_DEMOS, {"A": industrial}),
+            override_settings(OPERIX_DEMO_VIDEO_A=str(self.video)),
+        ):
+            base = "/api/v1/analysis/profiles/"
+            real = self.client.get(base, {"suite": "real"}).json()[0]
+            simulation = self.client.get(base, {"suite": "simulation"}).json()[0]
+            self.assertEqual(real["default_demo_video"]["id"], "cctv_proximidad")
+            self.assertEqual(simulation["default_demo_video"]["id"], "warehouse_fire")
+            self.assertNotEqual(real["configuration"]["config_sha256"], simulation["configuration"]["config_sha256"])
+            for suite, content in ((real, b"real recording"), (simulation, b"0123456789")):
+                url = suite["default_demo_video"]["video_url"]
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(b"".join(response.streaming_content), content)
+            self.assertEqual(self.client.get(base + "B/demo/warehouse_fire/").status_code, 404)
+            self.assertEqual(self.client.get(base, {"suite": "other"}).status_code, 400)

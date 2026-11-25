@@ -85,6 +85,7 @@ const labels = {
 } as const;
 
 export function AnalysisWorkspace({
+  suite = "real",
   initialProfile = "A",
   initialManual = false,
   profileRequested = false,
@@ -92,6 +93,7 @@ export function AnalysisWorkspace({
   requestedSessionId,
   requestedSourceSha,
 }: {
+  suite?: "real" | "simulation";
   initialProfile?: AnalysisProfile;
   initialManual?: boolean;
   profileRequested?: boolean;
@@ -110,6 +112,7 @@ export function AnalysisWorkspace({
   const [file, setFile] = useState<File | null>(null);
   const [localUrl, setLocalUrl] = useState<string | null>(null);
   const [profile, setProfile] = useState<AnalysisProfile>(initialProfile);
+  const [profileSelected, setProfileSelected] = useState(false);
   const [profiles, setProfiles] = useState<AnalysisProfileDefinition[]>([]);
   const [demoSource, setDemoSource] = useState<DemoVideoSource | null>(null);
   const [session, setSession] = useState<AnalysisSessionStatus | null>(null);
@@ -201,7 +204,7 @@ export function AnalysisWorkspace({
     const isCurrent = () => active && generation.current === current;
     const saved = readSessionReference(tabStorage(), referenceKey);
     Promise.allSettled([
-      analysisService.getProfiles(),
+      analysisService.getProfiles(suite),
       saved ? analysisService.getAnalysisStatus(saved) : Promise.resolve(null),
       requestedSessionId && requestedSessionId !== saved
         ? analysisService.getAnalysisStatus(requestedSessionId)
@@ -212,8 +215,10 @@ export function AnalysisWorkspace({
         const catalog =
           catalogResult.status === "fulfilled" ? catalogResult.value : [];
         setProfiles(catalog);
-        const candidate =
-          requested.status === "fulfilled" ? requested.value : null;
+        const savedSession = restored.status === "fulfilled" ? restored.value : null;
+        const candidate = requestedSessionId === saved
+          ? savedSession
+          : requested.status === "fulfilled" ? requested.value : null;
         if (
           candidate &&
           (!requestedSha || candidate.source_sha256 === requestedSha) &&
@@ -245,7 +250,14 @@ export function AnalysisWorkspace({
             } else {
               throw restored.reason;
             }
-          } else if (restored.value) {
+          } else if (restored.value &&
+            (!requestedSessionId || requestedSessionId === restored.value.id) &&
+            (!requestedSha || restored.value.source_sha256 === requestedSha) &&
+            (!requestedProfile || restored.value.profile === requestedProfile) &&
+            (requestedSessionId || requestedSha ||
+              (restored.value.source_kind === "manual" ? initialManual || !requestedProfile :
+                !initialManual && catalog.some(({ id, default_demo_video }) =>
+                  id === restored.value?.profile && default_demo_video?.id === restored.value?.demo_source_id)))) {
             setSession(restored.value);
             setProfile(restored.value.profile);
             setDraft(restored.value.zone.polygon);
@@ -270,6 +282,10 @@ export function AnalysisWorkspace({
         const created = await analysisService.createDemoSession(
           initialProfile,
           initial.default_demo_video.id,
+          undefined,
+          savedSession?.source_kind === "demo" &&
+            ["ready", "completed", "cancelled", "error"].includes(savedSession.state)
+            ? savedSession.id : undefined,
         );
         if (!isCurrent()) {
           await analysisService.closeAnalysisSession(created.id);
@@ -305,6 +321,7 @@ export function AnalysisWorkspace({
     requestedProfile,
     requestedSessionId,
     requestedSha,
+    suite,
   ]);
 
   useEffect(() => {
@@ -447,6 +464,7 @@ export function AnalysisWorkspace({
       next,
       demo.id,
       target?.sourceSha,
+      target ? undefined : session?.id,
     );
     try {
       if (generation.current !== current) {
@@ -457,12 +475,6 @@ export function AnalysisWorkspace({
         throw new Error(
           "La demo corresponde a otra fuente. Selecciona el video original de la revisión.",
         );
-      if (session && !target)
-        await analysisService.closeAnalysisSession(session.id);
-      if (generation.current !== current) {
-        await analysisService.closeAnalysisSession(created.id);
-        return;
-      }
     } catch (cause) {
       await analysisService
         .closeAnalysisSession(created.id)
@@ -478,6 +490,11 @@ export function AnalysisWorkspace({
     if (target) setReplacementRequest(`${configurationRequest}:${created.id}`);
     setSession(created);
     setProfile(created.profile);
+    if (!requestedSha && !requestedSessionId && !initialConfigure) {
+      setProfileSelected(true);
+      const query = new URLSearchParams({ profile: created.profile, suite });
+      window.history.replaceState(window.history.state, "", `/analysis?${query}`);
+    }
     setDraft(created.zone.polygon);
     setClosed(created.zone.polygon.length >= 3);
     setSelectedVertex(null);
@@ -695,7 +712,7 @@ export function AnalysisWorkspace({
     !busy;
   const matchesRequest =
     !!session &&
-    (!requestedProfile || session.profile === requestedProfile) &&
+    (!requestedProfile || profileSelected || session.profile === requestedProfile) &&
     (!requestedSha || session.source_sha256 === requestedSha) &&
     (!requestedSessionId ||
       session.id === requestedSessionId ||
@@ -824,6 +841,18 @@ export function AnalysisWorkspace({
           )}
         </div>
         <div className="analysis-context-actions">
+          <nav aria-label="Colección de Análisis" className="flex flex-wrap gap-2">
+            <Link className="button button-outline" aria-current={suite === "real" ? "page" : undefined}
+              href={`/analysis?profile=${profile}&suite=real`}
+              onClick={(event) => { if (!canChangeSource || busy || !confirmDraftLoss()) event.preventDefault(); }}>
+              Grabaciones reales
+            </Link>
+            <Link className="button button-outline" aria-current={suite === "simulation" ? "page" : undefined}
+              href={`/analysis?profile=${profile}&suite=simulation`}
+              onClick={(event) => { if (!canChangeSource || busy || !confirmDraftLoss()) event.preventDefault(); }}>
+              Simulaciones de prueba
+            </Link>
+          </nav>
           <div
             className="analysis-profiles"
             role="group"

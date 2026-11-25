@@ -250,15 +250,16 @@ export const analysisService = {
       body,
     });
   },
-  getProfiles() {
+  getProfiles(suite?: "real" | "simulation") {
     return request<AnalysisProfileDefinition[]>(
-      `${apiBaseUrl()}/analysis/profiles/`,
+      `${apiBaseUrl()}/analysis/profiles/${suite ? `?suite=${suite}` : ""}`,
     );
   },
   createDemoSession(
     profile: AnalysisProfile,
     demoSourceId: string,
     expectedSha256?: string,
+    replaceSessionId?: string,
   ) {
     return request<AnalysisSessionStatus>(sessionUrl(), {
       method: "POST",
@@ -267,6 +268,7 @@ export const analysisService = {
         profile,
         demo_source_id: demoSourceId,
         source_sha256: expectedSha256,
+        replace_session_id: replaceSessionId,
       }),
     });
   },

@@ -6,6 +6,7 @@ import math
 import json
 import re
 import subprocess
+from uuid import UUID
 from collections.abc import Mapping
 
 from django.conf import settings
@@ -42,7 +43,10 @@ class AnalysisView(APIView):
 
 class ProfileListView(AnalysisView):
     def get(self, request):
-        profiles = profile_catalog()
+        suite = request.query_params.get("suite")
+        if suite not in (None, "real", "simulation"):
+            return Response({"detail": "Colección de perfiles inválida"}, status=400)
+        profiles = profile_catalog(suite)
         for profile in profiles:
             demo = profile["default_demo_video"]
             if demo is not None:
@@ -80,17 +84,12 @@ class SessionListView(AnalysisView):
             if upload is not None and demo_source_id is None:
                 session = create_session(upload, profile, owner_id=request.user.pk, expected_sha256=source_sha256)
             elif upload is None and isinstance(demo_source_id, str):
-                expected = next(
-                    (
-                        item["default_demo_video"]["id"]
-                        for item in profile_catalog()
-                        if item["id"] == profile and item["default_demo_video"] is not None
-                    ),
-                    None,
-                )
-                if demo_source_id != expected:
-                    raise ValueError("La fuente demo no corresponde al perfil")
-                session = create_demo_session(profile, owner_id=request.user.pk, expected_sha256=source_sha256)
+                replace_session = request.data.get("replace_session_id")
+                if replace_session is not None and not isinstance(replace_session, str):
+                    raise ValueError("Identificador de sesión inválido")
+                session = create_demo_session(profile, owner_id=request.user.pk, source_id=demo_source_id,
+                                              expected_sha256=source_sha256,
+                                              replace_session_id=UUID(replace_session) if replace_session else None)
             else:
                 raise ValueError("Seleccione un video o una fuente demo válida")
         except (ValueError, RuntimeError) as error:

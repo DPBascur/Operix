@@ -239,6 +239,28 @@ class AnalysisSessionApiTests(TransactionTestCase):
                 sessions.remove_session(identity)
                 self.identities.remove(identity)
 
+    @override_settings(OPERIX_ANALYSIS_MAX_SESSIONS=1)
+    def test_switch_demo_replaces_only_the_owned_idle_session(self):
+        first = self.create("A")
+        identity = uuid.UUID(first.data["id"])
+        previous = sessions.get_session(identity)
+        url = "/api/v1/analysis/sessions/"
+        change = {"profile": "B", "demo_source_id": "forklift_human_nearmiss"}
+        self.assertEqual(self.client.post(url, change, format="json").status_code, 400)
+        change["replace_session_id"] = str(identity)
+        previous.state = "processing"
+        self.assertEqual(self.client.post(url, change, format="json").status_code, 400)
+        previous.state = "ready"
+        with patch.object(previous, "owner_id", -1):
+            self.assertEqual(self.client.post(url, change, format="json").status_code, 400)
+        self.assertEqual(self.client.post(url, {**change, "source_sha256": "a" * 64}, format="json").status_code, 400)
+        self.assertIs(sessions.get_session(identity), previous)
+        result = self.client.post(url, change, format="json")
+        self.assertEqual(result.status_code, 201)
+        self.identities.append(uuid.UUID(result.data["id"]))
+        self.assertEqual(result.data["profile"], "B")
+        self.assertIsNone(sessions.get_session(identity))
+
     def test_demo_endpoints_reject_arbitrary_paths_and_missing_profile_demo(self):
         self.assertEqual(
             self.client.post(

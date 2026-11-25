@@ -42,6 +42,11 @@ PROFILE_NAMES = {
     "B": "Ingreso observado en zona",
     "C": "Observación de operación logística",
 }
+SIMULATION_NAMES = {
+    "A": "Permanencia en almacén",
+    "B": "Persona y montacargas",
+    "C": "Recogida de cajas",
+}
 INDUSTRIAL_DEMOS = {
     "A": ("cctv_proximidad", "Onal-Dandil-7_te6-operix.mp4",
           "4cc19635f469449e0ae2d88f57f7b5cce9a4a595c07bc21714f09c00f688944d"),
@@ -344,12 +349,15 @@ class AnalysisSession:
                 self.process = None
 
 
-def _demo_path(profile: str) -> tuple[str, Path] | None:
+def _demo_path(profile: str, suite: str | None = None) -> tuple[str, Path] | None:
     if not isinstance(profile, str) or profile not in PROFILE_DEMO_SETTINGS:
         raise ValueError("Perfil de zona no válido")
-    if directory := os.environ.get("OPERIX_INDUSTRIAL_DEMO_DIR"):
+    directory = os.environ.get("OPERIX_INDUSTRIAL_DEMO_DIR")
+    if suite == "real" or (suite is None and directory):
         from .lab_control import checked_hash, file_identity
 
+        if not directory:
+            return None
         source_id, filename, sha256 = INDUSTRIAL_DEMOS[profile]
         path = Path(directory) / filename
         try:
@@ -385,17 +393,18 @@ def config_bytes(config: dict) -> bytes:
     return json.dumps(config, sort_keys=True).encode()
 
 
-def profile_catalog() -> list[dict]:
+def profile_catalog(suite: str | None = None) -> list[dict]:
     result = []
     for profile in PROFILES:
-        demo = _demo_path(profile)
+        demo = _demo_path(profile, suite)
+        real = suite == "real" or (suite is None and bool(os.environ.get("OPERIX_INDUSTRIAL_DEMO_DIR")))
         try:
             configuration = rule_snapshot(read_profile(profile, demo[0] if demo else None))
         except (OSError, ValueError, KeyError):
             configuration = None
         result.append({
             "id": profile,
-            "display_name": PROFILE_NAMES[profile],
+            "display_name": (PROFILE_NAMES if real else SIMULATION_NAMES)[profile],
             "configuration": configuration,
             "default_demo_video": None if demo is None else {
                 "id": demo[0],
@@ -407,7 +416,10 @@ def profile_catalog() -> list[dict]:
 
 
 def get_demo_video(profile: str, source_id: str) -> Path | None:
-    demo = _demo_path(profile)
+    if profile not in PROFILE_DEMO_SETTINGS:
+        raise ValueError("Perfil de zona no válido")
+    suite = "real" if source_id == INDUSTRIAL_DEMOS[profile][0] else "simulation"
+    demo = _demo_path(profile, suite)
     if demo is None or demo[0] != source_id:
         return None
     return demo[1]
@@ -435,6 +447,7 @@ def _register_session(
     *, profile: str, filename: str, video_path: Path, source_sha256: str,
     source_bytes: int, source_kind: str, demo_source_id: str | None,
     directory: Path, owner_id: int | None, expected_sha256: str | None,
+    replace_session_id: uuid.UUID | None = None,
 ) -> AnalysisSession:
     if expected_sha256 is not None and source_sha256 != expected_sha256:
         raise ValueError("El video no coincide con el SHA-256 de la fuente seleccionada")
@@ -448,7 +461,10 @@ def _register_session(
         profile_config=profile_config, owner_id=owner_id,
     )
     with _lock:
-        if len(_sessions) >= settings.OPERIX_ANALYSIS_MAX_SESSIONS:
+        replaced = _sessions.get(replace_session_id) if replace_session_id else None
+        if replaced is not None and (replaced.owner_id != owner_id or replaced.state not in RESTARTABLE):
+            raise RuntimeError("La sesión indicada no se puede reemplazar")
+        if replaced is None and len(_sessions) >= settings.OPERIX_ANALYSIS_MAX_SESSIONS:
             raise RuntimeError("Se alcanzó el límite de análisis simultáneos")
         if owner_id is not None:
             if expected_sha256 is not None:
@@ -462,6 +478,8 @@ def _register_session(
                 defaults={"filename": filename, "profile": profile, "source_kind": source_kind,
                           "demo_source_id": demo_source_id, "source_bytes": source_bytes},
             )
+        if replaced is not None:
+            remove_session(replaced.id)
         _sessions[session.id] = session
     session.schedule_cleanup()
     return session
@@ -506,9 +524,14 @@ def create_session(upload, profile: str, *, owner_id: int | None = None,
         raise
 
 
-def create_demo_session(profile: str, *, owner_id: int | None = None,
-                        expected_sha256: str | None = None) -> AnalysisSession:
-    demo = _demo_path(profile)
+def create_demo_session(profile: str, *, owner_id: int | None = None, source_id: str | None = None,
+                        expected_sha256: str | None = None,
+                        replace_session_id: uuid.UUID | None = None) -> AnalysisSession:
+    if source_id is None:
+        demo = _demo_path(profile)
+    else:
+        path = get_demo_video(profile, source_id)
+        demo = (source_id, path) if path else None
     if demo is None:
         raise ValueError("El perfil no tiene un video demo disponible")
     source_id, video_path = demo
@@ -526,6 +549,7 @@ def create_demo_session(profile: str, *, owner_id: int | None = None,
             source_sha256=digest.hexdigest(), source_bytes=source_bytes,
             source_kind="demo", demo_source_id=source_id, directory=directory, owner_id=owner_id,
             expected_sha256=expected_sha256,
+            replace_session_id=replace_session_id,
         )
     except Exception:
         shutil.rmtree(directory, ignore_errors=True)
