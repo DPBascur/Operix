@@ -1875,3 +1875,58 @@ ni LL-HLS, por lo que la comparación mide capacidad del Motor, no
 cobertura en navegador o integridad de evidencias del candidato. La
 paridad se comprobó en FP32. FP16, TensorRT y la validación integral del
 candidato quedaron pendientes tras el rechazo de calidad.
+
+### Detector industrial unificado V2
+
+El punto de partida fue el YOLO11m de V1 con PERSON preservado
+(`1516e689b3f980ab78958a06928032dc635606e6bcfee57786e3912910ae159a`).
+El ajuste YOLO11s tenía mejor F1 industrial en validación, pero perdió
+precisión de PERSON. En V2 se descongelaron el neck y las cabezas de
+clasificación y regresión, conservando congeladas las primeras diez
+capas del backbone. Se mantuvieron AdamW, las máscaras de supervisión
+por fuente y todos los ejemplos PERSON originales. La pérdida de cajas
+de V1 con regresión congelada podía diagnosticar localización, pero no
+entrenarla. La nueva fase usa 512 px, lote 10 y LR 0,00016.
+
+El entrenamiento original incluye 211 cajas FORKLIFT pequeñas de 537,
+según el corte de 2,5 % del área de la imagen. Se añadieron 76 recortes
+entrenables, sin tocar validación. Se descartó un recorte si truncaba
+una caja visible a menos del 80 % de su área. El suplemento produjo
+145 cajas FORKLIFT. La inferencia sigue evaluándose con una única
+imagen por fotograma, sin mosaicos ni recortes de inferencia.
+
+Un cribado de 120 negativos todavía sin usar de las instalaciones LOCO
+de entrenamiento encontró seis imágenes con candidatos FORKLIFT de V1.
+La revisión visual confirmó tres casos claros (IDs 36181, 33436 y 34108),
+con cajas apiladas, un carro de almacenamiento y pallets junto a una
+estantería. Se excluyeron los tres ejemplos ambiguos de borde. La
+segunda fase parte del mejor checkpoint de la primera y usa los tres
+negativos verificados, 576 px, lote 8 y LR 0,00008. El cambio conjunto
+de resolución, datos y entrenamiento impide atribuir el resultado
+posterior exclusivamente a los negativos.
+
+La reserva de Forklift v1 quedó excluida. Se auditaron 36 imágenes de
+dos cámaras de [TOMIE](https://zenodo.org/records/7849183), CC BY 4.0.
+Los CSV emplean `FORKLIFT` para transpaletas manuales, como especifica
+el [artículo](https://link.springer.com/article/10.1186/s13640-024-00623-6).
+Varias cajas proyectadas no coinciden con el equipo visible. TOMIE
+quedó como auditoría de etiquetas, fuera del cálculo de precisión.
+La reserva sintética usa 48 imágenes del test de
+[TalTech Camera 2](https://data.taltech.ee/records/3ytc7-2z453), MIT,
+con 64 PERSON, 39 FORKLIFT y 17 PALLET_JACK. Las variantes vacía/cargada
+se normalizaron por clase. Los apiladores y los demás equipos quedan
+fuera de la taxonomía. Se usaron miembros acotados, con CRC cuando
+estaba disponible y hashes por imagen. Ninguna fuente entró al
+entrenamiento. No hubo coincidencias con las fotos de desarrollo al
+comparar hashes exactos y perceptuales.
+
+Antes de ejecutar la reserva se fijó un margen PERSON de tres puntos en
+precisión, recall y AP50 frente a LEGACY_DUAL y V1. FORKLIFT requiere
+precisión ≥ 0,60, recall ≥ 0,55 y a lo sumo dos puntos bajo LEGACY_DUAL,
+F1 al menos igual al doble y sin incremento de FP por imagen o duplicados.
+La reserva real requiere al menos 20 personas anotadas, 20 montacargas
+y 12 montacargas pequeños, con recall de pequeños ≥ 0,10. Los resultados
+sintéticos y las pruebas con clases sin anotar se mantienen separados de
+la decisión de despliegue. Umbrales, checkpoint y NMS se fijan únicamente
+mediante la validación PPE y LOCO de V1 (503 imágenes). Se comparan
+NMS 0,45/0,55/0,60 a 384 × 640 y 0,55 a 480 × 800.

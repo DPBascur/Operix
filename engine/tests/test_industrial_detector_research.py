@@ -9,7 +9,9 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "industrial_detector"))
 from evaluate import calculate_ap, eligibility, operating_point
+from evaluate_v2 import forklift_diagnostics, quality
 from prepare import normalize_box
+from prepare_v2 import crop_labels
 from rtsp_probe_worker import SinglePerception
 from train import freeze_person_outputs, mask_class_loss
 
@@ -86,3 +88,25 @@ class IndustrialDetectorResearchTest(unittest.TestCase):
         channels.forklift.track.assert_called_once_with((forklift,))
         self.assertEqual(result.person_detections, (person,))
         self.assertEqual(result.forklift_detections, (forklift,))
+
+    def test_small_object_crop_relabels_visible_boxes_and_rejects_bad_truncation(self):
+        window = (.25, .25, .75, .75)
+        boxes = [(1, (.375, .375, .5, .5)), (0, (0., 0., .125, .125))]
+        self.assertEqual(crop_labels(boxes, window), [(1, (.25, .25, .5, .5))])
+        self.assertIsNone(crop_labels(boxes + [(2, (.5, .5, 1., 1.))], window))
+
+    def test_v2_reserve_without_person_annotations_blocks_promotion(self):
+        forklift = {"operating_point":{"precision":1.,"recall":1.,"f1":1.,"fp_per_image":0.},
+                    "instances":32,"small_recall":{"instances":12,"recall":.5}}
+        scores = {"classes":{"forklift":forklift},"false_positives":{}}
+        gate = quality(scores, scores, scores, real=True)
+        self.assertFalse(gate["checks"]["real_person_coverage"])
+        self.assertFalse(gate["passed"])
+
+    def test_v2_duplicate_may_overlap_reference_without_large_pairwise_iou(self):
+        row = {"image":"a","supervised":[1],"boxes":[(1,(0.,0.,1.,1.))]}
+        detections = {"forklift":{"a":(Prediction((0.,0.,.6,1.),.9),Prediction((.4,0.,1.,1.),.8))}}
+        report = forklift_diagnostics([row],detections,.5)
+        distribution = report["duplicate_iou_to_matched_prediction"]
+        self.assertEqual(distribution["count"],1)
+        self.assertAlmostEqual(distribution["median"],.2)

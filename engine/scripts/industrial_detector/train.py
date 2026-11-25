@@ -91,9 +91,13 @@ def main():
     parser.add_argument("--device", choices=("0", "cpu"), default="0")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--freeze-person", action="store_true")
+    parser.add_argument("--freeze-backbone", type=int, choices=range(1, 11))
+    parser.add_argument("--patience", type=int, default=10)
     parser.add_argument("--seconds", type=float, default=0, help="Optional seconds budget; checked by Ultralytics per epoch")
     parser.add_argument("--fp32", action="store_true")
     args = parser.parse_args()
+    if args.freeze_person and args.freeze_backbone:
+        parser.error("Choose one freezing strategy")
     if __version__ != "8.4.146":
         raise SystemExit(f"Unexpected Ultralytics API version: {__version__}")
     torch.set_num_threads(3)
@@ -144,16 +148,19 @@ def main():
         "epochs_max": args.epochs, "batch": args.batch, "size": args.size, "device": args.device, "lr": args.lr,
         "amp_requested": args.device == "0" and not args.fp32,
         "person_frozen": args.freeze_person,
+        "backbone_layers_frozen": args.freeze_backbone,
     }, indent=2), encoding="utf-8")
     opts = dict(data=str(args.dataset / "dataset.yaml"), project=str(args.output), name="fit",
                 imgsz=args.size, epochs=args.epochs, batch=args.batch, nbs=args.batch,
                 device=args.device, deterministic=True, seed=SEED, workers=0, amp=args.device == "0" and not args.fp32,
-                save_period=3, patience=10, optimizer="AdamW", lr0=args.lr, warmup_epochs=2, cls_pw=.25,
+                save_period=3, patience=args.patience, optimizer="AdamW", lr0=args.lr, warmup_epochs=2, cls_pw=.25,
                 mosaic=0, mixup=0, copy_paste=0, cutmix=0, degrees=0, shear=0,
                 fliplr=.5, flipud=0, translate=.04, scale=.17, hsv_h=0, hsv_s=.20, hsv_v=.15,
                 plots=True, cache=False)
     if args.freeze_person:
         opts.update(weight_decay=0, warmup_bias_lr=.003)
+    if args.freeze_backbone:
+        opts.update(freeze=args.freeze_backbone, warmup_bias_lr=args.lr)
     if args.seconds:
         opts["time"] = args.seconds / 3600
     with patch("ultralytics.engine.trainer.check_amp", check_local_amp):
