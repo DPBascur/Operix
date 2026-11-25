@@ -6,6 +6,7 @@ import {
   cameraFrameIsRecent,
   cameraFrameTime,
   cameraObservationPaused,
+  cameraPlaylistHandoff,
   cameraTechnicalMetrics,
 } from "../src/features/sources/camera-diagnostics.ts";
 
@@ -210,4 +211,17 @@ test("los tiempos de lectura, detectores y anotaciones mantienen su alcance", ()
       },
     ],
   );
+});
+
+test("el mosaico mantiene un relevo reciente de playlist acotado al EOF esperado", () => {
+  const at = "2026-11-25T12:00:00Z";
+  const t = Date.parse(at);
+  const eof = { outcome: "expected", reason: "media_eof", at };
+  assert.equal(cameraPlaylistHandoff("stopped", eof, t + 5000), true);
+  assert.equal(cameraPlaylistHandoff("stopped", { ...eof, reason: "playlist_changed" }, t + 1), true);
+  assert.equal(cameraPlaylistHandoff("stopped", eof, t + 6000), false);
+  assert.equal(cameraPlaylistHandoff("stopped", eof, t - 1), false);
+  assert.equal(cameraPlaylistHandoff("stopped", { ...eof, reason: "disabled" }, t + 1), false);
+  assert.equal(cameraPlaylistHandoff("stopped", { ...eof, outcome: "interrupted" }, t + 1), false);
+  assert.equal(cameraPlaylistHandoff("stopped", undefined, t + 1), false);
 });

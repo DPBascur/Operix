@@ -33,6 +33,17 @@ export function cameraObservationPaused(status: string, stale: boolean) {
   return stale || status === "no_signal" || status === "reconnecting";
 }
 
+export function cameraPlaylistHandoff(
+  status: string,
+  transition: { outcome?: string; reason?: string; at?: string } | undefined,
+  receivedAt: number,
+) {
+  if (status !== "stopped" || transition?.outcome !== "expected") return false;
+  if (transition.reason !== "media_eof" && transition.reason !== "playlist_changed") return false;
+  const age = receivedAt - Date.parse(transition.at ?? "");
+  return age >= 0 && age < 6000;
+}
+
 export function cameraAnalysisRate(metrics: Metrics) {
   const recent = cameraNumber(metrics?.analysis_fps_5s, " FPS");
   const legacy =

@@ -10,12 +10,14 @@ test("proxy opt-in conserva las barras Django y no cambia la ejecución local ha
     assert.equal(local.experimental, undefined);
     process.env.OPERIX_API_PROXY_TARGET = "http://127.0.0.1:18000/";
     const { default: remote } = await import("../next.config.ts?test=remote");
-    assert.deepEqual(await remote.rewrites(), [
-      {
-        source: "/api/v1/:path*",
-        destination: "http://127.0.0.1:18000/api/v1/:path*/",
-      },
-    ]);
+    assert.deepEqual(await remote.rewrites(), {
+      fallback: [
+        {
+          source: "/api/v1/:path*",
+          destination: "http://127.0.0.1:18000/api/v1/:path*/",
+        },
+      ],
+    });
     assert.equal(remote.skipTrailingSlashRedirect, true);
     assert.equal(remote.experimental.proxyClientMaxBodySize, "251mb");
   } finally {

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 
 import { canOpen, useSession } from "@/features/auth/session-provider";
 import { cameraLabService, type LabCamera } from "@/services/camera-lab.service";
-import { cameraFrameIsRecent, cameraObservationPaused } from "./camera-diagnostics";
+import { cameraFrameIsRecent, cameraObservationPaused, cameraPlaylistHandoff } from "./camera-diagnostics";
 import { CameraLiveVideo } from "./camera-live-video";
 import { CameraLoadingState } from "./camera-loading-state";
 import { CameraPreview, LoadError, statusLabel, useCameraData } from "./camera-overview";
@@ -23,11 +23,12 @@ export function cameraHref(id: string) {
   return `/sources/cameras/${encodeURIComponent(id)}`;
 }
 
-function CameraTile({ camera, live, monitor, enabled, preview, canEdit, stale }: {
+function CameraTile({ camera, live, monitor, enabled, handoff, preview, canEdit, stale }: {
   camera: LabCamera;
   live: boolean;
   monitor: boolean;
   enabled: boolean;
+  handoff: boolean;
   preview: boolean;
   canEdit: boolean;
   stale: boolean;
@@ -36,11 +37,11 @@ function CameraTile({ camera, live, monitor, enabled, preview, canEdit, stale }:
   const fullscreenButton = useRef<HTMLButtonElement>(null);
   const [fullscreenError, setFullscreenError] = useState(false);
   const href = cameraHref(camera.id);
-  const state = stale ? "Estado sin actualizar" : statusLabel(camera.status);
+  const state = stale ? "Estado sin actualizar" : handoff ? "Cambiando grabación" : statusLabel(camera.status);
   const settingsHref = canEdit ? `${href}#camera-settings` : undefined;
 
   if (live) {
-    return <CameraLiveVideo id={camera.id} name={camera.name} runId={camera.run_id} operationalState={state} enabled={enabled} viewOnly={camera.view_only}
+    return <CameraLiveVideo id={camera.id} name={camera.name} runId={camera.run_id} operationalState={state} enabled={enabled || handoff} viewOnly={camera.view_only}
       cameraUrl={href} settingsUrl={settingsHref} variant={monitor ? "monitoring" : "preview"} />;
   }
 
@@ -162,6 +163,8 @@ export function CameraWorkspace({ monitor = false }: { monitor?: boolean }) {
               <CameraTile camera={camera} canEdit={data?.can_edit === true && !error} stale={!!error}
                 live={Boolean(camera.automatic ?? data?.managed)} monitor={monitor}
                 enabled={running.has(camera.status)}
+                handoff={monitor && camera.automatic === true && !camera.view_only && !error &&
+                  cameraPlaylistHandoff(camera.status, camera.playback?.transition, receivedAt)}
                 preview={!monitor && !cameraObservationPaused(camera.status, !!error) &&
                   cameraFrameIsRecent(camera.last_frame_at, camera.metrics, receivedAt)} />
             </li>

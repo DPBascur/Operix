@@ -34,7 +34,11 @@ export type LabCamera = {
   name: string;
   automatic?: boolean;
   view_only?: boolean;
-  playback?: { media_id?: string; position?: number } | null;
+  playback?: {
+    media_id?: string;
+    position?: number;
+    transition?: { outcome?: string; reason?: string; at?: string };
+  } | null;
   description: string;
   provenance: {
     sha256?: string;

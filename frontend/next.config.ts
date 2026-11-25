@@ -11,12 +11,14 @@ const nextConfig: NextConfig = {
         skipTrailingSlashRedirect: true,
         experimental: { proxyClientMaxBodySize: "251mb", proxyTimeout: 120000 },
         async rewrites() {
-          return [
-            {
-              source: "/api/v1/:path*",
-              destination: `${apiProxyTarget}/api/v1/:path*/`,
-            },
-          ];
+          return {
+            fallback: [
+              {
+                source: "/api/v1/:path*",
+                destination: `${apiProxyTarget}/api/v1/:path*/`,
+              },
+            ],
+          };
         },
       }
     : {}),
