@@ -5,13 +5,13 @@ from operix_engine.rtsp_pilot import Capture, Epoch, Frame, TemporalSampler
 
 
 class TemporalSamplingTests(unittest.TestCase):
-    def test_regular_30_fps_sampling_selects_unique_observations(self):
-        for fps in (15, 20):
-            with self.subTest(fps=fps):
-                sampler, epoch = TemporalSampler(30, fps), Epoch(fps)
+    def test_regular_sampling_selects_unique_observations_without_restarting_the_epoch(self):
+        for source_fps, fps in ((30, 15), (30, 20), (15, 12)):
+            with self.subTest(source_fps=source_fps, fps=fps):
+                sampler, epoch = TemporalSampler(source_fps, fps), Epoch(fps)
                 selected = []
-                for index in range(60):
-                    pts = index / 30
+                for index in range(2 * source_fps):
+                    pts = index / source_fps
                     include, gap = sampler.select(index, pts)
                     if include:
                         reason, stamp = epoch.advance(Frame(len(selected), 1, 10 + pts, pts, None,
@@ -21,6 +21,7 @@ class TemporalSamplingTests(unittest.TestCase):
                         selected.append(index)
                 self.assertEqual(len(selected), 2 * fps)
                 self.assertEqual(sorted(set(selected)), selected)
+                self.assertEqual(epoch.number, 1)
 
     def test_missing_source_timestamp_breaks_rules_even_if_selected_pts_look_regular(self):
         sampler, epoch = TemporalSampler(30, 15), Epoch(15)

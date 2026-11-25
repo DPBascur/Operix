@@ -57,6 +57,31 @@ test("exact observations survive queue epochs but interpolation cannot span them
   assert.equal(observations.observed(43), undefined);
 });
 
+test("a 15 FPS stream keeps all frame marks when only 12 frames are analyzed", () => {
+  const clock = new CameraSourceClock();
+  const observations = new ClockedObservations();
+  const frames = Array.from({ length: 15 }, (_, ordinal) => mark(5 + ordinal / 15, ordinal));
+  const samples = frames.map((_, ordinal) => ordinal).filter(ordinal => ordinal % 5 !== 1);
+  clock.ingest(frames);
+  observations.update({ run_id: "run", stream_id: stream, items: samples.map((ordinal, index) => ({
+    source_ordinal: ordinal, index, epoch: 1,
+  })) });
+
+  for (let ordinal = 0; ordinal < 15; ordinal++) {
+    const sourceFrame = clock.at(5 + ordinal / 15, stream);
+    assert.equal(sourceFrame?.ordinal, ordinal);
+    if (samples.includes(ordinal)) {
+      assert.equal(observations.observed(ordinal)?.source_ordinal, ordinal);
+      assert.equal(observations.bracket(ordinal), undefined);
+    } else {
+      assert.equal(observations.observed(ordinal), undefined);
+      const bracket = observations.bracket(ordinal);
+      assert.equal(bracket?.before.source_ordinal, ordinal - 1);
+      assert.equal(bracket?.after.source_ordinal, ordinal + 1);
+    }
+  }
+});
+
 test("a metadata refresh keeps a valid presented layer and revokes it across resets", () => {
   const observations = new ClockedObservations();
   const before = { source_ordinal: 41, index: 12, epoch: 1, receivedMs: 1000 };
