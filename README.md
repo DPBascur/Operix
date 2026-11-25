@@ -1,90 +1,93 @@
 # Operix
 
-Prototipo funcional de análisis preventivo de video: percepción visual, reglas
-configurables y evidencia revisable en una misma aplicación.
+Aplicación académica de análisis preventivo de video industrial. Integra detección,
+seguimiento, reglas configurables y evidencia para revisión humana.
 
-> La IA percibe el entorno; las reglas interpretan el contexto.
+**Video → detector → tracking → variables espacio-temporales → reglas → evento → evidencia.**
 
-**Video → percepción → tracking → variables espacio-temporales → reglas
-configuradas → candidato/evento → evidencia → histórico.**
+Un evento indica que se satisfizo una condición configurada. Requiere revisión humana
+para determinar qué ocurrió.
 
-Operix es un MVP académico integrado de Etapa 3, orientado a **análisis diferido**.
-Una condición satisfecha requiere revisión humana: no confirma un incidente,
-un Near Miss, un accidente ni responsabilidad personal.
+## Demostración
 
-## Demo actual
+1. En [Operix local](http://127.0.0.1:13000), inicia sesión y abre **Análisis**.
+   **Grabaciones reales** ofrece proximidad (A), ingreso observado (B) y
+   observación logística sin regla inicial (C). **Simulaciones de prueba**
+   recupera los videos y las zonas originales A/B/C. También puedes cargar
+   un archivo. [Procedencia y resultados esperados](deployment/rtsp-lab/README.md#perfiles-de-análisis-con-grabaciones-reales).
+2. En **Gestión → Control de cámaras**, guarda las listas actuales antes de
+   ensayar. Para la demostración RTSP asigna a Cámara 01 «Önal 7_tr21 →
+   Warehouse 026 C00» con repetición, a Cámara 02 «Önal 7_tr21» y a Cámara
+   03 «Warehouse 027 C06». Las revisiones espaciales de laboratorio se asocian
+   a la grabación y la cámara, por lo que la misma grabación permite demostrar
+   proximidad en una cámara e ingreso en otra. Cámara 03 sirve como control
+   negativo de proximidad. Habilita las plazas y activa el laboratorio.
+3. **Fuentes** muestra el inventario y sus miniaturas. **Monitoreo** muestra las
+   señales activas y las condiciones registradas. Abre **Pantalla de vigilancia**
+   en otra pestaña para trasladarla a un monitor externo y activar pantalla completa.
+4. Abre **Eventos** o filtra el resumen por **Cámara de laboratorio**. Comprueba
+   el expediente, su regla, revisión, PNG y clip. Para Embonor se conserva
+   [el expediente de demostración](http://127.0.0.1:13000/events/21b68882-e49a-40cf-81c2-f2a0295ff393).
+5. Devuelve las listas y el estado de las cámaras a su configuración previa.
+   Los videos difíciles siguen disponibles en el catálogo para evaluación.
 
-La demo utiliza una muestra sintética autorizada de NVIDIA, YOLO11m para PERSON,
-un detector especializado de FORKLIFT y ByteTrack. Muestra zonas, permanencia y
-proximidad mediante una **configuración demostrativa ya existente**; no cambia
-los perfiles predeterminados ni calibra parámetros de seguridad.
+En instalaciones nuevas, la
+[guía del laboratorio](deployment/rtsp-lab/README.md#configuración-por-grabación)
+detalla cómo reproducir las revisiones de demostración. Los videos autorizados
+se montan en solo lectura. Para habilitar las simulaciones, añade
+`compose.simulation-demos.yaml` a Compose y monta en `/data/input` los tres
+archivos de [simulación](assets/demo/README.md).
 
-![Análisis actual con personas, montacargas, zona y relación de proximidad](assets/demo/v0.2.0/analysis-result.png)
+## Capturas de la aplicación
 
-[Configuración, identidad y reproducción](assets/demo/v0.2.0/README.md).
-La captura actual representa el MVP integrado; el video de QA se conserva
-externamente y no forma parte de los assets versionados del candidato.
+Las capturas se tomaron en Edge con el entorno de verificación. Los conteos
+corresponden a ejecuciones de prueba sobre grabaciones autorizadas.
 
-La línea une puntos de los segmentos inferiores de las cajas. La distancia es
-**normalizada en espacio de imagen**, no metros ni distancia física real.
-El parámetro configurado no es un umbral universal de seguridad. El PNG y los
-registros mostrados proceden de esta ejecución real del pipeline en una base de
-pruebas aislada; no son una maqueta ni validación industrial.
-
-El material subyacente procede de NVIDIA PhysicalAI WorldModel Synthetic
-Warehouse Operations Scenes, bajo OpenMDW-1.1. No corresponde a registros de una
-empresa. [Atribución y licencia](third_party/nvidia-warehouse-dataset/NOTICE.md).
+![Centro operativo con eventos persistidos y conteos por cámara](assets/demo/current/dashboard.jpg)
 
 <details>
-<summary>PoC histórico v0.1.0 — entradas y resultado OP-34/60/61</summary>
+<summary>Fuentes, Monitoreo y pantalla de vigilancia</summary>
 
-Se conservan como antecedentes; el resultado siguiente usa el pipeline histórico
-PERSON de YOLO11n y no representa la demo dual actual.
-
-**Entrada persona–montacargas (OP-34)**
-
-https://github.com/user-attachments/assets/93648968-ae9e-4c66-aef2-c04be7ff2bae
-
-**Entrada warehouse fire (OP-35/60/61)**
-
-https://github.com/user-attachments/assets/82707306-f3de-40d4-b8fd-fb3f3c292fee
-
-**Resultado anotado histórico (OP-60/61)**
-
-https://github.com/user-attachments/assets/1271a029-4057-421e-a13b-72baf02d08e0
-
-[Archivos originales y guía histórica](assets/demo/README.md) ·
-[Evidencia del PoC](engine/evidence/OP-61-poc.md)
+![Inventario de fuentes y accesos a cada cámara](assets/demo/current/fuentes.jpg)
+![Monitoreo con tres señales de laboratorio](assets/demo/current/monitoreo.jpg)
+![Pantalla de vigilancia a 1080p, con una distancia normalizada visible](assets/demo/current/vigilancia.jpg)
 
 </details>
 
-## Capacidades principales
+<details>
+<summary>Análisis de archivo y revisión de evidencia</summary>
 
-- Video local o demos, sesiones de análisis, preview y resultado MP4 H.264 con
-  reproducción, pausa y búsqueda.
-- **YOLO11m COCO para PERSON**, seleccionado sobre datos de desarrollo por su
-  equilibrio entre calidad y costo para análisis diferido; no es validación final.
-- **FORKLIFT specialist v2**, detector especializado congelado, y ByteTrack por
-  clase. Los IDs son temporales, no identidades personales.
-- Zonas normalizadas, pertenencia, permanencia y reglas `zone_dwell` /
-  `person_forklift_proximity`, ingreso observado y coexistencia, con parámetros, versiones y episodios trazables.
-- Eventos en PostgreSQL, evidencia PNG, snapshots, journal y reenvíos idempotentes
-  acotados. El MP4 es temporal de sesión, no un video persistente por evento.
-- Histórico filtrable por período/tipo, frecuencias UTC, indicadores y detalle
-  operacional con evidencia, mediciones y trazabilidad desplegable.
-- Navegación conservando la referencia de sesión, controles frente a respuestas
-  obsoletas y validación de integridad/cadencia del video.
+![Análisis completo de una grabación real y su selección de perfiles](assets/demo/current/analisis.jpg)
+![Historial de eventos filtrable y paginado](assets/demo/current/eventos.jpg)
+![Expediente y fotograma de evidencia de ingreso observado en zona](assets/demo/current/expediente.jpg)
+
+</details>
+
+<details>
+<summary>Control de cámaras, zonas y calibración</summary>
+
+![Asignación de grabaciones y orden de reproducción](assets/demo/current/playlists.jpg)
+![Captura ArUco, zonas y reglas de una grabación sin escala física](assets/demo/current/calibracion.jpg)
+
+</details>
+
+Grabaciones en las capturas de demostración. [Önal y Dandıl, CC BY 4.0](https://data.mendeley.com/datasets/xjmtb22pff/1) ·
+[NVIDIA PhysicalAI SmartSpaces, CC BY 4.0](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces).
 
 ## Arquitectura
 
-Next.js/TypeScript → Django REST Framework → worker Python del Motor. OpenCV,
-YOLO11 y ByteTrack producen observaciones; las reglas interpretan la configuración.
-El Motor publica por HTTP y no accede directamente a PostgreSQL. No hay un nuevo
-servicio de inferencia ni broker.
+- **Frontend:** Next.js, React y TypeScript. Sesiones y permisos verificados
+  por Django, con la API y los medios protegidos a través del mismo origen.
+- **Motor:** YOLO11m UNIFIED V7 con ONNX Runtime CUDA y ByteTrack. El perfil
+  LEGACY_DUAL conserva YOLO11m PERSON y FORKLIFT especialista como alternativa.
+- **Monitoreo:** FFmpeg emite el catálogo autorizado por RTSP. MediaMTX
+  distribuye LL-HLS. Cada ejecución tiene su propio contexto temporal, reglas
+  y calibración. El reproductor sincroniza las observaciones con la emisión.
+- **Persistencia:** Django publica en PostgreSQL el evento y su snapshot.
+  Volúmenes conservan PNG y clips protegidos. OpenCV y ArUco asisten la
+  calibración de un plano conocido.
 
-Los [seis diagramas y cinco ADR](docs/architecture/README.md) conservan el diseño
-conceptual v1.0. Diseño arquitectónico e implementación actual se distinguen;
-no implican una plataforma industrial terminada.
+[Diseño arquitectónico y ADR](docs/architecture/README.md).
 
 ## Ejecución local
 
@@ -103,10 +106,10 @@ sin tag ni Release publicados por esta campaña.
 | [Motor](engine/README.md#entorno-local) | Python 3.12, entorno Windows/CUDA o instalación CPU, pesos y scripts |
 | [Backend](backend/README.md#requisitos-y-configuración) | PostgreSQL, entorno local, migraciones y API |
 | [Frontend](frontend/README.md#instalación-y-ejecución) | Node 24.2.0, pnpm 11.28.2 y URL de la API |
-| [Demo actual](assets/demo/v0.2.0/README.md) | Input autorizado, hashes, configuración y salidas verificadas |
+| [Laboratorio RTSP](deployment/rtsp-lab/README.md) | Catálogo autorizado, playlists, recuperación y fallback |
 
 Crear los entornos de cada guía y cargar las variables locales del Backend antes
-de migrar/iniciar. Frontend usa `NEXT_PUBLIC_DATA_SOURCE=api`. Los dos checkpoints
+de migrar/iniciar. Frontend usa `NEXT_PUBLIC_DATA_SOURCE=api`. Los pesos y archivos ONNX
 verificados permanecen fuera de Git y no se descargan al arrancar.
 El worker web requiere CUDA; instalar el Motor en CPU no habilita esa ruta.
 El acceso requiere una cuenta de Django. Consulta [cómo crear cuentas, asignar roles y configurar el proxy](backend/README.md#acceso-y-despliegue).
@@ -135,44 +138,47 @@ docker compose -f compose.yaml -f compose.gpu.yaml up -d --build
 [Guía Docker](deployment/docker/README.md): pesos/input read-only, puertos loopback
 y volúmenes propios. Los modelos no se incluyen en la imagen. La configuración CPU
 levanta la infraestructura; no convierte el worker CUDA en un worker de inferencia CPU.
-Los eventos/PNG persisten; el registro RAM de sesiones no se restaura al reiniciar.
+PostgreSQL conserva eventos, configuraciones y snapshots. Los volúmenes conservan PNG y clips. Las sesiones de análisis de archivo son temporales.
 **`docker compose down -v` elimina los volúmenes y sus datos.**
 
 ## Estado y límites
 
-- Selección PERSON basada en desarrollo; validación externa/contextual experta y
-  operacional final realista pendientes. El historial de modelos permanece en la
-  [auditoría](engine/evidence/ETAPA4-TECHNICAL-AUDIT.md).
-- Distancia normalizada conservada; opción de metros aproximados con calibración
-  explícita de suelo y cámara fija. Sin prevención demostrada ni interpretación
-  automática de incidentes. [Supuestos y configuración](engine/README.md#configuración-espacial-desde-la-web).
-- Pérdidas/cambios de ID pueden fragmentar episodios. Sin GT MOT no se afirman
-  MOTA/IDF1/HOTA ni continuidad física universal.
-- No hay supresión automática de operadores dentro de vehículos; MOBILE_EQUIPMENT
-  y TRUCK no están integrados. PERSON v2 sigue diferido.
-- API local sin autenticación empresarial; acceso/retención final por definir.
-  No exponer el prototipo a una red no controlada.
-- Rendimiento y Docker dependen del equipo/configuración. No se garantiza tiempo
-  real sostenido, portabilidad GPU universal ni validación industrial.
-- P2 conocidos de validación PNG, recuperación de journals truncados, requests,
-  contexto de filtros y mantenibilidad siguen documentados, sin ocultarlos.
+- PERSON y FORKLIFT pueden omitirse o confundirse según el encuadre, el tamaño
+  y la oclusión. PALLET_JACK se visualiza como clasificación experimental.
+  El seguimiento usa identificadores temporales por ejecución.
+- `norm.` indica una distancia en espacio de imagen. Los metros aproximados
+  requieren calibración física válida para la cámara y el plano. La
+  comprobación geométrica controlada queda separada de la exactitud en terreno.
+- Las cajas interpoladas son posiciones visuales estimadas. Las reglas
+  espaciales se evalúan con observaciones válidas y revisiones de la fuente.
+- Las repeticiones de laboratorio producen ejecuciones distintas. Los
+  filtros de procedencia separan esos registros del resumen general.
+- El rendimiento depende del equipo, resolución, cadencia y cantidad de
+  trabajadores. La demostración verifica el recorrido funcional en condiciones
+  de laboratorio y la validación operacional continúa pendiente.
 
-La validación final del candidato v0.2.0 registró **425 pruebas aprobadas + 2 omitidas**
-del Motor, **127/127** Backend, **37/37** Frontend y browser **1/1**. Son resultados
-funcionales del corte documentado, no una nueva evaluación de percepción.
-El [gate final](engine/evidence/ETAPA4-TECHNICAL-AUDIT.md#24-final-v020-release-gate-pass--26-10-2026)
-fue aprobado; la promoción de main y la creación del tag requieren una decisión
-separada.
+<details>
+<summary>PoC histórico v0.1.0 — entradas y resultado OP-34/60/61</summary>
 
-```powershell
-.\engine\.venv\Scripts\python.exe -B -m unittest discover -s engine/tests
-.\engine\.venv\Scripts\python.exe engine/scripts/check_environment.py --require-cuda
-```
+Se conservan como antecedentes; el resultado siguiente usa el pipeline histórico
+PERSON de YOLO11n y no representa la demo dual actual.
 
-Backend: `manage.py check`, `makemigrations --check --dry-run`, `test --noinput`
-con su entorno cargado. Frontend: `pnpm test`, `pnpm lint`, `pnpm typecheck`,
-`pnpm build`; regresión browser según su guía. OP-43 conserva su benchmark histórico,
-que no debe atribuirse al pipeline dual actual.
+**Entrada persona–montacargas (OP-34)**
+
+https://github.com/user-attachments/assets/93648968-ae9e-4c66-aef2-c04be7ff2bae
+
+**Entrada warehouse fire (OP-35/60/61)**
+
+https://github.com/user-attachments/assets/82707306-f3de-40d4-b8fd-fb3f3c292fee
+
+**Resultado anotado histórico (OP-60/61)**
+
+https://github.com/user-attachments/assets/1271a029-4057-421e-a13b-72baf02d08e0
+
+[Archivos originales y guía histórica](assets/demo/README.md) ·
+[Evidencia del PoC](engine/evidence/OP-61-poc.md)
+
+</details>
 
 ## Documentación y licencia
 
