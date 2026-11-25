@@ -2497,3 +2497,73 @@ Las marcas de emisión y la validación del run siguen determinando qué
 overlays se pueden dibujar. La sonda observó dos runs de cámara 01,
 sin muestras de marcas ambiguas. Los 13 eventos de la corrida candidata
 conservaron fuente, configuración, timestamp, PNG y clip compatibles.
+
+### Promoción controlada de UNIFIED V7
+
+Se preparó el perfil para análisis de archivos y para los workers
+dedicados de RTSP. Ambos cargan el mismo ONNX FP32 estático
+(384 × 640, CUDA sin fallback de nodos a CPU), verificado por SHA-256
+antes de inferir. Una sola llamada obtiene las tres clases. PERSON
+(0,25) y FORKLIFT (0,20) pasan a sus propios ByteTrack, con NMS de 0,45.
+PALLET_JACK conserva el umbral experimental 0,10 y queda fuera de
+los canales operacionales. La motorización conserva UNKNOWN cuando
+no existe evidencia suficiente. Los expedientes y resultados nuevos
+identifican el modelo y la huella ONNX ejecutados.
+
+V7 es un YOLO11m ajustado desde V3 por transferencia de aprendizaje.
+El ajuste utilizó tres épocas, imágenes de 512, lotes de ocho,
+AdamW a 0,00004, diez capas iniciales congeladas y semilla 20261125.
+La destilación balanceó PERSON y FORKLIFT y transfirió cajas del
+docente solo cuando mejoraban el IoU frente a la anotación en al
+menos 0,02. La comparación interna obtuvo 137 VP, 30 FP y 70 FN
+en FORKLIFT, y recall de montacargas pequeños de 21/51. En las 33
+imágenes externas de Vidal el F1 FORKLIFT fue 0,800 para V7, 0,786
+para V3 y 0,500 para LEGACY_DUAL en la evaluación a 640 × 640. Esa
+reserva carece de PERSON y de montacargas pequeños, y está
+concentrada en un solo entorno. Los resultados previos de latencia
+y la corrida de 30 min 11 s justifican preferir V7 con supervisión
+humana y retorno a LEGACY_DUAL.
+
+Embonor se reejecutó en PostgreSQL QA con ambos perfiles, el mismo
+video de 301 fotogramas y el mismo snapshot QA (regla de proximidad
+0,22 norm. y duración 0,40 s). La API asignó la revisión 1 a ese
+snapshot aislado. Los parámetros y la zona coinciden con la
+revisión 2 del expediente histórico. LEGACY_DUAL generó un evento
+a 1,52 s (0,1502 norm.). V7 generó cuatro a 0,40 / 2,04 / 3,04 /
+9,84 s (0,0235 / 0,1885 / 0,1393 / 0,2029 norm.). La inspección
+visual encontró el falso positivo de maquinaria fija en el primero
+y al peatón con el montacargas real en los tres siguientes. En
+2,04 y 3,04 s se mantuvo el par P1/F2; a 9,84 s figura P9/F2.
+Se verificaron los cinco PNG y clips, su asociación y denegación
+anónima. El dossier histórico se conserva como referencia académica
+con LEGACY_DUAL. Los eventos son condiciones observadas que
+requieren revisión humana.
+
+Con el Frontend estabilizado, el ensayo QA de 167,12 s a
+15 FPS de publicación y 12 FPS de análisis recuperó el EOF de
+cámara 01 y la interrupción inducida del emisor de cámara 02.
+Los FPS de presentación de Edge fueron 14,53 / 14,17 / 14,99;
+los mayores intervalos entre cuadros fueron 5,11 / 9,25 / 0,17 s.
+Se verificaron 15 eventos con PNG y clip, overlay observado y
+distancia normalizada. El ensayo no produjo cajas estimadas en
+Edge; la vigencia de la interpolación y el aislamiento entre épocas
+se verificaron con pruebas focalizadas. No se agregó una cámara ni
+se entrenó V8 para esta promoción.
+
+La promoción actualizó únicamente el contenedor Backend/Motor de
+13000. Tras su recreación se comprobó el perfil activo, los hashes
+de 314 PNG y 314 clips, y la reproducción del expediente histórico
+en Edge. El respaldo lógico se restauró en PostgreSQL aislado y
+se cotejaron los 628 archivos en la copia del volumen de medios.
+Las tres cámaras principales reprodujeron 14,85 FPS durante una
+comprobación de 18,66 s con UNIFIED V7; el laboratorio volvió a
+quedar inactivo y el total siguió en 314 expedientes.
+
+Para volver a LEGACY_DUAL, detener los análisis y ejecutar
+Deploy-V7.ps1 en modo Rollback desde el directorio local
+tmp/unified-v7-promotion. El script recupera la configuración
+Compose anterior y recrea solo el Backend, sobre los mismos
+volúmenes. Conservar juntos el script, el respaldo verificado, la
+imagen anterior y los pesos aprobados. En otras instalaciones
+Compose, retirar la sobrecapa compose.unified-v7.yaml o seleccionar
+legacy-dual y recrear el Backend con las rutas de pesos existentes.
