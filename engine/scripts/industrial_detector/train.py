@@ -16,6 +16,8 @@ from ultralytics import YOLO, __version__
 from ultralytics.utils.loss import v8DetectionLoss
 
 from prepare import CLASSES, SEED, digest
+from distill import ResponseDistillation
+from specialized import SpecializedClassifier, SpecializedTrainer
 
 
 def mask_class_loss(values, mask):
@@ -70,10 +72,11 @@ def freeze_person_outputs(model):
 class PartialClassLoss(v8DetectionLoss):
     """Zero only the classification gradients of unannotated classes."""
 
-    def __init__(self, model, coverage, pseudo_coverage):
+    def __init__(self, model, coverage, pseudo_coverage, distillation=None):
         super().__init__(model)
         self.coverage = coverage
         self.pseudo_coverage = pseudo_coverage
+        self.distillation = distillation
 
     def get_assigned_targets_and_loss(self, preds, batch):
         names = [Path(file).name for file in batch["im_file"]]
@@ -88,9 +91,12 @@ class PartialClassLoss(v8DetectionLoss):
         else:
             self.bce = lambda logits, labels: mask_class_loss(criterion(logits, labels), mask)
         try:
-            return super().get_assigned_targets_and_loss(preds, batch)
+            assignments, loss, logged = super().get_assigned_targets_and_loss(preds, batch)
         finally:
             self.bce = criterion
+        if self.distillation is not None:
+            loss = self.distillation.add(self, preds, batch, assignments, loss, mask)
+        return assignments, loss, logged
 
 
 def main():
@@ -108,9 +114,17 @@ def main():
     parser.add_argument("--patience", type=int, default=10)
     parser.add_argument("--seconds", type=float, default=0, help="Optional seconds budget; checked by Ultralytics per epoch")
     parser.add_argument("--fp32", action="store_true")
+    parser.add_argument("--teachers", nargs=2, metavar=("PERSON", "FORKLIFT"), type=Path,
+                        help="Distill trusted foreground responses from two local checkpoints")
+    parser.add_argument("--balance-teachers", action="store_true",
+                        help="Average per role and transfer boxes only when the teacher localizes better")
+    parser.add_argument("--specialized", action="store_true",
+                        help="Branch the last classification block for PERSON and equipment")
     args = parser.parse_args()
-    if args.freeze_person and args.freeze_backbone:
+    if args.freeze_person and (args.freeze_backbone or args.specialized or args.teachers):
         parser.error("Choose one freezing strategy")
+    if args.balance_teachers and not args.teachers:
+        parser.error("Balancing requires two teachers")
     if __version__ != "8.4.146":
         raise SystemExit(f"Unexpected Ultralytics API version: {__version__}")
     torch.set_num_threads(3)
@@ -122,7 +136,7 @@ def main():
         if row["split"] not in ("train", "val"):
             continue
         declared = set(row["supervised"])
-        pseudo = set(row.get("pseudo_positive_only", []))
+        pseudo = set(row.get("pseudo_positive_only", [])) | set(row.get("positive_only", []))
         targets = {cls for cls, _ in row["boxes"]}
         if (not declared and not pseudo or declared & pseudo or pseudo - targets
                 or targets - (declared | pseudo) or pseudo and row["split"] != "train"):
@@ -136,10 +150,16 @@ def main():
             pseudo_coverage[image.name] = [cls in pseudo for cls in range(len(CLASSES))]
 
     norms = ()
+    distillation = None
 
     def install_loss(trainer):
-        nonlocal norms
-        trainer.model.criterion = PartialClassLoss(trainer.model, coverage, pseudo_coverage)
+        nonlocal norms, distillation
+        if args.teachers:
+            distillation = ResponseDistillation(trainer.device, args.teachers, balanced=args.balance_teachers)
+        trainer.model.criterion = PartialClassLoss(trainer.model, coverage, pseudo_coverage, distillation)
+        for tower in trainer.model.model[-1].cv3:
+            if isinstance(tower, SpecializedClassifier):
+                tower.person.requires_grad_(False)
         if args.freeze_person:
             if any(group["weight_decay"] != 0 for group in trainer.optimizer.param_groups):
                 raise ValueError("Frozen classifier rows require zero weight decay")
@@ -150,12 +170,14 @@ def main():
             norm.eval()
 
     model = YOLO(str(args.weights))
+    if isinstance(model.model.model[-1].cv3[0], SpecializedClassifier) and not args.specialized:
+        parser.error("This checkpoint requires --specialized to preserve the trained classifier towers")
     model.add_callback("on_pretrain_routine_end", install_loss)
     if args.freeze_person:
         model.add_callback("on_train_batch_start", preserve_statistics)
     if args.resume:
         with patch("ultralytics.engine.trainer.check_amp", check_local_amp):
-            model.train(resume=True, device=args.device)
+            model.train(trainer=SpecializedTrainer if args.specialized else None, resume=True, device=args.device)
         return
     if args.output.exists():
         raise FileExistsError(args.output)
@@ -164,11 +186,15 @@ def main():
         "dataset_manifest_sha256": digest(manifest_path),
         "input_checkpoint_sha256": digest(args.weights), "seed": SEED,
         "ultralytics": __version__, "torch": torch.__version__,
-        "epochs_max": args.epochs, "batch": args.batch, "size": args.size, "device": args.device, "lr": args.lr,
+        "epochs_max": args.epochs, "time_budget_seconds": args.seconds,
+        "batch": args.batch, "size": args.size, "device": args.device, "lr": args.lr,
         "amp_requested": args.device == "0" and not args.fp32,
         "person_frozen": args.freeze_person,
         "backbone_layers_frozen": args.freeze_backbone,
-        "pseudo_positive_only_examples": len(pseudo_coverage),
+        "positive_only_examples": len(pseudo_coverage),
+        "teacher_sha256": [digest(path) for path in args.teachers] if args.teachers else [],
+        "balance_teachers": args.balance_teachers,
+        "specialized_classifier": args.specialized,
     }, indent=2), encoding="utf-8")
     opts = dict(data=str(args.dataset / "dataset.yaml"), project=str(args.output), name="fit",
                 imgsz=args.size, epochs=args.epochs, batch=args.batch, nbs=args.batch,
@@ -184,8 +210,15 @@ def main():
     if args.seconds:
         opts["time"] = args.seconds / 3600
     with patch("ultralytics.engine.trainer.check_amp", check_local_amp):
-        model.train(**opts)
+        model.train(trainer=SpecializedTrainer if args.specialized else None, **opts)
     best = args.output / "fit" / "weights" / "best.pt"
+    if distillation:
+        (args.output / "distillation.json").write_text(json.dumps({
+            "matched_annotations_across_batches": dict(zip(("person", "forklift"), distillation.matches)),
+            "localization_targets_across_batches": dict(zip(("person", "forklift"), distillation.localization_matches)),
+            "batches": distillation.batches,
+            "mean_weighted_aux_loss_box_cls": (distillation.weighted_loss / max(1, distillation.batches)).tolist(),
+        }, indent=2), encoding="utf-8")
     print(f"CHECKPOINT_SHA256 {digest(best)}", flush=True)
 
 

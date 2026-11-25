@@ -12,6 +12,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "industrial_detector"))
 from evaluate import calculate_ap, eligibility, operating_point
+from distill import mean_response_loss, trusted_pairs
 from evaluate_v2 import forklift_diagnostics, quality
 from prepare import digest, normalize_box
 from prepare_v2 import crop_labels
@@ -19,11 +20,38 @@ from prepare_v3 import mirrored_consensus
 from prepare_verified_crops import prepare as prepare_verified_crops
 from rtsp_probe_worker import SinglePerception
 from train import freeze_person_outputs, mask_class_loss, mask_pseudo_class_loss
+from specialized import SpecializedClassifier
 
 from operix_engine.person_metrics import Prediction
 
 
 class IndustrialDetectorResearchTest(unittest.TestCase):
+    def test_distillation_rejects_far_ambiguous_and_duplicate_teacher_boxes(self):
+        truth = torch.tensor([[0., 0., 10., 10.], [2., 0., 12., 10.], [30., 30., 40., 40.]])
+        proposals = torch.tensor([[1., 0., 11., 10., .99], [50., 50., 60., 60., .99],
+                                  [30., 30., 40., 40., .75], [31., 30., 40., 40., .95]])
+        targets, responses = trusted_pairs(truth, proposals, .65)
+        self.assertEqual(targets.tolist(), [2])
+        torch.testing.assert_close(responses, proposals[2:3])
+
+    def test_balanced_distillation_does_not_weight_role_by_number_of_matches(self):
+        groups = [[torch.tensor(0.)] * 9, [torch.tensor(1.)]]
+        self.assertAlmostEqual(float(mean_response_loss(groups, balanced=True)), .5)
+        self.assertAlmostEqual(float(mean_response_loss(groups, balanced=False)), .1)
+
+    def test_specialized_head_preserves_logits_and_keeps_person_branch_frozen(self):
+        nn = torch.nn
+        tower = nn.Sequential(nn.Conv2d(4, 4, 1), nn.Sequential(nn.BatchNorm2d(4), nn.SiLU()),
+                              nn.Conv2d(4, 3, 1)).eval()
+        inputs = torch.ones(1, 4, 5, 5)
+        expected = tower(inputs).detach()
+        split = SpecializedClassifier(tower).eval()
+        torch.testing.assert_close(split(inputs), expected)
+        split.train()
+        self.assertFalse(split.person.training)
+        split(inputs).sum().backward()
+        self.assertTrue(all(p.grad is None for p in split.person.parameters()))
+        self.assertTrue(all(p.grad is not None for p in split.equipment.parameters()))
     def test_teacher_supervises_only_positive_assignments(self):
         logits = torch.zeros((1, 2, 3), requires_grad=True)
         labels = torch.tensor([[[1., 0., 0.], [0., 0., 0.]]])

@@ -2107,3 +2107,146 @@ Cámara 03 cambió de ejecución por fin natural del video. Edge verificó
 la capa de distancias, pantalla completa y el ancho móvil en ambos
 temas. Dos WebM de Cámara 02 (6,97 s cada uno) documentan el antes y
 después, junto con las métricas, ordinales de origen y capturas archivadas.
+
+### Detector unificado V5 a V7
+
+La auditoría del manifiesto V2 refinado contabilizó 2.081 entradas y 2.005
+archivos distintos al excluir los 76 recortes derivados. No encontró
+duplicados exactos. Un par PPE entre entrenamiento y validación compartía
+encuadre y pose, con distinto equipo de protección. Se conservó la
+comparación histórica de 503 imágenes y se agregó una sensibilidad de
+502 imágenes sin la variante de validación de ese par. La separación
+por instalación de LOCO se conserva. PPE no identifica instalaciones
+en su índice preparado. PERSON carece de anotaciones en LOCO y
+PALLET_JACK en PPE. De las cajas de transpaleta de entrenamiento, 393
+de 1.159 están en un mismo grupo de cámara LOCO. El porcentaje de borde
+del informe describe cajas recortadas por el encuadre y no mide oclusión.
+
+| Fuente | Uso o motivo de exclusión |
+| --- | --- |
+| [LOCO](https://github.com/tum-fml/loco) | CC0, equipos anotados. Minería adicional solo en instalaciones de entrenamiento. |
+| [Construction-PPE](https://docs.ultralytics.com/datasets/detect/construction-ppe/) | CC BY 4.0. Mezcla de capturas y material generado. Validación interna y sensibilidad por el par compartido. |
+| [Forklift v1 de Mohamed Traore](https://universe.roboflow.com/mohamed-traore-2ekkp/forklift-dsitv/dataset/1) | El archivo de entrenamiento del editor, previamente consultado, se reutilizó solo para desarrollo. Se preservaron las métricas históricas y se retiró toda pretensión de independencia futura de esa fuente. |
+| [Önal y Dandıl](https://data.mendeley.com/datasets/xjmtb22pff/1) y [SPARL](https://zenodo.org/records/16636916) | CCTV real. Las etiquetas clasifican comportamientos o actividades. Útiles para revisión y pruebas visuales, sin cajas independientes para el criterio final. |
+| [TOMIE](https://zenodo.org/records/7849183) y [TorWIC](https://github.com/Viky397/TorWICDataset) | TOMIE tiene proyecciones que fallaron la revisión. TorWIC agrupa carretilla/transpaleta y montacargas/camión y distribuye algunas etiquetas generadas por modelo. |
+| [SmartSpaces](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces) y [TalTech](https://data.taltech.ee/records/3ytc7-2z453) | Las escenas reales de SmartSpaces mantienen las referencias bajo reserva. TalTech es sintético y ya fue consultado. |
+| [Forklift, University of Maryland](https://universe.roboflow.com/university-of-maryland/forklift-u2ivk/dataset/1) y [Warehouse Objects](https://universe.roboflow.com/warehousedata/warehouse-objects-miafr) | Publicados como CC BY 4.0. La muestra de Maryland separa señalero de otros peatones y no es cobertura PERSON exhaustiva. Quedaron sin exportación verificada. El RF-DETR de Warehouse Objects tampoco se trató como referencia de precisión. |
+| [Warehouse Safety, MIno](https://universe.roboflow.com/mino-cxbrq/warehouse-safety-rhspm-ttlkh/dataset/1) | CC BY 4.0. Catálogo de 392 imágenes cenitales, con PERSON y FORKLIFT, 39 de prueba y sin aumentos declarados. La descarga y la separación por cámaras no se pudieron verificar. Se dejó sin consultar como posible reserva. |
+| [Pallets and People](https://universe.roboflow.com/pallets-and-people/pallets-people) y [Congestion Detection](https://universe.roboflow.com/uniqueidwarehouse-xcp0o/congestion_detection) | MIT y CC BY 4.0 respectivamente según sus fichas. El primero publica un RF-DETR y las tres clases relevantes, con instalación y cobertura por verificar. El segundo reúne varios datasets y dos etiquetas opacas, 0 y 1. Requiere desambiguar y deduplicar contra LOCO y otros datos de desarrollo antes de usarlo. |
+| [Multispectral Forklift Collision Avoidance](https://www.mdpi.com/1424-8220/22/20/7953) | Peatones reales desde el vehículo. El autor distribuye los datos previa solicitud para fines sin lucro. |
+| [DaRA](https://zenodo.org/records/10468175) | Las cámaras fijas registran un laboratorio logístico. Las etiquetas publicadas describen actividades y ubicación. No hay cajas exhaustivas de peatones y equipos en el contrato publicado. |
+
+Se inspeccionaron 18 detecciones candidatas halladas en 440 imágenes
+LOCO de grupos de entrenamiento. Diez negativos revisados cubren
+pallets apilados, parantes, estanterías y jaulas. Se rechazaron los
+indeterminados y los cortes con objetos ambiguos. Para V6 se añadieron
+290 imágenes con montacargas del archivo oficial de entrenamiento de
+Forklift v1. Se excluyeron un accesorio aislado y una toma dominada por
+la cabina tras inspección visual. Las cajas importadas son positivas
+con peso de clasificación 0,35. El resto de las clases y del fondo
+queda fuera de supervisión en esos archivos.
+
+V5 combina la pérdida YOLO habitual con destilación de respuestas.
+YOLO11m PERSON y FORKLIFT v2 permanecen congelados y ven el mismo lote
+transformado que el estudiante durante el entrenamiento. Cada propuesta
+debe corresponder a una anotación de la misma clase, por coincidencia
+mutua, IoU ≥ 0,70 y margen de IoU ≥ 0,10 respecto de la segunda
+anotación. Las predicciones ambiguas se descartan. Se transfiere una
+confianza suave por BCE y una corrección de caja por Smooth L1,
+normalizada por tamaño y ponderada por confianza. Ningún profesor
+interviene en validación ni en la inferencia del modelo guardado.
+La transferencia de características queda sin ensayar. Los profesores
+no comparten la misma geometría de capas y haría falta validar una
+proyección o una pérdida regional antes de atribuirle una mejora.
+
+V6 conserva el backbone, el neck y el regresor de cajas. Se divide el
+último bloque de clasificación entre PERSON y maquinaria. El bloque
+privado de PERSON queda congelado, aunque recibe características
+compartidas que pueden cambiar. Antes de entrenar, una entrada
+384 × 640 produjo salidas bit a bit iguales (1 × 7 × 5.040) en
+PyTorch. El prototipo pasó de 20.055.321 a 20.261.913 parámetros.
+El control V6 usa los mismos datos sin dividir el bloque. Todos los
+ajustes parten del mismo checkpoint V3 convencional.
+
+La comparación fija usa 384 × 640, NMS 0,45, e igual umbral por clase
+para todos los candidatos (PERSON 0,25, FORKLIFT 0,20, PALLET_JACK 0,10).
+El recall de montacargas pequeños utiliza 51 referencias de área
+normalizada menor a 0,025. Las 503 imágenes corresponden a validación
+interna, incluidas fuentes con supervisión parcial por clase.
+
+| Modelo | F1 PERSON | FORKLIFT VP/FP/FN | F1 FORKLIFT | AP50–95 FORKLIFT | Recall pequeños |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| V2 | 0,947 | 128/21/79 | 0,719 | 0,454 | 39,2 % |
+| V3 con replay | 0,948 | 137/31/70 | 0,731 | 0,479 | 49,0 % |
+| V3 convencional | 0,954 | 135/31/72 | 0,724 | 0,456 | 41,2 % |
+| V5 control | 0,956 | 134/28/73 | 0,726 | 0,446 | 41,2 % |
+| V5 destilación | 0,951 | 130/25/77 | 0,718 | 0,440 | 39,2 % |
+| V6 datos ampliados | 0,956 | 136/65/71 | 0,667 | 0,467 | 41,2 % |
+| V6 cabeza especializada | 0,958 | 136/54/71 | 0,685 | 0,462 | 41,2 % |
+| V7 destilación balanceada | 0,952 | 137/30/70 | 0,733 | 0,456 | 41,2 % |
+
+Excluir el par PPE cercanamente duplicado no cambia el resultado de
+FORKLIFT. V5 reduce tres falsos positivos y pierde cuatro verdaderos
+frente a su control. V6 recupera dos verdaderos con cualquiera de las
+cabezas. La rama especializada reduce once falsos positivos respecto del
+control V6, pero deja 26 adicionales respecto del control V5. En 120
+pares de forwards FP32 por variante en la RTX 3070, la cabeza especializada
+dio p50/p95 de 16,04/29,87 ms frente a 15,12/28,45 ms en la cabeza estándar.
+Se midió el forward con entrada residente 384 × 640, sin NMS ni RTSP.
+
+En las seis capturas CCTV de Önal y Dandıl usadas en desarrollo, ambas
+V6 vuelven a marcar una máquina fija en dos encuadres revisados y
+omiten dos montacargas visibles. La cabeza especializada asigna uno
+de esos montacargas a PALLET_JACK con confianza de 0,73. Es una
+inspección de casos, sin cajas de referencia publicadas. Las 48
+imágenes sintéticas de TalTech ya consultadas también quedaron separadas
+en los JSON como diagnóstico histórico.
+
+Para ampliar el entrenamiento, [Grounding DINO](https://github.com/IDEA-Research/GroundingDINO)
+puede proponer cajas por descripción y [SAM 2](https://github.com/facebookresearch/sam2)
+puede propagar máscaras en un video. Esta combinación se evaluó como
+opción de preparación de datos. Requeriría revisar desacuerdos y
+guardar la procedencia de cada propuesta. La coincidencia entre dos
+modelos no certifica el fondo ni sirve como referencia de precisión.
+La campaña usó minería con el detector local y revisión de negativos.
+
+El protocolo anterior de promoción se mantiene. La pérdida máxima
+aceptada en PERSON es de tres puntos frente a las referencias. FORKLIFT
+debe alcanzar precisión ≥ 0,60, recall ≥ 0,55 y a dos puntos o menos de
+LEGACY_DUAL, F1 al menos igual, y falsos positivos y duplicados sin
+aumento. La reserva debe incluir al menos 20 personas, 20 montacargas y
+12 montacargas pequeños con referencia real. Se requieren además
+comparaciones de localización y coste antes de pasar a ONNX y QA.
+
+V7 promedia la pérdida de destilación por clase y solo transfiere la
+caja si mejora el IoU con la anotación al menos 0,02 frente al estudiante.
+Durante 594 lotes, hubo 4.646 coincidencias PERSON y 360 FORKLIFT.
+El criterio geométrico conservó 741 y 12 casos respectivamente, contados
+por anotación en cada lote. Frente al control V5, se recuperaron tres
+verdaderos FORKLIFT con dos falsos positivos adicionales. La localización
+AP50–95 iguala a V3 convencional con el redondeo de la tabla y queda
+por debajo del V3 con replay. El recuerdo de montacargas pequeños quedó
+en 21/51 (V3 con replay: 25/51). En TalTech el F1 FORKLIFT fue 0,612
+frente a 0,643 de V2. En CCTV V7 mantiene el falso positivo de máquina
+fija de la primera captura y sigue omitiendo los dos montacargas
+revisados. PALLET_JACK quedó en 83 verdaderos, 83 falsos positivos y
+142 omisiones en el subconjunto internamente anotado. Sigue experimental.
+
+Las corridas usaron RTX 3070, Ultralytics 8.4.146 y CUDA FP32.
+Para reproducir el ajuste desde V3 convencional se usaron las opciones
+`--epochs 3 --batch 8 --size 512 --lr .00004 --freeze-backbone 10
+--patience 3 --fp32` de `train.py`. V5 añade `--teachers`; V6 cambia
+al manifiesto ampliado y solo la rama privada usa `--specialized`;
+V7 vuelve al manifiesto V2 refinado y añade `--balance-teachers` a V5.
+Se archivaron localmente, fuera de Git, los manifiestos, hashes,
+resultados por época, checkpoints y comparaciones de la campaña en
+`tmp/unified-breakthrough`. Se pueden continuar los experimentos
+desde los pesos conservados.
+
+La opción de menor riesgo para desbloquear una decisión es auditar la
+exportación original de Warehouse Safety, comprobar cámaras, secuencias,
+duplicados y cobertura contra los manifiestos históricos. Si queda bajo
+el mínimo, complementar con una instalación independiente y obtener
+cajas humanas revisadas antes de puntuar. Ni los datos de entrenamiento
+adicionales ni los seis casos CCTV cumplen ese criterio. No se exportó
+un candidato nuevo a ONNX ni se cambió el detector activo en 13000.
