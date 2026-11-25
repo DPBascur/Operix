@@ -102,11 +102,11 @@ anteriores describen el modelo de aquella fecha y no se modifican.
 `OPERIX_INPUT_HOST` apunta solo a demos autorizadas; por defecto `assets/demo`.
 No montar `Operix-experiments`, PERSON_FINAL_HOLDOUT_V2, TEST2, REAL_HOLDOUT_V2
 ni sus directorios padre. No se copia ningún video o peso al contexto/imagen.
-La carga manual desde la Web conserva el comportamiento nativo. Para activar la
-demo C, coloca el [video Box Pickup autorizado](../../assets/demo/v0.2.0/README.md#input-y-configuración)
-como `warehouse_box_pickup.mp4` en `OPERIX_INPUT_HOST`. Docker lo busca en
-`/data/input/warehouse_box_pickup.mp4`; `OPERIX_DOCKER_DEMO_C` admite otra ruta
-interna explícita. Recrea el servicio `backend` para aplicar el cambio.
+La carga manual desde la Web conserva el comportamiento nativo. Para habilitar
+las demos A, B y C, usa el [catálogo de grabaciones industriales reales](../rtsp-lab/README.md#perfiles-de-análisis-con-grabaciones-reales)
+y agrega `compose.industrial-demos.yaml` después de las sobrecapas del
+laboratorio. Recrea el Backend con los mismos volúmenes. El Compose base inicia
+sin archivos de demostración configurados.
 
 ## Persistencia y límites
 

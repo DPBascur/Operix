@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "view_id": "cctv_proximidad",
+  "coordinate_system": "normalized",
+  "zones": [
+    {"zone_id": "demo_cctv_pasillo", "name": "Pasillo de demostración", "polygon": [[0.36, 0.35], [0.92, 0.35], [0.92, 0.7], [0.36, 0.7]]}
+  ],
+  "rules": [
+    {"rule_id": "cctv_demo_proximidad", "version": 1, "enabled": true,
+     "parameters": {"kind": "person_forklift_proximity", "zone_id": "demo_cctv_pasillo", "max_distance": 0.22, "minimum_duration_seconds": 0.4, "distance_unit": "normalized", "motion_condition": "any", "exclude_possible_occupant": true}}
+  ]
+}

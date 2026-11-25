@@ -1,0 +1,5 @@
+# Use after the RTSP laboratory overlays. The authorized catalog is mounted read-only there.
+services:
+  backend:
+    environment:
+      OPERIX_INDUSTRIAL_DEMO_DIR: /data/rtsp-lab

@@ -38,9 +38,17 @@ PROFILES = {
     "C": ROOT / "engine/config/examples/warehouse-box-pickup-zone-dwell.json",
 }
 PROFILE_NAMES = {
-    "A": "Warehouse fire",
-    "B": "Forklift / human",
-    "C": "Box pickup",
+    "A": "Proximidad peatón–montacargas",
+    "B": "Ingreso observado en zona",
+    "C": "Observación de operación logística",
+}
+INDUSTRIAL_DEMOS = {
+    "A": ("cctv_proximidad", "Onal-Dandil-7_te6-operix.mp4",
+          "4cc19635f469449e0ae2d88f57f7b5cce9a4a595c07bc21714f09c00f688944d"),
+    "B": ("cctv_ingreso", "Onal-Dandil-7_tr21.mp4",
+          "a373103474bde192774aefeb89142226b5ec4c829a34034620c343fb2422c79d"),
+    "C": ("cctv_observacion", "NVIDIA-W026-C00-540p15.mp4",
+          "9c0c7da989a9c651a4c52288dfc4ac5389cce41d69ff4b5fb9d3dc5dc923bca6"),
 }
 PROFILE_DEMO_SETTINGS = {
     "A": ("warehouse_fire", "OPERIX_DEMO_VIDEO_A"),
@@ -339,6 +347,17 @@ class AnalysisSession:
 def _demo_path(profile: str) -> tuple[str, Path] | None:
     if not isinstance(profile, str) or profile not in PROFILE_DEMO_SETTINGS:
         raise ValueError("Perfil de zona no válido")
+    if directory := os.environ.get("OPERIX_INDUSTRIAL_DEMO_DIR"):
+        from .lab_control import checked_hash, file_identity
+
+        source_id, filename, sha256 = INDUSTRIAL_DEMOS[profile]
+        path = Path(directory) / filename
+        try:
+            if not path.is_symlink() and checked_hash(path, file_identity(path.lstat())) == sha256:
+                return source_id, path
+        except (OSError, ValueError):
+            pass
+        return None
     source_id, setting_name = PROFILE_DEMO_SETTINGS[profile]
     raw_path = str(getattr(settings, setting_name, "")).strip()
     if not raw_path:
@@ -349,8 +368,11 @@ def _demo_path(profile: str) -> tuple[str, Path] | None:
     return source_id, path
 
 
-def read_profile(profile: str) -> dict:
-    return json.loads(PROFILES[profile].read_text(encoding="utf-8"))
+def read_profile(profile: str, demo_source_id: str | None = None) -> dict:
+    path = PROFILES[profile]
+    if demo_source_id == INDUSTRIAL_DEMOS[profile][0]:
+        path = path.with_name(f"industrial-demo-{profile.lower()}.json")
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def rule_snapshot(config: dict) -> dict:
@@ -368,7 +390,7 @@ def profile_catalog() -> list[dict]:
     for profile in PROFILES:
         demo = _demo_path(profile)
         try:
-            configuration = rule_snapshot(read_profile(profile))
+            configuration = rule_snapshot(read_profile(profile, demo[0] if demo else None))
         except (OSError, ValueError, KeyError):
             configuration = None
         result.append({
@@ -416,7 +438,7 @@ def _register_session(
 ) -> AnalysisSession:
     if expected_sha256 is not None and source_sha256 != expected_sha256:
         raise ValueError("El video no coincide con el SHA-256 de la fuente seleccionada")
-    profile_config = read_profile(profile)
+    profile_config = read_profile(profile, demo_source_id)
     zone = (profile_config["zones"][0]
             if source_kind == "demo" else
             {"zone_id": "custom_zone", "name": "Zona del video", "polygon": []})

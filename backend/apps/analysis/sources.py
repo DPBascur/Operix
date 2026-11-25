@@ -46,7 +46,7 @@ def serialize_source(source_sha256, source, revision, session, entries, can_edit
         demo_source_id = source.demo_source_id if source else None
         if demo_source_id is not None and revision is None:
             try:
-                document = read_profile(profile)
+                document = read_profile(profile, demo_source_id)
             except (OSError, ValueError, KeyError):
                 pass
     if revision is not None:

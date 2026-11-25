@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "view_id": "cctv_ingreso",
+  "coordinate_system": "normalized",
+  "zones": [
+    {"zone_id": "sector_paso", "name": "Sector de paso · zona de demostración", "purpose": "restricted", "polygon": [[0.45, 0.5], [0.98, 0.56], [0.98, 0.92], [0.45, 0.92]]}
+  ],
+  "rules": [
+    {"rule_id": "cctv_demo_ingreso", "version": 1, "enabled": true,
+     "parameters": {"kind": "zone_entry", "zone_id": "sector_paso", "class_name": "person", "min_duration_s": 0}}
+  ]
+}

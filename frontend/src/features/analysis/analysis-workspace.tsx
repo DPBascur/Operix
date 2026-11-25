@@ -835,10 +835,10 @@ export function AnalysisWorkspace({
                 profiles.find((candidate) => candidate.id === item)
                   ?.display_name ??
                 (item === "A"
-                  ? "Warehouse fire"
+                  ? "Proximidad peatón–montacargas"
                   : item === "B"
-                    ? "Nearmiss"
-                    : "Box pickup");
+                    ? "Ingreso observado en zona"
+                    : "Observación de operación logística");
 
               return (
                 <button
@@ -1865,8 +1865,8 @@ export function AnalysisWorkspace({
             >
               {session && (
                 <MetricSummary label="Resumen de percepción" metrics={[
-                  { label: "Detecciones de personas", value: session.run > 0 ? session.person_detections : null },
-                  { label: "Detecciones de montacargas", value: session.run > 0 ? session.forklift_detections : null },
+                  { label: "Personas · último fotograma analizado", value: session.run > 0 ? session.person_detections : null },
+                  { label: "Montacargas · último fotograma analizado", value: session.run > 0 ? session.forklift_detections : null },
                   { label: "FPS de procesamiento", value: session.fps?.toFixed(2) },
                   { label: "Progreso", value: percent == null ? null : `${percent.toFixed(1)} %` },
                 ]} />

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "view_id": "cctv_observacion",
+  "coordinate_system": "normalized",
+  "zones": [
+    {"zone_id": "encuadre", "name": "Encuadre completo", "purpose": "observation", "polygon": [[0, 0], [1, 0], [1, 1], [0, 1]]}
+  ],
+  "rules": []
+}

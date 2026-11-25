@@ -128,11 +128,6 @@ OPERIX_CLIP_WINDOW_SECONDS = max(1, min(10, int(os.environ.get("OPERIX_CLIP_WIND
 OPERIX_CLIP_MAX_BYTES = 12 * 1024 * 1024
 OPERIX_CLIP_TOTAL_BYTES = 512 * 1024 * 1024
 OPERIX_CLIP_MAX_PER_RUN = 24
-OPERIX_DEMO_VIDEO_A = os.environ.get("OPERIX_DEMO_VIDEO_A", "").strip() or str(
-    BASE_DIR.parent / "assets/demo/warehouse_fire_ceiling04.mp4"
-)
-OPERIX_DEMO_VIDEO_B = os.environ.get("OPERIX_DEMO_VIDEO_B", "").strip() or str(
-    BASE_DIR.parent / "assets/demo/forklift_human_nearmiss_ceiling00.mp4"
-)
-# C se mantiene fuera del repositorio; cada instalación local decide su ruta.
+OPERIX_DEMO_VIDEO_A = os.environ.get("OPERIX_DEMO_VIDEO_A", "")
+OPERIX_DEMO_VIDEO_B = os.environ.get("OPERIX_DEMO_VIDEO_B", "")
 OPERIX_DEMO_VIDEO_C = os.environ.get("OPERIX_DEMO_VIDEO_C", "")

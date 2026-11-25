@@ -42,9 +42,6 @@ services:
       OPERIX_MEDIA_ROOT: /var/lib/operix/media
       OPERIX_PERSON_WEIGHTS: /data/weights/person.pt
       OPERIX_FORKLIFT_WEIGHTS: /data/weights/forklift.pt
-      OPERIX_DEMO_VIDEO_A: /data/input/warehouse_fire_ceiling04.mp4
-      OPERIX_DEMO_VIDEO_B: /data/input/forklift_human_nearmiss_ceiling00.mp4
-      OPERIX_DEMO_VIDEO_C: ${OPERIX_DOCKER_DEMO_C:-/data/input/warehouse_box_pickup.mp4}
     ports:
       - "127.0.0.1:${OPERIX_BACKEND_PORT:-18000}:8000"
     volumes:
