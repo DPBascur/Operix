@@ -94,6 +94,23 @@ class EventEvidenceStagesTests(APITestCase):
         status_for(self.run)
         self.assertEqual(Event.objects.get().evidence_stage, Event.EvidenceStage.FINISHED)
 
+    def test_restarted_publisher_recovers_event_id_and_attaches_evidence_once(self):
+        detail = self.register()  # Commit succeeded even if the client lost the response.
+        status_for(self.run)  # The new server has no live process for this run.
+        self.assertEqual(self.reader.get(detail).data["evidence_status"], "failed")
+
+        restarted = APIClient()
+        restarted.credentials(HTTP_AUTHORIZATION=f"Bearer {settings.OPERIX_EVENT_PUBLISH_TOKEN}")
+        reply = restarted.post(self.events, self.payload, format="json")
+        self.assertEqual(reply.status_code, 200, reply.data)
+        self.assertFalse(reply.data["created"])
+        self.assertEqual(detail, f"{self.events}{reply.data['id']}/")
+        self.assertEqual(Event.objects.count(), 1)
+        self.assertEqual(self.upload(restarted, detail).status_code, 201)
+        self.assertEqual(self.upload(restarted, detail).status_code, 200)
+        self.assertEqual(len(list(self.media.rglob("*.png"))), 1)
+        self.assertEqual(self.reader.get(detail).data["evidence_status"], "partial")
+
     def test_historical_and_offline_events_keep_previous_contract(self):
         response = self.worker.post(self.events, pair_payload() | {"evidence_pending": True}, format="json")
         self.assertEqual(response.status_code, 400)
