@@ -1,10 +1,33 @@
 # Notas de release
 
-## v0.2.0 — MVP integrado / cierre técnico de Etapa 3
+## v0.2.0 — Candidato para demostración académica
 
-**Candidato validado, no publicado.** El gate final está aprobado; quedan pendientes
-la promoción de main y la creación del tag. Estas notas no crean
-un GitHub Release ni cambian las versiones declaradas de los paquetes.
+La instancia local de demostración usa **UNIFIED V7** con ONNX Runtime CUDA y
+ByteTrack. **LEGACY_DUAL** conserva los detectores separados como respaldo.
+Consulta la [instalación y arquitectura vigentes](README.md) y el
+[procedimiento de recuperación](deployment/rtsp-lab/README.md#recuperar-legacy_dual).
+
+- Tres cámaras de laboratorio con playlists de grabaciones autorizadas y
+  monitoreo LL-HLS. Cada emisión conserva su revisión espacial y contexto de
+  seguimiento. Las posiciones estimadas se dibujan y quedan fuera de las reglas.
+- Seis perfiles de análisis, entre grabaciones reales y simulaciones. Los
+  eventos se guardan en PostgreSQL y sus expedientes enlazan el PNG, el clip y
+  la regla aplicada. Un evento expresa una condición configurada que requiere
+  revisión humana.
+- Los overlays indican `norm.` sin calibración métrica y permiten mostrar
+  metros aproximados con una calibración física válida. Continúa pendiente
+  la validación de exactitud y reconocimiento en terreno.
+- Se observaron omisiones y falsos positivos sobre maquinaria fija. Subir la
+  resolución recuperó detecciones en un conjunto y aumentó los falsos
+  positivos en otro. Se conserva el perfil V7 evaluado para la demostración.
+
+La publicación de `dev`, la promoción a `main` y el etiquetado son decisiones
+separadas. Estas notas mantienen la versión candidata de los paquetes.
+
+## v0.2.0 — Antecedente del MVP integrado de Etapa 3
+
+Esta sección conserva el alcance y los resultados del cierre técnico de
+Etapa 3. El estado operativo de la demostración figura en la sección anterior.
 
 ### Alcance
 
@@ -22,8 +45,8 @@ un GitHub Release ni cambian las versiones declaradas de los paquetes.
   obsoletas; correcciones del replay multiclase y entradas numéricas extremas.
 - Ruta nativa y Docker Compose CPU/GPU, con pesos externos read-only.
 - Geometría de botones compartida entre light/dark, conservando colores y estados.
-- [Captura actual](assets/demo/v0.2.0/README.md) del flujo real como único asset
-  visual principal; el video actual de QA permanece fuera de Git. El
+- [Captura histórica de Etapa 3](assets/demo/v0.2.0/README.md) del flujo real.
+  El video de esa prueba permanece fuera de Git. El
   [PoC v0.1.0](assets/demo/README.md) permanece identificado como histórico.
 
 ### Evidencia y regresión

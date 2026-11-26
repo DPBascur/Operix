@@ -523,7 +523,7 @@ antes de ofrecerlos y mantiene las revisiones y expedientes históricos.
 
 | Perfil | Grabación autorizada | Resultado esperado con la configuración inicial |
 |---|---|---|
-| A · Proximidad | `Onal-Dandil-7_te6-operix.mp4`, copia sin recodificación de la grabación de Embonor | Personas y montacargas, distancia normalizada, evento si se satisface 0,22 norm. durante al menos 0,4 s en el sector definido. |
+| A · Proximidad | `Onal-Dandil-7_te6-operix.mp4`, copia sin recodificación del clip de Önal y Dandıl usado en la demostración para Embonor | Personas y montacargas, distancia normalizada, evento si se satisface 0,22 norm. durante al menos 0,4 s en el sector definido. |
 | B · Ingreso observado | `Onal-Dandil-7_tr21.mp4` a 540p/15 FPS | La regla exige observar al peatón fuera antes de observarlo dentro del sector configurado. |
 | C · Observación | `NVIDIA-W026-C00-540p15.mp4`, cámara 0000 del almacén físico 026 | Detecciones y seguimiento durante 60 s. Este perfil comienza sin reglas de evento. |
 

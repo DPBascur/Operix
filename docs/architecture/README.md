@@ -29,4 +29,10 @@ Los cinco ADR aprobados forman parte de la arquitectura base v1.0. Sus textos or
 
 ## Vigencia
 
-La arquitectura v1.0 permanece cerrada. Esta incorporación publica artefactos existentes; no modifica el diseño ni certifica que el Backend/API, la aplicación web, PostgreSQL o el despliegue representado estén terminados. El Motor implementa actualmente solo las capacidades indicadas en el README principal.
+Los diagramas y ADR conservan la línea base v1.0. En la instancia de
+demostración actual, Next.js consulta la API y la evidencia protegida de
+Django, PostgreSQL almacena eventos y revisiones, y un worker analiza cada
+emisión RTSP del laboratorio. MediaMTX distribuye LL-HLS y el navegador
+sincroniza los overlays con marcas de emisión. Consulta el
+[estado de la implementación](../../README.md) y las
+[guías de despliegue y recuperación](../../deployment/rtsp-lab/README.md).

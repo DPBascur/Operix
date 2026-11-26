@@ -44,8 +44,8 @@ archivos de [simulación](assets/demo/README.md).
 
 ## Capturas de la aplicación
 
-Las capturas se tomaron en Edge con el entorno de verificación. Los conteos
-corresponden a ejecuciones de prueba sobre grabaciones autorizadas.
+Las capturas se tomaron en Edge durante las pruebas en QA y en la instancia
+local. Los conteos corresponden a esas ejecuciones sobre grabaciones autorizadas.
 
 ![Centro operativo con eventos persistidos y conteos por cámara](assets/demo/current/dashboard.jpg)
 
@@ -70,7 +70,7 @@ corresponden a ejecuciones de prueba sobre grabaciones autorizadas.
 <details>
 <summary>Control de cámaras, zonas y calibración</summary>
 
-![Asignación de grabaciones y orden de reproducción](assets/demo/current/playlists.jpg)
+![Control de cámaras con la opción Cargar listas de demostración](assets/demo/current/playlists.jpg)
 ![Captura ArUco, zonas y reglas de una grabación sin escala física](assets/demo/current/calibracion.jpg)
 
 </details>
@@ -142,6 +142,9 @@ docker compose -f compose.yaml -f compose.gpu.yaml up -d --build
 [Guía Docker](deployment/docker/README.md): pesos/input read-only, puertos loopback
 y volúmenes propios. Los modelos no se incluyen en la imagen. La configuración CPU
 levanta la infraestructura; no convierte el worker CUDA en un worker de inferencia CPU.
+Para reproducir el perfil activo en la instancia de demostración, consulta la
+[configuración RTSP y GPU](deployment/rtsp-lab/README.md) y su
+[procedimiento de recuperación a LEGACY_DUAL](deployment/rtsp-lab/README.md#recuperar-legacy_dual).
 PostgreSQL conserva eventos, configuraciones y snapshots. Los volúmenes conservan PNG y clips. Las sesiones de análisis de archivo son temporales.
 **`docker compose down -v` elimina los volúmenes y sus datos.**
 
@@ -157,7 +160,10 @@ presentación en el navegador.
 
 - PERSON y FORKLIFT pueden omitirse o confundirse según el encuadre, el tamaño
   y la oclusión. PALLET_JACK se visualiza como clasificación experimental.
-  El seguimiento usa identificadores temporales por ejecución.
+  En Önal 7_tr21 se omitió una condición de proximidad entre repeticiones y
+  se observó una detección FORKLIFT sobre maquinaria fija. Comprueba los
+  objetos en el PNG y el clip. El seguimiento usa identificadores temporales
+  por ejecución.
 - `norm.` indica una distancia en espacio de imagen. Los metros aproximados
   requieren calibración física válida para la cámara y el plano. La
   comprobación geométrica controlada queda separada de la exactitud en terreno.
