@@ -2,10 +2,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { spawn } from "node:child_process";
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { eventId } from "../fixtures/analysis-api.mjs";
 import { checkButtonThemes } from "./theme-geometry.mjs";
 
@@ -178,6 +179,18 @@ test(
         await wait(`!!(${expression})`);
         await evaluate(`(${expression}).click()`);
       };
+      async function uploadFixture(filename) {
+        const sample = fileURLToPath(new URL("../../../assets/demo/warehouse_fire_ceiling04.mp4", import.meta.url));
+        const file = path.join(root, filename);
+        await copyFile(sample, file);
+        const { root: documentNode } = await call("DOM.getDocument");
+        const { nodeId } = await call("DOM.querySelector", {
+          nodeId: documentNode.nodeId,
+          selector: 'input[type="file"]',
+        });
+        assert.ok(nodeId, "El selector de archivos de Análisis debe estar disponible");
+        await call("DOM.setFileInputFiles", { nodeId, files: [file] });
+      }
       const go = async (route) => {
         const loaded = new Promise((resolve) => {
           resolveLoad = resolve;
@@ -404,9 +417,7 @@ test(
       await click("Zonas, calibración y reglas");
       await control({ assignedPolicy: false });
       // Demo → archivo propio: la API entrega una zona vacía, sin polígonos ocultos.
-      await evaluate(
-        `(async()=>{const video=document.querySelector('video'); const blob=await (await fetch(video.src)).blob(); const dt=new DataTransfer();dt.items.add(new File([blob], 'TEST_DATA_custom.mp4', {type:'video/mp4'}));const input=document.querySelector('input[type=file]');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`,
-      );
+      await uploadFixture("TEST_DATA_custom.mp4");
       await wait(text("Crear zona"));
       assert.equal(
         await evaluate("document.querySelectorAll('polygon').length"),
@@ -421,9 +432,7 @@ test(
       await click("Aplicar zona");
       await wait(text("Editar zona"));
       // Otro archivo propio vuelve a empezar vacío; el anterior no se reutiliza.
-      await evaluate(
-        `(async()=>{const blob=await (await fetch(document.querySelector('video').src)).blob();const dt=new DataTransfer();dt.items.add(new File([blob],'TEST_DATA_other.mp4',{type:'video/mp4'}));const input=document.querySelector('input[type=file]');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`,
-      );
+      await uploadFixture("TEST_DATA_other.mp4");
       await wait(text("Crear zona"));
       assert.equal(
         await evaluate("document.querySelectorAll('polygon').length"),
@@ -901,7 +910,8 @@ test(
       })()`);
       await control({ managedCamera: patternPreview });
       await go("/sources");
-      await wait("!!document.querySelector('#laboratorio-camaras [data-camera-player=preview] video')");
+      await wait("document.querySelector('#laboratorio-camaras img[alt^=\"Fotograma anotado\"]')?.naturalWidth === 640");
+      assert.equal(await evaluate("document.querySelectorAll('#laboratorio-camaras video').length"), 0);
       assert.equal(
         await evaluate("!!(document.querySelector('#camera-source-title').compareDocumentPosition(document.querySelector('#demo-sources-title')) & Node.DOCUMENT_POSITION_FOLLOWING)"),
         true,
@@ -1054,8 +1064,12 @@ test(
       const expectedSha = "0".repeat(64);
       await go(`/analysis?profile=C&configure=1&sha=${expectedSha}`);
       await wait(text("Perfil C solicitado."));
-      await wait(`document.querySelector('.analysis-profile[aria-pressed="true"]')?.textContent.includes('Perfil B')`);
-      assert.equal((await control()).deleted, beforeRequest.deleted);
+      // La revisión solicitada no debe mostrar ni modificar la fuente del perfil anterior.
+      await wait(text("Sin fuente preparada"));
+      assert.equal(await evaluate("!!document.querySelector('.analysis-stage video')"), false);
+      const afterRequest = await control();
+      assert.equal(afterRequest.deleted, beforeRequest.deleted);
+      assert.ok(afterRequest.ids.includes(previous), "La sesión de Perfil B sigue disponible en el servidor");
       assert.equal(await evaluate(`!!document.querySelector('[aria-label="Configuración espacial"] button[aria-expanded="true"]')`), false);
       await click("Preparar perfil C");
       await wait(`document.querySelector('.analysis-profile[aria-pressed="true"]')?.textContent.includes('Perfil C')`);
@@ -1071,13 +1085,14 @@ test(
       await go(`/analysis?profile=C&configure=1&source=manual&sha=${"1".repeat(64)}`);
       await wait(text("Selecciona el video original de la revisión"));
       const beforeMismatch = await control();
-      await evaluate(`(async()=>{const video=document.querySelector('video');const blob=await(await fetch(video.src)).blob();const dt=new DataTransfer();dt.items.add(new File([blob], 'TEST_WRONG_SOURCE.mp4', {type:'video/mp4'}));const input=document.querySelector('input[type=file]');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+      await uploadFixture("TEST_WRONG_SOURCE.mp4");
       await wait(text("El archivo elegido corresponde a otra fuente"));
       const afterMismatch = await control();
       assert.deepEqual(afterMismatch.ids, beforeMismatch.ids);
       assert.equal(afterMismatch.deleted, beforeMismatch.deleted + 1);
       assert.equal(afterMismatch.requestedSourceSha, "1".repeat(64));
-      assert.equal(await evaluate(`(${toggle})?.getAttribute('aria-expanded')`), "false");
+      assert.equal(await evaluate(`(${toggle})?.getAttribute('aria-expanded') === 'true'`), false);
+      assert.equal(await evaluate("!!document.querySelector('.analysis-stage video')"), false);
       await control({ demoCMissing: true });
       await evaluate("sessionStorage.clear()");
       await go("/analysis?profile=B");

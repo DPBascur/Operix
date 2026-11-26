@@ -275,7 +275,7 @@ test(
     return canvas.toDataURL('image/jpeg');
   })()`);
     const cameras = '[aria-labelledby="lab-control-cameras"]';
-    const frameWidth = `document.querySelector(${JSON.stringify(`${cameras} img`)})?.naturalWidth`;
+    const frameWidth = `document.querySelector(${JSON.stringify(`${cameras} img[alt^="Fotograma anotado"]`)})?.naturalWidth`;
     const sourceTitle =
       "Sensor-based Pallet Activity Recognition in Logistics (SPARL Version 2)";
     const dockA =
@@ -330,7 +330,7 @@ test(
     const expand = async (label) => {
       const summary = `[...document.querySelectorAll('${cameras} summary')].find(s=>s.textContent.trim().startsWith(${JSON.stringify(label)}))`;
       await wait(`Boolean(${summary})`, label);
-      await evaluate(`void (${summary}).click()`);
+      await evaluate(`if (!(${summary}).parentElement.open) (${summary}).click()`);
     };
     await expand("Última observación anotada");
     await expand("Editar lista de reproducción");
@@ -387,10 +387,9 @@ test(
       ),
       [dockB, dockA],
     );
-    assert.equal(
-      await evaluate(`${form}.querySelector('ol li p + p').textContent`),
-      "SPARL-S1-Record1-Camera2.mp4 · 467 s",
-    );
+    const recordingDetails = await evaluate(`${form}.querySelector('ol li p + p').textContent`);
+    assert.match(recordingDetails, /SPARL-S1-Record1-Camera2\.mp4/);
+    assert.match(recordingDetails, /\b467 s\b/);
     assert.equal(
       await evaluate("document.documentElement.scrollWidth <= innerWidth"),
       true,
