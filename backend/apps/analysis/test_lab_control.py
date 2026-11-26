@@ -93,8 +93,18 @@ class ManagedLabTests(APITestCase):
                           "zones": [scenario["zone"]], "rules": [scenario["rule"]]},
             )
         plan = lab_control.demonstration_playlists(catalog, captures, revisions)
-        self.assertEqual(plan["lab-cam-01"], {"media_ids": ["onal-7-tr21", "nvidia-w026-c00"], "repeat": True})
-        self.assertTrue(plan["lab-cam-02"]["repeat"])
+        self.assertEqual(plan["lab-cam-01"], {"media_ids": ["nvidia-w026-c02", "nvidia-w026-c00"], "repeat": True})
+        self.assertEqual(plan["lab-cam-02"], {"media_ids": ["nvidia-w027-c05"], "repeat": True})
+        # Saving the same reviewed rules in installations with different history
+        # assigns different version numbers.
+        for revision in revisions.values():
+            revision.document["rules"] = [{**revision.document["rules"][0], "version": 12}]
+        self.assertEqual(lab_control.demonstration_playlists(catalog, captures, revisions), plan)
+        rules = revisions[("lab-cam-02", "entry")].document["rules"]
+        rule = rules[0]
+        rules[0] = {**rule, "parameters": {**rule["parameters"], "class_name": "forklift"}}
+        self.assertIsNone(lab_control.demonstration_playlists(catalog, captures, revisions))
+        rules[0] = rule
         revisions[("lab-cam-03", "negative")].document = {}
         self.assertIsNone(lab_control.demonstration_playlists(catalog, captures, revisions))
 

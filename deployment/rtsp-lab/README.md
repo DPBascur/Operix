@@ -555,14 +555,38 @@ recupera si coincide su firma de captura. Las cámaras físicas conservan
 su configuración por cámara y su comprobación de encuadre.
 
 Las [configuraciones experimentales](recording-scenarios.json) fijan la
-huella, geometría y regla de cada demostración. Para reproducir la
-prueba usa esta selección temporal:
+huella, geometría y parámetros de cada demostración. Django asigna la versión
+de regla a partir del historial de cada cámara y la conserva en el expediente.
+Para reproducir la prueba usa esta selección temporal:
 
 | Cámara | Orden de grabaciones y regla |
 |---|---|
-| 01 | `onal-7-tr21` con proximidad, luego `nvidia-w026-c00` con permanencia y repetición activada. |
-| 02 | `onal-7-tr21` con ingreso observado. |
+| 01 | `nvidia-w026-c02` con proximidad en el acceso al pasillo, luego `nvidia-w026-c00` con permanencia. |
+| 02 | `nvidia-w027-c05` con ingreso observado de un peatón. |
 | 03 | `nvidia-w027-c06` con proximidad. Este escenario negativo contiene peatones y robots móviles. |
+
+Activa la repetición en las tres listas. La zona de C02 delimita el acceso
+peatonal de esta grabación. Sus resultados se interpretan dentro de esa zona.
+Önal 7_tr21 conserva valor para reproducir falsas detecciones sobre
+maquinaria fija y permanece en el catálogo.
+
+Para preparar C05, usa [Camera_0005.mp4 de Warehouse 027 (NVIDIA, CC BY 4.0)](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces/blob/d38193be60906679124732a4be9a6516821e2bed/MTMC_Tracking_2026/test/Warehouse_027/videos/Camera_0005.mp4).
+El original tiene SHA-256
+`87d37341d65464f48d1d028f63b80279d302bf341d429d73df9bf55353bd1632`.
+La conversión validada usa FFmpeg 5.1.9 de Debian 12 y conserva los 60 segundos.
+
+```sh
+ffmpeg -threads 2 -i Camera_0005.mp4 -map 0:v:0 \
+  -vf 'fps=15,scale=960:540:flags=bicubic,setsar=1' -an \
+  -c:v libx264 -preset veryfast -crf 16 -pix_fmt yuv420p \
+  -threads 2 -g 15 -movflags +faststart NVIDIA-W027-C05-540p15.mp4
+```
+
+Registra el archivo en el manifiesto del catálogo como `nvidia-w027-c05`
+con autor NVIDIA y licencia CC BY 4.0. Su huella debe coincidir con la
+de `recording-scenarios.json` para recuperar la revisión validada. Si una
+versión distinta del codificador produce otra huella, revisa esa copia y
+su configuración espacial antes de habilitar reglas.
 
 Marca las revisiones como demostración experimental. Los valores son
 parámetros de ensayo y las distancias son normalizadas. En el perfil A

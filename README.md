@@ -19,12 +19,12 @@ para determinar qué ocurrió.
    las listas actuales. Pulsa **Cargar listas de demostración**, confirma el
    reemplazo de las tres listas y activa el laboratorio. La opción aparece
    cuando están disponibles las grabaciones y revisiones espaciales verificadas.
-   Cámara 01 reproduce «Önal 7_tr21 → Warehouse 026 C00». Cámara 02 reproduce
-   «Önal 7_tr21» con una regla de ingreso. Cámara 03 reproduce «Warehouse
+   Cámara 01 reproduce «Warehouse 026 C02 → C00», con proximidad en el acceso
+   al pasillo y permanencia, respectivamente. Cámara 02 reproduce
+   «Warehouse 027 C05» con una regla de ingreso. Cámara 03 reproduce «Warehouse
    027 C06» como control negativo de proximidad. Las tres listas se repiten.
    Cada transición conserva su propia configuración y puede pausar la señal
-   mientras se prepara la grabación siguiente. La detección de proximidad
-   de Cámara 01 puede variar entre repeticiones. Revisa los objetos marcados
+   mientras se prepara la grabación siguiente. Revisa los objetos marcados
    en el expediente antes de interpretar una condición.
 3. **Fuentes** muestra el inventario y sus miniaturas. **Monitoreo** muestra las
    señales activas y las condiciones registradas. Abre **Pantalla de vigilancia**
@@ -160,8 +160,10 @@ presentación en el navegador.
 
 - PERSON y FORKLIFT pueden omitirse o confundirse según el encuadre, el tamaño
   y la oclusión. PALLET_JACK se visualiza como clasificación experimental.
-  En Önal 7_tr21 se omitió una condición de proximidad entre repeticiones y
-  se observó una detección FORKLIFT sobre maquinaria fija. Comprueba los
+  Önal 7_tr21 queda en el catálogo para evaluación. En esa grabación se
+  omitió una condición de proximidad entre repeticiones y se observó una
+  detección FORKLIFT sobre maquinaria fija. En Warehouse 027 C05 todavía
+  aparecen falsos positivos breves de FORKLIFT. Comprueba los
   objetos en el PNG y el clip. El seguimiento usa identificadores temporales
   por ejecución.
 - `norm.` indica una distancia en espacio de imagen. Los metros aproximados

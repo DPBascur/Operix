@@ -501,11 +501,18 @@ def demonstration_playlists(catalog, captures, revisions):
                 sha256 = scenario["source_sha256"]
                 saved = revisions.get((camera_id, captures.get((camera_id, media_id))))
                 if (catalog[media_id]["sha256"] != sha256 or not saved
-                        or not saved.demonstration or saved.source_sha256 != sha256
-                        or saved.document != {
-                            "schema_version": 1, "view_id": camera_id, "coordinate_system": "normalized",
-                            "zones": [scenario["zone"]], "rules": [scenario["rule"]],
-                        }):
+                        or not saved.demonstration or saved.source_sha256 != sha256):
+                    return None
+                # Rule versions are assigned from each camera's history when saved.
+                # Compare the reviewed rule content and retain its stored version.
+                rules = saved.document["rules"]
+                if len(rules) != 1 or type(rules[0]["version"]) is not int or rules[0]["version"] < 1:
+                    return None
+                expected_rule = {**scenario["rule"], "version": rules[0]["version"]}
+                if saved.document != {
+                    "schema_version": 1, "view_id": camera_id, "coordinate_system": "normalized",
+                    "zones": [scenario["zone"]], "rules": [expected_rule],
+                }:
                     return None
                 media_ids.append(media_id)
             playlists[camera_id] = {"media_ids": media_ids, "repeat": True}

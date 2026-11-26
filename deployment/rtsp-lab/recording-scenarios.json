@@ -1,15 +1,15 @@
 {
   "proximity": {
-    "media_id": "onal-7-tr21",
-    "source_sha256": "a373103474bde192774aefeb89142226b5ec4c829a34034620c343fb2422c79d",
-    "zone": {"zone_id": "frame", "name": "Encuadre de la demostración", "purpose": "observation", "polygon": [[0,0],[1,0],[1,1],[0,1]]},
-    "rule": {"rule_id": "recording_demo_proximity", "enabled": true, "version": 1, "parameters": {"kind": "person_forklift_proximity", "zone_id": "frame", "max_distance": 0.22, "minimum_duration_seconds": 0.6, "distance_unit": "normalized"}}
+    "media_id": "nvidia-w026-c02",
+    "source_sha256": "f7828cdbd001f3f8aa62e369f9b20e49611623a4a32f04fb5b94a09ba4112d7f",
+    "zone": {"zone_id": "frame", "name": "Acceso al pasillo · demostración", "purpose": "observation", "polygon": [[0.31,0.39],[0.536,0.38],[0.536,0.486],[0.765,0.54],[0.78,0.72],[0.548,0.72],[0.544,0.555],[0.31,0.525]]},
+    "rule": {"rule_id": "recording_demo_proximity", "enabled": true, "version": 3, "parameters": {"kind": "person_forklift_proximity", "zone_id": "frame", "max_distance": 0.22, "minimum_duration_seconds": 0.6, "distance_unit": "normalized"}}
   },
   "entry": {
-    "media_id": "onal-7-tr21",
-    "source_sha256": "a373103474bde192774aefeb89142226b5ec4c829a34034620c343fb2422c79d",
-    "zone": {"zone_id": "sector_paso", "name": "Sector de paso · demostración", "purpose": "restricted", "polygon": [[0.45,0.5],[0.98,0.56],[0.98,0.92],[0.45,0.92]]},
-    "rule": {"rule_id": "recording_demo_entry", "enabled": true, "version": 1, "parameters": {"kind": "zone_entry", "zone_id": "sector_paso", "class_name": "person", "min_duration_s": 0}}
+    "media_id": "nvidia-w027-c05",
+    "source_sha256": "d66fc95ec271064be526c0d02968d875457c9d5e7d8d5fe9190cd3e1189c7e79",
+    "zone": {"zone_id": "sector_paso", "name": "Ingreso al pasillo · demostración", "purpose": "restricted", "polygon": [[0.38,0.5],[0.654,0.5],[0.68,0.94],[0.284,0.97]]},
+    "rule": {"rule_id": "recording_demo_entry", "enabled": true, "version": 2, "parameters": {"kind": "zone_entry", "zone_id": "sector_paso", "class_name": "person", "min_duration_s": 0}}
   },
   "dwell": {
     "media_id": "nvidia-w026-c00",

@@ -20,6 +20,10 @@ Consulta la [instalación y arquitectura vigentes](README.md) y el
 - Se observaron omisiones y falsos positivos sobre maquinaria fija. Subir la
   resolución recuperó detecciones en un conjunto y aumentó los falsos
   positivos en otro. Se conserva el perfil V7 evaluado para la demostración.
+- Las listas revisadas usan dos vistas del almacén 026 y dos del 027 para
+  demostrar proximidad, permanencia, ingreso observado y un control negativo.
+  El material de Önal y Dandıl y las grabaciones anonimizadas de SPARL siguen
+  en el catálogo para evaluación.
 
 La publicación de `dev`, la promoción a `main` y el etiquetado son decisiones
 separadas. Estas notas mantienen la versión candidata de los paquetes.
