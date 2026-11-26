@@ -39,6 +39,7 @@ RECONCILE_SECONDS = .5
 SLOTS = camera_registry.SLOTS
 MAX_MEDIA_BYTES = 100 * 1024**3
 MAX_PLAYLIST_ITEMS = 64
+DEMONSTRATION_SCENARIOS = Path(__file__).resolve().parents[3] / "deployment/rtsp-lab/recording-scenarios.json"
 LEASE_SECONDS = 12
 START_SECONDS = 60
 # Short clips can end while a dedicated model is still loading. Longer
@@ -483,6 +484,36 @@ def start_reconciler():
     Thread(target=loop, daemon=True, name="operix-camera-lab").start()
 
 
+def demonstration_playlists(catalog, captures, revisions):
+    try:
+        scenarios = json.loads(DEMONSTRATION_SCENARIOS.read_bytes())
+        assignments = {
+            "lab-cam-01": ("proximity", "dwell"),
+            "lab-cam-02": ("entry",),
+            "lab-cam-03": ("negative",),
+        }
+        playlists = {}
+        for camera_id, names in assignments.items():
+            media_ids = []
+            for name in names:
+                scenario = scenarios[name]
+                media_id = scenario["media_id"]
+                sha256 = scenario["source_sha256"]
+                saved = revisions.get((camera_id, captures.get((camera_id, media_id))))
+                if (catalog[media_id]["sha256"] != sha256 or not saved
+                        or not saved.demonstration or saved.source_sha256 != sha256
+                        or saved.document != {
+                            "schema_version": 1, "view_id": camera_id, "coordinate_system": "normalized",
+                            "zones": [scenario["zone"]], "rules": [scenario["rule"]],
+                        }):
+                    return None
+                media_ids.append(media_id)
+            playlists[camera_id] = {"media_ids": media_ids, "repeat": True}
+        return playlists
+    except (OSError, KeyError, TypeError, ValueError):
+        return None
+
+
 def describe(request):
     available = camera_registry.managed()
     registry = camera_registry.media_registry()
@@ -567,6 +598,8 @@ def describe(request):
                         if supported_duration(source)
                         and any(media_eligible(source, camera.capture_fps) for camera in inventory.values())],
             "playlists": playlists,
+            "demonstration_playlists": demonstration_playlists(catalog, captures, revisions)
+            if available and camera_registry.capacity() >= 3 else None,
             "recording_configurations": recording_configurations,
             "updated_by": control.updated_by.get_username() if control and control.updated_by_id else None}
 

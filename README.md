@@ -15,13 +15,17 @@ para determinar qué ocurrió.
    observación logística sin regla inicial (C). **Simulaciones de prueba**
    recupera los videos y las zonas originales A/B/C. También puedes cargar
    un archivo. [Procedencia y resultados esperados](deployment/rtsp-lab/README.md#perfiles-de-análisis-con-grabaciones-reales).
-2. En **Gestión → Control de cámaras**, guarda las listas actuales antes de
-   ensayar. Para la demostración RTSP asigna a Cámara 01 «Önal 7_tr21 →
-   Warehouse 026 C00» con repetición, a Cámara 02 «Önal 7_tr21» y a Cámara
-   03 «Warehouse 027 C06». Las revisiones espaciales de laboratorio se asocian
-   a la grabación y la cámara, por lo que la misma grabación permite demostrar
-   proximidad en una cámara e ingreso en otra. Cámara 03 sirve como control
-   negativo de proximidad. Habilita las plazas y activa el laboratorio.
+2. En **Gestión → Control de cámaras**, con el laboratorio apagado, guarda
+   las listas actuales. Pulsa **Cargar listas de demostración**, confirma el
+   reemplazo de las tres listas y activa el laboratorio. La opción aparece
+   cuando están disponibles las grabaciones y revisiones espaciales verificadas.
+   Cámara 01 reproduce «Önal 7_tr21 → Warehouse 026 C00». Cámara 02 reproduce
+   «Önal 7_tr21» con una regla de ingreso. Cámara 03 reproduce «Warehouse
+   027 C06» como control negativo de proximidad. Las tres listas se repiten.
+   Cada transición conserva su propia configuración y puede pausar la señal
+   mientras se prepara la grabación siguiente. La detección de proximidad
+   de Cámara 01 puede variar entre repeticiones. Revisa los objetos marcados
+   en el expediente antes de interpretar una condición.
 3. **Fuentes** muestra el inventario y sus miniaturas. **Monitoreo** muestra las
    señales activas y las condiciones registradas. Abre **Pantalla de vigilancia**
    en otra pestaña para trasladarla a un monitor externo y activar pantalla completa.

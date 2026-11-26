@@ -149,6 +149,7 @@ export type CameraLabControl = {
   catalog?: CameraMedia[];
   recording_configurations?: Record<string, Record<string, RecordingSummary>>;
   playlists?: Record<string, CameraPlaylist>;
+  demonstration_playlists?: Record<string, CameraPlaylist> | null;
 };
 
 export type CameraControlUpdate = {

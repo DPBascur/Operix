@@ -38,6 +38,7 @@ COPY backend /app/backend
 COPY deployment/docker/backend_start.py /app/deployment/docker/backend_start.py
 COPY deployment/docker/codec_smoke.py /app/deployment/docker/codec_smoke.py
 COPY deployment/rtsp-lab/sparl-catalog.v1.json /app/deployment/rtsp-lab/sparl-catalog.v1.json
+COPY deployment/rtsp-lab/recording-scenarios.json /app/deployment/rtsp-lab/recording-scenarios.json
 COPY LICENSE THIRD_PARTY_NOTICES.md /app/
 RUN groupadd --gid 10001 operix && useradd --uid 10001 --gid operix --no-create-home operix \
     && mkdir -p /var/lib/operix/media /var/lib/operix/sessions /var/lib/operix/cache /var/lib/operix/rtsp-inference /var/lib/operix/lab-control \

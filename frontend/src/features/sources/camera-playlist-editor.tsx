@@ -26,8 +26,14 @@ function mediaFilename(media: CameraMedia) {
   return media.filename.split(/[\\/]/).at(-1) || "Video";
 }
 
-function mediaLabel(media: CameraMedia) {
-  return media.title?.trim() || media.scenario?.trim() || mediaFilename(media);
+function mediaLabel(media: CameraMedia, catalog: CameraMedia[] = []) {
+  const title = media.title?.trim();
+  if (title && !catalog.some((item) => item.id !== media.id && item.title?.trim() === title))
+    return title;
+  const scenario = media.scenario?.trim();
+  if (scenario && !catalog.some((item) => item.id !== media.id && item.scenario?.trim() === scenario))
+    return scenario;
+  return mediaFilename(media);
 }
 
 function mediaUrl(id: string, asset: "video" | "thumbnail") {
@@ -135,7 +141,7 @@ export function CameraPlaylistEditor({
             const media = byId.get(id);
             const reviewed = configurations?.[id];
             const filename = media ? mediaFilename(media) : "";
-            const title = media ? mediaLabel(media) : "Video ya no permitido";
+            const title = media ? mediaLabel(media, catalog) : "Video ya no permitido";
             const duration = cameraNumber(media?.duration_s, " s");
             const occurrence = occurrences.get(id) ?? 0;
             occurrences.set(id, occurrence + 1);
@@ -251,7 +257,7 @@ export function CameraPlaylistEditor({
               <option value="">Selecciona un video</option>
               {catalog.map((media) => (
                 <option key={media.id} value={media.id}>
-                  {mediaLabel(media)}
+                  {mediaLabel(media, catalog)}
                 </option>
               ))}
             </select>

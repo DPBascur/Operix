@@ -76,6 +76,28 @@ class ManagedLabTests(APITestCase):
         self.assertEqual(CameraLabControl.objects.get().playlists["lab-cam-01"], selected)
         self.assertEqual(json.loads(LogEntry.objects.get().change_message)["playlists"]["lab-cam-01"], selected)
 
+    def test_demonstration_requires_the_exact_reviewed_recording_configuration(self):
+        scenarios = json.loads(lab_control.DEMONSTRATION_SCENARIOS.read_bytes())
+        selections = (("01", "proximity"), ("01", "dwell"), ("02", "entry"), ("03", "negative"))
+        catalog, captures, revisions = {}, {}, {}
+        for slot, name in selections:
+            scenario = scenarios[name]
+            camera = f"lab-cam-{slot}"
+            media = scenario["media_id"]
+            digest = scenario["source_sha256"]
+            catalog[media] = {"sha256": digest}
+            captures[(camera, media)] = name
+            revisions[(camera, name)] = SimpleNamespace(
+                demonstration=True, source_sha256=digest,
+                document={"schema_version": 1, "view_id": camera, "coordinate_system": "normalized",
+                          "zones": [scenario["zone"]], "rules": [scenario["rule"]]},
+            )
+        plan = lab_control.demonstration_playlists(catalog, captures, revisions)
+        self.assertEqual(plan["lab-cam-01"], {"media_ids": ["onal-7-tr21", "nvidia-w026-c00"], "repeat": True})
+        self.assertTrue(plan["lab-cam-02"]["repeat"])
+        revisions[("lab-cam-03", "negative")].document = {}
+        self.assertIsNone(lab_control.demonstration_playlists(catalog, captures, revisions))
+
     def test_stopped_camera_configuration_matches_first_assigned_recording(self):
         camera = inventory()["lab-cam-01"]
         catalog, _ = media_registry()

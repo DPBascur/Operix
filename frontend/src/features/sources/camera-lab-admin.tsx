@@ -135,6 +135,20 @@ export function CameraLabAdmin() {
               </Button>
             </div>
             {lockReason && <p className="text-sm text-text-secondary" role="status">{lockReason}</p>}
+            {data.demonstration_playlists && (
+              <div className="flex flex-wrap items-center gap-3">
+                <Button variant="outline" disabled={locked || data.status !== "disabled"} onClick={() => {
+                  const playlists = data.demonstration_playlists;
+                  if (playlists && window.confirm("¿Cargar la selección revisada en las tres cámaras? Se reemplazarán sus listas guardadas.")) {
+                    void update({ playlists, cameras: Object.fromEntries(Object.keys(playlists).map((id) => [id, true])) });
+                  }
+                }}>Cargar listas de demostración</Button>
+                <p className="text-sm text-text-secondary">
+                  {data.status === "disabled" ? "Proximidad, permanencia, ingreso y un control negativo con grabaciones reales." :
+                    "Deshabilita el laboratorio para cargar las listas de demostración."}
+                </p>
+              </div>
+            )}
             <dl className="flex flex-wrap gap-x-8 gap-y-3 border-t border-border pt-3 text-sm">
               <div>
                 <dt className="text-text-secondary">Capacidad simultánea</dt>
